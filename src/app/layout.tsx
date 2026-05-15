@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,40 +16,6 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body>
         {children}
-
-        {/* Shim window.require before the Agora SDK loads.
-            The SDK bundle internally calls window.require('agora-electron-sdk')
-            to detect Electron. In a pure browser this throws because
-            window.require doesn't exist. This shim intercepts the call
-            and returns an empty stub, letting the SDK fall back to WebRTC. */}
-        <Script
-          id="agora-require-shim"
-          strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `
-              if (typeof window !== 'undefined' && !window.require) {
-                window.require = function(moduleName) {
-                  if (moduleName === 'agora-electron-sdk' ||
-                      moduleName.indexOf('agora_node_ext') !== -1) {
-                    return {};
-                  }
-                  // For any other module, return empty to avoid breaking
-                  return {};
-                };
-              }
-            `,
-          }}
-        />
-
-        {/* Load Agora Classroom SDK & Widgets via CDN (v2.9.40) */}
-        <Script
-          src="https://download.agora.io/edu-apaas/release/edu_sdk@2.9.40.bundle.js"
-          strategy="beforeInteractive"
-        />
-        <Script
-          src="https://download.agora.io/edu-apaas/release/edu_widget@2.9.40.bundle.js"
-          strategy="beforeInteractive"
-        />
       </body>
     </html>
   );

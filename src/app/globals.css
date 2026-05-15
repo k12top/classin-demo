@@ -124,7 +124,12 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+}
+
+.container::before,
+.container::after {
+  content: "";
+  flex: auto;
 }
 
 /* ── Logo / Header ── */
@@ -577,25 +582,73 @@ body {
 /* ── Responsive ── */
 @media (max-width: 580px) {
   .container {
-    padding: 24px 16px;
+    padding: 20px 16px;
   }
 
-  .card {
-    padding: 24px 20px;
+  /* Make header compact */
+  .header {
+    margin-bottom: 20px;
+  }
+  
+  .logo-icon {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 12px;
+  }
+  
+  .logo-icon svg {
+    width: 24px;
+    height: 24px;
   }
 
   .header h1 {
-    font-size: 24px;
+    font-size: 22px;
+    margin-bottom: 4px;
+  }
+  
+  .header p {
+    font-size: 13px;
+  }
+
+  .card {
+    padding: 24px 16px;
   }
 
   .features {
     grid-template-columns: repeat(3, 1fr);
     gap: 8px;
+    margin-top: 24px;
   }
 
   .room-id-value {
     font-size: 28px !important;
     letter-spacing: 3px !important;
+  }
+}
+
+/* Additional adjustment for short screens to avoid scrolling */
+@media (max-height: 740px) {
+  .container::before {
+    display: none; /* Align to the top instead of centering */
+  }
+  
+  .header {
+    margin-bottom: 16px;
+  }
+  
+  .logo-icon {
+    width: 40px;
+    height: 40px;
+    margin-bottom: 8px;
+  }
+  
+  .logo-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+  
+  .header h1 {
+    font-size: 20px;
   }
 }
 

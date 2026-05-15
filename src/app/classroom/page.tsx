@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import Script from "next/script";
 
 // Type declarations for the CDN-loaded globals
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -197,15 +198,40 @@ function ClassroomContent() {
 
 export default function ClassroomPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="classroom-loading">
-          <div className="loader" />
-          <p>加载中…</p>
-        </div>
-      }
-    >
-      <ClassroomContent />
-    </Suspense>
+    <>
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            if (typeof window !== 'undefined' && !window.require) {
+              window.require = function(moduleName) {
+                if (moduleName === 'agora-electron-sdk' ||
+                    moduleName.indexOf('agora_node_ext') !== -1) {
+                  return {};
+                }
+                return {};
+              };
+            }
+          `,
+        }}
+      />
+      <Script
+        src="https://download.agora.io/edu-apaas/release/edu_sdk@2.9.40.bundle.js"
+        strategy="afterInteractive"
+      />
+      <Script
+        src="https://download.agora.io/edu-apaas/release/edu_widget@2.9.40.bundle.js"
+        strategy="afterInteractive"
+      />
+      <Suspense
+        fallback={
+          <div className="classroom-loading">
+            <div className="loader" />
+            <p>加载中…</p>
+          </div>
+        }
+      >
+        <ClassroomContent />
+      </Suspense>
+    </>
   );
 }
