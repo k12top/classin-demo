@@ -15,6 +15,18 @@ loadEnvConfig(packageDir);
 const nextConfig: NextConfig = {
   reactCompiler: true,
 
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
+    ];
+  },
+
   env: {
     NEXT_PUBLIC_AGORA_APP_ID: process.env.AGORA_APP_ID,
     NEXT_PUBLIC_CASDOOR_SERVER_URL: process.env.NEXT_PUBLIC_CASDOOR_SERVER_URL,

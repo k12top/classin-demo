@@ -51,6 +51,8 @@ function ClassroomContent() {
   const roomTypeParam = Number(searchParams.get("roomType") || "0");
   const roomName = searchParams.get("roomName") || roomUuid;
   const courseId = searchParams.get("courseId") || "";
+  const isEmbed =
+    searchParams.get("embed") === "1" || searchParams.get("embed") === "true";
 
   const leaveClassroom = useCallback(() => {
     if (leftClassroomRef.current) return;
@@ -316,7 +318,7 @@ function ClassroomContent() {
 
   return (
     <div className="classroom-container">
-      {status === "ready" && (
+      {status === "ready" && !isEmbed && (
         <button
           type="button"
           className="classroom-back-btn"
@@ -324,6 +326,16 @@ function ClassroomContent() {
           title="返回课程详情"
         >
           ← 返回课程
+        </button>
+      )}
+      {status === "ready" && isEmbed && courseId && (
+        <button
+          type="button"
+          className="classroom-back-btn classroom-back-btn-embed"
+          onClick={leaveClassroom}
+          title="退出直播"
+        >
+          退出
         </button>
       )}
 

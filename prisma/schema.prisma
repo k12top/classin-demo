@@ -24,9 +24,29 @@ model Course {
   // Relations
   students     CourseStudent[]
   groupLinks   CourseGroupLink[]
+  joinLinks    CourseJoinLink[]
 
   @@index([teacherId])
   @@index([status])
+}
+
+// ── Share link: SSO deep-link into live classroom (teacher-created, revocable) ──
+model CourseJoinLink {
+  id         String    @id @default(uuid())
+  courseId   String
+  token      String    @unique
+  label      String    @default("")
+  createdBy  String
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+  useCount   Int       @default(0)
+  createdAt  DateTime  @default(now())
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+  @@index([createdBy])
 }
 
 // ── Student Group (supports nested hierarchy) ──

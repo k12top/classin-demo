@@ -5,6 +5,13 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
+/** Bump when adding models so dev HMR does not keep a stale singleton. */
+const PRISMA_SCHEMA_GENERATION = 2;
+
+const globalForPrismaMeta = globalThis as unknown as {
+  prismaSchemaGeneration?: number;
+};
+
 function createPrisma(): PrismaClient {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString?.trim()) {
@@ -16,8 +23,28 @@ function createPrisma(): PrismaClient {
   return new PrismaClient({ adapter });
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrisma();
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
+function hasJoinLinkDelegate(client: PrismaClient): boolean {
+  return "courseJoinLink" in client;
 }
+
+function getPrisma(): PrismaClient {
+  const cached = globalForPrisma.prisma;
+  const generation = globalForPrismaMeta.prismaSchemaGeneration;
+
+  if (
+    cached &&
+    generation === PRISMA_SCHEMA_GENERATION &&
+    hasJoinLinkDelegate(cached)
+  ) {
+    return cached;
+  }
+
+  const client = createPrisma();
+  if (process.env.NODE_ENV !== "production") {
+    globalForPrisma.prisma = client;
+    globalForPrismaMeta.prismaSchemaGeneration = PRISMA_SCHEMA_GENERATION;
+  }
+  return client;
+}
+
+export const prisma = getPrisma();

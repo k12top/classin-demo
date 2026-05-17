@@ -79,6 +79,21 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   const [memberTargetGroupId, setMemberTargetGroupId] = useState("");
   const [groupBusy, setGroupBusy] = useState(false);
 
+  interface JoinLinkItem {
+    id: string;
+    label: string;
+    status: "active" | "revoked" | "expired";
+    joinUrl: string | null;
+    embedSnippet: string | null;
+    useCount: number;
+    expiresAt: string | null;
+    createdAt: string;
+  }
+  const [joinLinks, setJoinLinks] = useState<JoinLinkItem[]>([]);
+  const [joinLinkBusy, setJoinLinkBusy] = useState(false);
+  const [newLinkLabel, setNewLinkLabel] = useState("");
+  const [copyHint, setCopyHint] = useState("");
+
   const fetchCourse = useCallback(async () => {
     try {
       let res = await fetch(`/api/courses/${id}`, { credentials: "same-origin" });
@@ -130,6 +145,70 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
       });
     }
   }, [user, course, fetchMyGroups]);
+
+  const fetchJoinLinks = useCallback(async () => {
+    const res = await fetch(`/api/courses/${id}/join-links`, {
+      credentials: "same-origin",
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setJoinLinks(data.links ?? []);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (user && course && casdoorUserIdsMatch(course.teacherId, user.userId)) {
+      queueMicrotask(() => {
+        void fetchJoinLinks();
+      });
+    }
+  }, [user, course, fetchJoinLinks]);
+
+  const copyText = async (text: string, hint: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyHint(hint);
+      setTimeout(() => setCopyHint(""), 2000);
+    } catch {
+      setCopyHint("复制失败，请手动选择复制");
+    }
+  };
+
+  const handleCreateJoinLink = async () => {
+    setJoinLinkBusy(true);
+    try {
+      const res = await fetch(`/api/courses/${id}/join-links`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ label: newLinkLabel.trim() || undefined }),
+      });
+      if (res.ok) {
+        setNewLinkLabel("");
+        await fetchJoinLinks();
+        const data = await res.json();
+        if (data.link?.joinUrl) {
+          await copyText(data.link.joinUrl, "已创建并复制分享链接");
+        }
+      }
+    } finally {
+      setJoinLinkBusy(false);
+    }
+  };
+
+  const handleRevokeJoinLink = async (linkId: string) => {
+    if (!confirm("确定撤销该分享链接？撤销后无法再通过此链接进入。")) return;
+    setJoinLinkBusy(true);
+    try {
+      await fetch(`/api/courses/${id}/join-links/${linkId}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      await fetchJoinLinks();
+    } finally {
+      setJoinLinkBusy(false);
+    }
+  };
 
   const isTeacher =
     Boolean(user && course && casdoorUserIdsMatch(course.teacherId, user.userId));
@@ -539,6 +618,106 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {isTeacher && (
+            <div className="card animate-in animate-in-delay-2" style={{ marginTop: 20 }}>
+              <h3 style={{ marginBottom: 8, fontSize: 16, fontWeight: 600 }}>
+                🔗 直播分享链接
+              </h3>
+              <p style={{ fontSize: 13, color: "var(--color-text-muted)", marginBottom: 16 }}>
+                生成 SSO 分享链接：已选课学生登录后可直达直播；支持同源页面 iframe 内嵌。
+              </p>
+              <div className="student-search-bar" style={{ marginBottom: 12 }}>
+                <input
+                  className="form-input"
+                  placeholder="链接备注（可选）"
+                  value={newLinkLabel}
+                  onChange={(e) => setNewLinkLabel(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleCreateJoinLink()}
+                />
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={joinLinkBusy}
+                  onClick={handleCreateJoinLink}
+                  style={{ minWidth: 100 }}
+                >
+                  {joinLinkBusy ? "处理中…" : "生成链接"}
+                </button>
+              </div>
+              {copyHint && (
+                <p className="login-notice" role="status" style={{ marginBottom: 12, fontSize: 13 }}>
+                  {copyHint}
+                </p>
+              )}
+              {joinLinks.length === 0 ? (
+                <p style={{ fontSize: 13, color: "var(--color-text-muted)" }}>
+                  暂无分享链接
+                </p>
+              ) : (
+                <div className="join-link-list">
+                  {joinLinks.map((link) => (
+                    <div key={link.id} className="join-link-item">
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="join-link-item-title">
+                          {link.label}
+                          <span className={`join-link-status join-link-status-${link.status}`}>
+                            {link.status === "active"
+                              ? "有效"
+                              : link.status === "expired"
+                                ? "已过期"
+                                : "已撤销"}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: 12, color: "var(--color-text-muted)", marginTop: 4 }}>
+                          使用 {link.useCount} 次
+                          {link.expiresAt
+                            ? ` · 到期 ${new Date(link.expiresAt).toLocaleString("zh-CN")}`
+                            : ""}
+                        </p>
+                        {link.joinUrl && link.status === "active" && (
+                          <code className="join-link-url">{link.joinUrl}</code>
+                        )}
+                      </div>
+                      {link.status === "active" && link.joinUrl && (
+                        <span style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ padding: "4px 12px", fontSize: 12 }}
+                            onClick={() => void copyText(link.joinUrl!, "已复制链接")}
+                          >
+                            复制链接
+                          </button>
+                          {link.embedSnippet && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              style={{ padding: "4px 12px", fontSize: 12 }}
+                              onClick={() =>
+                                void copyText(link.embedSnippet!, "已复制嵌入代码")
+                              }
+                            >
+                              复制 iframe
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="student-remove-btn"
+                            disabled={joinLinkBusy}
+                            onClick={() => handleRevokeJoinLink(link.id)}
+                            title="撤销"
+                          >
+                            撤销
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
