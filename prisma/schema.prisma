@@ -1,0 +1,92 @@
+// Prisma schema for Classroom course management
+// Uses PostgreSQL as the datasource
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Course ──
+model Course {
+  id          String   @id @default(uuid())
+  name        String
+  description String   @default("")
+  roomType    Int      @default(0) // 0=一对一, 4=小班, 2=大班
+  teacherId   String   // Casdoor user ID
+  teacherName String
+  status      String   @default("active") // active | archived
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  students     CourseStudent[]
+  groupLinks   CourseGroupLink[]
+
+  @@index([teacherId])
+  @@index([status])
+}
+
+// ── Student Group (supports nested hierarchy) ──
+model StudentGroup {
+  id        String   @id @default(uuid())
+  name      String
+  parentId  String?  // null = root group
+  createdBy String   // Teacher Casdoor user ID
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Self-relation for hierarchy
+  parent   StudentGroup?  @relation("GroupHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children StudentGroup[] @relation("GroupHierarchy")
+
+  // Relations
+  members    GroupMember[]
+  courseLinks CourseGroupLink[]
+
+  @@index([parentId])
+  @@index([createdBy])
+}
+
+// ── Course ↔ Student (direct assignment) ──
+model CourseStudent {
+  id        String   @id @default(uuid())
+  courseId   String
+  studentId String   // Casdoor user ID
+  studentName String @default("")
+  joinedAt  DateTime @default(now())
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, studentId])
+  @@index([studentId])
+}
+
+// ── Course ↔ StudentGroup (group assignment) ──
+model CourseGroupLink {
+  id       String @id @default(uuid())
+  courseId  String
+  groupId  String
+  linkedAt DateTime @default(now())
+
+  course Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  group  StudentGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, groupId])
+}
+
+// ── Group ↔ Member ──
+model GroupMember {
+  id        String   @id @default(uuid())
+  groupId   String
+  userId    String   // Casdoor user ID
+  userName  String   @default("")
+  joinedAt  DateTime @default(now())
+
+  group StudentGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+}

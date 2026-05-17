@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Script from "next/script";
+import { useAuth } from "@/lib/auth-context";
+import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
+import { redirectToSsoLogin } from "@/lib/auth-login";
 
 // Type declarations for the CDN-loaded globals
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -24,146 +27,229 @@ declare global {
 
 function ClassroomContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const containerRef = useRef<HTMLDivElement>(null);
   const unmountRef = useRef<(() => void) | null>(null);
-  const launchedRef = useRef(false);
 
-  const [status, setStatus] = useState<"loading" | "ready" | "error">(
-    "loading"
+  const [status, setStatus] = useState<"verifying" | "loading" | "ready" | "error">(
+    "verifying"
   );
   const [errorMsg, setErrorMsg] = useState("");
 
   // Extract params from URL
   const roomUuid = searchParams.get("roomUuid") || "";
-  const userUuid = searchParams.get("userUuid") || "";
-  const userName = searchParams.get("userName") || "";
-  const roleType = Number(searchParams.get("roleType") || "2");
-  const roomType = Number(searchParams.get("roomType") || "0");
+  const roomTypeParam = Number(searchParams.get("roomType") || "0");
   const roomName = searchParams.get("roomName") || roomUuid;
+  const courseId = searchParams.get("courseId") || "";
 
   useEffect(() => {
-    if (!roomUuid || !userUuid || !userName) {
-      setStatus("error");
-      setErrorMsg("缺少必要参数：roomUuid、userUuid 或 userName");
+    if (authLoading) {
       return;
     }
 
-    if (launchedRef.current) return;
-    launchedRef.current = true;
+    let cancelled = false;
 
-    // Wait for the CDN scripts to load
-    function waitForSDK(): Promise<void> {
-      return new Promise((resolve, reject) => {
-        let attempts = 0;
-        const maxAttempts = 50; // 10 seconds max
-        const check = () => {
-          if (window.AgoraEduSDK) {
-            resolve();
-          } else if (attempts >= maxAttempts) {
-            reject(new Error("SDK 加载超时，请检查网络连接"));
-          } else {
-            attempts++;
-            setTimeout(check, 200);
-          }
-        };
-        check();
-      });
-    }
-
-    async function launchClassroom() {
-      try {
-        // 1. Wait for SDK to be available from CDN
-        await waitForSDK();
-
-        // 2. Fetch token from our server API
-        const tokenRes = await fetch("/api/token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ roomUuid, userUuid, role: roleType }),
-        });
-
-        if (!tokenRes.ok) {
-          const err = await tokenRes.json();
-          throw new Error(err.error || "Token 获取失败");
-        }
-
-        const { token, appId } = await tokenRes.json();
-
-        // 3. Configure SDK
-        window.AgoraEduSDK.config({
-          appId,
-          region: "CN",
-        });
-
-        // 4. Collect available widgets
-        const widgets: Record<string, unknown> = {};
-        if (window.AgoraSelector) widgets.popupQuiz = window.AgoraSelector;
-        if (window.AgoraCountdown)
-          widgets.countdownTimer = window.AgoraCountdown;
-        if (window.AgoraHXChatWidget)
-          widgets.easemobIM = window.AgoraHXChatWidget;
-        if (window.FcrStreamMediaPlayerWidget)
-          widgets.mediaPlayer = window.FcrStreamMediaPlayerWidget;
-        if (window.AgoraPolling) widgets.poll = window.AgoraPolling;
-        if (window.FcrWatermarkWidget)
-          widgets.watermark = window.FcrWatermarkWidget;
-        if (window.FcrWebviewWidget)
-          widgets.webView = window.FcrWebviewWidget;
-        if (window.FcrBoardWidget)
-          widgets.netlessBoard = window.FcrBoardWidget;
-
-        // 5. Launch classroom
-        if (!containerRef.current) {
-          throw new Error("课堂容器未就绪");
-        }
-
-        setStatus("ready");
-
-        const unmount = window.AgoraEduSDK.launch(containerRef.current, {
-          userUuid,
-          userName,
-          roomUuid,
-          roleType,
-          roomType,
-          roomName,
-          pretest: true,
-          rtmToken: token,
-          language: "zh",
-          duration: 60 * 30, // 30 minutes
-          courseWareList: [],
-          virtualBackgroundImages: [],
-          webrtcExtensionBaseUrl:
-            "https://solutions-apaas.agora.io/static",
-          uiMode: "dark",
-          widgets,
-          listener: (evt: unknown, ...args: unknown[]) => {
-            console.log("[灵动课堂事件]", evt, args);
-          },
-        });
-
-        unmountRef.current = unmount;
-      } catch (err) {
-        console.error("启动课堂失败:", err);
-        setStatus("error");
-        setErrorMsg(
-          err instanceof Error ? err.message : "课堂启动失败，请检查配置"
-        );
+    queueMicrotask(() => {
+      if (!user) {
+        redirectToSsoLogin();
+        return;
       }
-    }
 
-    launchClassroom();
+      if (!roomUuid || !courseId) {
+        setStatus("error");
+        setErrorMsg("缺少必要参数：roomUuid 或 courseId，请从课程详情进入课堂");
+        return;
+      }
 
-    // Cleanup on unmount
+      void (async () => {
+        let verifyRoomLabel = roomName;
+
+        try {
+          let verifyRes = await fetch(`/api/courses/${courseId}/verify-access`);
+          if (cancelled) return;
+
+          if (verifyRes.status === 401 && (await tryOAuthRefresh())) {
+            verifyRes = await fetch(`/api/courses/${courseId}/verify-access`);
+          }
+          if (verifyRes.status === 401) {
+            redirectToSsoLogin();
+            return;
+          }
+
+          if (!verifyRes.ok) {
+            setStatus("error");
+            setErrorMsg("权限验证请求失败，请稍后重试");
+            return;
+          }
+
+          const verifyData = await verifyRes.json();
+
+          if (!verifyData.allowed) {
+            router.replace(
+              `/access-denied?reason=${encodeURIComponent(verifyData.reason || "无权访问")}&course=${encodeURIComponent(verifyRoomLabel)}`
+            );
+            return;
+          }
+
+          const resolvedRole: number =
+            verifyData.role === "teacher" ? 1 : 2;
+          const resolvedRoomType =
+            typeof verifyData.courseInfo?.roomType === "number"
+              ? verifyData.courseInfo.roomType
+              : roomTypeParam;
+          if (verifyData.courseInfo?.name) {
+            verifyRoomLabel = verifyData.courseInfo.name;
+          }
+
+          setStatus("loading");
+
+          await waitForSDK();
+          if (cancelled) return;
+
+          let tokenRes = await fetch("/api/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              roomUuid,
+              courseId,
+              userUuid: user.userId,
+            }),
+          });
+
+          if (cancelled) return;
+
+          if (
+            !tokenRes.ok &&
+            tokenRes.status === 401 &&
+            (await tryOAuthRefresh())
+          ) {
+            tokenRes = await fetch("/api/token", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                roomUuid,
+                courseId,
+                userUuid: user.userId,
+              }),
+            });
+          }
+
+          if (!tokenRes.ok) {
+            if (tokenRes.status === 401) {
+              redirectToSsoLogin();
+              return;
+            }
+            const err = await tokenRes.json();
+            throw new Error(err.error || "Token 获取失败");
+          }
+
+          const { token, appId } = await tokenRes.json();
+
+          window.AgoraEduSDK.config({
+            appId,
+            region: "CN",
+          });
+
+          const widgets: Record<string, unknown> = {};
+          if (window.AgoraSelector) widgets.popupQuiz = window.AgoraSelector;
+          if (window.AgoraCountdown)
+            widgets.countdownTimer = window.AgoraCountdown;
+          if (window.AgoraHXChatWidget)
+            widgets.easemobIM = window.AgoraHXChatWidget;
+          if (window.FcrStreamMediaPlayerWidget)
+            widgets.mediaPlayer = window.FcrStreamMediaPlayerWidget;
+          if (window.AgoraPolling) widgets.poll = window.AgoraPolling;
+          if (window.FcrWatermarkWidget)
+            widgets.watermark = window.FcrWatermarkWidget;
+          if (window.FcrWebviewWidget)
+            widgets.webView = window.FcrWebviewWidget;
+          if (window.FcrBoardWidget)
+            widgets.netlessBoard = window.FcrBoardWidget;
+
+          if (!containerRef.current) {
+            throw new Error("课堂容器未就绪");
+          }
+
+          if (cancelled) return;
+
+          setStatus("ready");
+
+          const displayName = user.displayName || user.name;
+
+          const unmount = window.AgoraEduSDK.launch(containerRef.current, {
+            userUuid: user.userId,
+            userName: displayName,
+            roomUuid,
+            roleType: resolvedRole,
+            roomType: resolvedRoomType,
+            roomName: verifyRoomLabel,
+            pretest: true,
+            rtmToken: token,
+            language: "zh",
+            duration: 60 * 30, // 30 minutes
+            courseWareList: [],
+            virtualBackgroundImages: [],
+            webrtcExtensionBaseUrl:
+              "https://solutions-apaas.agora.io/static",
+            uiMode: "dark",
+            widgets,
+            listener: (evt: unknown, ...args: unknown[]) => {
+              console.log("[灵动课堂事件]", evt, args);
+            },
+          });
+
+          unmountRef.current = unmount;
+        } catch (err) {
+          if (cancelled) return;
+          console.error("启动课堂失败:", err);
+          setStatus("error");
+          setErrorMsg(
+            err instanceof Error ? err.message : "课堂启动失败，请检查配置"
+          );
+        }
+      })();
+    });
+
     return () => {
+      cancelled = true;
       if (unmountRef.current) {
         try {
           unmountRef.current();
         } catch {
           // ignore cleanup errors
         }
+        unmountRef.current = null;
       }
     };
-  }, [roomUuid, userUuid, userName, roleType, roomType, roomName]);
+  }, [
+    authLoading,
+    user,
+    roomUuid,
+    roomTypeParam,
+    roomName,
+    courseId,
+    router,
+  ]);
+
+  // Wait for the CDN scripts to load
+  function waitForSDK(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let attempts = 0;
+      const maxAttempts = 50; // 10 seconds max
+      const check = () => {
+        if (window.AgoraEduSDK) {
+          resolve();
+        } else if (attempts >= maxAttempts) {
+          reject(new Error("SDK 加载超时，请检查网络连接"));
+        } else {
+          attempts++;
+          setTimeout(check, 200);
+        }
+      };
+      check();
+    });
+  }
 
   // Error state
   if (status === "error") {
@@ -179,10 +265,10 @@ function ClassroomContent() {
   return (
     <div className="classroom-container">
       {/* Loading overlay */}
-      {status === "loading" && (
+      {(status === "loading" || status === "verifying") && (
         <div className="classroom-loading">
           <div className="loader" />
-          <p>正在初始化课堂…</p>
+          <p>{status === "verifying" ? "正在验证访问权限…" : "正在初始化课堂…"}</p>
         </div>
       )}
 

@@ -1,0 +1,109 @@
+/**
+ * Course list & create API
+ * GET  /api/courses — list courses (teacher: own; student: enrolled)
+ * POST /api/courses — create a new course (teacher only)
+ */
+import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/lib/session";
+import { prisma } from "@/lib/db";
+
+export async function GET(request: NextRequest) {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    if (session.role === "teacher") {
+      // Teacher sees their own courses
+      const courses = await prisma.course.findMany({
+        where: { teacherId: session.userId, status: "active" },
+        include: {
+          students: { select: { studentId: true, studentName: true } },
+          groupLinks: {
+            include: {
+              group: { select: { id: true, name: true } },
+            },
+          },
+        },
+        orderBy: { updatedAt: "desc" },
+      });
+      return NextResponse.json({ courses });
+    } else {
+      // Student sees courses they're directly assigned to
+      const directCourses = await prisma.course.findMany({
+        where: {
+          status: "active",
+          students: { some: { studentId: session.userId } },
+        },
+        include: {
+          students: { select: { studentId: true, studentName: true } },
+        },
+        orderBy: { updatedAt: "desc" },
+      });
+
+      // Also find courses via group membership
+      const groupMemberships = await prisma.groupMember.findMany({
+        where: { userId: session.userId },
+        select: { groupId: true },
+      });
+      const groupIds = groupMemberships.map((m: { groupId: string }) => m.groupId);
+
+      let groupCourses: typeof directCourses = [];
+      if (groupIds.length > 0) {
+        groupCourses = await prisma.course.findMany({
+          where: {
+            status: "active",
+            groupLinks: { some: { groupId: { in: groupIds } } },
+            // Exclude already found direct courses
+            NOT: { students: { some: { studentId: session.userId } } },
+          },
+          include: {
+            students: { select: { studentId: true, studentName: true } },
+          },
+          orderBy: { updatedAt: "desc" },
+        });
+      }
+
+      const courses = [...directCourses, ...groupCourses];
+      return NextResponse.json({ courses });
+    }
+  } catch (error) {
+    console.error("Failed to fetch courses:", error);
+    return NextResponse.json({ error: "Failed to fetch courses" }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (session.role !== "teacher") {
+    return NextResponse.json({ error: "Only teachers can create courses" }, { status: 403 });
+  }
+
+  try {
+    const body = await request.json();
+    const { name, description, roomType } = body;
+
+    if (!name?.trim()) {
+      return NextResponse.json({ error: "Course name is required" }, { status: 400 });
+    }
+
+    const course = await prisma.course.create({
+      data: {
+        name: name.trim(),
+        description: description?.trim() || "",
+        roomType: roomType ?? 0,
+        teacherId: session.userId,
+        teacherName: session.displayName || session.name,
+      },
+    });
+
+    return NextResponse.json({ course }, { status: 201 });
+  } catch (error) {
+    console.error("Failed to create course:", error);
+    return NextResponse.json({ error: "Failed to create course" }, { status: 500 });
+  }
+}
