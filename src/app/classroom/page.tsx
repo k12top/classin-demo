@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, Suspense } from "react";
+import { useCallback, useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Script from "next/script";
@@ -25,12 +25,17 @@ declare global {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+/** Agora Edu classroom events (see AgoraEduClassroomEvent). */
+const AGORA_EVT_DESTROYED = 2;
+const AGORA_EVT_KICK_OUT = 101;
+
 function ClassroomContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const containerRef = useRef<HTMLDivElement>(null);
   const unmountRef = useRef<(() => void) | null>(null);
+  const leftClassroomRef = useRef(false);
 
   const [status, setStatus] = useState<"verifying" | "loading" | "ready" | "error">(
     "verifying"
@@ -43,8 +48,27 @@ function ClassroomContent() {
   const roomName = searchParams.get("roomName") || roomUuid;
   const courseId = searchParams.get("courseId") || "";
 
+  const leaveClassroom = useCallback(() => {
+    if (leftClassroomRef.current) return;
+    leftClassroomRef.current = true;
+
+    if (unmountRef.current) {
+      try {
+        unmountRef.current();
+      } catch {
+        // ignore cleanup errors
+      }
+      unmountRef.current = null;
+    }
+
+    const target = courseId
+      ? `/courses/${encodeURIComponent(courseId)}`
+      : "/";
+    router.replace(target);
+  }, [courseId, router]);
+
   useEffect(() => {
-    if (authLoading) {
+    if (authLoading || leftClassroomRef.current) {
       return;
     }
 
@@ -196,6 +220,18 @@ function ClassroomContent() {
             widgets,
             listener: (evt: unknown, ...args: unknown[]) => {
               console.log("[灵动课堂事件]", evt, args);
+              const code =
+                typeof evt === "number"
+                  ? evt
+                  : typeof evt === "object" &&
+                      evt !== null &&
+                      "type" in evt &&
+                      typeof (evt as { type: unknown }).type === "number"
+                    ? (evt as { type: number }).type
+                    : null;
+              if (code === AGORA_EVT_DESTROYED || code === AGORA_EVT_KICK_OUT) {
+                leaveClassroom();
+              }
             },
           });
 
@@ -230,6 +266,7 @@ function ClassroomContent() {
     roomName,
     courseId,
     router,
+    leaveClassroom,
   ]);
 
   // Wait for the CDN scripts to load
@@ -264,6 +301,17 @@ function ClassroomContent() {
 
   return (
     <div className="classroom-container">
+      {status === "ready" && (
+        <button
+          type="button"
+          className="classroom-back-btn"
+          onClick={leaveClassroom}
+          title="返回课程详情"
+        >
+          ← 返回课程
+        </button>
+      )}
+
       {/* Loading overlay */}
       {(status === "loading" || status === "verifying") && (
         <div className="classroom-loading">

@@ -8,6 +8,7 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
   const reason = searchParams.get("reason");
+  const loggedOut = searchParams.get("logged_out") === "1";
   const [loading, setLoading] = useState(false);
 
   const handleLogin = () => {
@@ -33,6 +34,13 @@ function LoginContent() {
           </div>
 
           {/* Session / OAuth messages */}
+          {loggedOut && (
+            <div className="login-notice" role="status">
+              <span aria-hidden>✓</span>
+              <span>已安全退出。可重新登录进入课程首页。</span>
+            </div>
+          )}
+
           {reason === "session_expired" && (
             <div className="login-notice" role="status">
               <span aria-hidden>⏱</span>

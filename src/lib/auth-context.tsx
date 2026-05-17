@@ -102,10 +102,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "same-origin",
+      });
     } finally {
       setUser(null);
-      window.location.href = "/login";
+      window.location.href = "/login?logged_out=1";
     }
   }, []);
 
