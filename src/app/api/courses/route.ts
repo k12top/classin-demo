@@ -15,9 +15,9 @@ export async function GET(request: NextRequest) {
 
   try {
     if (session.role === "teacher") {
-      // Teacher sees their own courses
+      // Teacher sees all their own courses (all statuses)
       const courses = await prisma.course.findMany({
-        where: { teacherId: session.userId, status: "active" },
+        where: { teacherId: session.userId },
         include: {
           students: { select: { studentId: true, studentName: true } },
           groupLinks: {
@@ -26,20 +26,19 @@ export async function GET(request: NextRequest) {
             },
           },
         },
-        orderBy: { updatedAt: "desc" },
+        orderBy: { startTime: "desc" },
       });
       return NextResponse.json({ courses });
     } else {
-      // Student sees courses they're directly assigned to
+      // Student sees courses they're directly assigned to (all statuses)
       const directCourses = await prisma.course.findMany({
         where: {
-          status: "active",
           students: { some: { studentId: session.userId } },
         },
         include: {
           students: { select: { studentId: true, studentName: true } },
         },
-        orderBy: { updatedAt: "desc" },
+        orderBy: { startTime: "desc" },
       });
 
       // Also find courses via group membership
@@ -53,7 +52,6 @@ export async function GET(request: NextRequest) {
       if (groupIds.length > 0) {
         groupCourses = await prisma.course.findMany({
           where: {
-            status: "active",
             groupLinks: { some: { groupId: { in: groupIds } } },
             // Exclude already found direct courses
             NOT: { students: { some: { studentId: session.userId } } },
@@ -61,7 +59,7 @@ export async function GET(request: NextRequest) {
           include: {
             students: { select: { studentId: true, studentName: true } },
           },
-          orderBy: { updatedAt: "desc" },
+          orderBy: { startTime: "desc" },
         });
       }
 
@@ -85,7 +83,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { name, description, roomType } = body;
+    const { name, description, roomType, startTime, endTime, studentRemarks } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Course name is required" }, { status: 400 });
@@ -98,6 +96,9 @@ export async function POST(request: NextRequest) {
         roomType: roomType ?? 0,
         teacherId: session.userId,
         teacherName: session.displayName || session.name,
+        startTime: startTime ? new Date(startTime) : null,
+        endTime: endTime ? new Date(endTime) : null,
+        studentRemarks: studentRemarks?.trim() || "",
       },
     });
 

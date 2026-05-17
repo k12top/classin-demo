@@ -16,11 +16,26 @@ export default function CreateCoursePage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [roomType, setRoomType] = useState(0);
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const handleSubmit = async () => {
     if (!name.trim()) return;
+    if (!startTime) {
+      setError("请选择课程开始时间");
+      return;
+    }
+    if (!endTime) {
+      setError("请选择课程结束时间");
+      return;
+    }
+    if (new Date(endTime) <= new Date(startTime)) {
+      setError("结束时间必须晚于开始时间");
+      return;
+    }
+
     setLoading(true);
     setError("");
 
@@ -28,7 +43,13 @@ export default function CreateCoursePage() {
       const res = await fetch("/api/courses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description, roomType }),
+        body: JSON.stringify({ 
+          name, 
+          description, 
+          roomType,
+          startTime: new Date(startTime).toISOString(),
+          endTime: new Date(endTime).toISOString()
+        }),
       });
 
       if (!res.ok) {
@@ -106,6 +127,29 @@ export default function CreateCoursePage() {
               maxLength={200}
               rows={3}
             />
+          </div>
+
+          <div style={{ display: "flex", gap: "16px", marginBottom: "20px" }}>
+            <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+              <label className="form-label" htmlFor="course-start">开始时间</label>
+              <input
+                id="course-start"
+                className="form-input"
+                type="datetime-local"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+              />
+            </div>
+            <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+              <label className="form-label" htmlFor="course-end">结束时间</label>
+              <input
+                id="course-end"
+                className="form-input"
+                type="datetime-local"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+              />
+            </div>
           </div>
 
           <div className="form-group">

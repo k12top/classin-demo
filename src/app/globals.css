@@ -4,6 +4,7 @@
    ============================================ */
 
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
+@import './course-details.css';
 
 /* ── CSS Variables ── */
 :root {
@@ -1615,4 +1616,507 @@ body.agora-classroom-active {
   .student-search-bar {
     flex-direction: column;
   }
+}
+
+/* ============================================
+   Redesigned Dashboards (Student & Teacher)
+   ============================================ */
+
+.student-dashboard, .teacher-dashboard {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+.sidebar {
+  width: 240px;
+  background-color: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-border);
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 8px;
+}
+
+.avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--gradient-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 700;
+  color: white;
+}
+
+.username {
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vip-badge {
+  background-color: var(--color-accent-orange);
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 800;
+  display: inline-block;
+  width: fit-content;
+}
+
+.role-badge.teacher {
+  background-color: var(--color-accent-blue);
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 800;
+  display: inline-block;
+  width: fit-content;
+}
+
+.side-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 15px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+}
+
+.menu-item:hover {
+  background: var(--color-bg-glass);
+  color: var(--color-text-primary);
+}
+
+.menu-item.active {
+  background: var(--color-accent-orange);
+  color: #fff;
+}
+
+.menu-item .icon {
+  font-size: 18px;
+}
+
+.main-content {
+  flex: 1;
+  padding: 32px 48px;
+  overflow-y: auto;
+}
+
+/* Banner */
+.banner {
+  background: var(--gradient-warm);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  margin-bottom: 32px;
+  box-shadow: var(--shadow-md);
+}
+
+.banner-content h2 {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #fff;
+}
+
+.banner-content p {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 32px;
+  padding-bottom: 0;
+  background: transparent;
+}
+
+.tab {
+  padding: 12px 16px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tab:hover {
+  color: var(--color-text-primary);
+}
+
+.tab.active {
+  color: var(--color-accent-orange);
+  border-bottom-color: var(--color-accent-orange);
+}
+
+/* Timeline View */
+.timeline-view {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.timeline-item {
+  display: flex;
+  gap: 24px;
+}
+
+.timeline-date {
+  width: 140px;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  padding-top: 8px;
+}
+
+.course-card {
+  flex: 1;
+  display: flex;
+  gap: 24px;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.course-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--color-border-hover);
+}
+
+.course-cover {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.course-cover-img {
+  width: 120px;
+  height: 120px;
+  background: url('data:image/svg+xml;utf8,<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="120" fill="%232563EB"/><circle cx="60" cy="60" r="30" fill="white" fill-opacity="0.2"/><path d="M50 45L75 60L50 75V45Z" fill="white"/></svg>') no-repeat center center;
+  background-size: cover;
+  border-radius: var(--radius-md);
+}
+
+.action-btn-text {
+  background: transparent;
+  border: none;
+  color: var(--color-accent-orange);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+
+.action-btn-text:hover {
+  text-decoration: underline;
+}
+
+.course-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.course-details h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.course-meta {
+  display: flex;
+  gap: 8px;
+}
+
+.course-tag {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--color-accent-blue-light);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.teacher-info {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
+.remarks-section {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 8px;
+  background: var(--color-bg-glass);
+  padding: 12px;
+  border-radius: var(--radius-md);
+}
+
+.remarks-text {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.edit-icon {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  opacity: 0.6;
+  transition: opacity var(--transition-fast);
+}
+
+.edit-icon:hover {
+  opacity: 1;
+}
+
+.edit-remarks {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.edit-remarks input {
+  flex: 1;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+.edit-remarks button {
+  padding: 6px 12px;
+  border: none;
+  background: var(--color-bg-secondary);
+  color: white;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+.actions .btn-primary, .actions .btn-secondary, .actions .btn-danger {
+  width: auto;
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-size: 14px;
+}
+
+.btn-danger {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  transition: all var(--transition-fast);
+}
+
+.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+/* Teacher specific */
+.teacher-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+}
+
+.teacher-header h2 {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.teacher-header .btn-primary {
+  width: auto;
+}
+
+.schedule-container {
+  display: flex;
+  gap: 32px;
+  align-items: flex-start;
+}
+
+.calendar-panel {
+  width: 320px;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+}
+
+.calendar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.calendar-header button {
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 18px;
+  padding: 4px 8px;
+}
+
+.calendar-header button:hover {
+  color: var(--color-text-primary);
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+
+.cal-day-header {
+  text-align: center;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.cal-day {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  border-radius: 50%;
+  cursor: pointer;
+  position: relative;
+  transition: all var(--transition-fast);
+}
+
+.cal-day:not(.empty):hover {
+  background: var(--color-bg-glass);
+}
+
+.cal-day.today {
+  color: var(--color-accent-blue-light);
+  font-weight: 700;
+}
+
+.cal-day.selected {
+  background: var(--color-accent-blue);
+  color: white;
+}
+
+.cal-dot {
+  position: absolute;
+  bottom: 4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-accent-orange);
+}
+
+.daily-schedule {
+  flex: 1;
+}
+
+.daily-schedule h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 24px;
+  color: var(--color-text-secondary);
+}
+
+.course-list-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.course-time {
+  font-size: 14px;
+  color: var(--color-accent-cyan);
+  font-weight: 500;
+}
+
+.status-badge {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.status-badge.active {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
+
+.status-badge.finished {
+  background: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+}
+
+.status-badge.cancelled {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.student-remarks-read {
+  background: rgba(245, 158, 11, 0.05);
+  border-left: 2px solid var(--color-accent-orange);
+  color: var(--color-text-secondary);
+}
+
+.student-remarks-read strong {
+  color: var(--color-text-primary);
 }
