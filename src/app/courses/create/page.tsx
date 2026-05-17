@@ -49,7 +49,7 @@ export default function CreateCoursePage() {
     return (
       <>
         <div className="page-bg" />
-        <div className="container">
+        <div className="auth-container">
           <div className="card" style={{ textAlign: "center", padding: 40 }}>
             <h2>⚠️ 权限不足</h2>
             <p style={{ color: "var(--color-text-secondary)", marginTop: 8 }}>
@@ -67,7 +67,7 @@ export default function CreateCoursePage() {
   return (
     <>
       <div className="page-bg" />
-      <div className="container">
+      <div className="auth-container">
         {/* Back button */}
         <button className="btn-link" onClick={() => router.push("/")} style={{ textAlign: "left", marginBottom: 16 }}>
           ← 返回课程列表

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AppDocumentGuard } from "@/components/app-document-guard";
 import { AuthProvider } from "@/lib/auth-context";
 import "./globals.css";
 
@@ -17,6 +18,7 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body>
         <AuthProvider>
+          <AppDocumentGuard />
           {children}
         </AuthProvider>
       </body>

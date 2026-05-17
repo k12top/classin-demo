@@ -12,7 +12,7 @@ function AccessDeniedContent() {
   return (
     <>
       <div className="page-bg" />
-      <div className="container">
+      <div className="auth-container">
         <div className="card animate-in animate-in-delay-1" style={{ textAlign: "center" }}>
           <div className="access-denied-icon">🚫</div>
           <h2 className="access-denied-title">无法访问此课堂</h2>

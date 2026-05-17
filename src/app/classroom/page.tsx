@@ -7,6 +7,10 @@ import Script from "next/script";
 import { useAuth } from "@/lib/auth-context";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
+import {
+  markClassroomDocumentActive,
+  resetDocumentAfterClassroom,
+} from "@/lib/classroom-document";
 
 // Type declarations for the CDN-loaded globals
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -61,11 +65,22 @@ function ClassroomContent() {
       unmountRef.current = null;
     }
 
+    resetDocumentAfterClassroom();
+
     const target = courseId
       ? `/courses/${encodeURIComponent(courseId)}`
       : "/";
-    router.replace(target);
-  }, [courseId, router]);
+
+    // Full navigation reloads CSS — avoids Agora global styles breaking layout
+    window.location.replace(target);
+  }, [courseId]);
+
+  useEffect(() => {
+    markClassroomDocumentActive();
+    return () => {
+      resetDocumentAfterClassroom();
+    };
+  }, []);
 
   useEffect(() => {
     if (authLoading || leftClassroomRef.current) {

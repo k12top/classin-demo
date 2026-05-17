@@ -346,7 +346,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
     return (
       <>
         <div className="page-bg" />
-        <div className="container">
+        <div className="auth-container">
           <div className="card" style={{ textAlign: "center", padding: 40 }}>
             <h2>⚠️ {error || "课程不存在"}</h2>
             <button className="btn btn-primary" style={{ marginTop: 20, maxWidth: 200 }} onClick={() => router.push("/")}>

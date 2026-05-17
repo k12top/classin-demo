@@ -19,7 +19,7 @@ function LoginContent() {
   return (
     <>
       <div className="page-bg" />
-      <div className="container">
+      <div className="auth-container">
         <div className="login-card card animate-in animate-in-delay-1">
           {/* Logo */}
           <div className="login-header">

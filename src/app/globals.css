@@ -83,6 +83,45 @@ body {
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
   line-height: 1.6;
+  overflow-x: hidden;
+  overflow-y: auto;
+  position: static;
+  width: auto;
+  height: auto;
+}
+
+/* Restore app chrome after Agora SDK (may override body background / width) */
+body.app-shell {
+  background-color: var(--color-bg-primary) !important;
+  color: var(--color-text-primary) !important;
+  min-height: 100vh !important;
+  width: auto !important;
+  height: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  position: static !important;
+}
+
+body.app-shell .dashboard-container {
+  width: 100%;
+  max-width: none;
+  min-height: 100vh;
+}
+
+body.app-shell .dashboard-main {
+  width: 100%;
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* While Agora SDK runs fullscreen — scoped via JS class */
+html.agora-classroom-active,
+body.agora-classroom-active {
+  overflow: hidden !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0;
 }
 
 /* ── Background decoration ── */
@@ -114,8 +153,8 @@ body {
   }
 }
 
-/* ── Container ── */
-.container {
+/* ── Auth / narrow pages only (login) — not used on dashboard ── */
+.auth-container {
   position: relative;
   z-index: 1;
   max-width: 520px;
@@ -126,8 +165,8 @@ body {
   flex-direction: column;
 }
 
-.container::before,
-.container::after {
+.auth-container::before,
+.auth-container::after {
   content: "";
   flex: auto;
 }
@@ -602,7 +641,7 @@ body {
 
 /* ── Responsive ── */
 @media (max-width: 580px) {
-  .container {
+  .auth-container {
     padding: 20px 16px;
   }
 
@@ -649,7 +688,7 @@ body {
 
 /* Additional adjustment for short screens to avoid scrolling */
 @media (max-height: 740px) {
-  .container::before {
+  .auth-container::before {
     display: none; /* Align to the top instead of centering */
   }
   
