@@ -6,13 +6,17 @@ import {
   parseJwtPayload,
   determineRole,
 } from "@/lib/casdoor-server";
-import { createSession, deleteSession } from "@/lib/session";
+import {
+  buildSessionCookies,
+  deleteSession,
+  type BuiltSessionCookies,
+} from "@/lib/session";
 
 export async function refreshSessionWithToken(
   refreshToken: string
-): Promise<boolean> {
+): Promise<BuiltSessionCookies | null> {
   const trimmed = refreshToken.trim();
-  if (!trimmed) return false;
+  if (!trimmed) return null;
 
   try {
     const tokens = await refreshAccessToken(trimmed);
@@ -23,7 +27,7 @@ export async function refreshSessionWithToken(
     const casdoorUser = parseJwtPayload(access);
     const role = determineRole(casdoorUser.roles || []);
 
-    await createSession(
+    return await buildSessionCookies(
       {
         userId: casdoorUser.id || casdoorUser.name,
         name: casdoorUser.name,
@@ -31,14 +35,12 @@ export async function refreshSessionWithToken(
         avatar: casdoorUser.avatar || "",
         role,
         email: casdoorUser.email || "",
-        casdoorToken: access,
       },
       { refreshToken: nextRefresh }
     );
-    return true;
   } catch (e) {
     console.error("refreshSessionWithToken:", e);
     await deleteSession();
-    return false;
+    return null;
   }
 }

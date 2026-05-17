@@ -4,6 +4,7 @@
  */
 import { SignJWT, jwtVerify, JWTPayload } from "jose";
 import { cookies } from "next/headers";
+import type { NextResponse } from "next/server";
 
 const SESSION_SECRET =
   process.env.SESSION_SECRET ||
@@ -23,9 +24,24 @@ export interface SessionPayload extends JWTPayload {
   avatar: string;
   role: "teacher" | "student";
   email: string;
-  casdoorToken: string; // original Casdoor access token
   expiresAt: string;
 }
+
+export type SessionUserData = Omit<SessionPayload, "expiresAt" | "iat" | "exp">;
+
+export type BuiltSessionCookies = {
+  sessionToken: string;
+  sessionExpires: Date;
+  refreshToken?: string;
+};
+
+const sessionCookieOptions = (expires: Date) => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  expires,
+  sameSite: "lax" as const,
+  path: "/",
+});
 
 /**
  * Encrypt session data into a JWT
@@ -60,34 +76,71 @@ export type CreateSessionOAuthOptions = {
 };
 
 /**
+ * Build session JWT + optional refresh token (do not store Casdoor access_token in cookie — too large).
+ */
+export async function buildSessionCookies(
+  data: SessionUserData,
+  oauth?: CreateSessionOAuthOptions
+): Promise<BuiltSessionCookies> {
+  const sessionExpires = new Date(Date.now() + SESSION_DURATION);
+  const sessionToken = await encrypt({
+    ...data,
+    expiresAt: sessionExpires.toISOString(),
+  });
+  return {
+    sessionToken,
+    sessionExpires,
+    refreshToken: oauth?.refreshToken?.trim() || undefined,
+  };
+}
+
+/** Attach session cookies to a Route Handler response (required for redirects). */
+export function attachSessionCookies(
+  response: NextResponse,
+  built: BuiltSessionCookies
+): void {
+  response.cookies.set(
+    SESSION_COOKIE,
+    built.sessionToken,
+    sessionCookieOptions(built.sessionExpires)
+  );
+
+  if (built.refreshToken) {
+    const refreshExpires = new Date(Date.now() + REFRESH_COOKIE_MAX_MS);
+    response.cookies.set(
+      OAUTH_REFRESH_COOKIE,
+      built.refreshToken,
+      sessionCookieOptions(refreshExpires)
+    );
+  }
+}
+
+/**
  * Create a new session cookie; optionally persist OAuth refresh token.
  */
 export async function createSession(
-  data: Omit<SessionPayload, "expiresAt" | "iat" | "exp">,
+  data: SessionUserData,
   oauth?: CreateSessionOAuthOptions
-): Promise<void> {
-  const expiresAt = new Date(Date.now() + SESSION_DURATION).toISOString();
-  const session = await encrypt({ ...data, expiresAt });
+): Promise<BuiltSessionCookies> {
+  const built = await buildSessionCookies(data, oauth);
   const cookieStore = await cookies();
 
-  cookieStore.set(SESSION_COOKIE, session, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    expires: new Date(expiresAt),
-    sameSite: "lax",
-    path: "/",
-  });
+  cookieStore.set(
+    SESSION_COOKIE,
+    built.sessionToken,
+    sessionCookieOptions(built.sessionExpires)
+  );
 
-  if (oauth?.refreshToken?.trim()) {
+  if (built.refreshToken) {
     const refreshExpires = new Date(Date.now() + REFRESH_COOKIE_MAX_MS);
-    cookieStore.set(OAUTH_REFRESH_COOKIE, oauth.refreshToken.trim(), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      expires: refreshExpires,
-      sameSite: "lax",
-      path: "/",
-    });
+    cookieStore.set(
+      OAUTH_REFRESH_COOKIE,
+      built.refreshToken,
+      sessionCookieOptions(refreshExpires)
+    );
   }
+
+  return built;
 }
 
 /**

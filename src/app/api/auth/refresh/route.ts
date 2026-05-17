@@ -4,7 +4,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { OAUTH_REFRESH_COOKIE } from "@/lib/session";
+import { attachSessionCookies, OAUTH_REFRESH_COOKIE } from "@/lib/session";
 import { refreshSessionWithToken } from "@/lib/refresh-session";
 import { safeNextPath, SSO_LOGIN_PATH } from "@/lib/auth-login";
 
@@ -25,12 +25,14 @@ export async function GET(request: NextRequest) {
     return redirectToSsoLogin(request, nextPath);
   }
 
-  const ok = await refreshSessionWithToken(refresh);
-  if (!ok) {
+  const built = await refreshSessionWithToken(refresh);
+  if (!built) {
     return redirectToSsoLogin(request, nextPath);
   }
 
-  return NextResponse.redirect(new URL(nextPath, request.url));
+  const response = NextResponse.redirect(new URL(nextPath, request.url));
+  attachSessionCookies(response, built);
+  return response;
 }
 
 export async function POST() {
@@ -43,13 +45,15 @@ export async function POST() {
     );
   }
 
-  const ok = await refreshSessionWithToken(refresh);
-  if (!ok) {
+  const built = await refreshSessionWithToken(refresh);
+  if (!built) {
     return NextResponse.json(
       { ok: false, code: "REFRESH_FAILED" },
       { status: 401 }
     );
   }
 
-  return NextResponse.json({ ok: true });
+  const response = NextResponse.json({ ok: true });
+  attachSessionCookies(response, built);
+  return response;
 }

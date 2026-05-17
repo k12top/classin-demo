@@ -10,23 +10,24 @@ import {
   parseJwtPayload,
   determineRole,
 } from "@/lib/casdoor-server";
-import { createSession } from "@/lib/session";
 import { AUTH_RETURN_COOKIE, safeNextPath } from "@/lib/auth-login";
+import { attachSessionCookies, buildSessionCookies } from "@/lib/session";
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get("code");
+  const redirectUri = `${request.nextUrl.origin}/api/auth/callback`;
 
   if (!code) {
     return NextResponse.redirect(new URL("/login?error=no_code", request.url));
   }
 
   try {
-    const tokens = await exchangeCodeForTokens(code);
+    const tokens = await exchangeCodeForTokens(code, redirectUri);
     const casdoorUser = parseJwtPayload(tokens.access_token);
     const role = determineRole(casdoorUser.roles || []);
 
-    await createSession(
+    const built = await buildSessionCookies(
       {
         userId: casdoorUser.id || casdoorUser.name,
         name: casdoorUser.name,
@@ -34,7 +35,6 @@ export async function GET(request: NextRequest) {
         avatar: casdoorUser.avatar || "",
         role,
         email: casdoorUser.email || "",
-        casdoorToken: tokens.access_token,
       },
       tokens.refresh_token
         ? { refreshToken: tokens.refresh_token }
@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
       cookieStore.get(AUTH_RETURN_COOKIE)?.value ?? "/"
     );
     const response = NextResponse.redirect(new URL(returnTo, request.url));
+    attachSessionCookies(response, built);
     response.cookies.delete(AUTH_RETURN_COOKIE);
     return response;
   } catch (error) {

@@ -93,12 +93,16 @@ async function postTokenRequest(params: URLSearchParams): Promise<CasdoorTokenRe
  * Enable refresh tokens in the Casdoor Application; optionally use a scope that includes offline access
  * (see NEXT_PUBLIC_CASDOOR_OAUTH_SCOPE).
  */
-export async function exchangeCodeForTokens(code: string): Promise<CasdoorTokenResponse> {
+export async function exchangeCodeForTokens(
+  code: string,
+  redirectUri: string
+): Promise<CasdoorTokenResponse> {
   const params = new URLSearchParams({
     grant_type: "authorization_code",
     client_id: getClientId(),
     client_secret: getClientSecret(),
     code,
+    redirect_uri: redirectUri,
   });
   return postTokenRequest(params);
 }
