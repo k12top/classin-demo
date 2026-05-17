@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
+import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 
 interface CourseDetail {
   id: string;
@@ -71,6 +72,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<{ id: string; name: string; displayName: string; email: string }[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
 
   const [myGroups, setMyGroups] = useState<GroupNode[]>([]);
   const [newGroupName, setNewGroupName] = useState("");
@@ -122,14 +124,15 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   }, []);
 
   useEffect(() => {
-    if (user && course && course.teacherId === user.userId) {
+    if (user && course && casdoorUserIdsMatch(course.teacherId, user.userId)) {
       queueMicrotask(() => {
         void fetchMyGroups();
       });
     }
   }, [user, course, fetchMyGroups]);
 
-  const isTeacher = user && course && course.teacherId === user.userId;
+  const isTeacher =
+    Boolean(user && course && casdoorUserIdsMatch(course.teacherId, user.userId));
 
   // Enter classroom
   const handleEnterClassroom = async () => {
@@ -170,14 +173,27 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
+    setSearchError("");
     try {
-      const res = await fetch(`/api/users/search?q=${encodeURIComponent(searchQuery)}`);
+      const res = await fetch(
+        `/api/users/search?q=${encodeURIComponent(searchQuery)}`,
+        { credentials: "same-origin" }
+      );
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        const data = await res.json();
-        setSearchResults(data.users);
+        setSearchResults(data.users ?? []);
+        if (!data.users?.length) {
+          setSearchError("未找到匹配用户，请尝试用户名或显示名（Casdoor 登录名）");
+        }
+      } else {
+        setSearchResults([]);
+        setSearchError(
+          data.hint || data.error || `搜索失败 (${res.status})`
+        );
       }
     } catch {
-      // ignore
+      setSearchResults([]);
+      setSearchError("搜索请求失败，请检查网络后重试");
     } finally {
       setSearching(false);
     }
@@ -450,11 +466,23 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
                 </select>
               </div>
 
+              {searchError && (
+                <p
+                  className="login-notice"
+                  role="status"
+                  style={{ marginTop: 12, fontSize: 13 }}
+                >
+                  {searchError}
+                </p>
+              )}
+
               {/* Search Results */}
               {searchResults.length > 0 && (
                 <div className="search-results">
                   {searchResults.map((u) => {
-                    const isAlready = course.students.some((s) => s.studentId === u.id);
+                    const isAlready = course.students.some((s) =>
+                      casdoorUserIdsMatch(s.studentId, u.id)
+                    );
                     return (
                       <div key={u.id} className="search-result-item">
                         <div className="search-result-info">

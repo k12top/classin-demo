@@ -5,6 +5,11 @@
  * URLs are read at call time so `.env` changes apply after restart.
  * Use `NEXT_PUBLIC_CASDOOR_SERVER_URL` or server-only `CASDOOR_SERVER_URL` (same value, not sent to browser).
  */
+import {
+  casdoorUserIdsMatch,
+  isTeacherGroupMember,
+  resolveCasdoorUserId,
+} from "@/lib/casdoor-user";
 
 function getCasdoorServerUrl(): string {
   return (
@@ -38,6 +43,7 @@ export interface CasdoorUser {
   email: string;
   phone: string;
   roles: CasdoorRole[];
+  groups?: string[];
   tag: string;
   owner: string;
 }
@@ -141,16 +147,22 @@ export function parseJwtPayload(token: string): CasdoorUser {
     email: payload.email || "",
     phone: payload.phone || "",
     roles: payload.roles || [],
+    groups: Array.isArray(payload.groups) ? payload.groups : [],
     tag: payload.tag || "",
     owner: payload.owner || org,
   };
 }
 
 /**
- * Determine user role from Casdoor roles array
- * Looks for "teacher" or "student" role names (case-insensitive)
+ * Determine teacher vs student from Casdoor roles and/or groups (JWT or user list).
  */
-export function determineRole(roles: CasdoorRole[]): "teacher" | "student" {
+export function determineRole(
+  roles: CasdoorRole[],
+  groups?: string[] | null
+): "teacher" | "student" {
+  if (isTeacherGroupMember(groups)) {
+    return "teacher";
+  }
   for (const role of roles) {
     const name = role.name.toLowerCase();
     if (
@@ -185,33 +197,81 @@ export async function getCasdoorUser(username: string): Promise<CasdoorUser | nu
   }
 }
 
+export type SearchCasdoorUsersOptions = {
+  /** Exclude this login name (typically current teacher). */
+  excludeUserId?: string;
+  /** When true, omit users in Casdoor teacher groups. */
+  studentsOnly?: boolean;
+  limit?: number;
+};
+
 /**
- * Search users in the Casdoor organization (for assigning students)
+ * Search users in the Casdoor organization (for assigning students).
  */
-export async function searchCasdoorUsers(query: string): Promise<CasdoorUser[]> {
+export async function searchCasdoorUsers(
+  query: string,
+  options: SearchCasdoorUsersOptions = {}
+): Promise<CasdoorUser[]> {
   const base = getCasdoorServerUrl();
   const org = getOrgName();
   const clientId = getClientId();
   const clientSecret = getClientSecret();
   if (!base || !org) return [];
 
+  const limit = options.limit ?? 50;
+
   try {
-    const url = `${base.replace(/\/$/, "")}/api/get-users?owner=${org}&clientId=${clientId}&clientSecret=${clientSecret}`;
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    const data = await res.json();
-    const users: CasdoorUser[] = data.data || data || [];
+    const url = `${base.replace(/\/$/, "")}/api/get-users?owner=${encodeURIComponent(org)}&clientId=${encodeURIComponent(clientId)}&clientSecret=${encodeURIComponent(clientSecret)}`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) {
+      console.error("Casdoor get-users HTTP", res.status, await res.text());
+      return [];
+    }
+    const data = (await res.json()) as {
+      status?: string;
+      data?: CasdoorUser[];
+    };
+    if (data.status && data.status !== "ok") {
+      console.error("Casdoor get-users status", data);
+      return [];
+    }
 
-    if (!query) return users;
+    let users: CasdoorUser[] = Array.isArray(data.data)
+      ? data.data.map((raw) => {
+          const u = raw as CasdoorUser & { groups?: string[] };
+          return {
+            ...u,
+            groups: Array.isArray(u.groups) ? u.groups : [],
+          };
+        })
+      : [];
 
-    const q = query.toLowerCase();
-    return users.filter(
-      (u: CasdoorUser) =>
-        u.name?.toLowerCase().includes(q) ||
-        u.displayName?.toLowerCase().includes(q) ||
-        u.email?.toLowerCase().includes(q)
-    );
-  } catch {
+    if (options.studentsOnly !== false) {
+      users = users.filter((u) => !isTeacherGroupMember(u.groups));
+    }
+
+    if (options.excludeUserId) {
+      const ex = options.excludeUserId;
+      users = users.filter(
+        (u) => !casdoorUserIdsMatch(resolveCasdoorUserId(u), ex)
+      );
+    }
+
+    const q = query.trim().toLowerCase();
+    if (q) {
+      users = users.filter(
+        (u) =>
+          u.name?.toLowerCase().includes(q) ||
+          u.displayName?.toLowerCase().includes(q) ||
+          u.email?.toLowerCase().includes(q) ||
+          u.phone?.toLowerCase().includes(q) ||
+          u.id?.toLowerCase().includes(q)
+      );
+    }
+
+    return users.slice(0, limit);
+  } catch (e) {
+    console.error("searchCasdoorUsers:", e);
     return [];
   }
 }

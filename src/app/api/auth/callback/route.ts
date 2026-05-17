@@ -11,6 +11,7 @@ import {
   determineRole,
 } from "@/lib/casdoor-server";
 import { AUTH_RETURN_COOKIE, safeNextPath } from "@/lib/auth-login";
+import { resolveSessionUserId } from "@/lib/casdoor-user";
 import { attachSessionCookies, buildSessionCookies } from "@/lib/session";
 
 export async function GET(request: NextRequest) {
@@ -25,11 +26,11 @@ export async function GET(request: NextRequest) {
   try {
     const tokens = await exchangeCodeForTokens(code, redirectUri);
     const casdoorUser = parseJwtPayload(tokens.access_token);
-    const role = determineRole(casdoorUser.roles || []);
+    const role = determineRole(casdoorUser.roles || [], casdoorUser.groups);
 
     const built = await buildSessionCookies(
       {
-        userId: casdoorUser.id || casdoorUser.name,
+        userId: resolveSessionUserId(casdoorUser, role),
         name: casdoorUser.name,
         displayName: casdoorUser.displayName || casdoorUser.name,
         avatar: casdoorUser.avatar || "",

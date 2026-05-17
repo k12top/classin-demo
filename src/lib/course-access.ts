@@ -1,3 +1,4 @@
+import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { prisma } from "@/lib/db";
 
 export type CourseGateRole = "teacher" | "student";
@@ -46,7 +47,7 @@ export async function resolveCourseAccess(
       return { ok: false, httpStatus: 404, reason: "课程不存在" };
     }
 
-    if (course.teacherId === userId) {
+    if (casdoorUserIdsMatch(course.teacherId, userId)) {
       return {
         ok: true,
         role: "teacher",
@@ -56,7 +57,9 @@ export async function resolveCourseAccess(
       };
     }
 
-    const isDirectStudent = course.students.some((s) => s.studentId === userId);
+    const isDirectStudent = course.students.some((s) =>
+      casdoorUserIdsMatch(s.studentId, userId)
+    );
     if (isDirectStudent) {
       return {
         ok: true,
@@ -74,7 +77,10 @@ export async function resolveCourseAccess(
       }
     }
 
-    if (allGroupMemberIds.has(userId)) {
+    const inGroup = [...allGroupMemberIds].some((mid) =>
+      casdoorUserIdsMatch(mid, userId)
+    );
+    if (inGroup) {
       return {
         ok: true,
         role: "student",

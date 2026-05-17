@@ -4,6 +4,7 @@
  * POST /api/groups — create group, add members, link / unlink course, etc.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 
@@ -15,7 +16,7 @@ async function assertTeacherOwnsGroup(
     where: { id: groupId },
     select: { createdBy: true },
   });
-  return Boolean(group && group.createdBy === userId);
+  return Boolean(group && casdoorUserIdsMatch(group.createdBy, userId));
 }
 
 async function assertTeacherOwnsCourse(
@@ -26,7 +27,7 @@ async function assertTeacherOwnsCourse(
     where: { id: courseId },
     select: { teacherId: true },
   });
-  return Boolean(course && course.teacherId === userId);
+  return Boolean(course && casdoorUserIdsMatch(course.teacherId, userId));
 }
 
 export async function GET() {

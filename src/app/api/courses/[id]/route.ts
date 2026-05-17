@@ -5,6 +5,7 @@
  * DELETE /api/courses/:id
  */
 import { NextRequest, NextResponse } from "next/server";
+import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 
@@ -60,7 +61,7 @@ export async function PUT(
 
   // Only the course teacher can update
   const existing = await prisma.course.findUnique({ where: { id } });
-  if (!existing || existing.teacherId !== session.userId) {
+  if (!existing || !casdoorUserIdsMatch(existing.teacherId, session.userId)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -97,7 +98,7 @@ export async function DELETE(
   const { id } = await params;
 
   const existing = await prisma.course.findUnique({ where: { id } });
-  if (!existing || existing.teacherId !== session.userId) {
+  if (!existing || !casdoorUserIdsMatch(existing.teacherId, session.userId)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

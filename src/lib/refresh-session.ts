@@ -6,6 +6,7 @@ import {
   parseJwtPayload,
   determineRole,
 } from "@/lib/casdoor-server";
+import { resolveSessionUserId } from "@/lib/casdoor-user";
 import {
   buildSessionCookies,
   deleteSession,
@@ -25,11 +26,11 @@ export async function refreshSessionWithToken(
       tokens.refresh_token?.trim() || trimmed;
 
     const casdoorUser = parseJwtPayload(access);
-    const role = determineRole(casdoorUser.roles || []);
+    const role = determineRole(casdoorUser.roles || [], casdoorUser.groups);
 
     return await buildSessionCookies(
       {
-        userId: casdoorUser.id || casdoorUser.name,
+        userId: resolveSessionUserId(casdoorUser, role),
         name: casdoorUser.name,
         displayName: casdoorUser.displayName || casdoorUser.name,
         avatar: casdoorUser.avatar || "",
