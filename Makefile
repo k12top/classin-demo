@@ -1,7 +1,7 @@
 # classroom — Next.js 项目常用命令
 # 使用: make <target>   或   make help
 
-.PHONY: help install dev build start lint clean
+.PHONY: help install dev build start lint clean db-migrate db-push db-generate
 
 NPM := npm
 
@@ -13,6 +13,9 @@ help:
 	@echo "  make start    - 生产启动 (next start，需先 build)"
 	@echo "  make lint     - 运行 ESLint"
 	@echo "  make clean    - 删除 .next 构建目录"
+	@echo "  make db-migrate - 应用 Prisma 迁移 (migrate dev)"
+	@echo "  make db-push    - 将 schema 同步到数据库 (db push)"
+	@echo "  make db-generate- 生成 Prisma Client"
 
 install:
 	@if [ -f package-lock.json ]; then $(NPM) ci; else $(NPM) install; fi
@@ -31,3 +34,12 @@ lint:
 
 clean:
 	rm -rf .next
+
+db-generate:
+	$(NPM) run db:generate
+
+db-migrate:
+	$(NPM) run db:migrate
+
+db-push:
+	$(NPM) run db:push
