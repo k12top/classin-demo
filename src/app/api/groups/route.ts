@@ -148,8 +148,21 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
-        if (!(await assertTeacherOwnsCourse(session.userId, courseId))) {
+        const courseForLink = await prisma.course.findUnique({
+          where: { id: courseId },
+          select: { teacherId: true, roomType: true },
+        });
+        if (
+          !courseForLink ||
+          !casdoorUserIdsMatch(courseForLink.teacherId, session.userId)
+        ) {
           return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
+        if (courseForLink.roomType === 0) {
+          return NextResponse.json(
+            { error: "一对一课程不支持关联学生组" },
+            { status: 400 }
+          );
         }
         if (!(await assertTeacherOwnsGroup(session.userId, linkGroupId))) {
           return NextResponse.json({ error: "Forbidden" }, { status: 403 });

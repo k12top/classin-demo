@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
+import { buildJoinUrl, joinLinkStatus } from "@/lib/join-link";
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -16,7 +17,7 @@ export async function GET(request: NextRequest) {
   try {
     if (session.role === "teacher") {
       // Teacher sees all their own courses (all statuses)
-      const courses = await prisma.course.findMany({
+      const coursesRaw = await prisma.course.findMany({
         where: { teacherId: session.userId },
         include: {
           students: { select: { studentId: true, studentName: true } },
@@ -25,9 +26,32 @@ export async function GET(request: NextRequest) {
               group: { select: { id: true, name: true } },
             },
           },
+          joinLinks: {
+            orderBy: { createdAt: "desc" },
+            select: {
+              id: true,
+              token: true,
+              label: true,
+              expiresAt: true,
+              revokedAt: true,
+              useCount: true,
+            },
+          },
         },
         orderBy: { startTime: "desc" },
       });
+      const origin = request.nextUrl.origin.replace(/\/$/, "");
+      const courses = coursesRaw.map(({ joinLinks, ...course }) => ({
+        ...course,
+        activeJoinLinks: joinLinks
+          .filter((l) => joinLinkStatus(l) === "active")
+          .map((l) => ({
+            id: l.id,
+            label: l.label,
+            joinUrl: buildJoinUrl(origin, l.token),
+            useCount: l.useCount,
+          })),
+      }));
       return NextResponse.json({ courses });
     } else {
       // Student sees courses they're directly assigned to (all statuses)

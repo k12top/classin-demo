@@ -69,8 +69,11 @@ export default function TeacherCourseDetail({
   const [newLinkLabel, setNewLinkLabel] = useState("");
   const [copyHint, setCopyHint] = useState("");
 
+  /** 一对一 (roomType 0) 仅支持直配学生，不使用学生组。 */
+  const supportsStudentGroups = course.roomType !== 0;
+
   const fetchMyGroups = useCallback(async () => {
-    let res = await fetch("/api/groups", { credentials: "same-origin" });
+    const res = await fetch("/api/groups", { credentials: "same-origin" });
     if (res.ok) {
       const data = await res.json();
       setMyGroups(data.groups ?? []);
@@ -89,10 +92,17 @@ export default function TeacherCourseDetail({
 
   useEffect(() => {
     if (casdoorUserIdsMatch(course.teacherId, user.userId)) {
-      fetchMyGroups();
+      if (supportsStudentGroups) fetchMyGroups();
       fetchJoinLinks();
     }
-  }, [course.teacherId, user.userId, fetchMyGroups, fetchJoinLinks]);
+  }, [
+    course.teacherId,
+    course.roomType,
+    user.userId,
+    fetchMyGroups,
+    fetchJoinLinks,
+    supportsStudentGroups,
+  ]);
 
   const copyText = async (text: string, hint: string) => {
     try {
@@ -251,7 +261,10 @@ export default function TeacherCourseDetail({
   };
 
   const handleAddUserToGroup = async (u: { id: string; name: string; displayName: string }) => {
-    if (!memberTargetGroupId) return;
+    if (!memberTargetGroupId) {
+      alert("请先选择要加入的学生组");
+      return;
+    }
     setGroupBusy(true);
     try {
       const res = await fetch("/api/groups", {
@@ -363,9 +376,9 @@ export default function TeacherCourseDetail({
         <div className="detail-tab-content card">
           {activeTab === "members" && (
             <div className="tab-pane-members">
-              <div className="split-layout">
+              <div className={supportsStudentGroups ? "split-layout" : ""}>
                 {/* Left Side: Direct Students */}
-                <div className="split-column">
+                <div className={supportsStudentGroups ? "split-column" : undefined}>
                   <h3>直接添加学生</h3>
                   <div className="search-bar-inline">
                     <input
@@ -380,24 +393,58 @@ export default function TeacherCourseDetail({
                     </button>
                   </div>
                   {searchError && <p className="error-text">{searchError}</p>}
-                  
+
+                  {supportsStudentGroups && searchResults.length > 0 && (
+                    <div className="mgmt-add-to-group">
+                      <label htmlFor="course-detail-member-group">加入学生组：</label>
+                      <select
+                        id="course-detail-member-group"
+                        className="form-input"
+                        value={memberTargetGroupId}
+                        onChange={(e) => setMemberTargetGroupId(e.target.value)}
+                      >
+                        <option value="">选择学生组…</option>
+                        {flattenGroups(myGroups).map((opt) => (
+                          <option key={opt.id} value={opt.id}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   {searchResults.length > 0 && (
                     <div className="search-results-list">
                       {searchResults.map((u) => {
-                        const isAlready = course.students.some((s: any) => casdoorUserIdsMatch(s.studentId, u.id));
+                        const isAlready = course.students.some((s: any) =>
+                          casdoorUserIdsMatch(s.studentId, u.id)
+                        );
                         return (
                           <div key={u.id} className="search-result-row">
                             <div className="user-info">
                               <span className="user-name">{u.displayName || u.name}</span>
                               <span className="user-email">{u.email}</span>
                             </div>
-                            <button
-                              className={`btn ${isAlready ? "btn-disabled" : "btn-secondary"} btn-sm`}
-                              disabled={isAlready}
-                              onClick={() => handleAddStudent(u.id, u.displayName || u.name)}
-                            >
-                              {isAlready ? "已加入" : "添加"}
-                            </button>
+                            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                              <button
+                                type="button"
+                                className={`btn ${isAlready ? "btn-disabled" : "btn-secondary"} btn-sm`}
+                                disabled={isAlready}
+                                onClick={() => handleAddStudent(u.id, u.displayName || u.name)}
+                              >
+                                {isAlready ? "已加入" : "添加"}
+                              </button>
+                              {supportsStudentGroups && (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-sm"
+                                  disabled={groupBusy || !memberTargetGroupId}
+                                  onClick={() => void handleAddUserToGroup(u)}
+                                >
+                                  加入组
+                                </button>
+                              )}
+                            </div>
                           </div>
                         );
                       })}
@@ -419,61 +466,79 @@ export default function TeacherCourseDetail({
                   )}
                 </div>
 
-                {/* Right Side: Groups */}
-                <div className="split-column">
-                  <h3>学生组管理</h3>
-                  <div className="search-bar-inline">
-                    <input
-                      className="form-input"
-                      placeholder="新建学生组名称…"
-                      value={newGroupName}
-                      onChange={(e) => setNewGroupName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleCreateGroup()}
-                    />
-                    <button className="btn btn-secondary" disabled={groupBusy || !newGroupName.trim()} onClick={handleCreateGroup}>
-                      创建
-                    </button>
-                  </div>
+                {supportsStudentGroups && (
+                  <>
+                    {/* Right Side: Groups */}
+                    <div className="split-column">
+                      <h3>学生组管理</h3>
+                      <div className="search-bar-inline">
+                        <input
+                          className="form-input"
+                          placeholder="新建学生组名称…"
+                          value={newGroupName}
+                          onChange={(e) => setNewGroupName(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleCreateGroup()}
+                        />
+                        <button
+                          className="btn btn-secondary"
+                          disabled={groupBusy || !newGroupName.trim()}
+                          onClick={handleCreateGroup}
+                        >
+                          创建
+                        </button>
+                      </div>
 
-                  <h4 className="sub-heading mt-24">我的学生组</h4>
-                  {myGroups.length === 0 ? (
-                    <p className="empty-hint">暂无组，请先创建。</p>
-                  ) : (
-                    <div className="group-list">
-                      {myGroups.map((g) => (
-                        <div key={g.id} className="group-item">
-                          <div className="group-info">
-                            <strong>{g.name}</strong>
-                            <span className="group-meta">{countNestedMembers(g)} 人</span>
-                          </div>
-                          <div className="group-actions">
-                            {!linkedGroupIdSet.has(g.id) && (
-                              <button className="btn btn-secondary btn-sm" disabled={groupBusy} onClick={() => handleLinkGroupToCourse(g.id)}>
-                                关联课程
-                              </button>
-                            )}
-                            <button className="icon-btn-danger" disabled={groupBusy} onClick={() => handleDeleteGroup(g.id)}>
-                              🗑
-                            </button>
-                          </div>
+                      <h4 className="sub-heading mt-24">我的学生组</h4>
+                      {myGroups.length === 0 ? (
+                        <p className="empty-hint">暂无组，请先创建。</p>
+                      ) : (
+                        <div className="group-list">
+                          {myGroups.map((g) => (
+                            <div key={g.id} className="group-item">
+                              <div className="group-info">
+                                <strong>{g.name}</strong>
+                                <span className="group-meta">{countNestedMembers(g)} 人</span>
+                              </div>
+                              <div className="group-actions">
+                                {!linkedGroupIdSet.has(g.id) && (
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    disabled={groupBusy}
+                                    onClick={() => handleLinkGroupToCourse(g.id)}
+                                  >
+                                    关联课程
+                                  </button>
+                                )}
+                                <button
+                                  className="icon-btn-danger"
+                                  disabled={groupBusy}
+                                  onClick={() => handleDeleteGroup(g.id)}
+                                >
+                                  🗑
+                                </button>
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  )}
-                  
-                  <h4 className="sub-heading mt-24">已关联的学生组</h4>
-                  {course.groupLinks.length === 0 ? (
-                    <p className="empty-hint">尚未关联任何学生组</p>
-                  ) : (
-                    <div className="group-list">
-                      {course.groupLinks.map((link: any) => (
-                        <div key={link.id} className="group-item linked">
-                          <span>{link.group.name} ({countNestedMembers(link.group)} 人)</span>
+                      )}
+
+                      <h4 className="sub-heading mt-24">已关联的学生组</h4>
+                      {course.groupLinks.length === 0 ? (
+                        <p className="empty-hint">尚未关联任何学生组</p>
+                      ) : (
+                        <div className="group-list">
+                          {course.groupLinks.map((link: any) => (
+                            <div key={link.id} className="group-item linked">
+                              <span>
+                                {link.group.name} ({countNestedMembers(link.group)} 人)
+                              </span>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
-                  )}
-                </div>
+                  </>
+                )}
               </div>
             </div>
           )}

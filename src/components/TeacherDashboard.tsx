@@ -3,7 +3,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 
 interface Course {
   id: string;
@@ -19,6 +18,7 @@ interface Course {
   createdAt: string;
   updatedAt: string;
   students?: { studentId: string; studentName: string }[];
+  activeJoinLinks?: { id: string; label: string; joinUrl: string; useCount: number }[];
 }
 
 interface GroupNode {
@@ -40,7 +40,12 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const router = useRouter();
   const { logout } = useAuth();
   const [activePage, setActivePage] = useState<SidebarPage>("schedule");
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+  const [enteringCourseId, setEnteringCourseId] = useState<string | null>(null);
 
   // Student management state
   const [myGroups, setMyGroups] = useState<GroupNode[]>([]);
@@ -89,11 +94,68 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   };
 
   const selectedCourses = useMemo(() => {
-    return courses.filter(c => {
-      if (!c.startTime) return false;
-      return isSameDay(new Date(c.startTime), selectedDate);
-    });
+    return courses
+      .filter((c) => {
+        if (!c.startTime) return false;
+        return isSameDay(new Date(c.startTime), selectedDate);
+      })
+      .sort(
+        (a, b) =>
+          new Date(a.startTime!).getTime() - new Date(b.startTime!).getTime()
+      );
   }, [courses, selectedDate]);
+
+  const coursesMissingStartTime = useMemo(
+    () => courses.filter((c) => !c.startTime),
+    [courses]
+  );
+
+  const shiftCalendarMonth = (delta: number) => {
+    setSelectedDate((prev) => {
+      const y = prev.getFullYear();
+      const m = prev.getMonth() + delta;
+      const day = prev.getDate();
+      const lastDayOfTargetMonth = new Date(y, m + 1, 0).getDate();
+      return new Date(y, m, Math.min(day, lastDayOfTargetMonth));
+    });
+  };
+
+  const handleEnterClassroomFromList = async (course: Course) => {
+    if (course.status === "finished" || course.status === "cancelled") return;
+    setEnteringCourseId(course.id);
+    try {
+      const res = await fetch(`/api/courses/${course.id}/verify-access`, {
+        credentials: "same-origin",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.allowed) {
+        alert(data.reason || "无法进入课堂");
+        return;
+      }
+      const roomUuid = course.id.replace(/-/g, "").slice(0, 16);
+      router.push(
+        `/classroom?${new URLSearchParams({
+          roomUuid,
+          roomType: String(course.roomType),
+          roomName: course.name,
+          courseId: course.id,
+        }).toString()}`
+      );
+    } catch {
+      alert("进入课堂失败，请稍后重试");
+    } finally {
+      setEnteringCourseId(null);
+    }
+  };
+
+  const copyShareUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      alert("链接已复制");
+    } catch {
+      alert("复制失败，请手动选择链接复制");
+    }
+  };
 
   const generateCalendarDays = () => {
     const year = selectedDate.getFullYear();
@@ -253,9 +315,15 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
             <div className="schedule-container">
               <div className="calendar-panel">
                 <div className="calendar-header">
-                  <button onClick={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() - 1, 1))}>&lt;</button>
-                  <span>{selectedDate.getFullYear()}年 {selectedDate.getMonth() + 1}月</span>
-                  <button onClick={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 1))}>&gt;</button>
+                  <button type="button" onClick={() => shiftCalendarMonth(-1)} aria-label="上一月">
+                    &lt;
+                  </button>
+                  <span>
+                    {selectedDate.getFullYear()}年 {selectedDate.getMonth() + 1}月
+                  </span>
+                  <button type="button" onClick={() => shiftCalendarMonth(1)} aria-label="下一月">
+                    &gt;
+                  </button>
                 </div>
                 <div className="calendar-grid">
                   {['日', '一', '二', '三', '四', '五', '六'].map(d => <div key={d} className="cal-day-header">{d}</div>)}
@@ -263,7 +331,15 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                     <div 
                       key={idx} 
                       className={`cal-day ${date ? '' : 'empty'} ${date && isSameDay(date, selectedDate) ? 'selected' : ''} ${date && isSameDay(date, new Date()) ? 'today' : ''}`}
-                      onClick={() => date && setSelectedDate(date)}
+                      onClick={() => {
+                        if (!date) return;
+                        const d = new Date(
+                          date.getFullYear(),
+                          date.getMonth(),
+                          date.getDate()
+                        );
+                        setSelectedDate(d);
+                      }}
                     >
                       {date ? date.getDate() : ''}
                       {date && courses.some(c => c.startTime && isSameDay(new Date(c.startTime), date)) && (
@@ -275,41 +351,163 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
               </div>
 
               <div className="daily-schedule">
-                <h3>{selectedDate.getMonth() + 1}月{selectedDate.getDate()}日 课程安排</h3>
+                <h3 className="daily-schedule-heading">
+                  {selectedDate.getMonth() + 1}月{selectedDate.getDate()}日 的课程
+                  <span className="daily-schedule-hint">
+                    （点击日历上某一天查看当日安排）
+                  </span>
+                </h3>
                 {selectedCourses.length === 0 ? (
-                  <div className="empty-state">今天没有课程安排哦</div>
+                  <div className="empty-state">
+                    该日没有排课。
+                    {(coursesMissingStartTime?.length ?? 0) > 0 && (
+                      <p className="empty-state-sub">
+                        另有 {coursesMissingStartTime.length}{" "}
+                        节课未填写上课时间，请到「课程详情」中补齐。
+                      </p>
+                    )}
+                  </div>
                 ) : (
                   <div className="course-list-compact">
-                    {selectedCourses.map(course => (
+                    {selectedCourses.map((course) => (
                       <div key={course.id} className="course-card">
                         <div className="course-details">
-                          <h3>{course.name} <span className={`status-badge ${course.status}`}>{course.status === 'active' ? '待上课' : course.status === 'finished' ? '已结束' : '已取消'}</span></h3>
+                          <h3>
+                            {course.name}{" "}
+                            <span className={`status-badge ${course.status}`}>
+                              {course.status === "active"
+                                ? "待上课"
+                                : course.status === "finished"
+                                  ? "已结束"
+                                  : "已取消"}
+                            </span>
+                          </h3>
                           <div className="course-time">
-                            {course.startTime ? new Date(course.startTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''} 
-                            - 
-                            {course.endTime ? new Date(course.endTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
+                            {course.startTime
+                              ? new Date(course.startTime).toLocaleTimeString(
+                                  [],
+                                  { hour: "2-digit", minute: "2-digit" }
+                                )
+                              : ""}
+                            {" · "}
+                            {course.endTime
+                              ? new Date(course.endTime).toLocaleTimeString(
+                                  [],
+                                  { hour: "2-digit", minute: "2-digit" }
+                                )
+                              : ""}
                           </div>
                           <div className="course-meta">
-                             <span className="course-tag">{ROOM_TYPE_LABELS[course.roomType] || "课堂"}</span>
+                            <span className="course-tag">
+                              {ROOM_TYPE_LABELS[course.roomType] || "课堂"}
+                            </span>
                           </div>
+
+                          <div className="course-share-preview">
+                            <div className="course-share-preview-title">分享链接</div>
+                            {course.activeJoinLinks &&
+                            course.activeJoinLinks.length > 0 ? (
+                              <div className="course-share-preview-links">
+                                {course.activeJoinLinks.map((link) => (
+                                  <button
+                                    key={link.id}
+                                    type="button"
+                                    className="btn btn-secondary btn-sm share-link-chip"
+                                    onClick={() =>
+                                      void copyShareUrl(link.joinUrl)
+                                    }
+                                  >
+                                    {link.label.trim() ? link.label.slice(0, 18) : "未命名"}
+                                    {link.useCount ? ` · ${link.useCount}次` : ""}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="course-share-empty">
+                                暂无有效链接，可在详情页「课程分享」中新建。
+                              </p>
+                            )}
+                          </div>
+
                           {course.studentRemarks && (
                             <div className="remarks-section student-remarks-read">
                               <strong>学生要求:</strong> {course.studentRemarks}
                             </div>
                           )}
-                          
-                          <div className="actions">
-                            <button className="btn-primary" onClick={() => router.push(`/courses/${course.id}`)}>进入教室</button>
-                            {course.status === 'active' && (
+
+                          <div className="actions teacher-course-actions">
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              onClick={() =>
+                                router.push(`/courses/${course.id}`)
+                              }
+                            >
+                              课程详情
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              disabled={
+                                course.status !== "active" ||
+                                !!enteringCourseId
+                              }
+                              onClick={() =>
+                                void handleEnterClassroomFromList(course)
+                              }
+                            >
+                              {enteringCourseId === course.id
+                                ? "进入中…"
+                                : "进入课堂"}
+                            </button>
+                            {course.status === "active" && (
                               <>
-                                <button className="btn-secondary" onClick={() => handleStatusChange(course.id, "finished")}>结束课程</button>
-                                <button className="btn-danger" onClick={() => handleStatusChange(course.id, "cancelled")}>取消课程</button>
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  onClick={() =>
+                                    handleStatusChange(course.id, "finished")
+                                  }
+                                >
+                                  结束课程
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-danger"
+                                  onClick={() =>
+                                    handleStatusChange(course.id, "cancelled")
+                                  }
+                                >
+                                  取消课程
+                                </button>
                               </>
                             )}
                           </div>
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {coursesMissingStartTime.length > 0 && (
+                  <div className="unscheduled-course-list">
+                    <h4 className="sub-heading">未设定上课时间的课程</h4>
+                    <ul>
+                      {coursesMissingStartTime.map((c) => (
+                        <li key={c.id}>
+                          <button
+                            type="button"
+                            className="btn-link-inline"
+                            onClick={() =>
+                              router.push(`/courses/${c.id}`)
+                            }
+                          >
+                            {c.name}
+                          </button>
+                          <span className="course-muted"> · 去详情补齐时间</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </div>

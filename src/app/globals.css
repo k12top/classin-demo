@@ -1986,6 +1986,21 @@ body.agora-classroom-active {
   align-items: flex-start;
 }
 
+@media (max-width: 960px) {
+  .schedule-container {
+    flex-direction: column;
+  }
+
+  .calendar-panel {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .daily-schedule {
+    width: 100%;
+  }
+}
+
 .calendar-panel {
   width: 320px;
   background: var(--color-bg-card);
@@ -2073,6 +2088,95 @@ body.agora-classroom-active {
   font-size: 18px;
   font-weight: 600;
   margin-bottom: 24px;
+  color: var(--color-text-secondary);
+}
+
+.daily-schedule-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+}
+
+.daily-schedule-hint {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+  opacity: 0.85;
+}
+
+.empty-state-sub {
+  margin-top: 12px;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.course-share-preview {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-glass);
+  border: 1px solid var(--color-border);
+}
+
+.course-share-preview-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: 8px;
+}
+
+.course-share-preview-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.course-share-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.teacher-course-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.unscheduled-course-list {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-border);
+}
+
+.unscheduled-course-list ul {
+  margin: 8px 0 0;
+  padding-left: 1.2em;
+  color: var(--color-text-primary);
+}
+
+.unscheduled-course-list li {
+  margin-bottom: 6px;
+}
+
+.btn-link-inline {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-accent-blue-light);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.btn-link-inline:hover {
+  opacity: 0.9;
+}
+
+.course-muted {
+  font-size: 13px;
   color: var(--color-text-secondary);
 }
 

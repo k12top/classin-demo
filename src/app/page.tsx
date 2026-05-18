@@ -21,6 +21,8 @@ interface Course {
   updatedAt: string;
   students?: { studentId: string; studentName: string }[];
   groupLinks?: { group: { id: string; name: string } }[];
+  /** 教师列表接口：当前有效的课程分享链接 */
+  activeJoinLinks?: { id: string; label: string; joinUrl: string; useCount: number }[];
 }
 
 const ROOM_TYPE_LABELS: Record<number, string> = {
