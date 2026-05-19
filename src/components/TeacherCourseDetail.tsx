@@ -2,6 +2,13 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, UserPlus, Info, Check, Copy } from "lucide-react";
 
 const ROOM_TYPE_LABELS: Record<number, string> = {
   0: "一对一课堂",
@@ -305,312 +312,359 @@ export default function TeacherCourseDetail({
   };
 
   return (
-    <div className="course-detail-container">
+    <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 pt-4">
       {/* Header Card */}
-      <div className="course-header-card card animate-in">
-        <div className="course-header-top">
-          <div className="course-header-titles">
-            <span className="course-tag">{ROOM_TYPE_LABELS[course.roomType] || "课堂"}</span>
-            <h1 className="course-title">{course.name}</h1>
+      <Card className="glass-panel border-white/10 bg-gradient-to-br from-purple-900/40 to-black/40 overflow-hidden relative">
+        <div className="absolute top-[-50%] right-[-10%] w-[400px] h-[400px] bg-purple-500/20 rounded-full blur-[120px] pointer-events-none" />
+        <CardContent className="p-8 relative z-10">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+            <div className="space-y-4 flex-1">
+              <Badge variant="outline" className="border-purple-400/30 text-purple-300 bg-purple-500/10">
+                {ROOM_TYPE_LABELS[course.roomType] || "课堂"}
+              </Badge>
+              <h1 className="text-3xl md:text-4xl font-bold text-white">{course.name}</h1>
+              
+              <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground mt-4">
+                <div className="flex items-center gap-1.5 bg-black/30 px-3 py-1.5 rounded-md border border-white/5">
+                  <Users className="h-4 w-4 text-purple-400" />
+                  <span className="font-medium text-foreground">学生人数：{course.students.length}</span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-black/30 px-3 py-1.5 rounded-md border border-white/5">
+                  <Clock className="h-4 w-4 text-purple-400" />
+                  <span className="font-medium text-foreground">{formatTime(course.startTime)}</span>
+                </div>
+                <Badge variant="secondary" className={
+                  course.status === 'active' ? "bg-green-500/20 text-green-300" : 
+                  course.status === 'finished' ? "bg-gray-500/20 text-gray-300" : "bg-red-500/20 text-red-300"
+                }>
+                  {course.status === 'active' ? '待上课' : course.status === 'finished' ? '已结束' : '已取消'}
+                </Badge>
+              </div>
+            </div>
+            
+            <div className="flex flex-col gap-3 w-full md:w-auto shrink-0">
+              <Button
+                size="lg"
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white shadow-glow-purple"
+                onClick={onEnterClassroom}
+                disabled={enterLoading || course.status === "finished" || course.status === "cancelled"}
+              >
+                {enterLoading ? (
+                  <span className="flex items-center gap-2"><span className="animate-spin rounded-full h-4 w-4 border-2 border-white/20 border-t-white" /> 进入中…</span>
+                ) : (
+                  <span className="flex items-center gap-2"><PlayCircle className="h-5 w-5" /> 进入课堂</span>
+                )}
+              </Button>
+              {course.status === "active" && (
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="outline" className="border-white/10 hover:bg-white/10 text-white" onClick={() => handleStatusChange("finished")}>
+                    结束课程
+                  </Button>
+                  <Button variant="outline" className="border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => handleStatusChange("cancelled")}>
+                    取消课程
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
-          <div className="course-header-actions">
-            {course.status === "active" && (
-              <>
-                <button className="btn btn-secondary" onClick={() => handleStatusChange("finished")}>结束课程</button>
-                <button className="btn btn-danger" onClick={() => handleStatusChange("cancelled")}>取消课程</button>
-              </>
-            )}
-            <button
-              className="btn btn-primary"
-              onClick={onEnterClassroom}
-              disabled={enterLoading || course.status === "finished" || course.status === "cancelled"}
-            >
-              {enterLoading ? "进入中…" : "进入课堂"}
-            </button>
-          </div>
-        </div>
-
-        <div className="course-meta-row">
-          <div className="meta-item">
-            <span className="meta-icon">👥</span>
-            <span>学生人数：<strong>{course.students.length}</strong></span>
-          </div>
-          <div className="meta-item">
-            <span className="meta-icon">🕒</span>
-            <span>上课时间：<strong>{formatTime(course.startTime)}</strong></span>
-          </div>
-          <div className="meta-item">
-            <span className="meta-icon">🏷️</span>
-            <span>状态：
-              <span className={`status-badge ${course.status}`}>
-                {course.status === 'active' ? '待上课' : course.status === 'finished' ? '已结束' : '已取消'}
-              </span>
-            </span>
-          </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Main Tabs Area */}
-      <div className="course-tabs-section animate-in animate-in-delay-1">
-        <div className="detail-tabs">
-          <button 
-            className={`detail-tab ${activeTab === "members" ? "active" : ""}`} 
-            onClick={() => setActiveTab("members")}
-          >
-            👥 成员管理
-          </button>
-          <button 
-            className={`detail-tab ${activeTab === "sharing" ? "active" : ""}`} 
-            onClick={() => setActiveTab("sharing")}
-          >
-            🔗 课程分享
-          </button>
-          <button 
-            className={`detail-tab ${activeTab === "requirements" ? "active" : ""}`} 
-            onClick={() => setActiveTab("requirements")}
-          >
-            📝 学生要求
-          </button>
-        </div>
+      <Tabs defaultValue="members" className="w-full" onValueChange={(v) => setActiveTab(v as any)}>
+        <TabsList className="bg-black/20 border border-white/5 backdrop-blur-md mb-6 inline-flex w-full md:w-auto overflow-x-auto custom-scrollbar">
+          <TabsTrigger value="members" className="flex-1 md:flex-none data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300 whitespace-nowrap">
+            <Users className="mr-2 h-4 w-4" /> 成员管理
+          </TabsTrigger>
+          <TabsTrigger value="sharing" className="flex-1 md:flex-none data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300 whitespace-nowrap">
+            <LinkIcon className="mr-2 h-4 w-4" /> 课程分享
+          </TabsTrigger>
+          <TabsTrigger value="requirements" className="flex-1 md:flex-none data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300 whitespace-nowrap">
+            <MessageSquare className="mr-2 h-4 w-4" /> 学生要求
+          </TabsTrigger>
+        </TabsList>
 
-        <div className="detail-tab-content card">
-          {activeTab === "members" && (
-            <div className="tab-pane-members">
-              <div className={supportsStudentGroups ? "split-layout" : ""}>
-                {/* Left Side: Direct Students */}
-                <div className={supportsStudentGroups ? "split-column" : undefined}>
-                  <h3>直接添加学生</h3>
-                  <div className="search-bar-inline">
-                    <input
-                      className="form-input"
-                      placeholder="搜索用户名、姓名或邮箱…"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                    />
-                    <button className="btn btn-primary" onClick={handleSearch} disabled={searching || !searchQuery.trim()}>
-                      {searching ? "搜索中…" : "搜索"}
-                    </button>
-                  </div>
-                  {searchError && <p className="error-text">{searchError}</p>}
+        <TabsContent value="members" className="mt-0">
+          <div className={`grid grid-cols-1 ${supportsStudentGroups ? "lg:grid-cols-2" : ""} gap-6`}>
+            {/* Left Side: Direct Students */}
+            <Card className="glass-panel border-white/10 bg-white/5 flex flex-col h-[600px]">
+              <CardHeader className="border-b border-white/5 pb-4 shrink-0">
+                <CardTitle className="text-xl">直接添加学生</CardTitle>
+                <CardDescription>按用户名或邮箱搜索并添加平台用户到该课程。</CardDescription>
+              </CardHeader>
+              <CardContent className="pt-6 flex flex-col overflow-hidden h-full">
+                <div className="flex gap-2 shrink-0">
+                  <Input
+                    placeholder="搜索用户名、姓名或邮箱…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                    className="bg-black/40 border-white/10"
+                  />
+                  <Button className="bg-purple-600 hover:bg-purple-700 text-white shrink-0" onClick={handleSearch} disabled={searching || !searchQuery.trim()}>
+                    {searching ? "搜索中…" : "搜索"}
+                  </Button>
+                </div>
+                {searchError && <p className="text-sm text-red-400 bg-red-500/10 p-2 mt-3 rounded-md border border-red-500/20 shrink-0">{searchError}</p>}
 
-                  {supportsStudentGroups && searchResults.length > 0 && (
-                    <div className="mgmt-add-to-group">
-                      <label htmlFor="course-detail-member-group">加入学生组：</label>
-                      <select
-                        id="course-detail-member-group"
-                        className="form-input"
-                        value={memberTargetGroupId}
-                        onChange={(e) => setMemberTargetGroupId(e.target.value)}
-                      >
-                        <option value="">选择学生组…</option>
+                {supportsStudentGroups && searchResults.length > 0 && (
+                  <div className="mt-4 space-y-2 shrink-0">
+                    <label className="text-sm text-muted-foreground font-medium">快捷加入已有学生组：</label>
+                    <Select value={memberTargetGroupId} onValueChange={setMemberTargetGroupId}>
+                      <SelectTrigger className="bg-black/40 border-white/10">
+                        <SelectValue placeholder="选择学生组…" />
+                      </SelectTrigger>
+                      <SelectContent>
                         {flattenGroups(myGroups).map((opt) => (
-                          <option key={opt.id} value={opt.id}>
-                            {opt.label}
-                          </option>
+                          <SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>
                         ))}
-                      </select>
-                    </div>
-                  )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
-                  {searchResults.length > 0 && (
-                    <div className="search-results-list">
-                      {searchResults.map((u) => {
-                        const isAlready = course.students.some((s: any) =>
-                          casdoorUserIdsMatch(s.studentId, u.id)
-                        );
-                        return (
-                          <div key={u.id} className="search-result-row">
-                            <div className="user-info">
-                              <span className="user-name">{u.displayName || u.name}</span>
-                              <span className="user-email">{u.email}</span>
-                            </div>
-                            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                              <button
-                                type="button"
-                                className={`btn ${isAlready ? "btn-disabled" : "btn-secondary"} btn-sm`}
-                                disabled={isAlready}
-                                onClick={() => handleAddStudent(u.id, u.displayName || u.name)}
-                              >
-                                {isAlready ? "已加入" : "添加"}
-                              </button>
-                              {supportsStudentGroups && (
-                                <button
-                                  type="button"
-                                  className="btn btn-secondary btn-sm"
-                                  disabled={groupBusy || !memberTargetGroupId}
-                                  onClick={() => void handleAddUserToGroup(u)}
-                                >
-                                  加入组
-                                </button>
-                              )}
-                            </div>
+                {searchResults.length > 0 && (
+                  <div className="mt-4 overflow-y-auto pr-2 custom-scrollbar shrink-0 max-h-[150px]">
+                    {searchResults.map((u) => {
+                      const isAlready = course.students.some((s: any) => casdoorUserIdsMatch(s.studentId, u.id));
+                      return (
+                        <div key={u.id} className="flex flex-wrap justify-between items-center p-3 rounded-lg bg-black/40 border border-white/5 mb-2 gap-2">
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-sm">{u.displayName || u.name}</span>
+                            <span className="text-xs text-muted-foreground">{u.email}</span>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant={isAlready ? "outline" : "secondary"}
+                              className={isAlready ? "border-white/10 opacity-50" : "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"}
+                              disabled={isAlready}
+                              onClick={() => handleAddStudent(u.id, u.displayName || u.name)}
+                            >
+                              {isAlready ? "已加入" : "添加"}
+                            </Button>
+                            {supportsStudentGroups && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="border-white/10"
+                                disabled={groupBusy || !memberTargetGroupId}
+                                onClick={() => void handleAddUserToGroup(u)}
+                              >
+                                加入组
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
-                  <h4 className="sub-heading mt-24">已分配学生 ({course.students.length})</h4>
+                <div className="mt-6 flex-1 flex flex-col min-h-0">
+                  <h4 className="font-semibold flex items-center justify-between text-sm text-muted-foreground mb-3 pb-2 border-b border-white/5">
+                    已分配学生 <Badge variant="secondary" className="bg-white/10">{course.students.length}</Badge>
+                  </h4>
                   {course.students.length === 0 ? (
-                    <p className="empty-hint">暂无直接分配的学生</p>
+                    <div className="flex-1 flex items-center justify-center border border-dashed border-white/10 rounded-lg text-muted-foreground text-sm">
+                      暂无直接分配的学生
+                    </div>
                   ) : (
-                    <div className="enrolled-list">
+                    <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-2">
                       {course.students.map((s: any) => (
-                        <div key={s.id} className="enrolled-item">
-                          <span>{s.studentName || s.studentId}</span>
-                          <button className="icon-btn-danger" onClick={() => handleRemoveStudent(s.studentId)}>✕</button>
+                        <div key={s.id} className="flex justify-between items-center p-3 rounded-md bg-black/20 hover:bg-white/5 transition-colors group">
+                          <span className="text-sm font-medium">{s.studentName || s.studentId}</span>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 hover:bg-red-500/20 transition-all" 
+                            onClick={() => handleRemoveStudent(s.studentId)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
+              </CardContent>
+            </Card>
 
-                {supportsStudentGroups && (
-                  <>
-                    {/* Right Side: Groups */}
-                    <div className="split-column">
-                      <h3>学生组管理</h3>
-                      <div className="search-bar-inline">
-                        <input
-                          className="form-input"
-                          placeholder="新建学生组名称…"
-                          value={newGroupName}
-                          onChange={(e) => setNewGroupName(e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && handleCreateGroup()}
-                        />
-                        <button
-                          className="btn btn-secondary"
-                          disabled={groupBusy || !newGroupName.trim()}
-                          onClick={handleCreateGroup}
-                        >
-                          创建
-                        </button>
-                      </div>
+            {supportsStudentGroups && (
+              <Card className="glass-panel border-white/10 bg-white/5 flex flex-col h-[600px]">
+                <CardHeader className="border-b border-white/5 pb-4 shrink-0">
+                  <CardTitle className="text-xl">学生组管理</CardTitle>
+                  <CardDescription>关联现有的学生组到该课程。</CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6 flex flex-col overflow-hidden h-full">
+                  <div className="flex gap-2 shrink-0">
+                    <Input
+                      placeholder="新建学生组名称…"
+                      value={newGroupName}
+                      onChange={(e) => setNewGroupName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleCreateGroup()}
+                      className="bg-black/40 border-white/10"
+                    />
+                    <Button variant="secondary" className="shrink-0" disabled={groupBusy || !newGroupName.trim()} onClick={handleCreateGroup}>
+                      创建
+                    </Button>
+                  </div>
 
-                      <h4 className="sub-heading mt-24">我的学生组</h4>
+                  <div className="mt-6 flex-1 flex flex-col min-h-0 overflow-y-auto pr-2 custom-scrollbar space-y-6">
+                    <div>
+                      <h4 className="font-semibold text-sm text-muted-foreground mb-3 pb-2 border-b border-white/5 flex justify-between">
+                        我的所有学生组 <Badge variant="secondary" className="bg-white/10">{myGroups.length}</Badge>
+                      </h4>
                       {myGroups.length === 0 ? (
-                        <p className="empty-hint">暂无组，请先创建。</p>
-                      ) : (
-                        <div className="group-list">
-                          {myGroups.map((g) => (
-                            <div key={g.id} className="group-item">
-                              <div className="group-info">
-                                <strong>{g.name}</strong>
-                                <span className="group-meta">{countNestedMembers(g)} 人</span>
-                              </div>
-                              <div className="group-actions">
-                                {!linkedGroupIdSet.has(g.id) && (
-                                  <button
-                                    className="btn btn-secondary btn-sm"
-                                    disabled={groupBusy}
-                                    onClick={() => handleLinkGroupToCourse(g.id)}
-                                  >
-                                    关联课程
-                                  </button>
-                                )}
-                                <button
-                                  className="icon-btn-danger"
-                                  disabled={groupBusy}
-                                  onClick={() => handleDeleteGroup(g.id)}
-                                >
-                                  🗑
-                                </button>
-                              </div>
-                            </div>
-                          ))}
+                        <div className="p-4 text-center border border-dashed border-white/10 rounded-lg text-muted-foreground text-sm">
+                          暂无组，请先创建。
                         </div>
-                      )}
-
-                      <h4 className="sub-heading mt-24">已关联的学生组</h4>
-                      {course.groupLinks.length === 0 ? (
-                        <p className="empty-hint">尚未关联任何学生组</p>
                       ) : (
-                        <div className="group-list">
-                          {course.groupLinks.map((link: any) => (
-                            <div key={link.id} className="group-item linked">
-                              <span>
-                                {link.group.name} ({countNestedMembers(link.group)} 人)
-                              </span>
+                        <div className="space-y-2">
+                          {myGroups.map((g) => (
+                            <div key={g.id} className="flex justify-between items-center p-3 rounded-lg bg-black/40 border border-white/5">
+                              <div className="flex items-center gap-2">
+                                <strong className="text-sm">{g.name}</strong>
+                                <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-white/10">{countNestedMembers(g)} 人</Badge>
+                              </div>
+                              <div className="flex gap-2">
+                                {!linkedGroupIdSet.has(g.id) && (
+                                  <Button size="sm" variant="outline" className="border-purple-500/30 text-purple-300 hover:bg-purple-500/10 h-7 text-xs" disabled={groupBusy} onClick={() => handleLinkGroupToCourse(g.id)}>
+                                    关联到课程
+                                  </Button>
+                                )}
+                                <Button size="icon" variant="ghost" className="h-7 w-7 text-red-400 hover:text-red-300 hover:bg-red-500/20" disabled={groupBusy} onClick={() => handleDeleteGroup(g.id)}>
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
                             </div>
                           ))}
                         </div>
                       )}
                     </div>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
 
-          {activeTab === "sharing" && (
-            <div className="tab-pane-sharing">
-              <h3>生成 SSO 分享链接</h3>
-              <p className="hint-text">生成免密进入直播的链接。可用于家长监控或未注册用户的临时访问。</p>
-              
-              <div className="search-bar-inline mt-16">
-                <input
-                  className="form-input"
+                    <div>
+                      <h4 className="font-semibold text-sm text-muted-foreground mb-3 pb-2 border-b border-white/5 flex justify-between">
+                        本课程已关联组 <Badge variant="secondary" className="bg-white/10">{course.groupLinks.length}</Badge>
+                      </h4>
+                      {course.groupLinks.length === 0 ? (
+                        <div className="p-4 text-center border border-dashed border-white/10 rounded-lg text-muted-foreground text-sm">
+                          尚未关联任何学生组
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {course.groupLinks.map((link: any) => (
+                            <div key={link.id} className="flex justify-between items-center p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                              <div className="flex items-center gap-2">
+                                <strong className="text-sm text-purple-300">{link.group.name}</strong>
+                                <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-purple-500/20 text-purple-300">{countNestedMembers(link.group)} 人</Badge>
+                              </div>
+                              <Badge variant="outline" className="border-purple-500/30 text-purple-300">已关联</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="sharing" className="mt-0">
+          <Card className="glass-panel border-white/10 bg-white/5 max-w-3xl">
+            <CardHeader>
+              <CardTitle>生成 SSO 分享链接</CardTitle>
+              <CardDescription>
+                生成免密进入直播的链接。可用于家长监控或未注册用户的临时访问。
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Input
+                  className="bg-black/40 border-white/10"
                   placeholder="链接用途备注（例如：给张三妈妈的链接）"
                   value={newLinkLabel}
                   onChange={(e) => setNewLinkLabel(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleCreateJoinLink()}
                 />
-                <button className="btn btn-primary" disabled={joinLinkBusy} onClick={handleCreateJoinLink}>
+                <Button className="bg-purple-600 hover:bg-purple-700 text-white shrink-0" disabled={joinLinkBusy} onClick={handleCreateJoinLink}>
                   {joinLinkBusy ? "处理中…" : "生成链接"}
-                </button>
+                </Button>
               </div>
               
-              {copyHint && <p className="success-text mt-8">{copyHint}</p>}
-
-              <h4 className="sub-heading mt-24">有效链接</h4>
-              {joinLinks.length === 0 ? (
-                <p className="empty-hint">暂无分享链接</p>
-              ) : (
-                <div className="join-link-grid">
-                  {joinLinks.map((link) => (
-                    <div key={link.id} className="join-link-card">
-                      <div className="link-card-header">
-                        <strong>{link.label || '无备注'}</strong>
-                        <span className={`status-dot ${link.status}`}></span>
-                      </div>
-                      <div className="link-card-meta">
-                        使用 {link.useCount} 次
-                        {link.expiresAt ? ` · 到期 ${new Date(link.expiresAt).toLocaleDateString()}` : ""}
-                      </div>
-                      {link.status === "active" && link.joinUrl && (
-                        <div className="link-card-actions">
-                          <button className="btn btn-secondary btn-sm" onClick={() => void copyText(link.joinUrl!, "已复制链接")}>复制</button>
-                          <button className="btn btn-danger btn-sm" disabled={joinLinkBusy} onClick={() => handleRevokeJoinLink(link.id)}>撤销</button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+              {copyHint && (
+                <div className="mt-4 p-3 bg-green-500/10 border border-green-500/20 rounded-md text-green-400 text-sm flex items-center gap-2">
+                  <Check className="h-4 w-4" /> {copyHint}
                 </div>
               )}
-            </div>
-          )}
 
-          {activeTab === "requirements" && (
-            <div className="tab-pane-requirements">
-              <h3>学生要求</h3>
-              <p className="hint-text">查看家长或学生针对本节课提出的具体要求。</p>
-              
-              <div className="remarks-display mt-16">
-                {course.studentRemarks ? (
-                  <div className="remarks-bubble">
-                    <span className="quote-icon">“</span>
-                    <p>{course.studentRemarks}</p>
-                    <span className="quote-icon end">”</span>
+              <div className="mt-10">
+                <h4 className="font-semibold text-sm text-muted-foreground mb-4 pb-2 border-b border-white/5 flex items-center justify-between">
+                  有效链接 <Badge variant="secondary" className="bg-white/10">{joinLinks.length}</Badge>
+                </h4>
+                {joinLinks.length === 0 ? (
+                  <div className="p-8 text-center border border-dashed border-white/10 rounded-lg text-muted-foreground text-sm bg-black/20">
+                    暂无分享链接
                   </div>
                 ) : (
-                  <p className="empty-hint">学生暂未提交任何要求。</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {joinLinks.map((link) => (
+                      <div key={link.id} className="p-4 rounded-lg bg-black/40 border border-white/10 hover:border-purple-500/30 transition-all flex flex-col h-full group">
+                        <div className="flex justify-between items-start mb-2">
+                          <strong className="font-medium text-foreground">{link.label || '无备注'}</strong>
+                          <span className={`w-2 h-2 rounded-full ${link.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                        </div>
+                        <div className="text-xs text-muted-foreground space-y-1 mb-4 flex-1">
+                          <p>使用 {link.useCount} 次</p>
+                          {link.expiresAt && <p>到期: {new Date(link.expiresAt).toLocaleDateString()}</p>}
+                        </div>
+                        
+                        {link.status === "active" && link.joinUrl && (
+                          <div className="flex gap-2 mt-auto">
+                            <Button size="sm" className="flex-1 bg-white/10 hover:bg-white/20 text-foreground" onClick={() => void copyText(link.joinUrl!, "已复制链接")}>
+                              <Copy className="h-3.5 w-3.5 mr-1" /> 复制
+                            </Button>
+                            <Button size="sm" variant="destructive" className="bg-red-500/10 text-red-400 hover:bg-red-500/20 border-0" disabled={joinLinkBusy} onClick={() => handleRevokeJoinLink(link.id)}>
+                              撤销
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
-            </div>
-          )}
-        </div>
-      </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="requirements" className="mt-0">
+          <Card className="glass-panel border-white/10 bg-white/5 max-w-3xl">
+            <CardHeader>
+              <CardTitle>学生要求</CardTitle>
+              <CardDescription>查看家长或学生针对本节课提出的具体要求。</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {course.studentRemarks ? (
+                <div className="relative p-8 rounded-xl bg-gradient-to-br from-blue-900/20 to-purple-900/20 border border-white/10">
+                  <div className="absolute top-4 left-4 text-4xl text-white/10 font-serif leading-none">"</div>
+                  <p className="relative z-10 text-lg text-foreground/90 leading-relaxed indent-4 px-2">
+                    {course.studentRemarks}
+                  </p>
+                  <div className="absolute bottom-[-10px] right-4 text-4xl text-white/10 font-serif leading-none rotate-180">"</div>
+                </div>
+              ) : (
+                <div className="p-12 text-center border border-dashed border-white/10 rounded-lg bg-black/20">
+                  <Info className="h-8 w-8 text-muted-foreground/50 mx-auto mb-3" />
+                  <p className="text-muted-foreground">学生暂未提交任何要求。</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

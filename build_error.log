@@ -1,0 +1,41 @@
+npm warn Unknown user config "email". This will stop working in the next major version of npm.
+npm warn Unknown user config "always-auth". This will stop working in the next major version of npm.
+
+> classroom@0.1.0 build
+> next build
+
+⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of /Users/houshuai/project/ai_project/bun.lock as the root directory.
+ To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+ Detected additional lockfiles: 
+   * /Users/houshuai/project/ai_project/classroom/package-lock.json
+
+▲ Next.js 16.2.6 (Turbopack)
+- Environments: .env.local, .env
+
+  Creating an optimized production build ...
+
+> Build error occurred
+Error: Turbopack build failed with 1 errors:
+./classroom/src/app/globals.css
+Error evaluating Node.js code
+CssSyntaxError: /Users/houshuai/project/ai_project/classroom/src/app/globals.css:4:1: The `border-border` class does not exist. If `border-border` is a custom class, make sure it is defined within a `@layer` directive.
+    at Input.error (classroom/node_modules/postcss/lib/input.js:135:16) [/Users/houshuai/project/ai_project/classroom/.next/build/chunks/11g0_0nlkse6._.js:4692:22]
+    at error (classroom/node_modules/postcss/lib/node.js:146:32) [/Users/houshuai/project/ai_project/classroom/.next/build/chunks/11g0_0nlkse6._.js:954:38]
+    [at processApply (/Users/houshuai/project/ai_project/classroom/node_modules/tailwindcss/lib/lib/expandApplyAtRules.js:380:29)]
+    [at /Users/houshuai/project/ai_project/classroom/node_modules/tailwindcss/lib/lib/expandApplyAtRules.js:551:9]
+    [at /Users/houshuai/project/ai_project/classroom/node_modules/tailwindcss/lib/processTailwindFeatures.js:55:50]
+    [at async plugins (/Users/houshuai/project/ai_project/classroom/node_modules/tailwindcss/lib/plugin.js:38:17)]
+    at async LazyResult.runAsync (classroom/node_modules/postcss/lib/lazy-result.js:293:11) [/Users/houshuai/project/ai_project/classroom/.next/build/chunks/11g0_0nlkse6._.js:6255:21]
+    at async transform (turbopack:///[turbopack-node]/transforms/postcss.ts:70:34) [/Users/houshuai/project/ai_project/classroom/.next/build/chunks/[root-of-the-server]__0xf5ntl._.js:172:36]
+    at async run (turbopack:///[turbopack-node]/child_process/evaluate.ts:89:23) [/Users/houshuai/project/ai_project/classroom/.next/build/chunks/[root-of-the-server]__0688nqb._.js:443:31]
+
+Import trace:
+  Client Component Browser:
+    ./classroom/src/app/globals.css [Client Component Browser]
+    ./classroom/src/app/layout.tsx [Server Component]
+
+
+    at async transform (turbopack:///[turbopack-node]/transforms/postcss.ts:70:34) [/Users/houshuai/project/ai_project/classroom/.next/build/chunks/[root-of-the-server]__0xf5ntl._.js:172:36])
+    at async run (turbopack:///[turbopack-node]/child_process/evaluate.ts:89:23) [/Users/houshuai/project/ai_project/classroom/.next/build/chunks/[root-of-the-server]__0688nqb._.js:443:31])

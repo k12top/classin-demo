@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
+import StudentDashboard from "@/components/StudentDashboard";
+import TeacherDashboard from "@/components/TeacherDashboard";
+import { Card, CardContent } from "@/components/ui/card";
+import { Loader2 } from "lucide-react";
 
 interface Course {
   id: string;
@@ -21,24 +25,21 @@ interface Course {
   updatedAt: string;
   students?: { studentId: string; studentName: string }[];
   groupLinks?: { group: { id: string; name: string } }[];
-  /** 教师列表接口：当前有效的课程分享链接 */
   activeJoinLinks?: { id: string; label: string; joinUrl: string; useCount: number }[];
 }
 
-const ROOM_TYPE_LABELS: Record<number, string> = {
-  0: "一对一课堂",
-  4: "小班课",
-  2: "大班课",
-};
-
-const ROOM_TYPE_ICONS: Record<number, string> = {
-  0: "👤",
-  4: "👥",
-  2: "🏫",
-};
-
-import StudentDashboard from "@/components/StudentDashboard";
-import TeacherDashboard from "@/components/TeacherDashboard";
+function LoadingView({ message }: { message: string }) {
+  return (
+    <div className="flex h-screen w-full items-center justify-center p-4">
+      <Card className="glass-panel w-full max-w-sm border-white/10 bg-white/5 animate-in fade-in zoom-in duration-300">
+        <CardContent className="flex flex-col items-center justify-center p-12 text-center space-y-4">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground font-medium">{message}</p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const { user, loading: authLoading, logout } = useAuth();
@@ -82,21 +83,11 @@ export default function DashboardPage() {
   }, [authLoading, user]);
 
   if (authLoading || !user) {
-    return (
-      <div className="dashboard-loading">
-        <div className="loader" />
-        <p>{authLoading ? "加载中…" : "正在跳转登录…"}</p>
-      </div>
-    );
+    return <LoadingView message={authLoading ? "加载中…" : "正在跳转登录…"} />;
   }
 
   if (loading) {
-    return (
-      <div className="dashboard-loading">
-        <div className="loader" />
-        <p>加载课程列表…</p>
-      </div>
-    );
+    return <LoadingView message="加载课程列表…" />;
   }
 
   if (user.role === "teacher") {

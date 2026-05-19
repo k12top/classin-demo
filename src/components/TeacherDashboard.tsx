@@ -3,6 +3,13 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Calendar as CalendarIcon, Users, Settings, LogOut, ChevronLeft, ChevronRight, PlayCircle, Plus, Search, Trash2, Link as LinkIcon, Edit, UserPlus, Info, Clock } from "lucide-react";
 
 interface Course {
   id: string;
@@ -173,7 +180,6 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     return days;
   };
 
-  /* ── Student management handlers ── */
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
@@ -284,348 +290,373 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   }
 
   return (
-    <div className="teacher-dashboard">
-      <aside className="sidebar">
-        <div className="user-profile">
-          <div className="avatar">{user.displayName?.[0] || 'T'}</div>
-          <span className="username">{user.displayName || user.name} <span className="role-badge teacher">Teacher</span></span>
+    <div className="flex min-h-screen bg-background">
+      {/* Sidebar */}
+      <aside className="w-64 border-r border-white/10 bg-black/20 backdrop-blur-xl flex flex-col hidden md:flex">
+        <div className="p-6">
+          <div className="flex items-center gap-4 mb-8">
+            <Avatar className="h-12 w-12 border border-purple-500/30 shadow-glow-purple">
+              <AvatarImage src={user.avatar} />
+              <AvatarFallback className="bg-purple-500/20 text-purple-400">{user.displayName?.[0] || 'T'}</AvatarFallback>
+            </Avatar>
+            <div className="flex flex-col">
+              <span className="font-semibold text-foreground truncate w-32">{user.displayName || user.name}</span>
+              <Badge variant="secondary" className="w-fit text-[10px] mt-1 bg-purple-500/20 text-purple-300 hover:bg-purple-500/30">Teacher</Badge>
+            </div>
+          </div>
+          <nav className="space-y-2">
+            <Button 
+              variant={activePage === 'schedule' ? 'secondary' : 'ghost'} 
+              className={`w-full justify-start ${activePage === 'schedule' ? 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30' : ''}`}
+              onClick={() => setActivePage('schedule')}
+            >
+              <CalendarIcon className="mr-2 h-4 w-4" /> 我的课表
+            </Button>
+            <Button 
+              variant={activePage === 'students' ? 'secondary' : 'ghost'} 
+              className={`w-full justify-start ${activePage === 'students' ? 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30' : ''}`}
+              onClick={() => setActivePage('students')}
+            >
+              <Users className="mr-2 h-4 w-4" /> 学生管理
+            </Button>
+            <Button 
+              variant={activePage === 'settings' ? 'secondary' : 'ghost'} 
+              className={`w-full justify-start ${activePage === 'settings' ? 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30' : ''}`}
+              onClick={() => setActivePage('settings')}
+            >
+              <Settings className="mr-2 h-4 w-4" /> 个人设置
+            </Button>
+          </nav>
         </div>
-        <nav className="side-menu">
-          <button className={`menu-item ${activePage === 'schedule' ? 'active' : ''}`} onClick={() => setActivePage('schedule')}>
-            <span className="icon">📅</span> 我的课表
-          </button>
-          <button className={`menu-item ${activePage === 'students' ? 'active' : ''}`} onClick={() => setActivePage('students')}>
-            <span className="icon">👥</span> 学生管理
-          </button>
-          <button className={`menu-item ${activePage === 'settings' ? 'active' : ''}`} onClick={() => setActivePage('settings')}>
-            <span className="icon">⚙️</span> 个人设置
-          </button>
-        </nav>
       </aside>
 
-      <main className="main-content">
+      {/* Main Content */}
+      <main className="flex-1 overflow-auto p-6 md:p-10 relative">
         {/* ──── Schedule Page ──── */}
         {activePage === "schedule" && (
-          <>
-            <div className="teacher-header">
-              <h2>我的课表</h2>
-              <button className="btn-primary" onClick={() => router.push("/courses/create")}>+ 创建课程</button>
+          <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <h2 className="text-3xl font-bold">我的课表</h2>
+                <p className="text-muted-foreground mt-1">管理您的每日课程和教室。</p>
+              </div>
+              <Button onClick={() => router.push("/courses/create")} className="bg-purple-600 hover:bg-purple-700 text-white shadow-glow-purple">
+                <Plus className="mr-2 h-4 w-4" /> 创建课程
+              </Button>
             </div>
 
-            <div className="schedule-container">
-              <div className="calendar-panel">
-                <div className="calendar-header">
-                  <button type="button" onClick={() => shiftCalendarMonth(-1)} aria-label="上一月">
-                    &lt;
-                  </button>
-                  <span>
-                    {selectedDate.getFullYear()}年 {selectedDate.getMonth() + 1}月
-                  </span>
-                  <button type="button" onClick={() => shiftCalendarMonth(1)} aria-label="下一月">
-                    &gt;
-                  </button>
-                </div>
-                <div className="calendar-grid">
-                  {['日', '一', '二', '三', '四', '五', '六'].map(d => <div key={d} className="cal-day-header">{d}</div>)}
-                  {generateCalendarDays().map((date, idx) => (
-                    <div 
-                      key={idx} 
-                      className={`cal-day ${date ? '' : 'empty'} ${date && isSameDay(date, selectedDate) ? 'selected' : ''} ${date && isSameDay(date, new Date()) ? 'today' : ''}`}
-                      onClick={() => {
-                        if (!date) return;
-                        const d = new Date(
-                          date.getFullYear(),
-                          date.getMonth(),
-                          date.getDate()
-                        );
-                        setSelectedDate(d);
-                      }}
-                    >
-                      {date ? date.getDate() : ''}
-                      {date && courses.some(c => c.startTime && isSameDay(new Date(c.startTime), date)) && (
-                        <div className="cal-dot"></div>
-                      )}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Calendar Sidebar */}
+              <div className="lg:col-span-4 xl:col-span-3">
+                <Card className="glass-panel border-white/10 bg-black/40">
+                  <div className="p-4 flex items-center justify-between border-b border-white/10">
+                    <Button variant="ghost" size="icon" onClick={() => shiftCalendarMonth(-1)}><ChevronLeft className="h-4 w-4" /></Button>
+                    <span className="font-semibold">{selectedDate.getFullYear()}年 {selectedDate.getMonth() + 1}月</span>
+                    <Button variant="ghost" size="icon" onClick={() => shiftCalendarMonth(1)}><ChevronRight className="h-4 w-4" /></Button>
+                  </div>
+                  <div className="p-4">
+                    <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                      {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                        <div key={d} className="text-xs font-medium text-muted-foreground py-1">{d}</div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                    <div className="grid grid-cols-7 gap-1">
+                      {generateCalendarDays().map((date, idx) => {
+                        if (!date) return <div key={idx} className="h-8" />;
+                        const isSelected = isSameDay(date, selectedDate);
+                        const isToday = isSameDay(date, new Date());
+                        const hasCourse = courses.some(c => c.startTime && isSameDay(new Date(c.startTime), date));
+                        
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => setSelectedDate(new Date(date.getFullYear(), date.getMonth(), date.getDate()))}
+                            className={`
+                              relative h-8 rounded-full flex items-center justify-center text-sm transition-all
+                              ${isSelected ? 'bg-purple-600 text-white font-bold shadow-md' : 'hover:bg-white/10 text-foreground'}
+                              ${isToday && !isSelected ? 'text-purple-400 font-bold' : ''}
+                            `}
+                          >
+                            {date.getDate()}
+                            {hasCourse && !isSelected && (
+                              <span className="absolute bottom-1 w-1 h-1 rounded-full bg-purple-500"></span>
+                            )}
+                            {hasCourse && isSelected && (
+                              <span className="absolute bottom-1 w-1 h-1 rounded-full bg-white"></span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </Card>
               </div>
 
-              <div className="daily-schedule">
-                <h3 className="daily-schedule-heading">
-                  {selectedDate.getMonth() + 1}月{selectedDate.getDate()}日 的课程
-                  <span className="daily-schedule-hint">
-                    （点击日历上某一天查看当日安排）
-                  </span>
-                </h3>
+              {/* Daily Schedule List */}
+              <div className="lg:col-span-8 xl:col-span-9 space-y-6">
+                <div>
+                  <h3 className="text-xl font-semibold flex items-center gap-2">
+                    {selectedDate.getMonth() + 1}月{selectedDate.getDate()}日 安排
+                  </h3>
+                </div>
+                
                 {selectedCourses.length === 0 ? (
-                  <div className="empty-state">
-                    该日没有排课。
+                  <Card className="glass-panel border-white/10 bg-white/5 border-dashed p-12 text-center flex flex-col items-center">
+                    <CalendarIcon className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
+                    <p className="text-muted-foreground font-medium">该日没有排课。</p>
                     {(coursesMissingStartTime?.length ?? 0) > 0 && (
-                      <p className="empty-state-sub">
-                        另有 {coursesMissingStartTime.length}{" "}
-                        节课未填写上课时间，请到「课程详情」中补齐。
+                      <p className="text-sm text-muted-foreground mt-2">
+                        另有 {coursesMissingStartTime.length} 节课未填写上课时间，请到「课程详情」中补齐。
                       </p>
                     )}
-                  </div>
+                  </Card>
                 ) : (
-                  <div className="course-list-compact">
+                  <div className="space-y-4">
                     {selectedCourses.map((course) => (
-                      <div key={course.id} className="course-card">
-                        <div className="course-details">
-                          <h3>
-                            {course.name}{" "}
-                            <span className={`status-badge ${course.status}`}>
-                              {course.status === "active"
-                                ? "待上课"
-                                : course.status === "finished"
-                                  ? "已结束"
-                                  : "已取消"}
-                            </span>
-                          </h3>
-                          <div className="course-time">
-                            {course.startTime
-                              ? new Date(course.startTime).toLocaleTimeString(
-                                  [],
-                                  { hour: "2-digit", minute: "2-digit" }
-                                )
-                              : ""}
-                            {" · "}
-                            {course.endTime
-                              ? new Date(course.endTime).toLocaleTimeString(
-                                  [],
-                                  { hour: "2-digit", minute: "2-digit" }
-                                )
-                              : ""}
-                          </div>
-                          <div className="course-meta">
-                            <span className="course-tag">
-                              {ROOM_TYPE_LABELS[course.roomType] || "课堂"}
-                            </span>
-                          </div>
-
-                          <div className="course-share-preview">
-                            <div className="course-share-preview-title">分享链接</div>
-                            {course.activeJoinLinks &&
-                            course.activeJoinLinks.length > 0 ? (
-                              <div className="course-share-preview-links">
-                                {course.activeJoinLinks.map((link) => (
-                                  <button
-                                    key={link.id}
-                                    type="button"
-                                    className="btn btn-secondary btn-sm share-link-chip"
-                                    onClick={() =>
-                                      void copyShareUrl(link.joinUrl)
-                                    }
-                                  >
-                                    {link.label.trim() ? link.label.slice(0, 18) : "未命名"}
-                                    {link.useCount ? ` · ${link.useCount}次` : ""}
-                                  </button>
-                                ))}
+                      <Card key={course.id} className="glass-panel border-white/10 bg-white/5 overflow-hidden hover:border-purple-500/30 transition-all">
+                        <div className="p-6">
+                          <div className="flex flex-col md:flex-row justify-between md:items-start gap-4">
+                            <div className="flex-1 space-y-3">
+                              <div className="flex items-center gap-3">
+                                <h3 className="text-xl font-bold text-foreground">{course.name}</h3>
+                                <Badge variant="outline" className={
+                                  course.status === "active" ? "border-green-500/50 text-green-400 bg-green-500/10" : 
+                                  course.status === "finished" ? "border-gray-500/50 text-gray-400 bg-gray-500/10" : 
+                                  "border-red-500/50 text-red-400 bg-red-500/10"
+                                }>
+                                  {course.status === "active" ? "待上课" : course.status === "finished" ? "已结束" : "已取消"}
+                                </Badge>
+                                <Badge variant="secondary" className="bg-white/10 text-white/80">{ROOM_TYPE_LABELS[course.roomType] || "课堂"}</Badge>
                               </div>
-                            ) : (
-                              <p className="course-share-empty">
-                                暂无有效链接，可在详情页「课程分享」中新建。
-                              </p>
-                            )}
-                          </div>
+                              
+                              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                <div className="flex items-center gap-1.5 bg-black/40 px-3 py-1 rounded-md border border-white/5">
+                                  <Clock className="h-4 w-4 text-purple-400" />
+                                  <span className="font-medium text-foreground">
+                                    {course.startTime ? new Date(course.startTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "未定"}
+                                    {" - "}
+                                    {course.endTime ? new Date(course.endTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "未定"}
+                                  </span>
+                                </div>
+                              </div>
 
-                          {course.studentRemarks && (
-                            <div className="remarks-section student-remarks-read">
-                              <strong>学生要求:</strong> {course.studentRemarks}
+                              <div className="mt-4 p-4 bg-black/20 rounded-lg border border-white/5 space-y-2">
+                                <div className="flex items-center gap-2 text-sm font-medium text-purple-300">
+                                  <LinkIcon className="h-4 w-4" /> 快速邀请
+                                </div>
+                                {course.activeJoinLinks && course.activeJoinLinks.length > 0 ? (
+                                  <div className="flex flex-wrap gap-2">
+                                    {course.activeJoinLinks.map((link) => (
+                                      <Button
+                                        key={link.id}
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 text-xs border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300"
+                                        onClick={() => void copyShareUrl(link.joinUrl)}
+                                      >
+                                        {link.label.trim() ? link.label.slice(0, 18) : "未命名"}
+                                        {link.useCount ? ` · ${link.useCount}次` : ""}
+                                      </Button>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground">暂无有效链接，可在详情页新建。</p>
+                                )}
+                              </div>
+
+                              {course.studentRemarks && (
+                                <div className="text-sm bg-blue-500/10 border border-blue-500/20 p-3 rounded-md text-blue-200 mt-2">
+                                  <strong className="text-blue-300 mr-1">学生要求:</strong> {course.studentRemarks}
+                                </div>
+                              )}
                             </div>
-                          )}
 
-                          <div className="actions teacher-course-actions">
-                            <button
-                              type="button"
-                              className="btn-primary"
-                              onClick={() =>
-                                router.push(`/courses/${course.id}`)
-                              }
-                            >
-                              课程详情
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-secondary"
-                              disabled={
-                                course.status !== "active" ||
-                                !!enteringCourseId
-                              }
-                              onClick={() =>
-                                void handleEnterClassroomFromList(course)
-                              }
-                            >
-                              {enteringCourseId === course.id
-                                ? "进入中…"
-                                : "进入课堂"}
-                            </button>
-                            {course.status === "active" && (
-                              <>
-                                <button
-                                  type="button"
-                                  className="btn-secondary"
-                                  onClick={() =>
-                                    handleStatusChange(course.id, "finished")
-                                  }
-                                >
-                                  结束课程
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn-danger"
-                                  onClick={() =>
-                                    handleStatusChange(course.id, "cancelled")
-                                  }
-                                >
-                                  取消课程
-                                </button>
-                              </>
-                            )}
+                            <div className="flex flex-col gap-2 min-w-[140px]">
+                              <Button
+                                variant="outline"
+                                className="w-full justify-start border-white/10 hover:bg-white/10"
+                                onClick={() => router.push(`/courses/${course.id}`)}
+                              >
+                                <Edit className="mr-2 h-4 w-4" /> 课程详情
+                              </Button>
+                              <Button
+                                className="w-full justify-start bg-purple-600 hover:bg-purple-700 text-white shadow-glow-purple"
+                                disabled={course.status !== "active" || !!enteringCourseId}
+                                onClick={() => void handleEnterClassroomFromList(course)}
+                              >
+                                {enteringCourseId === course.id ? (
+                                  <>进入中…</>
+                                ) : (
+                                  <><PlayCircle className="mr-2 h-4 w-4" /> 进入课堂</>
+                                )}
+                              </Button>
+                              
+                              {course.status === "active" && (
+                                <div className="grid grid-cols-2 gap-2 mt-2">
+                                  <Button variant="outline" size="sm" className="text-xs border-white/10" onClick={() => handleStatusChange(course.id, "finished")}>结束</Button>
+                                  <Button variant="outline" size="sm" className="text-xs text-red-400 border-red-500/30 hover:bg-red-500/10" onClick={() => handleStatusChange(course.id, "cancelled")}>取消</Button>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      </Card>
                     ))}
                   </div>
                 )}
 
                 {coursesMissingStartTime.length > 0 && (
-                  <div className="unscheduled-course-list">
-                    <h4 className="sub-heading">未设定上课时间的课程</h4>
-                    <ul>
-                      {coursesMissingStartTime.map((c) => (
-                        <li key={c.id}>
-                          <button
-                            type="button"
-                            className="btn-link-inline"
-                            onClick={() =>
-                              router.push(`/courses/${c.id}`)
-                            }
-                          >
-                            {c.name}
-                          </button>
-                          <span className="course-muted"> · 去详情补齐时间</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  <Card className="glass-panel border-orange-500/30 bg-orange-500/5 mt-8">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-orange-400 text-lg flex items-center gap-2"><Info className="h-5 w-5" /> 未设定时间的课程</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ul className="space-y-2">
+                        {coursesMissingStartTime.map((c) => (
+                          <li key={c.id} className="flex justify-between items-center text-sm p-2 rounded hover:bg-white/5 transition-colors">
+                            <span className="font-medium">{c.name}</span>
+                            <Button variant="link" size="sm" className="text-orange-300" onClick={() => router.push(`/courses/${c.id}`)}>去补齐时间</Button>
+                          </li>
+                        ))}
+                      </ul>
+                    </CardContent>
+                  </Card>
                 )}
               </div>
             </div>
-          </>
+          </div>
         )}
 
         {/* ──── Student Management Page ──── */}
         {activePage === "students" && (
-          <div className="student-mgmt-page">
-            <div className="teacher-header">
-              <h2>学生管理</h2>
+          <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div>
+              <h2 className="text-3xl font-bold">学生管理</h2>
+              <p className="text-muted-foreground mt-1">搜索学生并分配到您的学生组中。</p>
             </div>
 
-            <div className="mgmt-section">
-              <div className="mgmt-split">
-                {/* Left: Search & Add */}
-                <div className="mgmt-column">
-                  <h3 className="mgmt-section-title">搜索用户</h3>
-                  <div className="search-bar-inline">
-                    <input
-                      className="form-input"
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Left: Search & Add */}
+              <Card className="glass-panel border-white/10 bg-white/5">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2"><Search className="h-5 w-5 text-purple-400" /> 搜索用户</CardTitle>
+                  <CardDescription>按用户名或邮箱搜索平台上的学生</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="flex gap-2">
+                    <Input
                       placeholder="输入用户名、显示名或邮箱…"
                       value={searchQuery}
+                      className="bg-black/40 border-white/10"
                       onChange={(e) => setSearchQuery(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                     />
-                    <button className="btn btn-primary" onClick={handleSearch} disabled={searching || !searchQuery.trim()}>
+                    <Button className="bg-purple-600 hover:bg-purple-700 text-white shrink-0" onClick={handleSearch} disabled={searching || !searchQuery.trim()}>
                       {searching ? "搜索中…" : "搜索"}
-                    </button>
+                    </Button>
                   </div>
 
                   {searchResults.length > 0 && (
-                    <div className="mgmt-add-to-group">
-                      <label>加入学生组：</label>
-                      <select
-                        className="form-input"
-                        value={memberTargetGroupId}
-                        onChange={(e) => setMemberTargetGroupId(e.target.value)}
-                      >
-                        <option value="">选择学生组…</option>
-                        {flattenGroups(myGroups).map((opt) => (
-                          <option key={opt.id} value={opt.id}>{opt.label}</option>
-                        ))}
-                      </select>
+                    <div className="space-y-3">
+                      <label className="text-sm font-medium text-muted-foreground">加入目标学生组：</label>
+                      <Select value={memberTargetGroupId} onValueChange={setMemberTargetGroupId}>
+                        <SelectTrigger className="w-full bg-black/40 border-white/10">
+                          <SelectValue placeholder="选择学生组…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {flattenGroups(myGroups).map((opt) => (
+                            <SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   )}
 
-                  {searchError && <p className="error-text">{searchError}</p>}
+                  {searchError && <p className="text-sm text-red-400 bg-red-500/10 p-3 rounded-md border border-red-500/20">{searchError}</p>}
 
                   {searchResults.length > 0 && (
-                    <div className="search-results-list">
+                    <div className="space-y-2 mt-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                       {searchResults.map((u) => (
-                        <div key={u.id} className="search-result-row">
-                          <div className="user-info">
-                            <span className="user-name">{u.displayName || u.name}</span>
-                            <span className="user-email">{u.email}</span>
+                        <div key={u.id} className="flex justify-between items-center p-3 rounded-lg bg-black/40 border border-white/5 hover:border-purple-500/30 transition-colors">
+                          <div className="flex flex-col">
+                            <span className="font-semibold">{u.displayName || u.name}</span>
+                            <span className="text-xs text-muted-foreground">{u.email}</span>
                           </div>
-                          <button
-                            className="btn btn-secondary btn-sm"
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="bg-purple-500/20 text-purple-300 hover:bg-purple-500/40"
                             disabled={groupBusy || !memberTargetGroupId}
                             onClick={() => handleAddUserToGroup(u)}
                           >
-                            加入组
-                          </button>
+                            <UserPlus className="h-4 w-4 mr-1" /> 加入组
+                          </Button>
                         </div>
                       ))}
                     </div>
                   )}
-                </div>
+                </CardContent>
+              </Card>
 
-                {/* Right: Groups */}
-                <div className="mgmt-column">
-                  <h3 className="mgmt-section-title">学生组</h3>
-                  <div className="search-bar-inline">
-                    <input
-                      className="form-input"
+              {/* Right: Groups */}
+              <Card className="glass-panel border-white/10 bg-white/5">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5 text-purple-400" /> 学生组管理</CardTitle>
+                  <CardDescription>创建群组以便于在课程中批量分配学生</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="flex gap-2">
+                    <Input
                       placeholder="新建学生组名称…"
                       value={newGroupName}
+                      className="bg-black/40 border-white/10"
                       onChange={(e) => setNewGroupName(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleCreateGroup()}
                     />
-                    <button className="btn btn-secondary" disabled={groupBusy || !newGroupName.trim()} onClick={handleCreateGroup}>
+                    <Button variant="secondary" className="shrink-0" disabled={groupBusy || !newGroupName.trim()} onClick={handleCreateGroup}>
                       创建
-                    </button>
+                    </Button>
                   </div>
 
                   {myGroups.length === 0 ? (
-                    <p className="empty-hint">暂无学生组，请先创建。</p>
+                    <div className="p-8 text-center border border-dashed border-white/10 rounded-lg text-muted-foreground">
+                      暂无学生组，请先在上方创建。
+                    </div>
                   ) : (
-                    <div className="group-mgmt-list">
+                    <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
                       {myGroups.map((g) => (
-                        <div key={g.id} className="group-mgmt-card">
-                          <div className="group-mgmt-header">
-                            <div>
-                              <strong>{g.name}</strong>
-                              <span className="group-meta">{countMembers(g)} 人</span>
+                        <div key={g.id} className="rounded-lg bg-black/40 border border-white/10 overflow-hidden">
+                          <div className="flex justify-between items-center p-3 bg-white/5 border-b border-white/5">
+                            <div className="flex items-center gap-2">
+                              <strong className="text-sm font-medium">{g.name}</strong>
+                              <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-white/10">{countMembers(g)} 人</Badge>
                             </div>
-                            <button className="icon-btn-danger" disabled={groupBusy} onClick={() => handleDeleteGroup(g.id)} title="删除组">🗑</button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:text-red-300 hover:bg-red-500/20" disabled={groupBusy} onClick={() => handleDeleteGroup(g.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
-                          {(g.members?.length ?? 0) > 0 ? (
-                            <div className="group-members-list">
-                              {g.members.map((m) => (
-                                <div key={m.userId} className="group-member-row">
-                                  <span>{m.userName || m.userId}</span>
-                                  <button className="icon-btn-danger" onClick={() => handleRemoveMember(g.id, m.userId)} title="移除">✕</button>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="empty-hint" style={{padding: '8px 0', fontSize: 12}}>暂无成员</p>
-                          )}
+                          <div className="p-2">
+                            {(g.members?.length ?? 0) > 0 ? (
+                              <div className="space-y-1">
+                                {g.members.map((m) => (
+                                  <div key={m.userId} className="flex justify-between items-center p-2 rounded-md hover:bg-white/5 group">
+                                    <span className="text-sm text-foreground/80">{m.userName || m.userId}</span>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 hover:bg-red-500/20 transition-all" onClick={() => handleRemoveMember(g.id, m.userId)}>
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-muted-foreground text-center py-4">暂无成员</p>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
                   )}
-                </div>
-              </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
         )}
@@ -639,59 +670,72 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   );
 }
 
-/* ─── Settings Panel ─── */
 function SettingsPanel({ user, onLogout }: { user: any; onLogout: () => void }) {
   return (
-    <div className="settings-page">
-      <h2 className="settings-title">个人设置</h2>
+    <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="mb-8">
+        <h2 className="text-3xl font-bold">个人设置</h2>
+        <p className="text-muted-foreground mt-2">管理您的账号信息和偏好设置。</p>
+      </div>
 
-      <div className="settings-card">
-        <h3>基本信息</h3>
-        <div className="settings-grid">
-          <div className="settings-field">
-            <label>用户名</label>
-            <div className="field-value">{user.name || "—"}</div>
-          </div>
-          <div className="settings-field">
-            <label>显示名称</label>
-            <div className="field-value">{user.displayName || "—"}</div>
-          </div>
-          <div className="settings-field">
-            <label>邮箱</label>
-            <div className="field-value">{user.email || "—"}</div>
-          </div>
-          <div className="settings-field">
-            <label>角色</label>
-            <div className="field-value">
-              <span className="settings-role-badge teacher">👨‍🏫 教师</span>
+      <Card className="glass-panel border-white/10 bg-white/5">
+        <CardHeader>
+          <CardTitle>基本信息</CardTitle>
+          <CardDescription>您在平台上的基本档案信息。</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-1">
+              <label className="text-sm text-muted-foreground">用户名</label>
+              <div className="font-medium">{user.name || "—"}</div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm text-muted-foreground">显示名称</label>
+              <div className="font-medium">{user.displayName || "—"}</div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm text-muted-foreground">邮箱</label>
+              <div className="font-medium">{user.email || "—"}</div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm text-muted-foreground">角色</label>
+              <div><Badge variant="outline" className="bg-purple-500/10 text-purple-400 border-purple-500/20">👨‍🏫 教师</Badge></div>
+            </div>
+            <div className="space-y-1 md:col-span-2">
+              <label className="text-sm text-muted-foreground">用户 ID</label>
+              <div className="font-mono text-sm bg-black/40 p-2 rounded-md border border-white/5 break-all">{user.userId}</div>
             </div>
           </div>
-          <div className="settings-field">
-            <label>用户 ID</label>
-            <div className="field-value field-value-mono">{user.userId}</div>
-          </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      <div className="settings-card">
-        <h3>头像</h3>
-        <div className="avatar-section">
-          <div className="settings-avatar">
-            {user.avatar ? (
-              <img src={user.avatar} alt="avatar" />
-            ) : (
-              <span>{user.displayName?.[0] || user.name?.[0] || "U"}</span>
-            )}
+      <Card className="glass-panel border-white/10 bg-white/5">
+        <CardHeader>
+          <CardTitle>头像</CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center gap-6">
+          <Avatar className="h-20 w-20 border border-purple-500/20 shadow-glow-purple">
+            <AvatarImage src={user.avatar} />
+            <AvatarFallback className="text-2xl bg-purple-500/20 text-purple-400">{user.displayName?.[0] || user.name?.[0] || "T"}</AvatarFallback>
+          </Avatar>
+          <div className="text-sm text-muted-foreground">
+            头像信息由认证系统 (SSO) 提供。<br/>
+            如需更改，请在 SSO 平台更新或联系管理员。
           </div>
-          <p className="avatar-hint">头像信息来自 SSO 系统，如需更改请联系管理员。</p>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      <div className="settings-card settings-card-danger">
-        <h3>账户操作</h3>
-        <p className="danger-hint">退出当前账号后需要重新登录。</p>
-        <button className="btn btn-danger" onClick={onLogout}>退出登录</button>
-      </div>
+      <Card className="border-destructive/20 bg-destructive/5 backdrop-blur-xl">
+        <CardHeader>
+          <CardTitle className="text-destructive">账户安全</CardTitle>
+          <CardDescription>退出当前账号后需要重新登录。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="destructive" onClick={onLogout}>
+            <LogOut className="mr-2 h-4 w-4" /> 退出登录
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }
