@@ -399,7 +399,7 @@ export default function TeacherCourseDetail({
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                    className="bg-black/40 border-white/10"
+                    className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
                   />
                   <Button className="bg-purple-600 hover:bg-purple-700 text-white shrink-0" onClick={handleSearch} disabled={searching || !searchQuery.trim()}>
                     {searching ? "搜索中…" : "搜索"}
@@ -411,10 +411,10 @@ export default function TeacherCourseDetail({
                   <div className="mt-4 space-y-2 shrink-0">
                     <label className="text-sm text-muted-foreground font-medium">快捷加入已有学生组：</label>
                     <Select value={memberTargetGroupId} onValueChange={setMemberTargetGroupId}>
-                      <SelectTrigger className="bg-black/40 border-white/10">
-                        <SelectValue placeholder="选择学生组…" />
+                      <SelectTrigger className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50">
+                        <SelectValue placeholder="选择目标学生组…" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="bg-background/95 backdrop-blur-md border-white/10">
                         {flattenGroups(myGroups).map((opt) => (
                           <SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>
                         ))}
@@ -503,7 +503,7 @@ export default function TeacherCourseDetail({
                       value={newGroupName}
                       onChange={(e) => setNewGroupName(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleCreateGroup()}
-                      className="bg-black/40 border-white/10"
+                      className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
                     />
                     <Button variant="secondary" className="shrink-0" disabled={groupBusy || !newGroupName.trim()} onClick={handleCreateGroup}>
                       创建
@@ -583,7 +583,7 @@ export default function TeacherCourseDetail({
             <CardContent>
               <div className="flex flex-col sm:flex-row gap-3">
                 <Input
-                  className="bg-black/40 border-white/10"
+                  className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
                   placeholder="链接用途备注（例如：给张三妈妈的链接）"
                   value={newLinkLabel}
                   onChange={(e) => setNewLinkLabel(e.target.value)}

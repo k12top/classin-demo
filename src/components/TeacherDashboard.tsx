@@ -9,7 +9,15 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { Calendar as CalendarIcon, Users, Settings, LogOut, ChevronLeft, ChevronRight, PlayCircle, Plus, Search, Trash2, Link as LinkIcon, Edit, UserPlus, Info, Clock } from "lucide-react";
+
+const ROOM_TYPES = [
+  { value: 0, label: "一对一课堂", desc: "1v1 私教模式", icon: "👤" },
+  { value: 4, label: "小班课", desc: "适合 2~16 人", icon: "👥" },
+  { value: 2, label: "大班课", desc: "适合大规模直播教学", icon: "🏫" },
+];
 
 interface Course {
   id: string;
@@ -53,6 +61,16 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     return d;
   });
   const [enteringCourseId, setEnteringCourseId] = useState<string | null>(null);
+
+  // Create course dialog state
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createDesc, setCreateDesc] = useState("");
+  const [createRoomType, setCreateRoomType] = useState(0);
+  const [createStartTime, setCreateStartTime] = useState("");
+  const [createEndTime, setCreateEndTime] = useState("");
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState("");
 
   // Student management state
   const [myGroups, setMyGroups] = useState<GroupNode[]>([]);
@@ -161,6 +179,41 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       alert("链接已复制");
     } catch {
       alert("复制失败，请手动选择链接复制");
+    }
+  };
+
+  const handleCreateCourse = async () => {
+    if (!createName.trim()) { setCreateError("请输入课程名称"); return; }
+    if (!createStartTime) { setCreateError("请选择开始时间"); return; }
+    if (!createEndTime) { setCreateError("请选择结束时间"); return; }
+    if (new Date(createEndTime) <= new Date(createStartTime)) { setCreateError("结束时间必须晚于开始时间"); return; }
+    setCreateLoading(true);
+    setCreateError("");
+    try {
+      const res = await fetch("/api/courses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: createName,
+          description: createDesc,
+          roomType: createRoomType,
+          startTime: new Date(createStartTime).toISOString(),
+          endTime: new Date(createEndTime).toISOString(),
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "创建失败");
+      }
+      const { course } = await res.json();
+      setCreateOpen(false);
+      setCreateName(""); setCreateDesc(""); setCreateRoomType(0); setCreateStartTime(""); setCreateEndTime("");
+      fetchCourses();
+      router.push(`/courses/${course.id}`);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "创建失败");
+    } finally {
+      setCreateLoading(false);
     }
   };
 
@@ -340,7 +393,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 <h2 className="text-3xl font-bold">我的课表</h2>
                 <p className="text-muted-foreground mt-1">管理您的每日课程和教室。</p>
               </div>
-              <Button onClick={() => router.push("/courses/create")} className="bg-purple-600 hover:bg-purple-700 text-white shadow-glow-purple">
+              <Button onClick={() => { setCreateError(""); setCreateOpen(true); }} className="bg-purple-600 hover:bg-purple-700 text-white shadow-glow-purple">
                 <Plus className="mr-2 h-4 w-4" /> 创建课程
               </Button>
             </div>
@@ -544,13 +597,13 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="flex gap-2">
-                    <Input
-                      placeholder="输入用户名、显示名或邮箱…"
-                      value={searchQuery}
-                      className="bg-black/40 border-white/10"
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                    />
+                      <Input
+                        placeholder="输入用户名、显示名或邮箱…"
+                        value={searchQuery}
+                        className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                      />
                     <Button className="bg-purple-600 hover:bg-purple-700 text-white shrink-0" onClick={handleSearch} disabled={searching || !searchQuery.trim()}>
                       {searching ? "搜索中…" : "搜索"}
                     </Button>
@@ -560,10 +613,10 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                     <div className="space-y-3">
                       <label className="text-sm font-medium text-muted-foreground">加入目标学生组：</label>
                       <Select value={memberTargetGroupId} onValueChange={setMemberTargetGroupId}>
-                        <SelectTrigger className="w-full bg-black/40 border-white/10">
-                          <SelectValue placeholder="选择学生组…" />
+                        <SelectTrigger className="w-full bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50">
+                          <SelectValue placeholder="选择目标学生组…" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="bg-background/95 backdrop-blur-md border-white/10">
                           {flattenGroups(myGroups).map((opt) => (
                             <SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>
                           ))}
@@ -609,7 +662,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                     <Input
                       placeholder="新建学生组名称…"
                       value={newGroupName}
-                      className="bg-black/40 border-white/10"
+                      className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
                       onChange={(e) => setNewGroupName(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleCreateGroup()}
                     />
@@ -665,6 +718,110 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         {activePage === "settings" && (
           <SettingsPanel user={user} onLogout={logout} />
         )}
+
+        {/* ──── Create Course Dialog ──── */}
+        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+          <DialogContent className="sm:max-w-[560px] bg-background/95 backdrop-blur-xl border-white/10">
+            <DialogHeader>
+              <DialogTitle className="text-xl">创建新课程</DialogTitle>
+              <DialogDescription>填写课程信息，创建后可在详情页管理学生和分享链接。</DialogDescription>
+            </DialogHeader>
+
+            {createError && (
+              <div className="text-sm text-red-400 bg-red-500/10 p-3 rounded-md border border-red-500/20">{createError}</div>
+            )}
+
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">课程名称 <span className="text-red-400">*</span></label>
+                <Input
+                  className="bg-black/40 border-white/20 hover:border-white/40 focus-visible:ring-purple-500/50"
+                  placeholder="例如：高一数学·函数与导数"
+                  value={createName}
+                  onChange={(e) => { setCreateName(e.target.value); setCreateError(""); }}
+                  maxLength={50}
+                  autoFocus
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">课程描述 <span className="text-muted-foreground text-xs">(可选)</span></label>
+                <Textarea
+                  className="bg-black/40 border-white/20 hover:border-white/40 focus-visible:ring-purple-500/50 resize-none"
+                  placeholder="简要描述本节课内容..."
+                  value={createDesc}
+                  onChange={(e) => setCreateDesc(e.target.value)}
+                  maxLength={200}
+                  rows={3}
+                />
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium flex items-center gap-2 text-purple-200">
+                    <Clock className="h-4 w-4 text-purple-400" /> 开始时间 <span className="text-red-400">*</span>
+                  </label>
+                  <Input
+                    className="bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20 hover:border-purple-500/50 focus-visible:ring-purple-500/60 cursor-pointer [color-scheme:dark] h-12 px-4 text-base font-medium transition-all text-purple-50 shadow-inner"
+                    type="datetime-local"
+                    value={createStartTime}
+                    onChange={(e) => { setCreateStartTime(e.target.value); setCreateError(""); }}
+                    onClick={(e) => {
+                      try { (e.target as HTMLInputElement).showPicker?.(); } catch {}
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium flex items-center gap-2 text-purple-200">
+                    <Clock className="h-4 w-4 text-purple-400" /> 结束时间 <span className="text-red-400">*</span>
+                  </label>
+                  <Input
+                    className="bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20 hover:border-purple-500/50 focus-visible:ring-purple-500/60 cursor-pointer [color-scheme:dark] h-12 px-4 text-base font-medium transition-all text-purple-50 shadow-inner"
+                    type="datetime-local"
+                    value={createEndTime}
+                    onChange={(e) => { setCreateEndTime(e.target.value); setCreateError(""); }}
+                    onClick={(e) => {
+                      try { (e.target as HTMLInputElement).showPicker?.(); } catch {}
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">课堂类型</label>
+                <div className="grid grid-cols-3 gap-3">
+                  {ROOM_TYPES.map((rt) => (
+                    <button
+                      key={rt.value}
+                      type="button"
+                      onClick={() => setCreateRoomType(rt.value)}
+                      className={`flex flex-col items-center gap-1.5 p-4 rounded-lg border-2 transition-all text-center ${
+                        createRoomType === rt.value
+                          ? "border-purple-500 bg-purple-500/10 shadow-glow-purple"
+                          : "border-white/10 bg-black/20 hover:border-white/20"
+                      }`}
+                    >
+                      <span className="text-2xl">{rt.icon}</span>
+                      <span className="text-sm font-semibold">{rt.label}</span>
+                      <span className="text-[10px] text-muted-foreground">{rt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setCreateOpen(false)}>取消</Button>
+              <Button
+                className="bg-purple-600 hover:bg-purple-700 text-white"
+                onClick={handleCreateCourse}
+                disabled={createLoading || !createName.trim()}
+              >
+                {createLoading ? "创建中…" : "🚀 创建课程"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );

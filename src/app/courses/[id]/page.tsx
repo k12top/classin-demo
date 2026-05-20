@@ -6,6 +6,9 @@ import { useAuth } from "@/lib/auth-context";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ChevronLeft, AlertTriangle } from "lucide-react";
 
 import TeacherCourseDetail from "@/components/TeacherCourseDetail";
 import StudentCourseDetail from "@/components/StudentCourseDetail";
@@ -72,7 +75,6 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
 
   const isTeacher = Boolean(user && course && casdoorUserIdsMatch(course.teacherId, user.userId));
 
-  // Enter classroom logic
   const handleEnterClassroom = async () => {
     if (!course || !user) return;
     setEnterLoading(true);
@@ -108,64 +110,73 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
 
   if (loading) {
     return (
-      <div className="dashboard-loading">
-        <div className="loader" />
-        <p>加载课程详情…</p>
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-10 w-10 border-2 border-purple-500/20 border-t-purple-500" />
+          <p className="text-muted-foreground text-sm">加载课程详情…</p>
+        </div>
       </div>
     );
   }
 
   if (error || !course) {
     return (
-      <>
-        <div className="page-bg" />
-        <div className="auth-container">
-          <div className="card" style={{ textAlign: "center", padding: 40 }}>
-            <h2>⚠️ {error || "课程不存在"}</h2>
-            <button className="btn btn-primary" style={{ marginTop: 20, maxWidth: 200 }} onClick={() => router.push("/")}>
-              返回首页
-            </button>
+      <div className="flex min-h-screen items-center justify-center bg-background p-6">
+        <div className="max-w-md w-full text-center space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="mx-auto w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center">
+            <AlertTriangle className="h-8 w-8 text-red-400" />
           </div>
+          <h2 className="text-2xl font-bold">{error || "课程不存在"}</h2>
+          <p className="text-muted-foreground">该课程可能已被删除或您没有访问权限。</p>
+          <Button onClick={() => router.push("/")} className="bg-purple-600 hover:bg-purple-700 text-white">
+            返回首页
+          </Button>
         </div>
-      </>
+      </div>
     );
   }
 
   return (
-    <>
-      <div className="page-bg" />
-      <div className="dashboard-container">
-        <nav className="dashboard-nav">
-          <button className="btn-link" onClick={() => router.push("/")} style={{ color: "var(--color-text-secondary)" }}>
-            ← 返回列表
-          </button>
-          <div className="nav-user">
-            <span className={`nav-role-badge ${user?.role}`}>
-              {user?.role === "teacher" ? "👨‍🏫 老师" : "🧑‍🎓 学生"}
-            </span>
+    <div className="min-h-screen bg-background">
+      {/* Top Nav Bar */}
+      <div className="border-b border-white/10 bg-black/20 backdrop-blur-xl sticky top-0 z-30">
+        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+          <Button variant="ghost" size="sm" onClick={() => router.push("/")} className="text-muted-foreground hover:text-foreground">
+            <ChevronLeft className="mr-1 h-4 w-4" /> 返回列表
+          </Button>
+          <div className="flex items-center gap-3">
+            <Badge variant="secondary" className={
+              isTeacher
+                ? "bg-purple-500/20 text-purple-300 border-purple-500/20"
+                : "bg-blue-500/20 text-blue-300 border-blue-500/20"
+            }>
+              {isTeacher ? "👨‍🏫 老师" : "🧑‍🎓 学生"}
+            </Badge>
+            <span className="text-sm text-muted-foreground">{user?.displayName || user?.name}</span>
           </div>
-        </nav>
-
-        <main className="dashboard-main" style={{ maxWidth: '1000px', margin: '0 auto' }}>
-          {isTeacher ? (
-            <TeacherCourseDetail 
-              course={course} 
-              user={user} 
-              onEnterClassroom={handleEnterClassroom} 
-              enterLoading={enterLoading}
-              fetchCourse={fetchCourse}
-            />
-          ) : (
-            <StudentCourseDetail 
-              course={course} 
-              user={user} 
-              onEnterClassroom={handleEnterClassroom} 
-              enterLoading={enterLoading}
-              fetchCourse={fetchCourse}
-            />
-          )}
-        </main>
+        </div>
       </div>
-    </>
+
+      {/* Main Content */}
+      <main className="max-w-6xl mx-auto px-6 py-8">
+        {isTeacher ? (
+          <TeacherCourseDetail 
+            course={course} 
+            user={user} 
+            onEnterClassroom={handleEnterClassroom} 
+            enterLoading={enterLoading}
+            fetchCourse={fetchCourse}
+          />
+        ) : (
+          <StudentCourseDetail 
+            course={course} 
+            user={user} 
+            onEnterClassroom={handleEnterClassroom} 
+            enterLoading={enterLoading}
+            fetchCourse={fetchCourse}
+          />
+        )}
+      </main>
+    </div>
   );
 }
