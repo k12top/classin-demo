@@ -40,6 +40,8 @@ function ClassroomContent() {
   const containerRef = useRef<HTMLDivElement>(null);
   const unmountRef = useRef<(() => void) | null>(null);
   const leftClassroomRef = useRef(false);
+  const userRef = useRef(user);
+  const routerRef = useRef(router);
 
   const [status, setStatus] = useState<"verifying" | "loading" | "ready" | "error">(
     "verifying"
@@ -53,6 +55,12 @@ function ClassroomContent() {
   const courseId = searchParams.get("courseId") || "";
   const isEmbed =
     searchParams.get("embed") === "1" || searchParams.get("embed") === "true";
+
+  // Keep refs in sync so the main effect can read latest values
+  // without re-running on object-reference changes.
+  userRef.current = user;
+  routerRef.current = router;
+  const userId = user?.userId ?? "";
 
   const leaveClassroom = useCallback(() => {
     if (leftClassroomRef.current) return;
@@ -92,7 +100,8 @@ function ClassroomContent() {
     let cancelled = false;
 
     queueMicrotask(() => {
-      if (!user) {
+      const currentUser = userRef.current;
+      if (!currentUser) {
         redirectToSsoLogin();
         return;
       }
@@ -127,7 +136,7 @@ function ClassroomContent() {
           const verifyData = await verifyRes.json();
 
           if (!verifyData.allowed) {
-            router.replace(
+            routerRef.current.replace(
               `/access-denied?reason=${encodeURIComponent(verifyData.reason || "无权访问")}&course=${encodeURIComponent(verifyRoomLabel)}`
             );
             return;
@@ -154,7 +163,7 @@ function ClassroomContent() {
             body: JSON.stringify({
               roomUuid,
               courseId,
-              userUuid: user.userId,
+              userUuid: currentUser.userId,
             }),
           });
 
@@ -171,7 +180,7 @@ function ClassroomContent() {
               body: JSON.stringify({
                 roomUuid,
                 courseId,
-                userUuid: user.userId,
+                userUuid: currentUser.userId,
               }),
             });
           }
@@ -216,11 +225,9 @@ function ClassroomContent() {
 
           setStatus("ready");
 
-          const displayName = user.displayName || user.name;
-
           const unmount = window.AgoraEduSDK.launch(containerRef.current, {
-            userUuid: user.userId,
-            userName: displayName,
+            userUuid: currentUser.userId,
+            userName: currentUser.displayName || currentUser.name,
             roomUuid,
             roleType: resolvedRole,
             roomType: resolvedRoomType,
@@ -282,12 +289,11 @@ function ClassroomContent() {
     };
   }, [
     authLoading,
-    user,
+    userId,
     roomUuid,
     roomTypeParam,
     roomName,
     courseId,
-    router,
     leaveClassroom,
   ]);
 

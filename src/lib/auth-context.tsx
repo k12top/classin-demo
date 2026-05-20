@@ -71,14 +71,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       void (async () => {
-        const u = await fetchMeWithRefresh();
-        if (u) {
-          setUser(u);
-          return;
-        }
-        if (user !== null) {
-          setUser(null);
-          redirectToSsoLogin();
+        try {
+          const u = await fetchMeWithRefresh();
+          if (u) {
+            // Only update state when user data actually changed — a new object
+            // reference with identical data still triggers consumer re-renders
+            // and re-runs their useEffects (e.g. Agora classroom re-launch).
+            if (
+              !user ||
+              u.userId !== user.userId ||
+              u.displayName !== user.displayName ||
+              u.role !== user.role
+            ) {
+              setUser(u);
+            }
+            return;
+          }
+          if (user !== null) {
+            setUser(null);
+            redirectToSsoLogin();
+          }
+        } catch {
+          // Network error during tab-switch re-validation — don't crash the app
         }
       })();
     }
