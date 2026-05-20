@@ -236,18 +236,23 @@ function ClassroomContent() {
             uiMode: "dark",
             widgets,
             listener: (evt: unknown, ...args: unknown[]) => {
-              console.log("[灵动课堂事件]", evt, args);
-              const code =
-                typeof evt === "number"
-                  ? evt
-                  : typeof evt === "object" &&
-                      evt !== null &&
-                      "type" in evt &&
-                      typeof (evt as { type: unknown }).type === "number"
-                    ? (evt as { type: number }).type
-                    : null;
-              if (code === AGORA_EVT_DESTROYED || code === AGORA_EVT_KICK_OUT) {
-                leaveClassroom();
+              try {
+                const code =
+                  typeof evt === "number"
+                    ? evt
+                    : typeof evt === "object" &&
+                        evt !== null &&
+                        "type" in evt &&
+                        typeof (evt as { type: unknown }).type === "number"
+                      ? (evt as { type: number }).type
+                      : null;
+                if (code === AGORA_EVT_DESTROYED || code === AGORA_EVT_KICK_OUT) {
+                  leaveClassroom();
+                }
+              } catch {
+                // Swallow errors from Agora event callback — unhandled errors
+                // here crash the React tree and cause Next.js to reload the
+                // entire page (especially when DevTools is closed).
               }
             },
           });
