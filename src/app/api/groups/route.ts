@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
-import { getSession } from "@/lib/session";
+import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 
 async function assertTeacherOwnsGroup(
@@ -30,8 +30,8 @@ async function assertTeacherOwnsCourse(
   return Boolean(course && casdoorUserIdsMatch(course.teacherId, userId));
 }
 
-export async function GET() {
-  const session = await getSession();
+export async function GET(request: NextRequest) {
+  const session = await getSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -67,7 +67,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getSession();
+  const session = await getSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

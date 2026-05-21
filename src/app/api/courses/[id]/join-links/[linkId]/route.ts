@@ -3,7 +3,7 @@
  * DELETE /api/courses/:id/join-links/:linkId
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/session";
+import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { assertTeacherOwnsCourse } from "@/lib/course-teacher";
 
@@ -11,7 +11,7 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string; linkId: string }> }
 ) {
-  const session = await getSession();
+  const session = await getSessionFromRequest(_request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

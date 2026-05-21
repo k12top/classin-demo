@@ -4,14 +4,14 @@
  * Returns: { allowed, role, reason? }
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/session";
-import { resolveCourseAccess } from "@/lib/course-access";
+import { getSessionFromRequest } from "@/lib/session";
+import { resolveCourseAccess, courseIdToRoomUuid } from "@/lib/course-access";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession();
+  const session = await getSessionFromRequest(request);
   if (!session) {
     return NextResponse.json(
       { allowed: false, role: null, reason: "未登录" },
@@ -34,6 +34,9 @@ export async function GET(
     );
   }
 
+  const roomUuid = courseIdToRoomUuid(courseId);
+  const classroomUrl = `/classroom?roomUuid=${roomUuid}&roomType=${access.roomType}&roomName=${encodeURIComponent(access.roomName)}&courseId=${courseId}`;
+
   return NextResponse.json({
     allowed: true,
     role: access.role,
@@ -42,5 +45,6 @@ export async function GET(
       roomType: access.roomType,
       teacherName: access.teacherName,
     },
+    classroomUrl,
   });
 }

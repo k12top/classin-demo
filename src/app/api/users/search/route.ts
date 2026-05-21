@@ -3,12 +3,12 @@
  * GET /api/users/search?q=xxx
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/session";
+import { getSessionFromRequest } from "@/lib/session";
 import { searchCasdoorUsers } from "@/lib/casdoor-server";
 import { resolveCasdoorUserId } from "@/lib/casdoor-user";
 
 export async function GET(request: NextRequest) {
-  const session = await getSession();
+  const session = await getSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

@@ -3,7 +3,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { buildRoomUserToken } from "@/lib/agora-token";
-import { getSession } from "@/lib/session";
+import { getSessionFromRequest } from "@/lib/session";
 import {
   courseIdToRoomUuid,
   resolveCourseAccess,
@@ -11,7 +11,7 @@ import {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getSession();
+    const session = await getSessionFromRequest(request);
     if (!session) {
       return NextResponse.json(
         { error: "Unauthorized — please log in first" },
@@ -68,7 +68,9 @@ export async function POST(request: NextRequest) {
 
     const token = buildRoomUserToken(roomUuid, session.userId, role);
 
-    return NextResponse.json({ token, appId });
+    const classroomUrl = `/classroom?roomUuid=${roomUuid}&roomType=${access.roomType}&roomName=${encodeURIComponent(access.roomName)}&courseId=${courseId}`;
+
+    return NextResponse.json({ token, appId, classroomUrl });
   } catch (error) {
     console.error("Token generation error:", error);
     return NextResponse.json(

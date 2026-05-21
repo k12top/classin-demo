@@ -4,7 +4,12 @@
  */
 import { SignJWT, jwtVerify, JWTPayload } from "jose";
 import { cookies } from "next/headers";
-import type { NextResponse } from "next/server";
+import type { NextRequest, NextResponse } from "next/server";
+import {
+  parseJwtPayload,
+  determineRole,
+} from "@/lib/casdoor-server";
+import { resolveSessionUserId } from "@/lib/casdoor-user";
 
 const SESSION_SECRET =
   process.env.SESSION_SECRET ||
@@ -151,6 +156,80 @@ export async function getSession(): Promise<SessionPayload | null> {
   const sessionCookie = cookieStore.get(SESSION_COOKIE)?.value;
   if (!sessionCookie) return null;
   return decrypt(sessionCookie);
+}
+
+/**
+ * Get session from cookie or Authorization: Bearer header.
+ * Supports three auth methods:
+ * 1. Cookie — browser flow (our own session JWT)
+ * 2. Bearer token — our session JWT (from service-token endpoint)
+ * 3. Bearer token — Casdoor access_token (from same Casdoor, different app)
+ */
+export async function getSessionFromRequest(
+  request: NextRequest
+): Promise<SessionPayload | null> {
+  // 1. Try cookie first (browser flow)
+  const sessionCookie = request.cookies.get(SESSION_COOKIE)?.value;
+  if (sessionCookie) {
+    const payload = await decrypt(sessionCookie);
+    if (payload) return payload;
+  }
+
+  // 2. Try Authorization: Bearer header
+  const authHeader = request.headers.get("Authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice(7);
+
+    // 2a. Try as our own session JWT (signed with SESSION_SECRET)
+    const ourPayload = await decrypt(token);
+    if (ourPayload) return ourPayload;
+
+    // 2b. Try as Casdoor access_token (same IdP, different app)
+    const casdoorPayload = await parseCasdoorBearerToken(token);
+    if (casdoorPayload) return casdoorPayload;
+  }
+
+  return null;
+}
+
+/**
+ * Parse a Casdoor JWT into our SessionPayload.
+ * Decodes the JWT payload, checks expiry, resolves role and userId.
+ */
+async function parseCasdoorBearerToken(
+  token: string
+): Promise<SessionPayload | null> {
+  try {
+    const casdoorUser = parseJwtPayload(token);
+
+    // Check token expiry (Casdoor JWTs have `exp` claim)
+    const parts = token.split(".");
+    if (parts.length === 3) {
+      const rawPayload = JSON.parse(
+        Buffer.from(parts[1], "base64url").toString("utf-8")
+      );
+      const exp = rawPayload.exp;
+      if (exp && Date.now() >= exp * 1000) {
+        return null; // Token expired
+      }
+    }
+
+    const role = determineRole(casdoorUser.roles, casdoorUser.groups);
+    const userId = resolveSessionUserId(casdoorUser, role);
+
+    const expiresAt = new Date(Date.now() + SESSION_DURATION);
+    return {
+      userId,
+      name: casdoorUser.name,
+      displayName: casdoorUser.displayName || casdoorUser.name,
+      avatar: casdoorUser.avatar || "",
+      role,
+      email: casdoorUser.email || "",
+      expiresAt: expiresAt.toISOString(),
+    } as SessionPayload;
+  } catch {
+    return null;
+  }
 }
 
 /**
