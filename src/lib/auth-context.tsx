@@ -69,6 +69,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (typeof window !== "undefined" && window.location.pathname === "/login") {
         return;
       }
+      if (
+        typeof window !== "undefined" &&
+        window.location.pathname.startsWith("/classroom")
+      ) {
+        return;
+      }
 
       void (async () => {
         try {
