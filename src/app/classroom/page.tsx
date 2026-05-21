@@ -51,7 +51,11 @@ function waitForSDK(): Promise<void> {
   });
 }
 
-function buildLaunchKey(courseId: string, roomUuid: string, userId: string): string {
+function buildLaunchKey(
+  courseId: string,
+  roomUuid: string,
+  userId: string,
+): string {
   return `${courseId}|${roomUuid}|${userId}`;
 }
 
@@ -74,9 +78,9 @@ function ClassroomContent() {
     roomTypeParam: 0,
   });
 
-  const [status, setStatus] = useState<"verifying" | "loading" | "ready" | "error">(
-    "verifying"
-  );
+  const [status, setStatus] = useState<
+    "verifying" | "loading" | "ready" | "error"
+  >("verifying");
   const [errorMsg, setErrorMsg] = useState("");
 
   const roomUuid = searchParams.get("roomUuid") || "";
@@ -156,8 +160,12 @@ function ClassroomContent() {
       return;
     }
 
-    const { roomUuid: ru, courseId: cid, roomName: rn, roomTypeParam: rtp } =
-      launchParamsRef.current;
+    const {
+      roomUuid: ru,
+      courseId: cid,
+      roomName: rn,
+      roomTypeParam: rtp,
+    } = launchParamsRef.current;
     const launchKey = buildLaunchKey(cid, ru, userId);
 
     if (launchKeyRef.current === launchKey && unmountRef.current) {
@@ -222,7 +230,7 @@ function ClassroomContent() {
           if (!verifyData.allowed) {
             launchingRef.current = false;
             routerRef.current.replace(
-              `/access-denied?reason=${encodeURIComponent(verifyData.reason || "无权访问")}&course=${encodeURIComponent(verifyRoomLabel)}`
+              `/access-denied?reason=${encodeURIComponent(verifyData.reason || "无权访问")}&course=${encodeURIComponent(verifyRoomLabel)}`,
             );
             return;
           }
@@ -323,8 +331,7 @@ function ClassroomContent() {
             duration: 60 * 30, // 30 minutes
             courseWareList: [],
             virtualBackgroundImages: [],
-            webrtcExtensionBaseUrl:
-              "https://solutions-apaas.agora.io/static",
+            webrtcExtensionBaseUrl: "https://solutions-apaas.agora.io/static",
             uiMode: "dark",
             widgets,
             listener: (evt: unknown) => {
@@ -338,7 +345,10 @@ function ClassroomContent() {
                         typeof (evt as { type: unknown }).type === "number"
                       ? (evt as { type: number }).type
                       : null;
-                if (code === AGORA_EVT_DESTROYED || code === AGORA_EVT_KICK_OUT) {
+                if (
+                  code === AGORA_EVT_DESTROYED ||
+                  code === AGORA_EVT_KICK_OUT
+                ) {
                   leaveClassroom();
                 }
               } catch {
@@ -373,7 +383,7 @@ function ClassroomContent() {
           console.error("启动课堂失败:", err);
           setStatus("error");
           setErrorMsg(
-            err instanceof Error ? err.message : "课堂启动失败，请检查配置"
+            err instanceof Error ? err.message : "课堂启动失败，请检查配置",
           );
         }
       })();
@@ -421,17 +431,7 @@ function ClassroomContent() {
 
   return (
     <div className="classroom-container">
-      {status === "ready" && !isEmbed && (
-        <button
-          type="button"
-          className="classroom-back-btn"
-          onClick={leaveClassroom}
-          title="返回课程详情"
-        >
-          ← 返回课程
-        </button>
-      )}
-      {status === "ready" && isEmbed && courseId && (
+            {status === "ready" && isEmbed && courseId && (
         <button
           type="button"
           className="classroom-back-btn classroom-back-btn-embed"
@@ -445,7 +445,9 @@ function ClassroomContent() {
       {(status === "loading" || status === "verifying") && (
         <div className="classroom-loading">
           <div className="loader" />
-          <p>{status === "verifying" ? "正在验证访问权限…" : "正在初始化课堂…"}</p>
+          <p>
+            {status === "verifying" ? "正在验证访问权限…" : "正在初始化课堂…"}
+          </p>
         </div>
       )}
 
