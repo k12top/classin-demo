@@ -7,12 +7,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { buildJoinUrl, joinLinkStatus } from "@/lib/join-link";
+import {
+  courseListOrderBy,
+  parseCourseListSort,
+  sortCoursesByCreatedAt,
+} from "@/lib/course-list-query";
 
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const sortParsed = parseCourseListSort(request.nextUrl.searchParams);
+  if ("error" in sortParsed) {
+    return NextResponse.json({ error: sortParsed.error }, { status: 400 });
+  }
+  const orderBy = courseListOrderBy(sortParsed);
 
   try {
     if (session.role === "teacher") {
@@ -38,7 +49,7 @@ export async function GET(request: NextRequest) {
             },
           },
         },
-        orderBy: { startTime: "desc" },
+        orderBy,
       });
       const origin = request.nextUrl.origin.replace(/\/$/, "");
       const courses = coursesRaw.map(({ joinLinks, ...course }) => ({
@@ -62,7 +73,7 @@ export async function GET(request: NextRequest) {
         include: {
           students: { select: { studentId: true, studentName: true } },
         },
-        orderBy: { startTime: "desc" },
+        orderBy,
       });
 
       // Also find courses via group membership
@@ -83,12 +94,16 @@ export async function GET(request: NextRequest) {
           include: {
             students: { select: { studentId: true, studentName: true } },
           },
-          orderBy: { startTime: "desc" },
+          orderBy,
         });
       }
 
       const courses = [...directCourses, ...groupCourses];
-      return NextResponse.json({ courses });
+      const sortedCourses =
+        sortParsed.mode === "createdAt"
+          ? sortCoursesByCreatedAt(courses, sortParsed.direction)
+          : courses;
+      return NextResponse.json({ courses: sortedCourses });
     }
   } catch (error) {
     console.error("Failed to fetch courses:", error);

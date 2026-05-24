@@ -26,7 +26,21 @@ GET /api/courses
 Authorization: Bearer <casdoor_access_token>
 ```
 
-可选查询参数：`status` — 筛选课程状态（`active` / `cancelled` / `finished`）
+可选查询参数：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| status | string? | 筛选课程状态（`active` / `cancelled` / `finished`） |
+| createdAt | `asc` \| `desc`? | 按创建时间排序；**省略时默认按 startTime 降序** |
+
+示例：
+
+```http
+GET /api/courses?createdAt=desc
+GET /api/courses?createdAt=asc
+```
+
+`createdAt` 传非法值（如 `foo`）时返回 `400`：`{ "error": "createdAt must be asc or desc" }`
 
 **教师响应**
 
@@ -283,8 +297,12 @@ Content-Type: application/json
 只需 2 个接口即可完成对接：
 
 ```bash
-# 1. 获取课程列表
+# 1. 获取课程列表（默认按 startTime 降序）
 curl https://your-domain.com/api/courses \
+  -H "Authorization: Bearer <casdoor_access_token>"
+
+# 按创建时间升序
+curl "https://your-domain.com/api/courses?createdAt=asc" \
   -H "Authorization: Bearer <casdoor_access_token>"
 
 # 2. 获取课堂入口
