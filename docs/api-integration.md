@@ -31,7 +31,13 @@ Authorization: Bearer <casdoor_access_token>
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | status | string? | 筛选课程状态（`active` / `cancelled` / `finished`） |
-| createdAt | `asc` \| `desc`? | 按创建时间排序；**省略时默认按 startTime 降序** |
+| createdAt | `asc` \| `desc`? | 按创建时间全局排序，**覆盖**下方默认规则 |
+
+**默认排序**（省略 `createdAt` 时，类似 ClassIn 列表）：
+
+- 整体顺序：待上课 → 已结束 → 已取消
+- `active`（待上课）：按 `startTime` **升序**（从早到晚）
+- `finished` / `cancelled`：按 `endTime` **降序**（从近到远）；无 `endTime` 时回退按 `startTime` 降序
 
 示例：
 
@@ -297,7 +303,7 @@ Content-Type: application/json
 只需 2 个接口即可完成对接：
 
 ```bash
-# 1. 获取课程列表（默认按 startTime 降序）
+# 1. 获取课程列表（默认 ClassIn 式：待上课 startTime 升序，已结束/已取消 endTime 降序）
 curl https://your-domain.com/api/courses \
   -H "Authorization: Bearer <casdoor_access_token>"
 
