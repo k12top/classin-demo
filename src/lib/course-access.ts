@@ -1,4 +1,5 @@
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
+import { canEnterClassroom } from "@/lib/course-status";
 import { prisma } from "@/lib/db";
 
 export type CourseGateRole = "teacher" | "student";
@@ -45,6 +46,17 @@ export async function resolveCourseAccess(
 
     if (!course) {
       return { ok: false, httpStatus: 404, reason: "课程不存在" };
+    }
+
+    if (!canEnterClassroom(course.status)) {
+      return {
+        ok: false,
+        httpStatus: 403,
+        reason:
+          course.status === "cancelled"
+            ? "课程已取消"
+            : "课程已结束",
+      };
     }
 
     if (casdoorUserIdsMatch(course.teacherId, userId)) {

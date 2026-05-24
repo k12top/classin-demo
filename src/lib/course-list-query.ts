@@ -1,4 +1,9 @@
 import type { Prisma } from "@prisma/client";
+import {
+  CourseStatus,
+  parseCourseStatusFilter,
+  type CourseStatusValue,
+} from "@/lib/course-status";
 
 export type CourseListSort =
   | { mode: "startTime" }
@@ -24,6 +29,8 @@ export function parseCourseListSort(
   return { error: "createdAt must be asc or desc" };
 }
 
+export { parseCourseStatusFilter };
+
 /** DB orderBy — default mode uses arbitrary order; ClassIn sort applied in memory. */
 export function courseListOrderBy(
   sort: CourseListSort
@@ -39,13 +46,20 @@ function timeMs(d: Date | null | undefined): number | null {
   return d.getTime();
 }
 
-function compareActive<T extends CourseForListSort>(a: T, b: T): number {
+function compareByStartTimeAsc<T extends CourseForListSort>(a: T, b: T): number {
   const aT = timeMs(a.startTime);
   const bT = timeMs(b.startTime);
   if (aT === null && bT === null) return 0;
   if (aT === null) return 1;
   if (bT === null) return -1;
   return aT - bT;
+}
+
+function compareUpcoming<T extends CourseForListSort>(a: T, b: T): number {
+  const liveRank = (s: string) => (s === CourseStatus.LIVE ? 0 : 1);
+  const rankDiff = liveRank(a.status) - liveRank(b.status);
+  if (rankDiff !== 0) return rankDiff;
+  return compareByStartTimeAsc(a, b);
 }
 
 function compareFinishedOrCancelled<T extends CourseForListSort>(
@@ -65,26 +79,31 @@ function compareFinishedOrCancelled<T extends CourseForListSort>(
   return bStart - aStart;
 }
 
-/** ClassIn-style: active by startTime asc; finished/cancelled by endTime desc. */
+const UPCOMING_STATUSES = new Set<string>([
+  CourseStatus.SCHEDULED,
+  CourseStatus.LIVE,
+]);
+
+/** ClassIn-style: scheduled+live by startTime asc (live first); finished/cancelled by endTime desc. */
 export function sortCoursesClassInStyle<T extends CourseForListSort>(
   courses: T[]
 ): T[] {
-  const active = courses
-    .filter((c) => c.status === "active")
-    .sort(compareActive);
+  const upcoming = courses
+    .filter((c) => UPCOMING_STATUSES.has(c.status))
+    .sort(compareUpcoming);
   const finished = courses
-    .filter((c) => c.status === "finished")
+    .filter((c) => c.status === CourseStatus.FINISHED)
     .sort(compareFinishedOrCancelled);
   const cancelled = courses
-    .filter((c) => c.status === "cancelled")
+    .filter((c) => c.status === CourseStatus.CANCELLED)
     .sort(compareFinishedOrCancelled);
   const other = courses.filter(
     (c) =>
-      c.status !== "active" &&
-      c.status !== "finished" &&
-      c.status !== "cancelled"
+      !UPCOMING_STATUSES.has(c.status) &&
+      c.status !== CourseStatus.FINISHED &&
+      c.status !== CourseStatus.CANCELLED
   );
-  return [...active, ...finished, ...cancelled, ...other];
+  return [...upcoming, ...finished, ...cancelled, ...other];
 }
 
 export function sortCoursesByCreatedAt<T extends { createdAt: Date }>(
@@ -105,4 +124,11 @@ export function applyCourseListSort<T extends CourseForListSort>(
     return sortCoursesByCreatedAt(courses, sort.direction);
   }
   return sortCoursesClassInStyle(courses);
+}
+
+export function courseListStatusWhere(
+  status: CourseStatusValue | null
+): Prisma.CourseWhereInput | undefined {
+  if (!status) return undefined;
+  return { status };
 }

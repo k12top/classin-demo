@@ -30,13 +30,13 @@ Authorization: Bearer <casdoor_access_token>
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| status | string? | 筛选课程状态（`active` / `cancelled` / `finished`） |
+| status | string? | 筛选课程状态（`scheduled` / `live` / `finished` / `cancelled`）；`active` 已废弃 |
 | createdAt | `asc` \| `desc`? | 按创建时间全局排序，**覆盖**下方默认规则 |
 
 **默认排序**（省略 `createdAt` 时，类似 ClassIn 列表）：
 
-- 整体顺序：待上课 → 已结束 → 已取消
-- `active`（待上课）：按 `startTime` **升序**（从早到晚）
+- 整体顺序：未开始+进行中 → 已结束 → 已取消
+- `scheduled` + `live`：按 `startTime` **升序**；同时间时 `live` 优先于 `scheduled`
 - `finished` / `cancelled`：按 `endTime` **降序**（从近到远）；无 `endTime` 时回退按 `startTime` 降序
 
 示例：
@@ -44,9 +44,13 @@ Authorization: Bearer <casdoor_access_token>
 ```http
 GET /api/courses?createdAt=desc
 GET /api/courses?createdAt=asc
+GET /api/courses?status=live
+GET /api/courses?status=scheduled
 ```
 
 `createdAt` 传非法值（如 `foo`）时返回 `400`：`{ "error": "createdAt must be asc or desc" }`
+
+`status=active` 返回 `400`：`{ "error": "status 'active' is deprecated; use 'scheduled'" }`
 
 **教师响应**
 
@@ -60,7 +64,8 @@ GET /api/courses?createdAt=asc
       "roomType": 0,
       "teacherId": "uuid-xxx",
       "teacherName": "张老师",
-      "status": "active",
+      "status": "scheduled",
+      "statusLabel": "未开始",
       "startTime": "2024-01-15T10:00:00.000Z",
       "endTime": "2024-01-15T11:00:00.000Z",
       "studentRemarks": "想多练习几何",
@@ -92,7 +97,8 @@ GET /api/courses?createdAt=asc
       "roomType": 0,
       "teacherId": "uuid-xxx",
       "teacherName": "张老师",
-      "status": "active",
+      "status": "scheduled",
+      "statusLabel": "未开始",
       "startTime": "2024-01-15T10:00:00.000Z",
       "endTime": "2024-01-15T11:00:00.000Z",
       "studentRemarks": "想多练习几何",
@@ -114,7 +120,8 @@ GET /api/courses?createdAt=asc
 | roomType | int | 房间类型：0=一对一，2=大班课，4=小班课 |
 | teacherId | string | 教师用户 ID |
 | teacherName | string | 教师显示名 |
-| status | string | 状态：`active` / `cancelled` / `finished` |
+| status | string | 状态：`scheduled` / `live` / `finished` / `cancelled` |
+| statusLabel | string | 中文展示：`未开始` / `进行中` / `已结束` / `已取消` |
 | startTime | string? | 开始时间（ISO 格式） |
 | endTime | string? | 结束时间（ISO 格式） |
 | studentRemarks | string | 学生需求备注 |
@@ -141,7 +148,8 @@ Authorization: Bearer <casdoor_access_token>
     "roomType": 0,
     "teacherId": "...",
     "teacherName": "张老师",
-    "status": "active",
+    "status": "scheduled",
+    "statusLabel": "未开始",
     "startTime": "...",
     "endTime": "...",
     "studentRemarks": "...",
@@ -278,9 +286,11 @@ Content-Type: application/json
 { "status": "cancelled" }
 ```
 
-教师结束课程：`{ "status": "finished" }`
+教师结束课程（兜底，通常由课堂 SDK 自动同步）：`{ "status": "finished" }`
 
-**响应**：同课程详情结构，`status` 字段已更新。
+`scheduled` / `live` 由课堂内声网 SDK 同步，请勿通过 PATCH 手动写入。
+
+**响应**：同课程详情结构，`status` / `statusLabel` 字段已更新。
 
 ---
 
@@ -303,8 +313,12 @@ Content-Type: application/json
 只需 2 个接口即可完成对接：
 
 ```bash
-# 1. 获取课程列表（默认 ClassIn 式：待上课 startTime 升序，已结束/已取消 endTime 降序）
+# 1. 获取课程列表（默认 ClassIn 式：未开始+进行中 startTime 升序，已结束/已取消 endTime 降序）
 curl https://your-domain.com/api/courses \
+  -H "Authorization: Bearer <casdoor_access_token>"
+
+# 仅进行中的课程
+curl "https://your-domain.com/api/courses?status=live" \
   -H "Authorization: Bearer <casdoor_access_token>"
 
 # 按创建时间升序

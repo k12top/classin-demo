@@ -32,6 +32,37 @@ declare global {
 /** Agora Edu classroom events (see AgoraEduClassroomEvent). */
 const AGORA_EVT_DESTROYED = 2;
 const AGORA_EVT_KICK_OUT = 101;
+const AGORA_EVT_CLASS_STATE_CHANGED = 202;
+
+function parseAgoraEvent(
+  evt: unknown,
+  args: unknown[],
+): { code: number | null; classState: number | null } {
+  let code: number | null = null;
+  let classState: number | null = null;
+
+  if (typeof evt === "number") {
+    code = evt;
+  } else if (typeof evt === "object" && evt !== null) {
+    const o = evt as Record<string, unknown>;
+    if (typeof o.type === "number") code = o.type;
+    if (typeof o.classState === "number") classState = o.classState;
+    if (typeof o.state === "number") classState = o.state;
+  }
+
+  if (code === AGORA_EVT_CLASS_STATE_CHANGED && classState === null) {
+    const first = args[0];
+    if (typeof first === "number") {
+      classState = first;
+    } else if (typeof first === "object" && first !== null) {
+      const a = first as Record<string, unknown>;
+      if (typeof a.classState === "number") classState = a.classState;
+      if (typeof a.state === "number") classState = a.state;
+    }
+  }
+
+  return { code, classState };
+}
 
 function waitForSDK(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -71,6 +102,8 @@ function ClassroomContent() {
   const userRef = useRef(user);
   const routerRef = useRef(router);
   const courseIdRef = useRef("");
+  const isTeacherRef = useRef(false);
+  const lastSyncedClassStateRef = useRef<number | null>(null);
   const launchParamsRef = useRef({
     roomUuid: "",
     courseId: "",
@@ -105,6 +138,28 @@ function ClassroomContent() {
       console.debug("[classroom]", ...args);
     }
   };
+
+  const syncClassStateToServer = useCallback(async (classState: number) => {
+    const cid = courseIdRef.current;
+    if (!cid || !isTeacherRef.current) return;
+    if (lastSyncedClassStateRef.current === classState) return;
+    lastSyncedClassStateRef.current = classState;
+
+    logClassroomDebug("sync class-state", { classState, courseId: cid });
+
+    try {
+      const res = await fetch(`/api/courses/${cid}/class-state`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ classState }),
+      });
+      if (!res.ok) {
+        lastSyncedClassStateRef.current = null;
+      }
+    } catch {
+      lastSyncedClassStateRef.current = null;
+    }
+  }, []);
 
   const leaveClassroom = useCallback(() => {
     if (leftClassroomRef.current) return;
@@ -236,6 +291,8 @@ function ClassroomContent() {
           }
 
           const resolvedRole: number = verifyData.role === "teacher" ? 1 : 2;
+          isTeacherRef.current = resolvedRole === 1;
+          lastSyncedClassStateRef.current = null;
           const resolvedRoomType =
             typeof verifyData.courseInfo?.roomType === "number"
               ? verifyData.courseInfo.roomType
@@ -334,21 +391,25 @@ function ClassroomContent() {
             webrtcExtensionBaseUrl: "https://solutions-apaas.agora.io/static",
             uiMode: "dark",
             widgets,
-            listener: (evt: unknown) => {
+            listener: (evt: unknown, ...args: unknown[]) => {
               try {
-                const code =
-                  typeof evt === "number"
-                    ? evt
-                    : typeof evt === "object" &&
-                        evt !== null &&
-                        "type" in evt &&
-                        typeof (evt as { type: unknown }).type === "number"
-                      ? (evt as { type: number }).type
-                      : null;
+                const { code, classState } = parseAgoraEvent(evt, args);
+
+                if (
+                  code === AGORA_EVT_CLASS_STATE_CHANGED &&
+                  classState !== null
+                ) {
+                  void syncClassStateToServer(classState);
+                  return;
+                }
+
                 if (
                   code === AGORA_EVT_DESTROYED ||
                   code === AGORA_EVT_KICK_OUT
                 ) {
+                  if (code === AGORA_EVT_DESTROYED && isTeacherRef.current) {
+                    void syncClassStateToServer(3);
+                  }
                   leaveClassroom();
                 }
               } catch {
@@ -417,7 +478,7 @@ function ClassroomContent() {
       launchKeyRef.current = null;
       launchingRef.current = false;
     };
-  }, [authLoading, userId, leaveClassroom]);
+  }, [authLoading, userId, leaveClassroom, syncClassStateToServer]);
 
   if (status === "error") {
     return (

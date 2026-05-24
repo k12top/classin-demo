@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar as CalendarIcon, Users, Settings, LogOut, ChevronLeft, ChevronRight, PlayCircle, Plus, Search, Trash2, Link as LinkIcon, Edit, UserPlus, Info, Clock } from "lucide-react";
+import { CourseStatusBadge } from "@/components/CourseStatusBadge";
+import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
 
 const ROOM_TYPES = [
   { value: 0, label: "一对一课堂", desc: "1v1 私教模式", icon: "👤" },
@@ -146,7 +148,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   };
 
   const handleEnterClassroomFromList = async (course: Course) => {
-    if (course.status === "finished" || course.status === "cancelled") return;
+    if (!canEnterClassroom(course.status)) return;
     setEnteringCourseId(course.id);
     try {
       const res = await fetch(`/api/courses/${course.id}/verify-access`, {
@@ -472,13 +474,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                             <div className="flex-1 space-y-3">
                               <div className="flex items-center gap-3">
                                 <h3 className="text-xl font-bold text-foreground">{course.name}</h3>
-                                <Badge variant="outline" className={
-                                  course.status === "active" ? "border-green-500/50 text-green-400 bg-green-500/10" : 
-                                  course.status === "finished" ? "border-gray-500/50 text-gray-400 bg-gray-500/10" : 
-                                  "border-red-500/50 text-red-400 bg-red-500/10"
-                                }>
-                                  {course.status === "active" ? "待上课" : course.status === "finished" ? "已结束" : "已取消"}
-                                </Badge>
+                                <CourseStatusBadge status={course.status} />
                                 <Badge variant="secondary" className="bg-white/10 text-white/80">{ROOM_TYPE_LABELS[course.roomType] || "课堂"}</Badge>
                               </div>
                               
@@ -534,7 +530,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                               </Button>
                               <Button
                                 className="w-full justify-start bg-purple-600 hover:bg-purple-700 text-white shadow-glow-purple"
-                                disabled={course.status !== "active" || !!enteringCourseId}
+                                disabled={!canEnterClassroom(course.status) || !!enteringCourseId}
                                 onClick={() => void handleEnterClassroomFromList(course)}
                               >
                                 {enteringCourseId === course.id ? (
@@ -544,10 +540,10 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                 )}
                               </Button>
                               
-                              {course.status === "active" && (
+                              {canEnterClassroom(course.status) && (
                                 <div className="grid grid-cols-2 gap-2 mt-2">
-                                  <Button variant="outline" size="sm" className="text-xs border-white/10" onClick={() => handleStatusChange(course.id, "finished")}>结束</Button>
-                                  <Button variant="outline" size="sm" className="text-xs text-red-400 border-red-500/30 hover:bg-red-500/10" onClick={() => handleStatusChange(course.id, "cancelled")}>取消</Button>
+                                  <Button variant="outline" size="sm" className="text-xs border-white/10" onClick={() => handleStatusChange(course.id, CourseStatus.FINISHED)}>结束</Button>
+                                  <Button variant="outline" size="sm" className="text-xs text-red-400 border-red-500/30 hover:bg-red-500/10" onClick={() => handleStatusChange(course.id, CourseStatus.CANCELLED)}>取消</Button>
                                 </div>
                               )}
                             </div>

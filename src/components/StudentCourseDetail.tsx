@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { PlayCircle, Clock, User, BookOpen, MessageSquare, AlertCircle } from "lucide-react";
+import { CourseStatusBadge } from "@/components/CourseStatusBadge";
+import { canEnterClassroom } from "@/lib/course-status";
 
 const ROOM_TYPE_LABELS: Record<number, string> = {
   0: "一对一课堂",
@@ -80,12 +82,7 @@ export default function StudentCourseDetail({
                   <Clock className="h-4 w-4 text-blue-400" />
                   <span className="font-medium text-foreground">{formatTime(course.startTime)}</span>
                 </div>
-                <Badge variant="secondary" className={
-                  course.status === 'active' ? "bg-green-500/20 text-green-300" : 
-                  course.status === 'finished' ? "bg-gray-500/20 text-gray-300" : "bg-red-500/20 text-red-300"
-                }>
-                  {course.status === 'active' ? '待上课' : course.status === 'finished' ? '已结束' : '已取消'}
-                </Badge>
+                <CourseStatusBadge status={course.status} />
               </div>
             </div>
             
@@ -94,7 +91,7 @@ export default function StudentCourseDetail({
                 size="lg"
                 className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white shadow-glow-blue"
                 onClick={onEnterClassroom}
-                disabled={enterLoading || course.status === "finished" || course.status === "cancelled"}
+                disabled={enterLoading || !canEnterClassroom(course.status)}
               >
                 {enterLoading ? (
                   <span className="flex items-center gap-2"><span className="animate-spin rounded-full h-4 w-4 border-2 border-white/20 border-t-white" /> 进入中…</span>

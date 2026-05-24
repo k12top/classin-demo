@@ -7,10 +7,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { buildJoinUrl, joinLinkStatus } from "@/lib/join-link";
+import { serializeCourse, serializeCourses } from "@/lib/course-serialize";
 import {
   applyCourseListSort,
   courseListOrderBy,
+  courseListStatusWhere,
   parseCourseListSort,
+  parseCourseStatusFilter,
 } from "@/lib/course-list-query";
 
 export async function GET(request: NextRequest) {
@@ -23,13 +26,20 @@ export async function GET(request: NextRequest) {
   if ("error" in sortParsed) {
     return NextResponse.json({ error: sortParsed.error }, { status: 400 });
   }
+  const statusParsed = parseCourseStatusFilter(
+    request.nextUrl.searchParams.get("status")
+  );
+  if (statusParsed !== null && typeof statusParsed === "object") {
+    return NextResponse.json({ error: statusParsed.error }, { status: 400 });
+  }
   const orderBy = courseListOrderBy(sortParsed);
+  const statusWhere = courseListStatusWhere(statusParsed);
 
   try {
     if (session.role === "teacher") {
       // Teacher sees all their own courses (all statuses)
       const coursesRaw = await prisma.course.findMany({
-        where: { teacherId: session.userId },
+        where: { teacherId: session.userId, ...statusWhere },
         include: {
           students: { select: { studentId: true, studentName: true } },
           groupLinks: {
@@ -66,12 +76,13 @@ export async function GET(request: NextRequest) {
         })),
         sortParsed
       );
-      return NextResponse.json({ courses });
+      return NextResponse.json({ courses: serializeCourses(courses) });
     } else {
       // Student sees courses they're directly assigned to (all statuses)
       const directCourses = await prisma.course.findMany({
         where: {
           students: { some: { studentId: session.userId } },
+          ...statusWhere,
         },
         include: {
           students: { select: { studentId: true, studentName: true } },
@@ -91,8 +102,8 @@ export async function GET(request: NextRequest) {
         groupCourses = await prisma.course.findMany({
           where: {
             groupLinks: { some: { groupId: { in: groupIds } } },
-            // Exclude already found direct courses
             NOT: { students: { some: { studentId: session.userId } } },
+            ...statusWhere,
           },
           include: {
             students: { select: { studentId: true, studentName: true } },
@@ -105,7 +116,7 @@ export async function GET(request: NextRequest) {
         [...directCourses, ...groupCourses],
         sortParsed
       );
-      return NextResponse.json({ courses });
+      return NextResponse.json({ courses: serializeCourses(courses) });
     }
   } catch (error) {
     console.error("Failed to fetch courses:", error);
@@ -143,7 +154,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ course }, { status: 201 });
+    return NextResponse.json({ course: serializeCourse(course) }, { status: 201 });
   } catch (error) {
     console.error("Failed to create course:", error);
     return NextResponse.json({ error: "Failed to create course" }, { status: 500 });

@@ -9,6 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, UserPlus, Info, Check, Copy } from "lucide-react";
+import { CourseStatusBadge } from "@/components/CourseStatusBadge";
+import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
 
 const ROOM_TYPE_LABELS: Record<number, string> = {
   0: "一对一课堂",
@@ -333,12 +335,7 @@ export default function TeacherCourseDetail({
                   <Clock className="h-4 w-4 text-purple-400" />
                   <span className="font-medium text-foreground">{formatTime(course.startTime)}</span>
                 </div>
-                <Badge variant="secondary" className={
-                  course.status === 'active' ? "bg-green-500/20 text-green-300" : 
-                  course.status === 'finished' ? "bg-gray-500/20 text-gray-300" : "bg-red-500/20 text-red-300"
-                }>
-                  {course.status === 'active' ? '待上课' : course.status === 'finished' ? '已结束' : '已取消'}
-                </Badge>
+                <CourseStatusBadge status={course.status} />
               </div>
             </div>
             
@@ -347,7 +344,7 @@ export default function TeacherCourseDetail({
                 size="lg"
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white shadow-glow-purple"
                 onClick={onEnterClassroom}
-                disabled={enterLoading || course.status === "finished" || course.status === "cancelled"}
+                disabled={enterLoading || !canEnterClassroom(course.status)}
               >
                 {enterLoading ? (
                   <span className="flex items-center gap-2"><span className="animate-spin rounded-full h-4 w-4 border-2 border-white/20 border-t-white" /> 进入中…</span>
@@ -355,12 +352,12 @@ export default function TeacherCourseDetail({
                   <span className="flex items-center gap-2"><PlayCircle className="h-5 w-5" /> 进入课堂</span>
                 )}
               </Button>
-              {course.status === "active" && (
+              {canEnterClassroom(course.status) && (
                 <div className="grid grid-cols-2 gap-2">
-                  <Button variant="outline" className="border-white/10 hover:bg-white/10 text-white" onClick={() => handleStatusChange("finished")}>
+                  <Button variant="outline" className="border-white/10 hover:bg-white/10 text-white" onClick={() => handleStatusChange(CourseStatus.FINISHED)}>
                     结束课程
                   </Button>
-                  <Button variant="outline" className="border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => handleStatusChange("cancelled")}>
+                  <Button variant="outline" className="border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => handleStatusChange(CourseStatus.CANCELLED)}>
                     取消课程
                   </Button>
                 </div>

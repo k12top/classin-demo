@@ -6,6 +6,11 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
+import { serializeCourse } from "@/lib/course-serialize";
+import {
+  CourseStatus,
+  isValidCourseStatus,
+} from "@/lib/course-status";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 
@@ -41,7 +46,7 @@ export async function GET(
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ course });
+    return NextResponse.json({ course: serializeCourse(course) });
   } catch (error) {
     console.error("Failed to fetch course:", error);
     return NextResponse.json({ error: "Failed to fetch course" }, { status: 500 });
@@ -69,6 +74,10 @@ export async function PUT(
     const body = await request.json();
     const { name, description, roomType, status, startTime, endTime, studentRemarks } = body;
 
+    if (status !== undefined && !isValidCourseStatus(status)) {
+      return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+    }
+
     const course = await prisma.course.update({
       where: { id },
       data: {
@@ -82,7 +91,7 @@ export async function PUT(
       },
     });
 
-    return NextResponse.json({ course });
+    return NextResponse.json({ course: serializeCourse(course) });
   } catch (error) {
     console.error("Failed to update course:", error);
     return NextResponse.json({ error: "Failed to update course" }, { status: 500 });
@@ -136,12 +145,23 @@ export async function PATCH(
     const body = await request.json();
     const { status, studentRemarks } = body;
     
-    const dataToUpdate: any = {};
-    
-    // Both can cancel. Teacher can finish.
+    const dataToUpdate: Record<string, unknown> = {};
+
     if (status !== undefined) {
-      if (status === "cancelled" || (isTeacher && status === "finished")) {
-         dataToUpdate.status = status;
+      if (status === CourseStatus.CANCELLED) {
+        dataToUpdate.status = status;
+      } else if (isTeacher && status === CourseStatus.FINISHED) {
+        dataToUpdate.status = status;
+      } else if (
+        isTeacher &&
+        (status === CourseStatus.SCHEDULED || status === CourseStatus.LIVE)
+      ) {
+        return NextResponse.json(
+          { error: "scheduled/live status is synced from classroom SDK" },
+          { status: 400 }
+        );
+      } else if (!isValidCourseStatus(status)) {
+        return NextResponse.json({ error: "Invalid status" }, { status: 400 });
       }
     }
     
@@ -155,7 +175,7 @@ export async function PATCH(
       data: dataToUpdate,
     });
 
-    return NextResponse.json({ course });
+    return NextResponse.json({ course: serializeCourse(course) });
   } catch (error) {
     console.error("Failed to patch course:", error);
     return NextResponse.json({ error: "Failed to patch course" }, { status: 500 });

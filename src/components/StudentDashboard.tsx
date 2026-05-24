@@ -10,6 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { BookOpen, Settings, LogOut, Calendar, Clock, User, Pencil, PlayCircle } from "lucide-react";
+import { CourseStatusBadge } from "@/components/CourseStatusBadge";
+import { CourseStatus, isUpcomingStatus } from "@/lib/course-status";
 
 interface Course {
   id: string;
@@ -44,9 +46,9 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
 
   const filteredCourses = useMemo(() => {
     switch (activeTab) {
-      case "upcoming": return courses.filter(c => c.status === "active");
-      case "finished": return courses.filter(c => c.status === "finished");
-      case "cancelled": return courses.filter(c => c.status === "cancelled");
+      case "upcoming": return courses.filter((c) => isUpcomingStatus(c.status));
+      case "finished": return courses.filter((c) => c.status === CourseStatus.FINISHED);
+      case "cancelled": return courses.filter((c) => c.status === CourseStatus.CANCELLED);
       default: return [];
     }
   }, [courses, activeTab]);
@@ -163,7 +165,12 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                           <div className="flex-1 p-6 flex flex-col">
                             <div className="flex justify-between items-start mb-4">
                               <div>
-                                <h3 className="text-xl font-bold text-foreground">{course.name}</h3>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h3 className="text-xl font-bold text-foreground">{course.name}</h3>
+                                  {activeTab === "upcoming" && (
+                                    <CourseStatusBadge status={course.status} />
+                                  )}
+                                </div>
                                 <div className="flex items-center gap-2 text-muted-foreground text-sm mt-1">
                                   <User className="h-4 w-4" /> 老师：{course.teacherName}
                                 </div>
