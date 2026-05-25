@@ -1,6 +1,7 @@
 export const CourseStatus = {
   SCHEDULED: "scheduled",
   LIVE: "live",
+  AFTER_CLASS: "afterClass",
   FINISHED: "finished",
   CANCELLED: "cancelled",
 } as const;
@@ -11,9 +12,17 @@ export type CourseStatusValue =
 export const COURSE_STATUSES: CourseStatusValue[] = [
   CourseStatus.SCHEDULED,
   CourseStatus.LIVE,
+  CourseStatus.AFTER_CLASS,
   CourseStatus.FINISHED,
   CourseStatus.CANCELLED,
 ];
+
+export function getFinishedDelayMinutes(): number {
+  const raw = process.env.COURSE_FINISHED_DELAY_MINUTES;
+  if (raw === undefined || raw === "") return 20;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 20;
+}
 
 export function isValidCourseStatus(value: string): value is CourseStatusValue {
   return (COURSE_STATUSES as string[]).includes(value);
@@ -25,6 +34,8 @@ export function statusLabel(status: string): string {
       return "未开始";
     case CourseStatus.LIVE:
       return "进行中";
+    case CourseStatus.AFTER_CLASS:
+      return "已下课";
     case CourseStatus.FINISHED:
       return "已结束";
     case CourseStatus.CANCELLED:
@@ -40,6 +51,8 @@ export function statusBadgeClassName(status: string): string {
       return "border-green-500/50 text-green-400 bg-green-500/10";
     case CourseStatus.LIVE:
       return "border-amber-500/50 text-amber-300 bg-amber-500/10 animate-pulse";
+    case CourseStatus.AFTER_CLASS:
+      return "border-blue-500/50 text-blue-300 bg-blue-500/10";
     case CourseStatus.FINISHED:
       return "border-gray-500/50 text-gray-400 bg-gray-500/10";
     case CourseStatus.CANCELLED:
@@ -51,12 +64,27 @@ export function statusBadgeClassName(status: string): string {
 
 export function canEnterClassroom(status: string): boolean {
   return (
-    status === CourseStatus.SCHEDULED || status === CourseStatus.LIVE
+    status === CourseStatus.SCHEDULED ||
+    status === CourseStatus.LIVE ||
+    status === CourseStatus.AFTER_CLASS
   );
 }
 
 export function isUpcomingStatus(status: string): boolean {
-  return canEnterClassroom(status);
+  return (
+    status === CourseStatus.SCHEDULED ||
+    status === CourseStatus.LIVE ||
+    status === CourseStatus.AFTER_CLASS
+  );
+}
+
+export function isFinishedDue(
+  endedAt: Date | null | undefined,
+  now: Date = new Date(),
+  delayMinutes = getFinishedDelayMinutes()
+): boolean {
+  if (!endedAt) return false;
+  return now.getTime() >= endedAt.getTime() + delayMinutes * 60 * 1000;
 }
 
 /** Agora ClassState: 0=beforeClass, 1=ongoing, 2=afterClass, 3=close */
@@ -68,7 +96,7 @@ export function mapAgoraClassStateToCourseStatus(
       return CourseStatus.LIVE;
     case 2:
     case 3:
-      return CourseStatus.FINISHED;
+      return CourseStatus.AFTER_CLASS;
     default:
       return null;
   }
@@ -97,17 +125,34 @@ export function canApplyStatusFromAgora(
   currentStatus: string,
   nextStatus: CourseStatusValue
 ): boolean {
-  if (currentStatus === CourseStatus.CANCELLED) {
+  if (
+    currentStatus === CourseStatus.CANCELLED ||
+    currentStatus === CourseStatus.FINISHED
+  ) {
     return false;
   }
   if (nextStatus === CourseStatus.LIVE) {
     return currentStatus === CourseStatus.SCHEDULED;
   }
-  if (nextStatus === CourseStatus.FINISHED) {
+  if (nextStatus === CourseStatus.AFTER_CLASS) {
     return (
       currentStatus === CourseStatus.SCHEDULED ||
       currentStatus === CourseStatus.LIVE
     );
   }
   return false;
+}
+
+/** Teacher manual finish: respect delay unless force. */
+export function resolveManualFinishedStatus(
+  currentStatus: string,
+  endedAt: Date | null | undefined,
+  force: boolean
+): CourseStatusValue | null {
+  if (currentStatus === CourseStatus.CANCELLED) return null;
+  if (currentStatus === CourseStatus.FINISHED) return CourseStatus.FINISHED;
+  if (force || isFinishedDue(endedAt)) {
+    return CourseStatus.FINISHED;
+  }
+  return CourseStatus.AFTER_CLASS;
 }

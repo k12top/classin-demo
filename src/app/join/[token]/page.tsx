@@ -8,6 +8,7 @@ import {
   courseIdToRoomUuid,
   resolveCourseAccess,
 } from "@/lib/course-access";
+import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
 import { recordJoinLinkUse, resolveJoinLink } from "@/lib/join-link";
 import { prisma } from "@/lib/db";
 
@@ -55,7 +56,12 @@ export default async function JoinPage({
   const access = await resolveCourseAccess(resolved.courseId, session.userId);
   if (!access.ok) {
     redirect(
-      `/access-denied?reason=${encodeURIComponent(access.reason)}&course=${encodeURIComponent("课程")}`
+      buildAccessDeniedUrl({
+        code: access.code,
+        reason: access.reason,
+        course: "课程",
+        courseId: resolved.courseId,
+      })
     );
   }
 
@@ -65,7 +71,10 @@ export default async function JoinPage({
   });
   if (!course) {
     redirect(
-      `/access-denied?reason=${encodeURIComponent("课程不存在")}`
+      buildAccessDeniedUrl({
+        code: "not_found",
+        reason: "课程不存在",
+      })
     );
   }
 

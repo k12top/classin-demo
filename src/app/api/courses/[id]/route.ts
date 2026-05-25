@@ -10,7 +10,9 @@ import { serializeCourse } from "@/lib/course-serialize";
 import {
   CourseStatus,
   isValidCourseStatus,
+  resolveManualFinishedStatus,
 } from "@/lib/course-status";
+import { promoteCourseIfDueById } from "@/lib/course-promote";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 
@@ -26,7 +28,7 @@ export async function GET(
   const { id } = await params;
 
   try {
-    const course = await prisma.course.findUnique({
+    let course = await prisma.course.findUnique({
       where: { id },
       include: {
         students: true,
@@ -45,6 +47,24 @@ export async function GET(
     if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
     }
+
+    await promoteCourseIfDueById(id);
+    course =
+      (await prisma.course.findUnique({
+        where: { id },
+        include: {
+          students: true,
+          groupLinks: {
+            include: {
+              group: {
+                include: {
+                  members: true,
+                },
+              },
+            },
+          },
+        },
+      })) ?? course;
 
     return NextResponse.json({ course: serializeCourse(course) });
   } catch (error) {
@@ -143,15 +163,26 @@ export async function PATCH(
 
   try {
     const body = await request.json();
-    const { status, studentRemarks } = body;
-    
+    const { status, studentRemarks, force } = body;
+
     const dataToUpdate: Record<string, unknown> = {};
 
     if (status !== undefined) {
       if (status === CourseStatus.CANCELLED) {
         dataToUpdate.status = status;
       } else if (isTeacher && status === CourseStatus.FINISHED) {
-        dataToUpdate.status = status;
+        const resolved = resolveManualFinishedStatus(
+          existing.status,
+          existing.endedAt,
+          force === true
+        );
+        if (!resolved) {
+          return NextResponse.json({ error: "Invalid status transition" }, { status: 400 });
+        }
+        dataToUpdate.status = resolved;
+        if (resolved === CourseStatus.AFTER_CLASS && !existing.endedAt) {
+          dataToUpdate.endedAt = new Date();
+        }
       } else if (
         isTeacher &&
         (status === CourseStatus.SCHEDULED || status === CourseStatus.LIVE)
@@ -175,7 +206,9 @@ export async function PATCH(
       data: dataToUpdate,
     });
 
-    return NextResponse.json({ course: serializeCourse(course) });
+    const promoted = await promoteCourseIfDueById(id);
+
+    return NextResponse.json({ course: serializeCourse(promoted ?? course) });
   } catch (error) {
     console.error("Failed to patch course:", error);
     return NextResponse.json({ error: "Failed to patch course" }, { status: 500 });

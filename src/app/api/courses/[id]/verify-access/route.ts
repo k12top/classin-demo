@@ -29,6 +29,7 @@ export async function GET(
         allowed: false,
         role: null,
         reason: access.reason,
+        code: access.code,
       },
       { status }
     );

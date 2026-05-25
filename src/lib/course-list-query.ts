@@ -56,8 +56,12 @@ function compareByStartTimeAsc<T extends CourseForListSort>(a: T, b: T): number 
 }
 
 function compareUpcoming<T extends CourseForListSort>(a: T, b: T): number {
-  const liveRank = (s: string) => (s === CourseStatus.LIVE ? 0 : 1);
-  const rankDiff = liveRank(a.status) - liveRank(b.status);
+  const rank = (s: string) => {
+    if (s === CourseStatus.LIVE) return 0;
+    if (s === CourseStatus.AFTER_CLASS) return 1;
+    return 2;
+  };
+  const rankDiff = rank(a.status) - rank(b.status);
   if (rankDiff !== 0) return rankDiff;
   return compareByStartTimeAsc(a, b);
 }
@@ -82,9 +86,10 @@ function compareFinishedOrCancelled<T extends CourseForListSort>(
 const UPCOMING_STATUSES = new Set<string>([
   CourseStatus.SCHEDULED,
   CourseStatus.LIVE,
+  CourseStatus.AFTER_CLASS,
 ]);
 
-/** ClassIn-style: scheduled+live by startTime asc (live first); finished/cancelled by endTime desc. */
+/** ClassIn-style: scheduled+live+afterClass by startTime asc; finished/cancelled by endTime desc. */
 export function sortCoursesClassInStyle<T extends CourseForListSort>(
   courses: T[]
 ): T[] {

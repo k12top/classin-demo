@@ -7,6 +7,7 @@ import Script from "next/script";
 import { useAuth } from "@/lib/auth-context";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
+import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
 import {
   markClassroomDocumentActive,
   resetDocumentAfterClassroom,
@@ -285,7 +286,12 @@ function ClassroomContent() {
           if (!verifyData.allowed) {
             launchingRef.current = false;
             routerRef.current.replace(
-              `/access-denied?reason=${encodeURIComponent(verifyData.reason || "无权访问")}&course=${encodeURIComponent(verifyRoomLabel)}`,
+              buildAccessDeniedUrl({
+                code: verifyData.code,
+                reason: verifyData.reason || "无权访问",
+                course: verifyRoomLabel,
+                courseId: cid,
+              }),
             );
             return;
           }

@@ -8,6 +8,7 @@ import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { buildJoinUrl, joinLinkStatus } from "@/lib/join-link";
 import { serializeCourse, serializeCourses } from "@/lib/course-serialize";
+import { promoteCoursesIfDue } from "@/lib/course-promote";
 import {
   applyCourseListSort,
   courseListOrderBy,
@@ -36,6 +37,8 @@ export async function GET(request: NextRequest) {
   const statusWhere = courseListStatusWhere(statusParsed);
 
   try {
+    await promoteCoursesIfDue();
+
     if (session.role === "teacher") {
       // Teacher sees all their own courses (all statuses)
       const coursesRaw = await prisma.course.findMany({

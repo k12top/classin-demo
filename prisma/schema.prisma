@@ -17,9 +17,10 @@ model Course {
   roomType       Int       @default(0) // 0=一对一, 4=小班, 2=大班
   teacherId      String    // Casdoor user ID
   teacherName    String
-  status         String    @default("scheduled") // scheduled | live | cancelled | finished
+  status         String    @default("scheduled") // scheduled | live | afterClass | cancelled | finished
   startTime      DateTime?
   endTime        DateTime?
+  endedAt        DateTime? // Agora class end time; finished after delay
   studentRemarks String    @default("")
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt

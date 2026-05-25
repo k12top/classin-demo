@@ -1,5 +1,7 @@
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
-import { canEnterClassroom } from "@/lib/course-status";
+import type { CourseAccessDeniedCode } from "@/lib/access-denied-codes";
+import { promoteCourseIfDueById } from "@/lib/course-promote";
+import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
 import { prisma } from "@/lib/db";
 
 export type CourseGateRole = "teacher" | "student";
@@ -8,6 +10,7 @@ export type CourseAccessDenied = {
   ok: false;
   httpStatus: number;
   reason: string;
+  code: CourseAccessDeniedCode;
 };
 
 export type CourseAccessOk = {
@@ -28,7 +31,7 @@ export async function resolveCourseAccess(
   userId: string
 ): Promise<CourseAccessResult> {
   try {
-    const course = await prisma.course.findUnique({
+    let course = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
         students: { select: { studentId: true } },
@@ -45,17 +48,48 @@ export async function resolveCourseAccess(
     });
 
     if (!course) {
-      return { ok: false, httpStatus: 404, reason: "课程不存在" };
+      return {
+        ok: false,
+        httpStatus: 404,
+        reason: "课程不存在",
+        code: "not_found",
+      };
+    }
+
+    await promoteCourseIfDueById(courseId);
+    const refreshed = await prisma.course.findUnique({
+      where: { id: courseId },
+      include: {
+        students: { select: { studentId: true } },
+        groupLinks: {
+          include: {
+            group: {
+              include: {
+                members: { select: { userId: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (refreshed) {
+      course = refreshed;
     }
 
     if (!canEnterClassroom(course.status)) {
+      if (course.status === CourseStatus.CANCELLED) {
+        return {
+          ok: false,
+          httpStatus: 403,
+          reason: "课程已取消",
+          code: "course_cancelled",
+        };
+      }
       return {
         ok: false,
         httpStatus: 403,
-        reason:
-          course.status === "cancelled"
-            ? "课程已取消"
-            : "课程已结束",
+        reason: "课程已结束",
+        code: "course_finished",
       };
     }
 
@@ -106,10 +140,16 @@ export async function resolveCourseAccess(
       ok: false,
       httpStatus: 403,
       reason: "您未被分配到此课程，请联系老师获取访问权限",
+      code: "not_enrolled",
     };
   } catch (error) {
     console.error("resolveCourseAccess:", error);
-    return { ok: false, httpStatus: 500, reason: "验证失败" };
+    return {
+      ok: false,
+      httpStatus: 500,
+      reason: "验证失败",
+      code: "default",
+    };
   }
 }
 

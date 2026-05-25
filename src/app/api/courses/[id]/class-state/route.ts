@@ -6,8 +6,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { serializeCourse } from "@/lib/course-serialize";
+import { promoteCourseIfDueById } from "@/lib/course-promote";
 import {
   canApplyStatusFromAgora,
+  CourseStatus,
   mapAgoraClassStateToCourseStatus,
 } from "@/lib/course-status";
 import { getSessionFromRequest } from "@/lib/session";
@@ -24,7 +26,7 @@ export async function PATCH(
 
   const { id } = await params;
 
-  const existing = await prisma.course.findUnique({ where: { id } });
+  let existing = await prisma.course.findUnique({ where: { id } });
   if (!existing) {
     return NextResponse.json({ error: "Course not found" }, { status: 404 });
   }
@@ -50,20 +52,69 @@ export async function PATCH(
     }
 
     const nextStatus = mapAgoraClassStateToCourseStatus(classState);
-    if (!nextStatus || nextStatus === existing.status) {
-      return NextResponse.json({ course: serializeCourse(existing) });
+    if (!nextStatus) {
+      const promoted = await promoteCourseIfDueById(id);
+      return NextResponse.json({
+        course: serializeCourse(promoted ?? existing),
+      });
     }
 
-    if (!canApplyStatusFromAgora(existing.status, nextStatus)) {
-      return NextResponse.json({ course: serializeCourse(existing) });
+    if (nextStatus === CourseStatus.AFTER_CLASS) {
+      if (
+        existing.status === CourseStatus.FINISHED ||
+        existing.status === CourseStatus.CANCELLED
+      ) {
+        const promoted = await promoteCourseIfDueById(id);
+        return NextResponse.json({
+          course: serializeCourse(promoted ?? existing),
+        });
+      }
+
+      if (
+        existing.status === CourseStatus.AFTER_CLASS &&
+        existing.endedAt
+      ) {
+        const promoted = await promoteCourseIfDueById(id);
+        return NextResponse.json({
+          course: serializeCourse(promoted ?? existing),
+        });
+      }
+
+      if (canApplyStatusFromAgora(existing.status, nextStatus)) {
+        await prisma.course.update({
+          where: { id },
+          data: {
+            status: CourseStatus.AFTER_CLASS,
+            endedAt: existing.endedAt ?? new Date(),
+          },
+        });
+      }
+
+      const promoted = await promoteCourseIfDueById(id);
+      return NextResponse.json({
+        course: serializeCourse(promoted ?? existing),
+      });
     }
 
-    const course = await prisma.course.update({
+    if (
+      nextStatus === existing.status ||
+      !canApplyStatusFromAgora(existing.status, nextStatus)
+    ) {
+      const promoted = await promoteCourseIfDueById(id);
+      return NextResponse.json({
+        course: serializeCourse(promoted ?? existing),
+      });
+    }
+
+    await prisma.course.update({
       where: { id },
       data: { status: nextStatus },
     });
 
-    return NextResponse.json({ course: serializeCourse(course) });
+    const promoted = await promoteCourseIfDueById(id);
+    return NextResponse.json({
+      course: serializeCourse(promoted ?? (await prisma.course.findUnique({ where: { id } }))!),
+    });
   } catch (error) {
     console.error("Failed to sync class state:", error);
     return NextResponse.json(

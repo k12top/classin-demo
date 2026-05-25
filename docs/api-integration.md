@@ -30,14 +30,16 @@ Authorization: Bearer <casdoor_access_token>
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| status | string? | 筛选课程状态（`scheduled` / `live` / `finished` / `cancelled`）；`active` 已废弃 |
+| status | string? | 筛选课程状态（`scheduled` / `live` / `afterClass` / `finished` / `cancelled`）；`active` 已废弃 |
 | createdAt | `asc` \| `desc`? | 按创建时间全局排序，**覆盖**下方默认规则 |
 
 **默认排序**（省略 `createdAt` 时，类似 ClassIn 列表）：
 
-- 整体顺序：未开始+进行中 → 已结束 → 已取消
-- `scheduled` + `live`：按 `startTime` **升序**；同时间时 `live` 优先于 `scheduled`
+- 整体顺序：未开始+进行中+已下课 → 已结束 → 已取消
+- `scheduled` + `live` + `afterClass`：按 `startTime` **升序**；同时间时 `live` > `afterClass` > `scheduled`
 - `finished` / `cancelled`：按 `endTime` **降序**（从近到远）；无 `endTime` 时回退按 `startTime` 降序
+
+**课后延时结束**：声网下课（SDK `afterClass`/`close`）后，课程先进入 `afterClass`（已下课），写入 `endedAt`；默认 **20 分钟** 内仍可进课堂，之后自动变为 `finished`（已结束）。延时可通过环境变量 `COURSE_FINISHED_DELAY_MINUTES` 配置。列表/详情 API 读取时会自动晋升到期课程；可选 Vercel Cron 作兜底。
 
 示例：
 
@@ -45,6 +47,7 @@ Authorization: Bearer <casdoor_access_token>
 GET /api/courses?createdAt=desc
 GET /api/courses?createdAt=asc
 GET /api/courses?status=live
+GET /api/courses?status=afterClass
 GET /api/courses?status=scheduled
 ```
 
@@ -120,8 +123,9 @@ GET /api/courses?status=scheduled
 | roomType | int | 房间类型：0=一对一，2=大班课，4=小班课 |
 | teacherId | string | 教师用户 ID |
 | teacherName | string | 教师显示名 |
-| status | string | 状态：`scheduled` / `live` / `finished` / `cancelled` |
-| statusLabel | string | 中文展示：`未开始` / `进行中` / `已结束` / `已取消` |
+| status | string | 状态：`scheduled` / `live` / `afterClass` / `finished` / `cancelled` |
+| statusLabel | string | 中文展示：`未开始` / `进行中` / `已下课` / `已结束` / `已取消` |
+| endedAt | string? | 声网下课时刻（ISO）；`afterClass` 时存在，用于计算何时晋升为 `finished` |
 | startTime | string? | 开始时间（ISO 格式） |
 | endTime | string? | 结束时间（ISO 格式） |
 | studentRemarks | string | 学生需求备注 |
@@ -288,7 +292,9 @@ Content-Type: application/json
 
 教师结束课程（兜底，通常由课堂 SDK 自动同步）：`{ "status": "finished" }`
 
-`scheduled` / `live` 由课堂内声网 SDK 同步，请勿通过 PATCH 手动写入。
+若仍在课后延时期内，上述请求会将课程设为 `afterClass` 并写入 `endedAt`，到期后自动变为 `finished`。教师可强制立即结束：`{ "status": "finished", "force": true }`
+
+`scheduled` / `live` / `afterClass` 由课堂内声网 SDK 同步，请勿通过 PATCH 手动写入。
 
 **响应**：同课程详情结构，`status` / `statusLabel` 字段已更新。
 
@@ -332,6 +338,10 @@ curl https://your-domain.com/api/courses/{courseId}/verify-access \
 # 3. 拼接域名跳转
 # https://your-domain.com + classroomUrl
 ```
+
+### 可选：Cron 兜底（Vercel）
+
+若部署在 Vercel 且配置了 `CRON_SECRET`，可启用 `vercel.json` 中的定时任务，每 5 分钟调用 `GET /api/cron/promote-course-status`，在无用户访问时仍将到期的 `afterClass` 晋升为 `finished`。Hobby 计划 Cron 频率受限；**即使不配置 Cron，读取课程 API 时也会自动晋升**。
 
 ---
 

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, AlertTriangle } from "lucide-react";
 
+import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
 import TeacherCourseDetail from "@/components/TeacherCourseDetail";
 import StudentCourseDetail from "@/components/StudentCourseDetail";
 
@@ -89,7 +90,14 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
       const data = await res.json();
 
       if (!data.allowed) {
-        router.push(`/access-denied?reason=${encodeURIComponent(data.reason || "无权访问")}&course=${encodeURIComponent(course.name)}`);
+        router.push(
+          buildAccessDeniedUrl({
+            code: data.code,
+            reason: data.reason || "无权访问",
+            course: course.name,
+            courseId: id,
+          })
+        );
         setEnterLoading(false);
         return;
       }
