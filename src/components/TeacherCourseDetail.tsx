@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, UserPlus, Info, Check, Copy } from "lucide-react";
+import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, UserPlus, Info, Check, Copy, BookOpen, FileText, Loader2 } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
 
@@ -58,7 +58,7 @@ export default function TeacherCourseDetail({
   enterLoading: boolean;
   fetchCourse: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<"members" | "sharing" | "requirements">("members");
+  const [activeTab, setActiveTab] = useState<"members" | "sharing" | "requirements" | "courseware">("members");
 
   // Search / add students
   const [searchQuery, setSearchQuery] = useState("");
@@ -77,6 +77,83 @@ export default function TeacherCourseDetail({
   const [joinLinkBusy, setJoinLinkBusy] = useState(false);
   const [newLinkLabel, setNewLinkLabel] = useState("");
   const [copyHint, setCopyHint] = useState("");
+
+  // Courseware Tab State
+  const [courseware, setCourseware] = useState<any[]>([]);
+  const [cwName, setCwName] = useState("");
+  const [cwUrl, setCwUrl] = useState("");
+  const [cwExt, setCwExt] = useState("pptx");
+  const [cwAdding, setCwAdding] = useState(false);
+  const [cwError, setCwError] = useState("");
+
+  const fetchCourseware = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/courses/${course.id}/courseware`);
+      if (res.ok) {
+        const data = await res.json();
+        setCourseware(data.courseware ?? []);
+      }
+    } catch (e) {
+      console.error("Failed to fetch courseware:", e);
+    }
+  }, [course.id]);
+
+  useEffect(() => {
+    if (casdoorUserIdsMatch(course.teacherId, user.userId)) {
+      fetchCourseware();
+    }
+  }, [course.teacherId, user.userId, fetchCourseware]);
+
+  // Poll for conversions every 4 seconds if there are items converting
+  useEffect(() => {
+    const hasConverting = courseware.some(
+      (item) => item.taskStatus === "Pending" || item.taskStatus === "Converting"
+    );
+    if (!hasConverting) return;
+
+    const timer = setInterval(() => {
+      fetchCourseware();
+    }, 4000);
+
+    return () => clearInterval(timer);
+  }, [courseware, fetchCourseware]);
+
+  const handleAddCourseware = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cwName.trim()) { setCwError("请输入课件名称"); return; }
+    
+    // Provide a beautiful default sample URL if left empty
+    const fileUrl = cwUrl.trim() || "https://solutions-apaas.agora.io/static/courseware.pptx";
+    
+    setCwAdding(true);
+    setCwError("");
+    try {
+      const res = await fetch(`/api/courses/${course.id}/courseware`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: cwName.trim(),
+          url: fileUrl,
+          ext: cwExt,
+          size: 1024 * 1024 * 5, // mock 5MB
+        }),
+      });
+      
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "添加课件失败");
+      }
+      
+      setCwName("");
+      setCwUrl("");
+      setCwError("");
+      fetchCourseware();
+    } catch (err) {
+      setCwError(err instanceof Error ? err.message : "添加课件失败");
+    } finally {
+      setCwAdding(false);
+    }
+  };
 
   /** 一对一 (roomType 0) 仅支持直配学生，不使用学生组。 */
   const supportsStudentGroups = course.roomType !== 0;
@@ -343,11 +420,24 @@ export default function TeacherCourseDetail({
               <Button
                 size="lg"
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white shadow-glow-purple"
-                onClick={onEnterClassroom}
-                disabled={enterLoading || !canEnterClassroom(course.status)}
+                onClick={() => {
+                  if (course.status === "finished") {
+                    if (course.recordUrl) {
+                      window.open(course.recordUrl, "_blank");
+                    }
+                  } else {
+                    onEnterClassroom();
+                  }
+                }}
+                disabled={enterLoading || (course.status === "finished" ? !course.recordUrl : !canEnterClassroom(course.status))}
               >
                 {enterLoading ? (
                   <span className="flex items-center gap-2"><span className="animate-spin rounded-full h-4 w-4 border-2 border-white/20 border-t-white" /> 进入中…</span>
+                ) : course.status === "finished" ? (
+                  <span className="flex items-center gap-2">
+                    <PlayCircle className="h-5 w-5" />
+                    {course.recordUrl ? "回看录像" : "无录像回看"}
+                  </span>
                 ) : (
                   <span className="flex items-center gap-2"><PlayCircle className="h-5 w-5" /> 进入课堂</span>
                 )}
@@ -372,6 +462,9 @@ export default function TeacherCourseDetail({
         <TabsList className="bg-black/20 border border-white/5 backdrop-blur-md mb-6 inline-flex w-full md:w-auto overflow-x-auto custom-scrollbar">
           <TabsTrigger value="members" className="flex-1 md:flex-none data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300 whitespace-nowrap">
             <Users className="mr-2 h-4 w-4" /> 成员管理
+          </TabsTrigger>
+          <TabsTrigger value="courseware" className="flex-1 md:flex-none data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300 whitespace-nowrap">
+            <BookOpen className="mr-2 h-4 w-4" /> 课件管理
           </TabsTrigger>
           <TabsTrigger value="sharing" className="flex-1 md:flex-none data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300 whitespace-nowrap">
             <LinkIcon className="mr-2 h-4 w-4" /> 课程分享
@@ -635,6 +728,149 @@ export default function TeacherCourseDetail({
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="courseware" className="mt-0">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Side: Upload / Add Courseware */}
+            <Card className="glass-panel border-white/10 bg-white/5 lg:col-span-1">
+              <CardHeader>
+                <CardTitle className="text-xl">添加教学课件</CardTitle>
+                <CardDescription>上传或录入教学课件，系统会自动请求声网白板服务进行文档转换。</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleAddCourseware} className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">课件名称</label>
+                    <Input
+                      placeholder="例如：第一章：认识二次函数.pptx"
+                      value={cwName}
+                      onChange={(e) => setCwName(e.target.value)}
+                      className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">文件 URL</label>
+                    <Input
+                      placeholder="留空则使用演示课件"
+                      value={cwUrl}
+                      onChange={(e) => setCwUrl(e.target.value)}
+                      className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
+                    />
+                    <p className="text-[10px] text-muted-foreground/60">
+                      支持 PPT, PPTX, PDF, DOC, DOCX, PNG, JPG, GIF 等公网可下载链接。
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">文件类型</label>
+                    <Select value={cwExt} onValueChange={setCwExt}>
+                      <SelectTrigger className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50">
+                        <SelectValue placeholder="选择文件类型…" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-background/95 border-white/10">
+                        <SelectItem value="pptx">PPTX (推荐动态转码)</SelectItem>
+                        <SelectItem value="ppt">PPT (动态转码)</SelectItem>
+                        <SelectItem value="pdf">PDF (静态转码)</SelectItem>
+                        <SelectItem value="docx">DOCX (静态转码)</SelectItem>
+                        <SelectItem value="png">PNG/JPG (图片)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {cwError && (
+                    <p className="text-xs text-red-400 bg-red-500/10 p-2 rounded border border-red-500/20">
+                      {cwError}
+                    </p>
+                  )}
+
+                  <Button
+                    type="submit"
+                    disabled={cwAdding || !cwName.trim()}
+                    className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                  >
+                    {cwAdding ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        添加并转换中…
+                      </span>
+                    ) : (
+                      "🚀 添加课件"
+                    )}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+
+            {/* Right Side: Courseware List */}
+            <Card className="glass-panel border-white/10 bg-white/5 lg:col-span-2">
+              <CardHeader>
+                <CardTitle className="text-xl">课件库</CardTitle>
+                <CardDescription>本节课程已绑定的课件。转换成功的课件将在进入课堂后自动显示在“公共资源”云盘中。</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {courseware.length === 0 ? (
+                  <div className="text-center py-12 border-2 border-dashed border-white/5 rounded-lg bg-black/10">
+                    <FileText className="h-12 w-12 text-muted-foreground/40 mx-auto mb-3" />
+                    <p className="text-muted-foreground text-sm">暂无绑定课件</p>
+                    <p className="text-xs text-muted-foreground/60 mt-1">请在左侧输入信息进行添加。</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {courseware.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between p-4 rounded-lg bg-black/20 border border-white/5 hover:border-white/10 transition-all"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl">
+                            {item.ext === "pdf" ? "📕" : ["ppt", "pptx"].includes(item.ext) ? "📙" : "📄"}
+                          </span>
+                          <div>
+                            <p className="text-sm font-semibold text-white">{item.name}</p>
+                            <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                              <span>格式: {item.ext.toUpperCase()}</span>
+                              <span>•</span>
+                              <span>大小: {item.size ? `${(item.size / 1024 / 1024).toFixed(2)} MB` : "未知"}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          {item.taskStatus === "Finished" && (
+                            <Badge className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                              转换成功 (Ready)
+                            </Badge>
+                          )}
+                          {(item.taskStatus === "Converting" || item.taskStatus === "Pending") && (
+                            <Badge className="bg-amber-500/10 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              云端转码中…
+                            </Badge>
+                          )}
+                          {item.taskStatus === "Failed" && (
+                            <Badge className="bg-rose-500/10 text-rose-400 border border-rose-500/30">
+                              转换失败
+                            </Badge>
+                          )}
+
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-purple-400 hover:text-purple-300 font-medium"
+                          >
+                            原文件 ↗
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="requirements" className="mt-0">

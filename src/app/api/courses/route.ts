@@ -8,7 +8,7 @@ import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { buildJoinUrl, joinLinkStatus } from "@/lib/join-link";
 import { serializeCourse, serializeCourses } from "@/lib/course-serialize";
-import { promoteCoursesIfDue } from "@/lib/course-promote";
+import { promoteCoursesIfDue, promoteCourseIfDueById } from "@/lib/course-promote";
 import {
   applyCourseListSort,
   courseListOrderBy,
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "检测到重复提交，请勿在 5 秒内重复创建相同课程" }, { status: 409 });
     }
 
-    const course = await prisma.course.create({
+    let course = await prisma.course.create({
       data: {
         name: name.trim(),
         description: description?.trim() || "",
@@ -172,6 +172,11 @@ export async function POST(request: NextRequest) {
         studentRemarks: studentRemarks?.trim() || "",
       },
     });
+
+    const promoted = await promoteCourseIfDueById(course.id);
+    if (promoted) {
+      course = promoted;
+    }
 
     return NextResponse.json({ course: serializeCourse(course) }, { status: 201 });
   } catch (error) {

@@ -352,6 +352,46 @@ function ClassroomContent() {
 
           const { token, appId } = await tokenRes.json();
 
+          // Fetch and map courseware for classroom whiteboard public slides
+          let sdkCoursewareList = [];
+          try {
+            const cwRes = await fetch(`/api/courses/${cid}/courseware`);
+            if (cwRes.ok) {
+              const cwData = await cwRes.json();
+              sdkCoursewareList = (cwData.courseware || [])
+                .filter((cw: any) => cw.taskStatus === "Finished")
+                .map((cw: any) => {
+                  const scenes = Array.isArray(cw.conversion) ? cw.conversion : [];
+                  return {
+                    resourceName: cw.name,
+                    resourceUuid: cw.id,
+                    ext: cw.ext,
+                    url: cw.url,
+                    size: cw.size || 0,
+                    updateTime: new Date(cw.updatedAt).getTime(),
+                    taskUuid: cw.taskUuid || undefined,
+                    taskProgress: {
+                      status: "Finished",
+                      totalPageSize: scenes.length,
+                      convertedPageSize: scenes.length,
+                      convertedPercentage: 100,
+                      currentStep: "Finished",
+                    },
+                    conversion: {
+                      outputFormat: cw.type,
+                      canvasVersion: true,
+                      preview: true,
+                      scale: 1.2,
+                      type: cw.type,
+                      scenes: scenes,
+                    },
+                  };
+                });
+            }
+          } catch (e) {
+            console.error("Failed to load courseware into classroom:", e);
+          }
+
           window.AgoraEduSDK.config({
             appId,
             region: "CN",
@@ -392,7 +432,8 @@ function ClassroomContent() {
             rtmToken: token,
             language: "zh",
             duration: 60 * 30, // 30 minutes
-            courseWareList: [],
+            courseWareList: sdkCoursewareList,
+            recordUrl: "https://solutions-apaas.agora.io/static/record_page_prod.html",
             virtualBackgroundImages: [],
             webrtcExtensionBaseUrl: "https://solutions-apaas.agora.io/static",
             uiMode: "dark",

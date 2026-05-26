@@ -1,10 +1,7 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import { AppDocumentGuard } from "@/components/app-document-guard";
 import { AuthProvider } from "@/lib/auth-context";
 import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: "灵动课堂 — 在线互动教学平台",
@@ -19,7 +16,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN" className="dark">
-      <body className={`${inter.variable} font-sans antialiased bg-background text-foreground min-h-screen flex flex-col`}>
+      <body className="font-sans antialiased bg-background text-foreground min-h-screen flex flex-col">
         {/* Dynamic Background */}
         <div className="fixed inset-0 z-[-1] bg-[radial-gradient(ellipse_at_20%_50%,rgba(59,130,246,0.08)_0%,transparent_50%),radial-gradient(ellipse_at_80%_20%,rgba(139,92,246,0.06)_0%,transparent_50%),radial-gradient(ellipse_at_50%_80%,rgba(6,182,212,0.05)_0%,transparent_50%)] pointer-events-none">
            <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[repeating-conic-gradient(rgba(255,255,255,0.01)_0%,transparent_2%)] animate-bg-rotate pointer-events-none" />

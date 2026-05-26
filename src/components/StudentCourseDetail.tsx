@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { PlayCircle, Clock, User, BookOpen, MessageSquare, AlertCircle } from "lucide-react";
+import { PlayCircle, Clock, User, BookOpen, MessageSquare, AlertCircle, FileText, Loader2 } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom } from "@/lib/course-status";
 
@@ -30,10 +30,27 @@ export default function StudentCourseDetail({
   enterLoading: boolean;
   fetchCourse: () => void;
 }) {
-  const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"info" | "requirements">("info");
+  const [activeTab, setActiveTab] = useState<"info" | "requirements" | "courseware">("info");
   const [remarksValue, setRemarksValue] = useState(course.studentRemarks || "");
   const [savingRemarks, setSavingRemarks] = useState(false);
+
+  const [courseware, setCourseware] = useState<any[]>([]);
+
+  const fetchCourseware = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/courses/${course.id}/courseware`);
+      if (res.ok) {
+        const data = await res.json();
+        setCourseware(data.courseware ?? []);
+      }
+    } catch (e) {
+      console.error("Failed to fetch courseware:", e);
+    }
+  }, [course.id]);
+
+  useEffect(() => {
+    fetchCourseware();
+  }, [fetchCourseware]);
 
   const formatTime = (isoString: string | null) => {
     if (!isoString) return "未定";
@@ -90,11 +107,24 @@ export default function StudentCourseDetail({
               <Button
                 size="lg"
                 className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white shadow-glow-blue"
-                onClick={onEnterClassroom}
-                disabled={enterLoading || !canEnterClassroom(course.status)}
+                onClick={() => {
+                  if (course.status === "finished") {
+                    if (course.recordUrl) {
+                      window.open(course.recordUrl, "_blank");
+                    }
+                  } else {
+                    onEnterClassroom();
+                  }
+                }}
+                disabled={enterLoading || (course.status === "finished" ? !course.recordUrl : !canEnterClassroom(course.status))}
               >
                 {enterLoading ? (
                   <span className="flex items-center gap-2"><span className="animate-spin rounded-full h-4 w-4 border-2 border-white/20 border-t-white" /> 进入中…</span>
+                ) : course.status === "finished" ? (
+                  <span className="flex items-center gap-2">
+                    <PlayCircle className="h-5 w-5" />
+                    {course.recordUrl ? "回看录像" : "无录像回看"}
+                  </span>
                 ) : (
                   <span className="flex items-center gap-2"><PlayCircle className="h-5 w-5" /> 进入课堂</span>
                 )}
@@ -109,6 +139,9 @@ export default function StudentCourseDetail({
         <TabsList className="bg-black/20 border border-white/5 backdrop-blur-md mb-6 inline-flex w-full md:w-auto">
           <TabsTrigger value="info" className="flex-1 md:flex-none data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-300">
             <BookOpen className="mr-2 h-4 w-4" /> 课程信息
+          </TabsTrigger>
+          <TabsTrigger value="courseware" className="flex-1 md:flex-none data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-300">
+            <FileText className="mr-2 h-4 w-4" /> 学习课件
           </TabsTrigger>
           <TabsTrigger value="requirements" className="flex-1 md:flex-none data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-300">
             <MessageSquare className="mr-2 h-4 w-4" /> 我的要求
@@ -126,12 +159,72 @@ export default function StudentCourseDetail({
               </p>
               
               <div className="mt-8 pt-6 border-t border-white/5">
-                 <h4 className="font-semibold mb-4 flex items-center gap-2"><BookOpen className="h-4 w-4 text-blue-400"/> 课件材料</h4>
-                 <div className="p-8 border border-dashed border-white/10 rounded-lg text-center bg-black/20">
-                   <AlertCircle className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
-                   <p className="text-sm text-muted-foreground">暂无课件上传功能</p>
-                 </div>
+                 <h4 className="font-semibold mb-2 flex items-center gap-2"><BookOpen className="h-4 w-4 text-blue-400"/> 课件材料</h4>
+                 <p className="text-sm text-muted-foreground bg-blue-500/10 border border-blue-500/20 p-3 rounded-md">
+                   📚 课程绑定的预习及复习课件已全部迁移！请点击上方最新的【**学习课件**】页签查看和下载。
+                 </p>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="courseware" className="mt-0">
+          <Card className="glass-panel border-white/10 bg-white/5">
+            <CardHeader>
+              <CardTitle className="text-xl">预习及复习课件</CardTitle>
+              <CardDescription>老师为本节课程上传的教学课件。点击可以直接下载或预览课件。</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {courseware.length === 0 ? (
+                <div className="text-center py-12 border-2 border-dashed border-white/5 rounded-lg bg-black/10">
+                  <FileText className="h-12 w-12 text-muted-foreground/40 mx-auto mb-3" />
+                  <p className="text-muted-foreground text-sm">暂无绑定课件</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">老师上传课件后将在此处展示。</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {courseware.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between p-4 rounded-lg bg-black/20 border border-white/5 hover:border-white/10 transition-all"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">
+                          {item.ext === "pdf" ? "📕" : ["ppt", "pptx"].includes(item.ext) ? "📙" : "📄"}
+                        </span>
+                        <div>
+                          <p className="text-sm font-semibold text-white">{item.name}</p>
+                          <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                            <span>格式: {item.ext.toUpperCase()}</span>
+                            <span>•</span>
+                            <span>大小: {item.size ? `${(item.size / 1024 / 1024).toFixed(2)} MB` : "未知"}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        {item.taskStatus === "Finished" ? (
+                          <Badge className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                            已就绪
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                            正在准备中…
+                          </Badge>
+                        )}
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded-md font-medium shadow-glow-blue transition-all"
+                        >
+                          打开文件 ↗
+                        </a>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

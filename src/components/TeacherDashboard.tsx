@@ -32,6 +32,7 @@ interface Course {
   startTime: string | null;
   endTime: string | null;
   studentRemarks: string;
+  recordUrl?: string | null;
   createdAt: string;
   updatedAt: string;
   students?: { studentId: string; studentName: string }[];
@@ -534,12 +535,29 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                 <Edit className="mr-2 h-4 w-4" /> 课程详情
                               </Button>
                               <Button
-                                className="w-full justify-start bg-purple-600 hover:bg-purple-700 text-white shadow-glow-purple"
-                                disabled={!canEnterClassroom(course.status) || !!enteringCourseId}
-                                onClick={() => void handleEnterClassroomFromList(course)}
+                                className={`w-full justify-start ${
+                                  course.status === "finished"
+                                    ? "bg-purple-900/50 text-purple-200 hover:bg-purple-900/60 border border-purple-500/30"
+                                    : "bg-purple-600 hover:bg-purple-700 text-white shadow-glow-purple"
+                                }`}
+                                disabled={(course.status === "finished" ? !course.recordUrl : !canEnterClassroom(course.status)) || !!enteringCourseId}
+                                onClick={() => {
+                                  if (course.status === "finished") {
+                                    if (course.recordUrl) {
+                                      window.open(course.recordUrl, "_blank");
+                                    }
+                                  } else {
+                                    void handleEnterClassroomFromList(course);
+                                  }
+                                }}
                               >
                                 {enteringCourseId === course.id ? (
                                   <>进入中…</>
+                                ) : course.status === "finished" ? (
+                                  <>
+                                    <PlayCircle className="mr-2 h-4 w-4" />
+                                    {course.recordUrl ? "回看录像" : "无录像回看"}
+                                  </>
                                 ) : (
                                   <><PlayCircle className="mr-2 h-4 w-4" /> 进入课堂</>
                                 )}

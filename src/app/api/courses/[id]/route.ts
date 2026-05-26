@@ -98,7 +98,7 @@ export async function PUT(
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
 
-    const course = await prisma.course.update({
+    let course = await prisma.course.update({
       where: { id },
       data: {
         ...(name !== undefined && { name: name.trim() }),
@@ -110,6 +110,11 @@ export async function PUT(
         ...(studentRemarks !== undefined && { studentRemarks: studentRemarks.trim() }),
       },
     });
+
+    const promoted = await promoteCourseIfDueById(id);
+    if (promoted) {
+      course = promoted;
+    }
 
     return NextResponse.json({ course: serializeCourse(course) });
   } catch (error) {

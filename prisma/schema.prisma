@@ -22,6 +22,7 @@ model Course {
   endTime        DateTime?
   endedAt        DateTime? // Agora class end time; finished after delay
   studentRemarks String    @default("")
+  recordUrl      String?   // Agora or external recording playback URL
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -29,6 +30,7 @@ model Course {
   students     CourseStudent[]
   groupLinks   CourseGroupLink[]
   joinLinks    CourseJoinLink[]
+  courseware   Courseware[]
 
   @@index([teacherId])
   @@index([status])
@@ -113,4 +115,24 @@ model GroupMember {
 
   @@unique([groupId, userId])
   @@index([userId])
+}
+
+// ── Courseware (Whiteboard materials / slides) ──
+model Courseware {
+  id          String   @id @default(uuid())
+  courseId    String
+  name        String
+  ext         String   // pdf, ppt, pptx, doc, docx, mp3, mp4, png, jpg, gif
+  size        Int      @default(0) // size in bytes
+  url         String   // Original or converted entry URL
+  taskUuid    String?  // Agora projector task UUID
+  taskStatus  String   @default("Pending") // Pending | Converting | Finished | Failed
+  type        String   @default("static") // static | dynamic
+  conversion  Json?    // Store full Agora conversion JSON response (scenes/pages)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
 }
