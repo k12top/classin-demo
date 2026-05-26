@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
@@ -73,6 +73,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const [createEndTime, setCreateEndTime] = useState("");
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState("");
+  const createLockRef = useRef(false);
 
   // Student management state
   const [myGroups, setMyGroups] = useState<GroupNode[]>([]);
@@ -185,10 +186,13 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   };
 
   const handleCreateCourse = async () => {
+    if (createLockRef.current) return;
     if (!createName.trim()) { setCreateError("请输入课程名称"); return; }
     if (!createStartTime) { setCreateError("请选择开始时间"); return; }
     if (!createEndTime) { setCreateError("请选择结束时间"); return; }
     if (new Date(createEndTime) <= new Date(createStartTime)) { setCreateError("结束时间必须晚于开始时间"); return; }
+    
+    createLockRef.current = true;
     setCreateLoading(true);
     setCreateError("");
     try {
@@ -215,6 +219,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "创建失败");
     } finally {
+      createLockRef.current = false;
       setCreateLoading(false);
     }
   };

@@ -144,6 +144,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Course name is required" }, { status: 400 });
     }
 
+    // Backend double-submit protection: check if a course with same teacher, name, startTime, and endTime was created within the last 5 seconds
+    const existing = await prisma.course.findFirst({
+      where: {
+        teacherId: session.userId,
+        name: name.trim(),
+        startTime: startTime ? new Date(startTime) : null,
+        endTime: endTime ? new Date(endTime) : null,
+        createdAt: {
+          gte: new Date(Date.now() - 5000), // created in last 5 seconds
+        },
+      },
+    });
+    if (existing) {
+      return NextResponse.json({ error: "检测到重复提交，请勿在 5 秒内重复创建相同课程" }, { status: 409 });
+    }
+
     const course = await prisma.course.create({
       data: {
         name: name.trim(),

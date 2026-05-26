@@ -5,10 +5,11 @@ import { prisma } from "@/lib/db";
 export async function promoteCoursesIfDue(
   courseIds?: string[]
 ): Promise<number> {
+  // 1. Promote afterClass courses whose endedAt + delay has passed
   const delayMinutes = getFinishedDelayMinutes();
   const threshold = new Date(Date.now() - delayMinutes * 60 * 1000);
 
-  const result = await prisma.course.updateMany({
+  const resultEnded = await prisma.course.updateMany({
     where: {
       status: CourseStatus.AFTER_CLASS,
       endedAt: { not: null, lte: threshold },
@@ -17,7 +18,19 @@ export async function promoteCoursesIfDue(
     data: { status: CourseStatus.FINISHED },
   });
 
-  return result.count;
+  // 2. Auto-close scheduled, live, or afterClass courses whose scheduled endTime + delay has passed
+  const resultScheduledEnd = await prisma.course.updateMany({
+    where: {
+      status: {
+        in: [CourseStatus.SCHEDULED, CourseStatus.LIVE, CourseStatus.AFTER_CLASS],
+      },
+      endTime: { not: null, lte: threshold },
+      ...(courseIds?.length ? { id: { in: courseIds } } : {}),
+    },
+    data: { status: CourseStatus.FINISHED },
+  });
+
+  return resultEnded.count + resultScheduledEnd.count;
 }
 
 export async function promoteCourseIfDueById(courseId: string) {
