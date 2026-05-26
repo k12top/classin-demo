@@ -18,8 +18,8 @@ export function buildRoomUserToken(
     );
   }
 
-  // Token expires in 3600 seconds (1 hour)
-  const expire = 3600;
+  // Token expires in 86400 seconds (24 hours) to prevent TOKEN_EXPIRED during live streams
+  const expire = 86400;
 
   return ApaasTokenBuilder.buildRoomUserToken(
     appId,
