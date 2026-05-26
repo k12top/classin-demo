@@ -98,13 +98,25 @@ export async function PUT(
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
 
+    let finalStatus = status;
+    // Revert LIVE -> SCHEDULED if the teacher reschedules to a future time
+    if (
+      finalStatus === undefined &&
+      existing.status === CourseStatus.LIVE &&
+      startTime
+    ) {
+      if (new Date(startTime) > new Date()) {
+        finalStatus = CourseStatus.SCHEDULED;
+      }
+    }
+
     let course = await prisma.course.update({
       where: { id },
       data: {
         ...(name !== undefined && { name: name.trim() }),
         ...(description !== undefined && { description: description.trim() }),
         ...(roomType !== undefined && { roomType }),
-        ...(status !== undefined && { status }),
+        ...(finalStatus !== undefined && { status: finalStatus }),
         ...(startTime !== undefined && { startTime: startTime ? new Date(startTime) : null }),
         ...(endTime !== undefined && { endTime: endTime ? new Date(endTime) : null }),
         ...(studentRemarks !== undefined && { studentRemarks: studentRemarks.trim() }),

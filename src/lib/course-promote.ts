@@ -30,7 +30,17 @@ export async function promoteCoursesIfDue(
     data: { status: CourseStatus.FINISHED },
   });
 
-  return resultEnded.count + resultScheduledEnd.count;
+  // 3. Auto-start scheduled courses whose startTime has passed
+  const resultScheduledStart = await prisma.course.updateMany({
+    where: {
+      status: CourseStatus.SCHEDULED,
+      startTime: { not: null, lte: new Date() },
+      ...(courseIds?.length ? { id: { in: courseIds } } : {}),
+    },
+    data: { status: CourseStatus.LIVE },
+  });
+
+  return resultEnded.count + resultScheduledEnd.count + resultScheduledStart.count;
 }
 
 export async function promoteCourseIfDueById(courseId: string) {
