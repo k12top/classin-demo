@@ -556,7 +556,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                 ) : course.status === "finished" ? (
                                   <>
                                     <PlayCircle className="mr-2 h-4 w-4" />
-                                    {course.recordUrl ? "回看录像" : "无录像回看"}
+                                    {course.recordUrl ? "回看录像" : "直播回放"}
                                   </>
                                 ) : (
                                   <><PlayCircle className="mr-2 h-4 w-4" /> 进入课堂</>
