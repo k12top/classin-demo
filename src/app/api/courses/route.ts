@@ -144,6 +144,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Course name is required" }, { status: 400 });
     }
 
+    if (startTime) {
+      const start = new Date(startTime);
+      if (start < new Date(Date.now() - 120000)) {
+        return NextResponse.json({ error: "开始时间不能早于当前时间" }, { status: 400 });
+      }
+    }
+
     // Backend double-submit protection: check if a course with same teacher, name, startTime, and endTime was created within the last 5 seconds
     const existing = await prisma.course.findFirst({
       where: {

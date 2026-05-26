@@ -76,6 +76,12 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const [createError, setCreateError] = useState("");
   const createLockRef = useRef(false);
 
+  const minDateTime = (() => {
+    const now = new Date();
+    const tzOffset = now.getTimezoneOffset() * 60000;
+    return new Date(now.getTime() - tzOffset).toISOString().slice(0, 16);
+  })();
+
   // Student management state
   const [myGroups, setMyGroups] = useState<GroupNode[]>([]);
   const [newGroupName, setNewGroupName] = useState("");
@@ -190,6 +196,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     if (createLockRef.current) return;
     if (!createName.trim()) { setCreateError("请输入课程名称"); return; }
     if (!createStartTime) { setCreateError("请选择开始时间"); return; }
+    if (new Date(createStartTime) < new Date(Date.now() - 120000)) { setCreateError("开始时间不能早于当前时间"); return; }
     if (!createEndTime) { setCreateError("请选择结束时间"); return; }
     if (new Date(createEndTime) <= new Date(createStartTime)) { setCreateError("结束时间必须晚于开始时间"); return; }
     
@@ -783,6 +790,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                   <Input
                     className="bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20 hover:border-purple-500/50 focus-visible:ring-purple-500/60 cursor-pointer [color-scheme:dark] h-12 px-4 text-base font-medium transition-all text-purple-50 shadow-inner"
                     type="datetime-local"
+                    min={minDateTime}
                     value={createStartTime}
                     onChange={(e) => { setCreateStartTime(e.target.value); setCreateError(""); }}
                     onClick={(e) => {
@@ -797,6 +805,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                   <Input
                     className="bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20 hover:border-purple-500/50 focus-visible:ring-purple-500/60 cursor-pointer [color-scheme:dark] h-12 px-4 text-base font-medium transition-all text-purple-50 shadow-inner"
                     type="datetime-local"
+                    min={createStartTime || minDateTime}
                     value={createEndTime}
                     onChange={(e) => { setCreateEndTime(e.target.value); setCreateError(""); }}
                     onClick={(e) => {
