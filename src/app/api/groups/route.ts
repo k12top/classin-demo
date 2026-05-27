@@ -8,6 +8,8 @@ import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 async function assertTeacherOwnsGroup(
   userId: string,
   groupId: string
@@ -56,7 +58,14 @@ export async function GET(request: NextRequest) {
     const rootGroups = groups.filter(
       (g: { parentId: string | null }) => !g.parentId
     );
-    return NextResponse.json({ groups: rootGroups });
+    return NextResponse.json(
+      { groups: rootGroups },
+      {
+        headers: {
+          "Cache-Control": "no-store, max-age=0, must-revalidate",
+        },
+      }
+    );
   } catch (error) {
     console.error("Failed to fetch groups:", error);
     return NextResponse.json(

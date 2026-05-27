@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { assertTeacherOwnsCourse } from "@/lib/course-teacher";
+
+export const dynamic = "force-dynamic";
 import {
   buildEmbedSnippet,
   buildJoinUrl,
@@ -66,9 +68,16 @@ export async function GET(
       orderBy: { createdAt: "desc" },
     });
     const origin = request.nextUrl.origin;
-    return NextResponse.json({
-      links: links.map((l) => serializeLink(l, origin)),
-    });
+    return NextResponse.json(
+      {
+        links: links.map((l) => serializeLink(l, origin)),
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, max-age=0, must-revalidate",
+        },
+      }
+    );
   } catch (error) {
     console.error("Failed to list join links:", error);
     return NextResponse.json(

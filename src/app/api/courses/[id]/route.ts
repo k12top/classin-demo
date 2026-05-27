@@ -16,6 +16,8 @@ import { promoteCourseIfDueById } from "@/lib/course-promote";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -66,7 +68,14 @@ export async function GET(
         },
       })) ?? course;
 
-    return NextResponse.json({ course: serializeCourse(course) });
+    return NextResponse.json(
+      { course: serializeCourse(course) },
+      {
+        headers: {
+          "Cache-Control": "no-store, max-age=0, must-revalidate",
+        },
+      }
+    );
   } catch (error) {
     console.error("Failed to fetch course:", error);
     return NextResponse.json({ error: "Failed to fetch course" }, { status: 500 });

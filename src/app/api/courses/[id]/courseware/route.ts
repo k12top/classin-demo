@@ -7,6 +7,8 @@ import {
   getWhiteboardConversionStatus,
 } from "@/lib/whiteboard-convert";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -67,7 +69,14 @@ export async function GET(
       })
     );
 
-    return NextResponse.json({ courseware: refreshedItems });
+    return NextResponse.json(
+      { courseware: refreshedItems },
+      {
+        headers: {
+          "Cache-Control": "no-store, max-age=0, must-revalidate",
+        },
+      }
+    );
   } catch (error) {
     console.error("Failed to fetch courseware:", error);
     return NextResponse.json({ error: "Failed to fetch courseware" }, { status: 500 });

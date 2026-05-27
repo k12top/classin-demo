@@ -17,6 +17,8 @@ import {
   parseCourseStatusFilter,
 } from "@/lib/course-list-query";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) {
@@ -79,7 +81,14 @@ export async function GET(request: NextRequest) {
         })),
         sortParsed
       );
-      return NextResponse.json({ courses: serializeCourses(courses) });
+      return NextResponse.json(
+        { courses: serializeCourses(courses) },
+        {
+          headers: {
+            "Cache-Control": "no-store, max-age=0, must-revalidate",
+          },
+        }
+      );
     } else {
       // Student sees courses they're directly assigned to (all statuses)
       const directCourses = await prisma.course.findMany({
@@ -119,7 +128,14 @@ export async function GET(request: NextRequest) {
         [...directCourses, ...groupCourses],
         sortParsed
       );
-      return NextResponse.json({ courses: serializeCourses(courses) });
+      return NextResponse.json(
+        { courses: serializeCourses(courses) },
+        {
+          headers: {
+            "Cache-Control": "no-store, max-age=0, must-revalidate",
+          },
+        }
+      );
     }
   } catch (error) {
     console.error("Failed to fetch courses:", error);

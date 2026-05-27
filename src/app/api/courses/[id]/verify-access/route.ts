@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
 import { resolveCourseAccess, courseIdToRoomUuid } from "@/lib/course-access";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -38,14 +40,21 @@ export async function GET(
   const roomUuid = courseIdToRoomUuid(courseId);
   const classroomUrl = `/classroom?roomUuid=${roomUuid}&roomType=${access.roomType}&roomName=${encodeURIComponent(access.roomName)}&courseId=${courseId}`;
 
-  return NextResponse.json({
-    allowed: true,
-    role: access.role,
-    courseInfo: {
-      name: access.roomName,
-      roomType: access.roomType,
-      teacherName: access.teacherName,
+  return NextResponse.json(
+    {
+      allowed: true,
+      role: access.role,
+      courseInfo: {
+        name: access.roomName,
+        roomType: access.roomType,
+        teacherName: access.teacherName,
+      },
+      classroomUrl,
     },
-    classroomUrl,
-  });
+    {
+      headers: {
+        "Cache-Control": "no-store, max-age=0, must-revalidate",
+      },
+    }
+  );
 }

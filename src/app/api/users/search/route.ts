@@ -7,6 +7,8 @@ import { getSessionFromRequest } from "@/lib/session";
 import { searchCasdoorUsers } from "@/lib/casdoor-server";
 import { resolveCasdoorUserId } from "@/lib/casdoor-user";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) {
@@ -31,17 +33,24 @@ export async function GET(request: NextRequest) {
       limit: 50,
     });
 
-    return NextResponse.json({
-      users: users.map((u) => ({
-        id: resolveCasdoorUserId(u),
-        casdoorUuid: u.id,
-        name: u.name,
-        displayName: u.displayName || u.name,
-        email: u.email,
-        avatar: u.avatar,
-        groups: u.groups ?? [],
-      })),
-    });
+    return NextResponse.json(
+      {
+        users: users.map((u) => ({
+          id: resolveCasdoorUserId(u),
+          casdoorUuid: u.id,
+          name: u.name,
+          displayName: u.displayName || u.name,
+          email: u.email,
+          avatar: u.avatar,
+          groups: u.groups ?? [],
+        })),
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, max-age=0, must-revalidate",
+        },
+      }
+    );
   } catch (error) {
     console.error("Failed to search users:", error);
     return NextResponse.json({ error: "Failed to search users" }, { status: 500 });
