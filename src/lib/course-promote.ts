@@ -40,6 +40,28 @@ export async function promoteCoursesIfDue(
     data: { status: CourseStatus.LIVE },
   });
 
+  // 4. Auto-generate recordUrl for finished courses if recording is enabled
+  const isRecordingEnabled = process.env.NEXT_PUBLIC_AGORA_RECORDING_ENABLED === "true";
+  if (isRecordingEnabled) {
+    const finishedWithoutUrl = await prisma.course.findMany({
+      where: {
+        status: CourseStatus.FINISHED,
+        recordUrl: null,
+        ...(courseIds?.length ? { id: { in: courseIds } } : {}),
+      },
+      select: { id: true, roomType: true },
+    });
+
+    for (const course of finishedWithoutUrl) {
+      const roomUuid = course.id.replace(/-/g, "").slice(0, 16);
+      const recordUrl = `https://solutions-apaas.agora.io/static/record_page_prod.html?roomUuid=${roomUuid}&roomType=${course.roomType}`;
+      await prisma.course.update({
+        where: { id: course.id },
+        data: { recordUrl },
+      });
+    }
+  }
+
   return resultEnded.count + resultScheduledEnd.count + resultScheduledStart.count;
 }
 

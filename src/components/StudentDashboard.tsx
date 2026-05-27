@@ -26,6 +26,7 @@ interface Course {
   studentRemarks: string;
   createdAt: string;
   updatedAt: string;
+  recordUrl?: string | null;
 }
 
 const ROOM_TYPE_LABELS: Record<number, string> = {
@@ -208,8 +209,18 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                             </div>
 
                             <div className="mt-6 flex justify-end">
-                              <Button className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-glow-blue transition-all group-hover:scale-105" onClick={() => router.push(`/courses/${course.id}`)}>
-                                <PlayCircle className="mr-2 h-4 w-4" /> 进入教室
+                              <Button 
+                                className={`transition-all group-hover:scale-105 ${
+                                  course.status === "finished"
+                                    ? "bg-blue-900/50 text-blue-200 hover:bg-blue-900/60 border border-blue-500/30"
+                                    : "bg-primary hover:bg-primary/90 text-primary-foreground shadow-glow-blue"
+                                }`}
+                                onClick={() => router.push(`/courses/${course.id}`)}
+                              >
+                                <PlayCircle className="mr-2 h-4 w-4" />
+                                {course.status === "finished"
+                                  ? (course.recordUrl ? "查看回放" : "直播回放")
+                                  : "进入教室"}
                               </Button>
                             </div>
                           </div>

@@ -123,7 +123,7 @@ export default function StudentCourseDetail({
                 ) : course.status === "finished" ? (
                   <span className="flex items-center gap-2">
                     <PlayCircle className="h-5 w-5" />
-                    {course.recordUrl ? "回看录像" : "直播回放"}
+                    {course.recordUrl ? "查看回放" : "直播回放"}
                   </span>
                 ) : (
                   <span className="flex items-center gap-2"><PlayCircle className="h-5 w-5" /> 进入课堂</span>
