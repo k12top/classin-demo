@@ -341,7 +341,13 @@ curl https://your-domain.com/api/courses/{courseId}/verify-access \
 
 ### 可选：Cron 兜底（Vercel）
 
-若部署在 Vercel 且配置了 `CRON_SECRET`，可启用 `vercel.json` 中的定时任务，每 5 分钟调用 `GET /api/cron/promote-course-status`，在无用户访问时仍将到期的 `afterClass` 晋升为 `finished`。Hobby 计划 Cron 频率受限；**即使不配置 Cron，读取课程 API 时也会自动晋升**。
+Vercel Cron 已从 `vercel.json` 移除（Hobby 计划不支持高频 Cron）。课程读取 API 会自动晋升到期课程，Cron 仅作兜底。如需启用：
+
+1. **升级到 Vercel Pro**：在 `vercel.json` 添加 `{"crons":[{"path":"/api/cron/promote-course-status","schedule":"*/5 * * * *"}]}`
+2. **外部定时服务**：使用 cron-job.org 等免费服务，每 5 分钟调用 `GET /api/cron/promote-course-status`，Header 带入 `Authorization: Bearer <CRON_SECRET>`
+3. **手动触发**：开发环境可直接访问上述接口（无需认证）
+
+无论是否配置定时调用，读取课程 API 时都会自动晋升到期状态。
 
 ---
 
