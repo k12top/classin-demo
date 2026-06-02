@@ -1,8 +1,13 @@
 import { cookies } from "next/headers";
 import { locales, SupportedLocale, getTranslation } from "./locales";
 
-export async function getServerTranslation() {
-  let locale: SupportedLocale = "zh-CN";
+export async function getServerTranslation(lang?: string) {
+  let locale: SupportedLocale = "en";
+
+  // URL lang parameter has highest priority (for iframe embed scenarios)
+  if (lang && lang in locales) {
+    locale = lang as SupportedLocale;
+  }
 
   try {
     const cookieStore = await cookies();
@@ -12,11 +17,11 @@ export async function getServerTranslation() {
     }
   } catch (err) {
     // cookies() might throw or fail during static generation or other phases, fallback to default
-    console.warn("getServerTranslation failed to read cookies, falling back to zh-CN:", err);
+    console.warn("getServerTranslation failed to read cookies, falling back to en:", err);
   }
 
-  const dict = locales[locale] || locales["zh-CN"];
-  const fallbackDict = locales["zh-CN"];
+  const dict = locales[locale] || locales["en"];
+  const fallbackDict = locales["en"];
 
   const t = (key: string, replacements?: Record<string, string | number>) => {
     let translated = getTranslation(dict, key, replacements);

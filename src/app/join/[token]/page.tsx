@@ -18,12 +18,12 @@ export default async function JoinPage({
   searchParams,
 }: {
   params: Promise<{ token: string }>;
-  searchParams: Promise<{ embed?: string }>;
+  searchParams: Promise<{ embed?: string; lang?: string }>;
 }) {
   const { token } = await params;
-  const { embed: embedParam } = await searchParams;
+  const { embed: embedParam, lang: langParam } = await searchParams;
   const wantEmbed = embedParam === "1" || embedParam === "true";
-  const { t } = await getServerTranslation();
+  const { t } = await getServerTranslation(langParam);
 
   const resolved = await resolveJoinLink(token);
   if (!resolved.ok) {
@@ -52,7 +52,12 @@ export default async function JoinPage({
 
   const session = await getSession();
   if (!session) {
-    redirect(`/api/auth/login?next=${encodeURIComponent(wantEmbed ? `/join/${token}?embed=1` : `/join/${token}`)}`);
+    const nextPath = `/join/${token}`;
+    const nextQs = new URLSearchParams();
+    if (wantEmbed) nextQs.set("embed", "1");
+    if (langParam) nextQs.set("lang", langParam);
+    const next = nextQs.size > 0 ? `${nextPath}?${nextQs.toString()}` : nextPath;
+    redirect(`/api/auth/login?next=${encodeURIComponent(next)}`);
   }
 
   const access = await resolveCourseAccess(resolved.courseId, session.userId);
@@ -91,6 +96,9 @@ export default async function JoinPage({
   });
   if (wantEmbed) {
     qs.set("embed", "1");
+  }
+  if (langParam) {
+    qs.set("lang", langParam);
   }
 
   redirect(`/classroom?${qs.toString()}`);

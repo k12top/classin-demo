@@ -19,7 +19,7 @@ export default async function RootLayout({
 }>) {
   const cookieStore = await cookies();
   const cookieVal = cookieStore.get("NEXT_LOCALE")?.value;
-  const initialLocale = (cookieVal || "zh-CN") as SupportedLocale;
+  const initialLocale = (cookieVal || "en") as SupportedLocale;
 
   return (
     <html lang={initialLocale} className="dark">

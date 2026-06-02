@@ -35,7 +35,16 @@ function setCookie(name: string, value: string, days = 365) {
 }
 
 function detectDefaultLocale(): SupportedLocale {
-  if (typeof window === "undefined") return "zh-CN";
+  if (typeof window === "undefined") return "en";
+
+  // 0. URL lang parameter (highest priority, for iframe embed scenarios)
+  const urlLang = new URLSearchParams(window.location.search).get("lang");
+  if (urlLang) {
+    // Direct match (e.g. "en", "zh-CN")
+    if (urlLang in locales) return urlLang as SupportedLocale;
+    // Prefix fallback (e.g. "zh" -> "zh-CN")
+    if (urlLang === "zh") return "zh-CN";
+  }
 
   // 1. LocalStorage
   const saved = localStorage.getItem("locale");
@@ -56,7 +65,7 @@ function detectDefaultLocale(): SupportedLocale {
     if (prefix === "zh") return "zh-CN";
   }
 
-  return "zh-CN";
+  return "en";
 }
 
 export function I18nProvider({
@@ -89,8 +98,8 @@ export function I18nProvider({
   }, [locale]);
 
   const value = useMemo(() => {
-    const dict = locales[locale] || locales["zh-CN"];
-    const fallbackDict = locales["zh-CN"];
+    const dict = locales[locale] || locales["en"];
+    const fallbackDict = locales["en"];
 
     const t = (key: string, replacements?: Record<string, string | number>) => {
       // Try current language translation

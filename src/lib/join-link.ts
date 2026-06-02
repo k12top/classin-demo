@@ -5,17 +5,20 @@ export function createJoinToken(): string {
   return randomBytes(24).toString("base64url");
 }
 
-export function buildJoinPath(token: string, embed = false): string {
+export function buildJoinPath(token: string, embed = false, lang?: string): string {
   const path = `/join/${encodeURIComponent(token)}`;
-  return embed ? `${path}?embed=1` : path;
+  const qs = new URLSearchParams();
+  if (embed) qs.set("embed", "1");
+  if (lang) qs.set("lang", lang);
+  return qs.size > 0 ? `${path}?${qs.toString()}` : path;
 }
 
-export function buildJoinUrl(origin: string, token: string, embed = false): string {
-  return `${origin.replace(/\/$/, "")}${buildJoinPath(token, embed)}`;
+export function buildJoinUrl(origin: string, token: string, embed = false, lang?: string): string {
+  return `${origin.replace(/\/$/, "")}${buildJoinPath(token, embed, lang)}`;
 }
 
-export function buildEmbedSnippet(origin: string, token: string): string {
-  const src = buildJoinUrl(origin, token, true);
+export function buildEmbedSnippet(origin: string, token: string, lang?: string): string {
+  const src = buildJoinUrl(origin, token, true, lang);
   return `<iframe src="${src}" allow="camera; microphone; display-capture; fullscreen" style="width:100%;height:100vh;border:0" title="灵动课堂"></iframe>`;
 }
 
