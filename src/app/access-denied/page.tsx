@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { AccessDeniedView } from "@/components/AccessDeniedView";
 import type { CourseAccessDeniedCode } from "@/lib/access-denied-codes";
+import { useTranslation } from "@/lib/i18n/context";
 
 function AccessDeniedContent() {
   const searchParams = useSearchParams();
@@ -23,11 +24,13 @@ function AccessDeniedContent() {
 }
 
 export default function AccessDeniedPage() {
+  const { t } = useTranslation();
+
   return (
     <Suspense
       fallback={
         <div className="min-h-screen bg-background flex items-center justify-center">
-          <p className="text-muted-foreground">加载中…</p>
+          <p className="text-muted-foreground">{t("common.loading")}</p>
         </div>
       }
     >

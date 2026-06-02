@@ -14,12 +14,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Calendar as CalendarIcon, Users, Settings, LogOut, ChevronLeft, ChevronRight, PlayCircle, Plus, Search, Trash2, Link as LinkIcon, Edit, UserPlus, Info, Clock } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
-
-const ROOM_TYPES = [
-  { value: 0, label: "一对一课堂", desc: "1v1 私教模式", icon: "👤" },
-  { value: 4, label: "小班课", desc: "适合 2~16 人", icon: "👥" },
-  { value: 2, label: "大班课", desc: "适合大规模直播教学", icon: "🏫" },
-];
+import { useTranslation } from "@/lib/i18n/context";
+import { SupportedLocale } from "@/lib/i18n/locales";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 
 interface Course {
   id: string;
@@ -46,10 +43,10 @@ interface GroupNode {
   children?: GroupNode[];
 }
 
-const ROOM_TYPE_LABELS: Record<number, string> = {
-  0: "一对一",
-  4: "小班",
-  2: "大班",
+const ROOM_TYPE_KEYS: Record<number, string> = {
+  0: "common.roomType1v1",
+  4: "common.roomTypeSmall",
+  2: "common.roomTypeBig",
 };
 
 type SidebarPage = "schedule" | "students" | "settings";
@@ -64,6 +61,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     return d;
   });
   const [enteringCourseId, setEnteringCourseId] = useState<string | null>(null);
+  const { t, locale } = useTranslation();
 
   // Create course dialog state
   const [createOpen, setCreateOpen] = useState(false);
@@ -92,6 +90,12 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const [searchError, setSearchError] = useState("");
   const [memberTargetGroupId, setMemberTargetGroupId] = useState("");
 
+  const roomTypes = useMemo(() => [
+    { value: 0, label: t("common.roomType1v1"), desc: t("teacherDashboard.roomDesc1v1"), icon: "👤" },
+    { value: 4, label: t("common.roomTypeSmall"), desc: t("teacherDashboard.roomDescSmall"), icon: "👥" },
+    { value: 2, label: t("common.roomTypeBig"), desc: t("teacherDashboard.roomDescBig"), icon: "🏫" },
+  ], [t]);
+
   const fetchMyGroups = useCallback(async () => {
     const res = await fetch("/api/groups", { credentials: "same-origin" });
     if (res.ok) {
@@ -107,7 +111,8 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   }, [activePage, fetchMyGroups]);
 
   const handleStatusChange = async (courseId: string, status: string) => {
-    if (!confirm(`确定将课程标记为 ${status === 'finished' ? '已结束' : '已取消'} 吗？`)) return;
+    const statusLabel = status === 'finished' ? t("teacherDashboard.statusFinished") : t("teacherDashboard.statusCancelled");
+    if (!confirm(t("teacherDashboard.confirmFinishCancel", { status: statusLabel }))) return;
     try {
       const res = await fetch(`/api/courses/${courseId}`, {
         method: "PATCH",
@@ -164,7 +169,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.allowed) {
-        alert(data.reason || "无法进入课堂");
+        alert(data.reason || t("classroom.launchError"));
         return;
       }
       const roomUuid = course.id.replace(/-/g, "").slice(0, 16);
@@ -177,7 +182,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         }).toString()}`
       );
     } catch {
-      alert("进入课堂失败，请稍后重试");
+      alert(t("classroom.launchError"));
     } finally {
       setEnteringCourseId(null);
     }
@@ -186,19 +191,19 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const copyShareUrl = async (url: string) => {
     try {
       await navigator.clipboard.writeText(url);
-      alert("链接已复制");
+      alert(t("courseDetail.copySuccess"));
     } catch {
-      alert("复制失败，请手动选择链接复制");
+      alert(t("courseDetail.copyFailed"));
     }
   };
 
   const handleCreateCourse = async () => {
     if (createLockRef.current) return;
-    if (!createName.trim()) { setCreateError("请输入课程名称"); return; }
-    if (!createStartTime) { setCreateError("请选择开始时间"); return; }
-    if (new Date(createStartTime) < new Date(Date.now() - 120000)) { setCreateError("开始时间不能早于当前时间"); return; }
-    if (!createEndTime) { setCreateError("请选择结束时间"); return; }
-    if (new Date(createEndTime) <= new Date(createStartTime)) { setCreateError("结束时间必须晚于开始时间"); return; }
+    if (!createName.trim()) { setCreateError(t("teacherDashboard.errNameEmpty")); return; }
+    if (!createStartTime) { setCreateError(t("teacherDashboard.errStartTimeEmpty")); return; }
+    if (new Date(createStartTime) < new Date(Date.now() - 120000)) { setCreateError(t("teacherDashboard.errStartTimePast")); return; }
+    if (!createEndTime) { setCreateError(t("teacherDashboard.errEndTimeEmpty")); return; }
+    if (new Date(createEndTime) <= new Date(createStartTime)) { setCreateError(t("teacherDashboard.errEndTimeBefore")); return; }
     
     createLockRef.current = true;
     setCreateLoading(true);
@@ -217,7 +222,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || "创建失败");
+        throw new Error(data.error || t("common.failed"));
       }
       const { course } = await res.json();
       setCreateOpen(false);
@@ -225,7 +230,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       fetchCourses();
       router.push(`/courses/${course.id}`);
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : "创建失败");
+      setCreateError(err instanceof Error ? err.message : t("common.failed"));
     } finally {
       createLockRef.current = false;
       setCreateLoading(false);
@@ -257,14 +262,14 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setSearchResults(data.users ?? []);
-        if (!data.users?.length) setSearchError("未找到匹配用户");
+        if (!data.users?.length) setSearchError(t("teacherDashboard.searchUserNotFound"));
       } else {
         setSearchResults([]);
-        setSearchError(data.hint || data.error || "搜索失败");
+        setSearchError(data.hint || data.error || t("common.failed"));
       }
     } catch {
       setSearchResults([]);
-      setSearchError("搜索失败，请检查网络");
+      setSearchError(t("common.failed"));
     } finally {
       setSearching(false);
     }
@@ -290,7 +295,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   };
 
   const handleDeleteGroup = async (groupId: string) => {
-    if (!confirm("确定删除该学生组？")) return;
+    if (!confirm(t("teacherDashboard.deleteGroupConfirm"))) return;
     setGroupBusy(true);
     try {
       const res = await fetch("/api/groups", {
@@ -306,7 +311,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
   const handleAddUserToGroup = async (u: { id: string; name: string; displayName: string }) => {
     if (!memberTargetGroupId) {
-      alert("请先选择要加入的学生组");
+      alert(t("teacherDashboard.selectTargetGroup"));
       return;
     }
     setGroupBusy(true);
@@ -327,7 +332,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   };
 
   const handleRemoveMember = async (groupId: string, userId: string) => {
-    if (!confirm("确定移除该成员？")) return;
+    if (!confirm(t("teacherDashboard.removeMemberConfirm"))) return;
     setGroupBusy(true);
     try {
       const res = await fetch("/api/groups", {
@@ -352,16 +357,24 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     for (const g of roots) {
       const label = prefix ? `${prefix} / ${g.name}` : g.name;
       rows.push({ id: g.id, label });
-      if (g.children?.length) rows.push(...flattenGroups(g.children, label));
+      if (g.children?.length) roots && rows.push(...flattenGroups(g.children, label));
     }
     return rows;
   }
+
+  const calendarDaysList = useMemo(() => {
+    try {
+      return JSON.parse(t("teacherDashboard.calendarDays"));
+    } catch {
+      return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    }
+  }, [t]);
 
   return (
     <div className="flex min-h-screen bg-background">
       {/* Sidebar */}
       <aside className="w-64 border-r border-white/10 bg-black/20 backdrop-blur-xl flex flex-col hidden md:flex">
-        <div className="p-6">
+        <div className="p-6 flex flex-col flex-1">
           <div className="flex items-center gap-4 mb-8">
             <Avatar className="h-12 w-12 border border-purple-500/30 shadow-glow-purple">
               <AvatarImage src={user.avatar} />
@@ -369,7 +382,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
             </Avatar>
             <div className="flex flex-col">
               <span className="font-semibold text-foreground truncate w-32">{user.displayName || user.name}</span>
-              <Badge variant="secondary" className="w-fit text-[10px] mt-1 bg-purple-500/20 text-purple-300 hover:bg-purple-500/30">Teacher</Badge>
+              <Badge variant="secondary" className="w-fit text-[10px] mt-1 bg-purple-500/20 text-purple-300 hover:bg-purple-500/30">{t("common.roleTeacher")}</Badge>
             </div>
           </div>
           <nav className="space-y-2">
@@ -378,38 +391,47 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
               className={`w-full justify-start ${activePage === 'schedule' ? 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30' : ''}`}
               onClick={() => setActivePage('schedule')}
             >
-              <CalendarIcon className="mr-2 h-4 w-4" /> 我的课表
+              <CalendarIcon className="mr-2 h-4 w-4" /> {t("teacherDashboard.schedule")}
             </Button>
             <Button 
               variant={activePage === 'students' ? 'secondary' : 'ghost'} 
               className={`w-full justify-start ${activePage === 'students' ? 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30' : ''}`}
               onClick={() => setActivePage('students')}
             >
-              <Users className="mr-2 h-4 w-4" /> 学生管理
+              <Users className="mr-2 h-4 w-4" /> {t("teacherDashboard.studentManage")}
             </Button>
             <Button 
               variant={activePage === 'settings' ? 'secondary' : 'ghost'} 
               className={`w-full justify-start ${activePage === 'settings' ? 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30' : ''}`}
               onClick={() => setActivePage('settings')}
             >
-              <Settings className="mr-2 h-4 w-4" /> 个人设置
+              <Settings className="mr-2 h-4 w-4" /> {t("settingsPanel.title")}
             </Button>
           </nav>
+          
+          <div className="mt-auto pt-6 border-t border-white/5 space-y-2">
+            <label className="text-xs text-muted-foreground block px-2">{t("settingsPanel.language")}</label>
+            <LanguageSwitcher className="w-full" />
+          </div>
         </div>
       </aside>
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto p-6 md:p-10 relative">
+        {/* Language Switcher for Mobile */}
+        <div className="absolute top-6 right-6 z-20 md:hidden">
+          <LanguageSwitcher />
+        </div>
         {/* ──── Schedule Page ──── */}
         {activePage === "schedule" && (
           <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div>
-                <h2 className="text-3xl font-bold">我的课表</h2>
-                <p className="text-muted-foreground mt-1">管理您的每日课程和教室。</p>
+                <h2 className="text-3xl font-bold">{t("teacherDashboard.schedule")}</h2>
+                <p className="text-muted-foreground mt-1">{t("teacherDashboard.groupManageDesc")}</p>
               </div>
               <Button onClick={() => { setCreateError(""); setCreateOpen(true); }} className="bg-purple-600 hover:bg-purple-700 text-white shadow-glow-purple">
-                <Plus className="mr-2 h-4 w-4" /> 创建课程
+                <Plus className="mr-2 h-4 w-4" /> {t("teacherDashboard.createCourse")}
               </Button>
             </div>
 
@@ -419,12 +441,16 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 <Card className="glass-panel border-white/10 bg-black/40">
                   <div className="p-4 flex items-center justify-between border-b border-white/10">
                     <Button variant="ghost" size="icon" onClick={() => shiftCalendarMonth(-1)}><ChevronLeft className="h-4 w-4" /></Button>
-                    <span className="font-semibold">{selectedDate.getFullYear()}年 {selectedDate.getMonth() + 1}月</span>
+                    <span className="font-semibold">
+                      {locale === "zh-CN" || locale === "ja" 
+                        ? `${selectedDate.getFullYear()}${t("teacherDashboard.calendarYear")} ${selectedDate.getMonth() + 1}${t("teacherDashboard.calendarMonth")}` 
+                        : selectedDate.toLocaleString(locale, { month: 'long', year: 'numeric' })}
+                    </span>
                     <Button variant="ghost" size="icon" onClick={() => shiftCalendarMonth(1)}><ChevronRight className="h-4 w-4" /></Button>
                   </div>
                   <div className="p-4">
                     <div className="grid grid-cols-7 gap-1 text-center mb-2">
-                      {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                      {calendarDaysList.map((d: string) => (
                         <div key={d} className="text-xs font-medium text-muted-foreground py-1">{d}</div>
                       ))}
                     </div>
@@ -464,17 +490,17 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
               <div className="lg:col-span-8 xl:col-span-9 space-y-6">
                 <div>
                   <h3 className="text-xl font-semibold flex items-center gap-2">
-                    {selectedDate.getMonth() + 1}月{selectedDate.getDate()}日 安排
+                    {selectedDate.toLocaleString(locale, { month: 'long', day: 'numeric' })} {t("teacherDashboard.schedule")}
                   </h3>
                 </div>
                 
                 {selectedCourses.length === 0 ? (
                   <Card className="glass-panel border-white/10 bg-white/5 border-dashed p-12 text-center flex flex-col items-center">
                     <CalendarIcon className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
-                    <p className="text-muted-foreground font-medium">该日没有排课。</p>
+                    <p className="text-muted-foreground font-medium">{t("teacherDashboard.noClassSchedule")}</p>
                     {(coursesMissingStartTime?.length ?? 0) > 0 && (
                       <p className="text-sm text-muted-foreground mt-2">
-                        另有 {coursesMissingStartTime.length} 节课未填写上课时间，请到「课程详情」中补齐。
+                        {t("teacherDashboard.missingTimeCount", { count: coursesMissingStartTime.length })}
                       </p>
                     )}
                   </Card>
@@ -488,23 +514,23 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                               <div className="flex items-center gap-3">
                                 <h3 className="text-xl font-bold text-foreground">{course.name}</h3>
                                 <CourseStatusBadge status={course.status} />
-                                <Badge variant="secondary" className="bg-white/10 text-white/80">{ROOM_TYPE_LABELS[course.roomType] || "课堂"}</Badge>
+                                <Badge variant="secondary" className="bg-white/10 text-white/80">{t(ROOM_TYPE_KEYS[course.roomType]) || t("common.unknown")}</Badge>
                               </div>
                               
                               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                                 <div className="flex items-center gap-1.5 bg-black/40 px-3 py-1 rounded-md border border-white/5">
                                   <Clock className="h-4 w-4 text-purple-400" />
                                   <span className="font-medium text-foreground">
-                                    {course.startTime ? new Date(course.startTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "未定"}
+                                    {course.startTime ? new Date(course.startTime).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }) : t("common.timeUndetermined")}
                                     {" - "}
-                                    {course.endTime ? new Date(course.endTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "未定"}
+                                    {course.endTime ? new Date(course.endTime).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }) : t("common.timeUndetermined")}
                                   </span>
                                 </div>
                               </div>
 
                               <div className="mt-4 p-4 bg-black/20 rounded-lg border border-white/5 space-y-2">
                                 <div className="flex items-center gap-2 text-sm font-medium text-purple-300">
-                                  <LinkIcon className="h-4 w-4" /> 快速邀请
+                                  <LinkIcon className="h-4 w-4" /> {t("teacherDashboard.quickInvite")}
                                 </div>
                                 {course.activeJoinLinks && course.activeJoinLinks.length > 0 ? (
                                   <div className="flex flex-wrap gap-2">
@@ -516,19 +542,19 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                         className="h-7 text-xs border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300"
                                         onClick={() => void copyShareUrl(link.joinUrl)}
                                       >
-                                        {link.label.trim() ? link.label.slice(0, 18) : "未命名"}
-                                        {link.useCount ? ` · ${link.useCount}次` : ""}
+                                        {link.label.trim() ? link.label.slice(0, 18) : t("common.unknown")}
+                                        {link.useCount ? ` · ${link.useCount}` : ""}
                                       </Button>
                                     ))}
                                   </div>
                                 ) : (
-                                  <p className="text-xs text-muted-foreground">暂无有效链接，可在详情页新建。</p>
+                                  <p className="text-xs text-muted-foreground">{t("teacherDashboard.inviteLinkEmpty")}</p>
                                 )}
                               </div>
 
                               {course.studentRemarks && (
                                 <div className="text-sm bg-blue-500/10 border border-blue-500/20 p-3 rounded-md text-blue-200 mt-2">
-                                  <strong className="text-blue-300 mr-1">学生要求:</strong> {course.studentRemarks}
+                                  <strong className="text-blue-300 mr-1">{t("studentDashboard.myRemarks")}</strong> {course.studentRemarks}
                                 </div>
                               )}
                             </div>
@@ -539,7 +565,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                 className="w-full justify-start border-white/10 hover:bg-white/10"
                                 onClick={() => router.push(`/courses/${course.id}`)}
                               >
-                                <Edit className="mr-2 h-4 w-4" /> 课程详情
+                                <Edit className="mr-2 h-4 w-4" /> {t("teacherDashboard.btnDetails")}
                               </Button>
                               <Button
                                 className={`w-full justify-start ${
@@ -559,21 +585,21 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                 }}
                               >
                                 {enteringCourseId === course.id ? (
-                                  <>进入中…</>
+                                  <>{t("teacherDashboard.btnEntering")}</>
                                 ) : course.status === "finished" ? (
                                   <>
                                     <PlayCircle className="mr-2 h-4 w-4" />
-                                    {course.recordUrl ? "查看回放" : "直播回放"}
+                                    {course.recordUrl ? t("studentDashboard.viewPlayback") : t("studentDashboard.livePlayback")}
                                   </>
                                 ) : (
-                                  <><PlayCircle className="mr-2 h-4 w-4" /> 进入课堂</>
+                                  <><PlayCircle className="mr-2 h-4 w-4" /> {t("teacherDashboard.btnEnterClass")}</>
                                 )}
                               </Button>
                               
                               {canEnterClassroom(course.status) && (
                                 <div className="grid grid-cols-2 gap-2 mt-2">
-                                  <Button variant="outline" size="sm" className="text-xs border-white/10" onClick={() => handleStatusChange(course.id, CourseStatus.FINISHED)}>结束</Button>
-                                  <Button variant="outline" size="sm" className="text-xs text-red-400 border-red-500/30 hover:bg-red-500/10" onClick={() => handleStatusChange(course.id, CourseStatus.CANCELLED)}>取消</Button>
+                                  <Button variant="outline" size="sm" className="text-xs border-white/10" onClick={() => handleStatusChange(course.id, CourseStatus.FINISHED)}>{t("teacherDashboard.btnFinish")}</Button>
+                                  <Button variant="outline" size="sm" className="text-xs text-red-400 border-red-500/30 hover:bg-red-500/10" onClick={() => handleStatusChange(course.id, CourseStatus.CANCELLED)}>{t("common.cancel")}</Button>
                                 </div>
                               )}
                             </div>
@@ -587,14 +613,14 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 {coursesMissingStartTime.length > 0 && (
                   <Card className="glass-panel border-orange-500/30 bg-orange-500/5 mt-8">
                     <CardHeader className="pb-2">
-                      <CardTitle className="text-orange-400 text-lg flex items-center gap-2"><Info className="h-5 w-5" /> 未设定时间的课程</CardTitle>
+                      <CardTitle className="text-orange-400 text-lg flex items-center gap-2"><Info className="h-5 w-5" /> {t("teacherDashboard.missingTimeListTitle")}</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <ul className="space-y-2">
                         {coursesMissingStartTime.map((c) => (
                           <li key={c.id} className="flex justify-between items-center text-sm p-2 rounded hover:bg-white/5 transition-colors">
                             <span className="font-medium">{c.name}</span>
-                            <Button variant="link" size="sm" className="text-orange-300" onClick={() => router.push(`/courses/${c.id}`)}>去补齐时间</Button>
+                            <Button variant="link" size="sm" className="text-orange-300" onClick={() => router.push(`/courses/${c.id}`)}>{t("teacherDashboard.missingTimeBtn")}</Button>
                           </li>
                         ))}
                       </ul>
@@ -610,37 +636,37 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         {activePage === "students" && (
           <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div>
-              <h2 className="text-3xl font-bold">学生管理</h2>
-              <p className="text-muted-foreground mt-1">搜索学生并分配到您的学生组中。</p>
+              <h2 className="text-3xl font-bold">{t("teacherDashboard.studentManage")}</h2>
+              <p className="text-muted-foreground mt-1">{t("teacherDashboard.searchDesc")}</p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Left: Search & Add */}
               <Card className="glass-panel border-white/10 bg-white/5">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2"><Search className="h-5 w-5 text-purple-400" /> 搜索用户</CardTitle>
-                  <CardDescription>按用户名或邮箱搜索平台上的学生</CardDescription>
+                  <CardTitle className="flex items-center gap-2"><Search className="h-5 w-5 text-purple-400" /> {t("teacherDashboard.searchUser")}</CardTitle>
+                  <CardDescription>{t("teacherDashboard.searchDesc")}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="flex gap-2">
                       <Input
-                        placeholder="输入用户名、显示名或邮箱…"
+                        placeholder={t("teacherDashboard.searchPlaceholder")}
                         value={searchQuery}
                         className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                       />
                     <Button className="bg-purple-600 hover:bg-purple-700 text-white shrink-0" onClick={handleSearch} disabled={searching || !searchQuery.trim()}>
-                      {searching ? "搜索中…" : "搜索"}
+                      {searching ? t("teacherDashboard.searching") : t("teacherDashboard.btnSearch")}
                     </Button>
                   </div>
 
                   {searchResults.length > 0 && (
                     <div className="space-y-3">
-                      <label className="text-sm font-medium text-muted-foreground">加入目标学生组：</label>
+                      <label className="text-sm font-medium text-muted-foreground">{t("teacherDashboard.addToGroupLabel")}</label>
                       <Select value={memberTargetGroupId} onValueChange={setMemberTargetGroupId}>
                         <SelectTrigger className="w-full bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50">
-                          <SelectValue placeholder="选择目标学生组…" />
+                          <SelectValue placeholder={t("teacherDashboard.selectTargetGroup")} />
                         </SelectTrigger>
                         <SelectContent className="bg-background/95 backdrop-blur-md border-white/10">
                           {flattenGroups(myGroups).map((opt) => (
@@ -668,7 +694,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                             disabled={groupBusy || !memberTargetGroupId}
                             onClick={() => handleAddUserToGroup(u)}
                           >
-                            <UserPlus className="h-4 w-4 mr-1" /> 加入组
+                            <UserPlus className="h-4 w-4 mr-1" /> {t("teacherDashboard.btnAddToGroup")}
                           </Button>
                         </div>
                       ))}
@@ -680,26 +706,26 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
               {/* Right: Groups */}
               <Card className="glass-panel border-white/10 bg-white/5">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5 text-purple-400" /> 学生组管理</CardTitle>
-                  <CardDescription>创建群组以便于在课程中批量分配学生</CardDescription>
+                  <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5 text-purple-400" /> {t("teacherDashboard.studentGroupManage")}</CardTitle>
+                  <CardDescription>{t("teacherDashboard.groupManageDesc")}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="flex gap-2">
                     <Input
-                      placeholder="新建学生组名称…"
+                      placeholder={t("teacherDashboard.newGroupPlaceholder")}
                       value={newGroupName}
                       className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
                       onChange={(e) => setNewGroupName(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleCreateGroup()}
                     />
                     <Button variant="secondary" className="shrink-0" disabled={groupBusy || !newGroupName.trim()} onClick={handleCreateGroup}>
-                      创建
+                      {t("teacherDashboard.btnCreate")}
                     </Button>
                   </div>
 
                   {myGroups.length === 0 ? (
                     <div className="p-8 text-center border border-dashed border-white/10 rounded-lg text-muted-foreground">
-                      暂无学生组，请先在上方创建。
+                      {t("teacherDashboard.groupEmpty")}
                     </div>
                   ) : (
                     <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
@@ -708,7 +734,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                           <div className="flex justify-between items-center p-3 bg-white/5 border-b border-white/5">
                             <div className="flex items-center gap-2">
                               <strong className="text-sm font-medium">{g.name}</strong>
-                              <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-white/10">{countMembers(g)} 人</Badge>
+                              <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-white/10">{countMembers(g)} {t("teacherDashboard.memberCount")}</Badge>
                             </div>
                             <Button variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:text-red-300 hover:bg-red-500/20" disabled={groupBusy} onClick={() => handleDeleteGroup(g.id)}>
                               <Trash2 className="h-4 w-4" />
@@ -727,7 +753,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                 ))}
                               </div>
                             ) : (
-                              <p className="text-xs text-muted-foreground text-center py-4">暂无成员</p>
+                              <p className="text-xs text-muted-foreground text-center py-4">{t("teacherDashboard.groupMemberEmpty")}</p>
                             )}
                           </div>
                         </div>
@@ -749,8 +775,8 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogContent className="sm:max-w-[560px] bg-background/95 backdrop-blur-xl border-white/10">
             <DialogHeader>
-              <DialogTitle className="text-xl">创建新课程</DialogTitle>
-              <DialogDescription>填写课程信息，创建后可在详情页管理学生和分享链接。</DialogDescription>
+              <DialogTitle className="text-xl">{t("teacherDashboard.createTitle")}</DialogTitle>
+              <DialogDescription>{t("teacherDashboard.createDesc")}</DialogDescription>
             </DialogHeader>
 
             {createError && (
@@ -759,10 +785,10 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
             <div className="space-y-4 py-2">
               <div className="space-y-2">
-                <label className="text-sm font-medium">课程名称 <span className="text-red-400">*</span></label>
+                <label className="text-sm font-medium">{t("teacherDashboard.fieldName")} <span className="text-red-400">*</span></label>
                 <Input
                   className="bg-black/40 border-white/20 hover:border-white/40 focus-visible:ring-purple-500/50"
-                  placeholder="例如：高一数学·函数与导数"
+                  placeholder={t("teacherDashboard.placeholderFieldName")}
                   value={createName}
                   onChange={(e) => { setCreateName(e.target.value); setCreateError(""); }}
                   maxLength={50}
@@ -771,10 +797,10 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">课程描述 <span className="text-muted-foreground text-xs">(可选)</span></label>
+                <label className="text-sm font-medium">{t("teacherDashboard.fieldDesc")} <span className="text-muted-foreground text-xs">({t("common.cancel")})</span></label>
                 <Textarea
                   className="bg-black/40 border-white/20 hover:border-white/40 focus-visible:ring-purple-500/50 resize-none"
-                  placeholder="简要描述本节课内容..."
+                  placeholder={t("teacherDashboard.placeholderFieldDesc")}
                   value={createDesc}
                   onChange={(e) => setCreateDesc(e.target.value)}
                   maxLength={200}
@@ -782,10 +808,10 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 />
               </div>
 
-              <div className="space-y-4">
-                <div className="space-y-2">
+              <div className="space-y-4 flex flex-col sm:flex-row gap-4 sm:space-y-0">
+                <div className="space-y-2 flex-1">
                   <label className="text-sm font-medium flex items-center gap-2 text-purple-200">
-                    <Clock className="h-4 w-4 text-purple-400" /> 开始时间 <span className="text-red-400">*</span>
+                    <Clock className="h-4 w-4 text-purple-400" /> {t("teacherDashboard.fieldStartTime")} <span className="text-red-400">*</span>
                   </label>
                   <Input
                     className="bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20 hover:border-purple-500/50 focus-visible:ring-purple-500/60 cursor-pointer [color-scheme:dark] h-12 px-4 text-base font-medium transition-all text-purple-50 shadow-inner"
@@ -798,9 +824,9 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                     }}
                   />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 flex-1">
                   <label className="text-sm font-medium flex items-center gap-2 text-purple-200">
-                    <Clock className="h-4 w-4 text-purple-400" /> 结束时间 <span className="text-red-400">*</span>
+                    <Clock className="h-4 w-4 text-purple-400" /> {t("teacherDashboard.fieldEndTime")} <span className="text-red-400">*</span>
                   </label>
                   <Input
                     className="bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20 hover:border-purple-500/50 focus-visible:ring-purple-500/60 cursor-pointer [color-scheme:dark] h-12 px-4 text-base font-medium transition-all text-purple-50 shadow-inner"
@@ -816,9 +842,9 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">课堂类型</label>
+                <label className="text-sm font-medium">{t("teacherDashboard.fieldType")}</label>
                 <div className="grid grid-cols-3 gap-3">
-                  {ROOM_TYPES.map((rt) => (
+                  {roomTypes.map((rt) => (
                     <button
                       key={rt.value}
                       type="button"
@@ -839,13 +865,13 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
             </div>
 
             <DialogFooter>
-              <Button variant="ghost" onClick={() => setCreateOpen(false)}>取消</Button>
+              <Button variant="ghost" onClick={() => setCreateOpen(false)}>{t("common.cancel")}</Button>
               <Button
                 className="bg-purple-600 hover:bg-purple-700 text-white"
                 onClick={handleCreateCourse}
                 disabled={createLoading || !createName.trim()}
               >
-                {createLoading ? "创建中…" : "🚀 创建课程"}
+                {createLoading ? t("common.saving") : `🚀 ${t("teacherDashboard.btnCreateCourse")}`}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -856,47 +882,51 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 }
 
 function SettingsPanel({ user, onLogout }: { user: any; onLogout: () => void }) {
+  const { t, locale, setLocale } = useTranslation();
+
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="mb-8">
-        <h2 className="text-3xl font-bold">个人设置</h2>
-        <p className="text-muted-foreground mt-2">管理您的账号信息和偏好设置。</p>
+        <h2 className="text-3xl font-bold">{t("settingsPanel.title")}</h2>
+        <p className="text-muted-foreground mt-2">{t("settingsPanel.desc")}</p>
       </div>
 
       <Card className="glass-panel border-white/10 bg-white/5">
         <CardHeader>
-          <CardTitle>基本信息</CardTitle>
-          <CardDescription>您在平台上的基本档案信息。</CardDescription>
+          <CardTitle>{t("settingsPanel.basicInfo")}</CardTitle>
+          <CardDescription>{t("settingsPanel.basicInfoDesc")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">用户名</label>
+              <label className="text-sm text-muted-foreground">{t("settingsPanel.fieldUsername")}</label>
               <div className="font-medium">{user.name || "—"}</div>
             </div>
             <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">显示名称</label>
+              <label className="text-sm text-muted-foreground">{t("settingsPanel.fieldDisplayName")}</label>
               <div className="font-medium">{user.displayName || "—"}</div>
             </div>
             <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">邮箱</label>
+              <label className="text-sm text-muted-foreground">{t("settingsPanel.fieldEmail")}</label>
               <div className="font-medium">{user.email || "—"}</div>
             </div>
             <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">角色</label>
-              <div><Badge variant="outline" className="bg-purple-500/10 text-purple-400 border-purple-500/20">👨‍🏫 教师</Badge></div>
+              <label className="text-sm text-muted-foreground">{t("settingsPanel.fieldRole")}</label>
+              <div><Badge variant="outline" className="bg-purple-500/10 text-purple-400 border-purple-500/20">👨‍🏫 {t("common.roleTeacher")}</Badge></div>
             </div>
             <div className="space-y-1 md:col-span-2">
-              <label className="text-sm text-muted-foreground">用户 ID</label>
+              <label className="text-sm text-muted-foreground">{t("settingsPanel.fieldUserId")}</label>
               <div className="font-mono text-sm bg-black/40 p-2 rounded-md border border-white/5 break-all">{user.userId}</div>
             </div>
           </div>
         </CardContent>
       </Card>
 
+
+
       <Card className="glass-panel border-white/10 bg-white/5">
         <CardHeader>
-          <CardTitle>头像</CardTitle>
+          <CardTitle>{t("settingsPanel.avatar")}</CardTitle>
         </CardHeader>
         <CardContent className="flex items-center gap-6">
           <Avatar className="h-20 w-20 border border-purple-500/20 shadow-glow-purple">
@@ -904,20 +934,19 @@ function SettingsPanel({ user, onLogout }: { user: any; onLogout: () => void }) 
             <AvatarFallback className="text-2xl bg-purple-500/20 text-purple-400">{user.displayName?.[0] || user.name?.[0] || "T"}</AvatarFallback>
           </Avatar>
           <div className="text-sm text-muted-foreground">
-            头像信息由认证系统 (SSO) 提供。<br/>
-            如需更改，请在 SSO 平台更新或联系管理员。
+            {t("settingsPanel.avatarDesc")}
           </div>
         </CardContent>
       </Card>
 
       <Card className="border-destructive/20 bg-destructive/5 backdrop-blur-xl">
         <CardHeader>
-          <CardTitle className="text-destructive">账户安全</CardTitle>
-          <CardDescription>退出当前账号后需要重新登录。</CardDescription>
+          <CardTitle className="text-destructive">{t("settingsPanel.security")}</CardTitle>
+          <CardDescription>{t("settingsPanel.securityDesc")}</CardDescription>
         </CardHeader>
         <CardContent>
           <Button variant="destructive" onClick={onLogout}>
-            <LogOut className="mr-2 h-4 w-4" /> 退出登录
+            <LogOut className="mr-2 h-4 w-4" /> {t("settingsPanel.btnLogout")}
           </Button>
         </CardContent>
       </Card>

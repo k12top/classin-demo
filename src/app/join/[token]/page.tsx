@@ -11,6 +11,7 @@ import {
 import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
 import { recordJoinLinkUse, resolveJoinLink } from "@/lib/join-link";
 import { prisma } from "@/lib/db";
+import { getServerTranslation } from "@/lib/i18n/server";
 
 export default async function JoinPage({
   params,
@@ -22,25 +23,26 @@ export default async function JoinPage({
   const { token } = await params;
   const { embed: embedParam } = await searchParams;
   const wantEmbed = embedParam === "1" || embedParam === "true";
+  const { t } = await getServerTranslation();
 
   const resolved = await resolveJoinLink(token);
   if (!resolved.ok) {
     const messages: Record<typeof resolved.reason, string> = {
-      not_found: "分享链接不存在或已失效",
-      revoked: "分享链接已被撤销",
-      expired: "分享链接已过期",
+      not_found: t("join.notFound"),
+      revoked: t("join.revoked"),
+      expired: t("join.expired"),
     };
     return (
       <>
         <div className="page-bg" />
         <div className="auth-container">
           <div className="card" style={{ textAlign: "center", padding: 40 }}>
-            <h2>无法进入课堂</h2>
+            <h2>{t("classroom.launchError")}</h2>
             <p style={{ marginTop: 12, color: "var(--color-text-secondary)" }}>
               {messages[resolved.reason]}
             </p>
             <Link href="/" className="btn btn-primary" style={{ marginTop: 24, display: "inline-block" }}>
-              返回首页
+              {t("common.backToHome")}
             </Link>
           </div>
         </div>
@@ -59,7 +61,7 @@ export default async function JoinPage({
       buildAccessDeniedUrl({
         code: access.code,
         reason: access.reason,
-        course: "课程",
+        course: t("teacherDashboard.fieldName"),
         courseId: resolved.courseId,
       })
     );
@@ -73,7 +75,7 @@ export default async function JoinPage({
     redirect(
       buildAccessDeniedUrl({
         code: "not_found",
-        reason: "课程不存在",
+        reason: t("join.courseNotExist"),
       })
     );
   }

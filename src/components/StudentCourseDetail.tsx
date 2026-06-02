@@ -10,11 +10,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { PlayCircle, Clock, User, BookOpen, MessageSquare, AlertCircle, FileText, Loader2 } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom } from "@/lib/course-status";
+import { useTranslation } from "@/lib/i18n/context";
 
-const ROOM_TYPE_LABELS: Record<number, string> = {
-  0: "一对一课堂",
-  4: "小班课",
-  2: "大班课",
+const ROOM_TYPE_KEYS: Record<number, string> = {
+  0: "common.roomType1v1",
+  4: "common.roomTypeSmall",
+  2: "common.roomTypeBig",
 };
 
 export default function StudentCourseDetail({ 
@@ -33,6 +34,7 @@ export default function StudentCourseDetail({
   const [activeTab, setActiveTab] = useState<"info" | "requirements" | "courseware">("info");
   const [remarksValue, setRemarksValue] = useState(course.studentRemarks || "");
   const [savingRemarks, setSavingRemarks] = useState(false);
+  const { t, locale } = useTranslation();
 
   const [courseware, setCourseware] = useState<any[]>([]);
 
@@ -53,9 +55,9 @@ export default function StudentCourseDetail({
   }, [fetchCourseware]);
 
   const formatTime = (isoString: string | null) => {
-    if (!isoString) return "未定";
+    if (!isoString) return t("common.timeUndetermined");
     const date = new Date(isoString);
-    return date.toLocaleString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long', hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleString(locale, { month: 'long', day: 'numeric', weekday: 'long', hour: '2-digit', minute: '2-digit' });
   };
 
   const handleSaveRemarks = async () => {
@@ -68,7 +70,7 @@ export default function StudentCourseDetail({
       });
       if (res.ok) {
         fetchCourse();
-        alert("已更新要求！");
+        alert(t("courseDetail.updateRemarksSuccess"));
       }
     } catch (err) {
       console.error(err);
@@ -86,14 +88,14 @@ export default function StudentCourseDetail({
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
             <div className="space-y-4">
               <Badge variant="outline" className="border-blue-400/30 text-blue-300 bg-blue-500/10">
-                {ROOM_TYPE_LABELS[course.roomType] || "课堂"}
+                {t(ROOM_TYPE_KEYS[course.roomType]) || t("common.unknown")}
               </Badge>
               <h1 className="text-3xl md:text-4xl font-bold text-white">{course.name}</h1>
               
               <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground mt-4">
                 <div className="flex items-center gap-1.5 bg-black/30 px-3 py-1.5 rounded-md border border-white/5">
                   <User className="h-4 w-4 text-blue-400" />
-                  <span className="font-medium text-foreground">授课教师：{course.teacherName}</span>
+                  <span className="font-medium text-foreground">{t("courseDetail.teacherInfo", { name: course.teacherName })}</span>
                 </div>
                 <div className="flex items-center gap-1.5 bg-black/30 px-3 py-1.5 rounded-md border border-white/5">
                   <Clock className="h-4 w-4 text-blue-400" />
@@ -119,14 +121,14 @@ export default function StudentCourseDetail({
                 disabled={enterLoading || (course.status === "finished" ? !course.recordUrl : !canEnterClassroom(course.status))}
               >
                 {enterLoading ? (
-                  <span className="flex items-center gap-2"><span className="animate-spin rounded-full h-4 w-4 border-2 border-white/20 border-t-white" /> 进入中…</span>
+                  <span className="flex items-center gap-2"><span className="animate-spin rounded-full h-4 w-4 border-2 border-white/20 border-t-white" /> {t("teacherDashboard.btnEntering")}</span>
                 ) : course.status === "finished" ? (
                   <span className="flex items-center gap-2">
                     <PlayCircle className="h-5 w-5" />
-                    {course.recordUrl ? "查看回放" : "直播回放"}
+                    {course.recordUrl ? t("studentDashboard.viewPlayback") : t("studentDashboard.livePlayback")}
                   </span>
                 ) : (
-                  <span className="flex items-center gap-2"><PlayCircle className="h-5 w-5" /> 进入课堂</span>
+                  <span className="flex items-center gap-2"><PlayCircle className="h-5 w-5" /> {t("studentDashboard.enterClassroom")}</span>
                 )}
               </Button>
             </div>
@@ -138,30 +140,30 @@ export default function StudentCourseDetail({
       <Tabs defaultValue="info" className="w-full" onValueChange={(v) => setActiveTab(v as any)}>
         <TabsList className="bg-black/20 border border-white/5 backdrop-blur-md mb-6 inline-flex w-full md:w-auto">
           <TabsTrigger value="info" className="flex-1 md:flex-none data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-300">
-            <BookOpen className="mr-2 h-4 w-4" /> 课程信息
+            <BookOpen className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.info")}
           </TabsTrigger>
           <TabsTrigger value="courseware" className="flex-1 md:flex-none data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-300">
-            <FileText className="mr-2 h-4 w-4" /> 学习课件
+            <FileText className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.courseware")}
           </TabsTrigger>
           <TabsTrigger value="requirements" className="flex-1 md:flex-none data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-300">
-            <MessageSquare className="mr-2 h-4 w-4" /> 我的要求
+            <MessageSquare className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.requirements")}
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="info" className="mt-0">
           <Card className="glass-panel border-white/10 bg-white/5">
             <CardHeader>
-              <CardTitle>课程描述</CardTitle>
+              <CardTitle>{t("courseDetail.courseDescription")}</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground leading-relaxed">
-                {course.description || "老师暂未提供详细描述。"}
+                {course.description || t("courseDetail.noDescription")}
               </p>
               
               <div className="mt-8 pt-6 border-t border-white/5">
-                 <h4 className="font-semibold mb-2 flex items-center gap-2"><BookOpen className="h-4 w-4 text-blue-400"/> 课件材料</h4>
+                 <h4 className="font-semibold mb-2 flex items-center gap-2"><BookOpen className="h-4 w-4 text-blue-400"/> {t("courseDetail.tabs.courseware")}</h4>
                  <p className="text-sm text-muted-foreground bg-blue-500/10 border border-blue-500/20 p-3 rounded-md">
-                   📚 课程绑定的预习及复习课件已全部迁移！请点击上方最新的【**学习课件**】页签查看和下载。
+                   {t("courseDetail.coursewareAlert")}
                  </p>
               </div>
             </CardContent>
@@ -171,15 +173,15 @@ export default function StudentCourseDetail({
         <TabsContent value="courseware" className="mt-0">
           <Card className="glass-panel border-white/10 bg-white/5">
             <CardHeader>
-              <CardTitle className="text-xl">预习及复习课件</CardTitle>
-              <CardDescription>老师为本节课程上传的教学课件。点击可以直接下载或预览课件。</CardDescription>
+              <CardTitle className="text-xl">{t("courseDetail.tabs.courseware")}</CardTitle>
+              <CardDescription>{t("courseDetail.noCoursewareDesc")}</CardDescription>
             </CardHeader>
             <CardContent>
               {courseware.length === 0 ? (
                 <div className="text-center py-12 border-2 border-dashed border-white/5 rounded-lg bg-black/10">
                   <FileText className="h-12 w-12 text-muted-foreground/40 mx-auto mb-3" />
-                  <p className="text-muted-foreground text-sm">暂无绑定课件</p>
-                  <p className="text-xs text-muted-foreground/60 mt-1">老师上传课件后将在此处展示。</p>
+                  <p className="text-muted-foreground text-sm">{t("courseDetail.noCourseware")}</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">{t("courseDetail.noCoursewareDescStudent")}</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -195,9 +197,9 @@ export default function StudentCourseDetail({
                         <div>
                           <p className="text-sm font-semibold text-white">{item.name}</p>
                           <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                            <span>格式: {item.ext.toUpperCase()}</span>
+                            <span>{t("teacherDashboard.fieldType")}: {item.ext.toUpperCase()}</span>
                             <span>•</span>
-                            <span>大小: {item.size ? `${(item.size / 1024 / 1024).toFixed(2)} MB` : "未知"}</span>
+                            <span>{t("teacherDashboard.memberCount")}: {item.size ? `${(item.size / 1024 / 1024).toFixed(2)} MB` : t("common.unknown")}</span>
                           </div>
                         </div>
                       </div>
@@ -205,11 +207,11 @@ export default function StudentCourseDetail({
                       <div className="flex items-center gap-3">
                         {item.taskStatus === "Finished" ? (
                           <Badge className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                            已就绪
+                            {t("courseDetail.ready")}
                           </Badge>
                         ) : (
                           <Badge className="bg-amber-500/10 text-amber-400 border border-amber-500/30">
-                            正在准备中…
+                            {t("courseDetail.preparing")}
                           </Badge>
                         )}
                         <a
@@ -218,7 +220,7 @@ export default function StudentCourseDetail({
                           rel="noreferrer"
                           className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded-md font-medium shadow-glow-blue transition-all"
                         >
-                          打开文件 ↗
+                          {t("courseDetail.openFile")}
                         </a>
                       </div>
                     </div>
@@ -232,9 +234,9 @@ export default function StudentCourseDetail({
         <TabsContent value="requirements" className="mt-0">
           <Card className="glass-panel border-white/10 bg-white/5">
             <CardHeader>
-              <CardTitle>想给老师提什么要求？</CardTitle>
+              <CardTitle>{t("courseDetail.requirementsTitle")}</CardTitle>
               <CardDescription>
-                您可以写下希望老师在课堂上注意的事项，例如：多纠正发音、少做游戏等。
+                {t("courseDetail.requirementsDesc")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -242,7 +244,7 @@ export default function StudentCourseDetail({
                 className="min-h-[150px] bg-black/40 border-white/10 resize-none text-base p-4"
                 value={remarksValue}
                 onChange={e => setRemarksValue(e.target.value)}
-                placeholder="在此填写..."
+                placeholder={t("courseDetail.requirementsPlaceholder")}
               />
               <div className="mt-6 flex justify-end">
                 <Button 
@@ -250,7 +252,7 @@ export default function StudentCourseDetail({
                   onClick={handleSaveRemarks}
                   disabled={savingRemarks}
                 >
-                  {savingRemarks ? "保存中..." : "保存要求"}
+                  {savingRemarks ? t("common.saving") : t("courseDetail.btnSaveRequirements")}
                 </Button>
               </div>
             </CardContent>

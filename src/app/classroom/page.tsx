@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth-context";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
+import { useTranslation } from "@/lib/i18n/context";
 import {
   markClassroomDocumentActive,
   resetDocumentAfterClassroom,
@@ -73,7 +74,7 @@ function waitForSDK(): Promise<void> {
       if (window.AgoraEduSDK) {
         resolve();
       } else if (attempts >= maxAttempts) {
-        reject(new Error("SDK 加载超时，请检查网络连接"));
+        reject(new Error("classroom.sdkTimeout"));
       } else {
         attempts++;
         setTimeout(check, 200);
@@ -112,176 +113,177 @@ function ClassroomContent() {
     roomTypeParam: 0,
   });
 
-  const [status, setStatus] = useState<
-    "verifying" | "loading" | "ready" | "error"
-  >("verifying");
-  const [errorMsg, setErrorMsg] = useState("");
+    const { t, locale } = useTranslation();
+    const [status, setStatus] = useState<
+      "verifying" | "loading" | "ready" | "error"
+    >("verifying");
+    const [errorMsg, setErrorMsg] = useState("");
 
-  const roomUuid = searchParams.get("roomUuid") || "";
-  const roomTypeParam = Number(searchParams.get("roomType") || "0");
-  const roomName = searchParams.get("roomName") || roomUuid;
-  const courseId = searchParams.get("courseId") || "";
-  const isEmbed =
-    searchParams.get("embed") === "1" || searchParams.get("embed") === "true";
-  const classroomDebug = searchParams.get("debug") === "1";
-  const classroomDebugRef = useRef(classroomDebug);
-  classroomDebugRef.current = classroomDebug;
+    const roomUuid = searchParams.get("roomUuid") || "";
+    const roomTypeParam = Number(searchParams.get("roomType") || "0");
+    const roomName = searchParams.get("roomName") || roomUuid;
+    const courseId = searchParams.get("courseId") || "";
+    const isEmbed =
+      searchParams.get("embed") === "1" || searchParams.get("embed") === "true";
+    const classroomDebug = searchParams.get("debug") === "1";
+    const classroomDebugRef = useRef(classroomDebug);
+    classroomDebugRef.current = classroomDebug;
 
-  userRef.current = user;
-  routerRef.current = router;
-  courseIdRef.current = courseId;
-  launchParamsRef.current = { roomUuid, courseId, roomName, roomTypeParam };
+    userRef.current = user;
+    routerRef.current = router;
+    courseIdRef.current = courseId;
+    launchParamsRef.current = { roomUuid, courseId, roomName, roomTypeParam };
 
-  const userId = user?.userId ?? "";
+    const userId = user?.userId ?? "";
 
-  const logClassroomDebug = (...args: unknown[]) => {
-    if (classroomDebugRef.current) {
-      console.debug("[classroom]", ...args);
-    }
-  };
+    const logClassroomDebug = (...args: unknown[]) => {
+      if (classroomDebugRef.current) {
+        console.debug("[classroom]", ...args);
+      }
+    };
 
-  const syncClassStateToServer = useCallback(async (classState: number) => {
-    const cid = courseIdRef.current;
-    if (!cid || !isTeacherRef.current) return;
-    if (lastSyncedClassStateRef.current === classState) return;
-    lastSyncedClassStateRef.current = classState;
+    const syncClassStateToServer = useCallback(async (classState: number) => {
+      const cid = courseIdRef.current;
+      if (!cid || !isTeacherRef.current) return;
+      if (lastSyncedClassStateRef.current === classState) return;
+      lastSyncedClassStateRef.current = classState;
 
-    logClassroomDebug("sync class-state", { classState, courseId: cid });
+      logClassroomDebug("sync class-state", { classState, courseId: cid });
 
-    try {
-      const res = await fetch(`/api/courses/${cid}/class-state`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ classState }),
-      });
-      if (!res.ok) {
+      try {
+        const res = await fetch(`/api/courses/${cid}/class-state`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ classState }),
+        });
+        if (!res.ok) {
+          lastSyncedClassStateRef.current = null;
+        }
+      } catch {
         lastSyncedClassStateRef.current = null;
       }
-    } catch {
-      lastSyncedClassStateRef.current = null;
-    }
-  }, []);
+    }, []);
 
-  const leaveClassroom = useCallback(() => {
-    if (leftClassroomRef.current) return;
-    leftClassroomRef.current = true;
+    const leaveClassroom = useCallback(() => {
+      if (leftClassroomRef.current) return;
+      leftClassroomRef.current = true;
 
-    logClassroomDebug("leaveClassroom");
+      logClassroomDebug("leaveClassroom");
 
-    if (unmountRef.current) {
-      try {
-        unmountRef.current();
-      } catch {
-        // ignore cleanup errors
-      }
-      unmountRef.current = null;
-    }
-    launchKeyRef.current = null;
-    launchingRef.current = false;
-
-    resetDocumentAfterClassroom();
-
-    const target = courseIdRef.current
-      ? `/courses/${encodeURIComponent(courseIdRef.current)}`
-      : "/";
-
-    // Full navigation reloads CSS — avoids Agora global styles breaking layout
-    window.location.replace(target);
-  }, []);
-
-  useEffect(() => {
-    markClassroomDocumentActive();
-    return () => {
-      resetDocumentAfterClassroom();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!classroomDebugRef.current) return;
-
-    const onPageShow = (event: PageTransitionEvent) => {
-      logClassroomDebug("pageshow", {
-        persisted: event.persisted,
-        visibility: document.visibilityState,
-        launchKey: launchKeyRef.current,
-      });
-    };
-
-    window.addEventListener("pageshow", onPageShow);
-    return () => window.removeEventListener("pageshow", onPageShow);
-  }, [classroomDebug]);
-
-  useEffect(() => {
-    if (authLoading || leftClassroomRef.current || !userId) {
-      return;
-    }
-
-    const {
-      roomUuid: ru,
-      courseId: cid,
-      roomName: rn,
-      roomTypeParam: rtp,
-    } = launchParamsRef.current;
-    const launchKey = buildLaunchKey(cid, ru, userId);
-
-    if (launchKeyRef.current === launchKey && unmountRef.current) {
-      logClassroomDebug("launch skipped — already active", { launchKey });
-      return;
-    }
-
-    if (launchingRef.current && launchKeyRef.current === launchKey) {
-      logClassroomDebug("launch skipped — in progress", { launchKey });
-      return;
-    }
-
-    let cancelled = false;
-    const effectLaunchKey = launchKey;
-    launchingRef.current = true;
-
-    logClassroomDebug("launch effect start", {
-      launchKey: effectLaunchKey,
-      visibility: document.visibilityState,
-    });
-
-    queueMicrotask(() => {
-      const currentUser = userRef.current;
-      if (!currentUser) {
-        launchingRef.current = false;
-        redirectToSsoLogin();
-        return;
-      }
-
-      if (!ru || !cid) {
-        launchingRef.current = false;
-        setStatus("error");
-        setErrorMsg("缺少必要参数：roomUuid 或 courseId，请从课程详情进入课堂");
-        return;
-      }
-
-      void (async () => {
-        let verifyRoomLabel = rn;
-
+      if (unmountRef.current) {
         try {
-          let verifyRes = await fetch(`/api/courses/${cid}/verify-access`);
-          if (cancelled) return;
+          unmountRef.current();
+        } catch {
+          // ignore cleanup errors
+        }
+        unmountRef.current = null;
+      }
+      launchKeyRef.current = null;
+      launchingRef.current = false;
 
-          if (verifyRes.status === 401 && (await tryOAuthRefresh())) {
-            verifyRes = await fetch(`/api/courses/${cid}/verify-access`);
-          }
-          if (verifyRes.status === 401) {
-            launchingRef.current = false;
-            redirectToSsoLogin();
-            return;
-          }
+      resetDocumentAfterClassroom();
 
-          if (!verifyRes.ok) {
-            launchingRef.current = false;
-            setStatus("error");
-            setErrorMsg("权限验证请求失败，请稍后重试");
-            return;
-          }
+      const target = courseIdRef.current
+        ? `/courses/${encodeURIComponent(courseIdRef.current)}`
+        : "/";
 
-          const verifyData = await verifyRes.json();
+      // Full navigation reloads CSS — avoids Agora global styles breaking layout
+      window.location.replace(target);
+    }, []);
+
+    useEffect(() => {
+      markClassroomDocumentActive();
+      return () => {
+        resetDocumentAfterClassroom();
+      };
+    }, []);
+
+    useEffect(() => {
+      if (!classroomDebugRef.current) return;
+
+      const onPageShow = (event: PageTransitionEvent) => {
+        logClassroomDebug("pageshow", {
+          persisted: event.persisted,
+          visibility: document.visibilityState,
+          launchKey: launchKeyRef.current,
+        });
+      };
+
+      window.addEventListener("pageshow", onPageShow);
+      return () => window.removeEventListener("pageshow", onPageShow);
+    }, [classroomDebug]);
+
+    useEffect(() => {
+      if (authLoading || leftClassroomRef.current || !userId) {
+        return;
+      }
+
+      const {
+        roomUuid: ru,
+        courseId: cid,
+        roomName: rn,
+        roomTypeParam: rtp,
+      } = launchParamsRef.current;
+      const launchKey = buildLaunchKey(cid, ru, userId);
+
+      if (launchKeyRef.current === launchKey && unmountRef.current) {
+        logClassroomDebug("launch skipped — already active", { launchKey });
+        return;
+      }
+
+      if (launchingRef.current && launchKeyRef.current === launchKey) {
+        logClassroomDebug("launch skipped — in progress", { launchKey });
+        return;
+      }
+
+      let cancelled = false;
+      const effectLaunchKey = launchKey;
+      launchingRef.current = true;
+
+      logClassroomDebug("launch effect start", {
+        launchKey: effectLaunchKey,
+        visibility: document.visibilityState,
+      });
+
+      queueMicrotask(() => {
+        const currentUser = userRef.current;
+        if (!currentUser) {
+          launchingRef.current = false;
+          redirectToSsoLogin();
+          return;
+        }
+
+        if (!ru || !cid) {
+          launchingRef.current = false;
+          setStatus("error");
+          setErrorMsg("classroom.missingParams");
+          return;
+        }
+
+        void (async () => {
+          let verifyRoomLabel = rn;
+
+          try {
+            let verifyRes = await fetch(`/api/courses/${cid}/verify-access`);
+            if (cancelled) return;
+
+            if (verifyRes.status === 401 && (await tryOAuthRefresh())) {
+              verifyRes = await fetch(`/api/courses/${cid}/verify-access`);
+            }
+            if (verifyRes.status === 401) {
+              launchingRef.current = false;
+              redirectToSsoLogin();
+              return;
+            }
+
+            if (!verifyRes.ok) {
+              launchingRef.current = false;
+              setStatus("error");
+              setErrorMsg("classroom.verifyFailed");
+              return;
+            }
+
+            const verifyData = await verifyRes.json();
 
           if (!verifyData.allowed) {
             launchingRef.current = false;
@@ -430,7 +432,7 @@ function ClassroomContent() {
             roomName: verifyRoomLabel,
             pretest: true,
             rtmToken: token,
-            language: "zh",
+            language: locale === "zh-CN" ? "zh" : "en",
             duration: 60 * 30, // 30 minutes
             courseWareList: sdkCoursewareList,
             recordUrl: "https://solutions-apaas.agora.io/static/record_page_prod.html",
@@ -491,7 +493,7 @@ function ClassroomContent() {
           console.error("启动课堂失败:", err);
           setStatus("error");
           setErrorMsg(
-            err instanceof Error ? err.message : "课堂启动失败，请检查配置",
+            err instanceof Error ? err.message : "classroom.launchError",
           );
         }
       })();
@@ -530,23 +532,23 @@ function ClassroomContent() {
   if (status === "error") {
     return (
       <div className="classroom-error">
-        <h2>⚠️ 无法启动课堂</h2>
-        <p>{errorMsg}</p>
-        <Link href="/">返回首页</Link>
+        <h2>⚠️ {t("classroom.launchError")}</h2>
+        <p>{errorMsg.includes(".") ? t(errorMsg) : errorMsg}</p>
+        <Link href="/">{t("common.backToHome")}</Link>
       </div>
     );
   }
 
   return (
     <div className="classroom-container">
-            {status === "ready" && isEmbed && courseId && (
+      {status === "ready" && isEmbed && courseId && (
         <button
           type="button"
           className="classroom-back-btn classroom-back-btn-embed"
           onClick={leaveClassroom}
-          title="退出直播"
+          title={t("classroom.exit")}
         >
-          退出
+          {t("classroom.exit")}
         </button>
       )}
 
@@ -554,7 +556,7 @@ function ClassroomContent() {
         <div className="classroom-loading">
           <div className="loader" />
           <p>
-            {status === "verifying" ? "正在验证访问权限…" : "正在初始化课堂…"}
+            {status === "verifying" ? t("classroom.verifyingAccess") : t("classroom.initializing")}
           </p>
         </div>
       )}
@@ -569,6 +571,7 @@ function ClassroomContent() {
 }
 
 export default function ClassroomPage() {
+  const { t } = useTranslation();
   return (
     <>
       <script
@@ -577,7 +580,7 @@ export default function ClassroomPage() {
             if (typeof window !== 'undefined' && !window.require) {
               window.require = function(moduleName) {
                 if (moduleName === 'agora-electron-sdk' ||
-                    moduleName.indexOf('agora_node_ext') !== -1) {
+                     moduleName.indexOf('agora_node_ext') !== -1) {
                   return {};
                 }
                 return {};
@@ -598,7 +601,7 @@ export default function ClassroomPage() {
         fallback={
           <div className="classroom-loading">
             <div className="loader" />
-            <p>加载中…</p>
+            <p>{t("common.loading")}</p>
           </div>
         }
       >

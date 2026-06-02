@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
+import { useTranslation } from "@/lib/i18n/context";
 import StudentDashboard from "@/components/StudentDashboard";
 import TeacherDashboard from "@/components/TeacherDashboard";
 import { Card, CardContent } from "@/components/ui/card";
@@ -42,7 +43,7 @@ function LoadingView({ message }: { message: string }) {
 }
 
 export default function DashboardPage() {
-  const { user, loading: authLoading, logout } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,12 +83,14 @@ export default function DashboardPage() {
     }
   }, [authLoading, user]);
 
+  const { t } = useTranslation();
+
   if (authLoading || !user) {
-    return <LoadingView message={authLoading ? "加载中…" : "正在跳转登录…"} />;
+    return <LoadingView message={authLoading ? t("common.loading") : t("login.redirecting")} />;
   }
 
   if (loading) {
-    return <LoadingView message="加载课程列表…" />;
+    return <LoadingView message={t("teacherDashboard.searching")} />;
   }
 
   if (user.role === "teacher") {

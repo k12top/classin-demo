@@ -13,6 +13,8 @@ import { ChevronLeft, AlertTriangle } from "lucide-react";
 import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
 import TeacherCourseDetail from "@/components/TeacherCourseDetail";
 import StudentCourseDetail from "@/components/StudentCourseDetail";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
+import { useTranslation } from "@/lib/i18n/context";
 
 interface CourseDetail {
   id: string;
@@ -39,6 +41,7 @@ interface CourseDetail {
 export default function CourseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { user } = useAuth();
+  const { t } = useTranslation();
   const router = useRouter();
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,10 +62,10 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
         const data = await res.json();
         setCourse(data.course);
       } else {
-        setError("课程不存在或无权访问");
+        setError("not_found");
       }
     } catch {
-      setError("加载失败");
+      setError("load_failed");
     } finally {
       setLoading(false);
     }
@@ -83,7 +86,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
     try {
       const res = await fetch(`/api/courses/${id}/verify-access`);
       if (!res.ok) {
-        setError("验证访问权限失败，请稍后重试");
+        setError("verify_failed");
         setEnterLoading(false);
         return;
       }
@@ -93,7 +96,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
         router.push(
           buildAccessDeniedUrl({
             code: data.code,
-            reason: data.reason || "无权访问",
+            reason: data.reason || "no_access",
             course: course.name,
             courseId: id,
           })
@@ -111,7 +114,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
       });
       router.push(`/classroom?${params.toString()}`);
     } catch {
-      setError("验证访问权限失败");
+      setError("verify_failed");
       setEnterLoading(false);
     }
   };
@@ -121,7 +124,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <div className="animate-spin rounded-full h-10 w-10 border-2 border-purple-500/20 border-t-purple-500" />
-          <p className="text-muted-foreground text-sm">加载课程详情…</p>
+          <p className="text-muted-foreground text-sm">{t("common.loading")}</p>
         </div>
       </div>
     );
@@ -134,10 +137,20 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
           <div className="mx-auto w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center">
             <AlertTriangle className="h-8 w-8 text-red-400" />
           </div>
-          <h2 className="text-2xl font-bold">{error || "课程不存在"}</h2>
-          <p className="text-muted-foreground">该课程可能已被删除或您没有访问权限。</p>
+          <h2 className="text-2xl font-bold">
+            {error === "not_found"
+              ? `${t("join.courseNotExist")} / ${t("classroom.noAccess")}`
+              : error === "load_failed"
+              ? t("common.failed")
+              : error === "verify_failed"
+              ? t("classroom.verifyFailed")
+              : error || t("join.courseNotExist")}
+          </h2>
+          <p className="text-muted-foreground">
+            {error === "not_found" ? t("join.notFound") : ""}
+          </p>
           <Button onClick={() => router.push("/")} className="bg-purple-600 hover:bg-purple-700 text-white">
-            返回首页
+            {t("common.backToHome")}
           </Button>
         </div>
       </div>
@@ -150,15 +163,16 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
       <div className="border-b border-white/10 bg-black/20 backdrop-blur-xl sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
           <Button variant="ghost" size="sm" onClick={() => router.push("/")} className="text-muted-foreground hover:text-foreground">
-            <ChevronLeft className="mr-1 h-4 w-4" /> 返回列表
+            <ChevronLeft className="mr-1 h-4 w-4" /> {t("common.backToList")}
           </Button>
           <div className="flex items-center gap-3">
+            <LanguageSwitcher />
             <Badge variant="secondary" className={
               isTeacher
                 ? "bg-purple-500/20 text-purple-300 border-purple-500/20"
                 : "bg-blue-500/20 text-blue-300 border-blue-500/20"
             }>
-              {isTeacher ? "👨‍🏫 老师" : "🧑‍🎓 学生"}
+              {isTeacher ? `👨‍🏫 ${t("common.roleTeacher")}` : `🧑‍🎓 ${t("common.roleStudent")}`}
             </Badge>
             <span className="text-sm text-muted-foreground">{user?.displayName || user?.name}</span>
           </div>

@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { useTranslation } from "@/lib/i18n/context";
+import { languageOptions, SupportedLocale } from "@/lib/i18n/locales";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Globe } from "lucide-react";
 
 function LoginContent() {
   const searchParams = useSearchParams();
@@ -10,6 +14,7 @@ function LoginContent() {
   const reason = searchParams.get("reason");
   const loggedOut = searchParams.get("logged_out") === "1";
   const [loading, setLoading] = useState(false);
+  const { t, locale, setLocale } = useTranslation();
 
   const handleLogin = () => {
     setLoading(true);
@@ -19,6 +24,24 @@ function LoginContent() {
   return (
     <>
       <div className="page-bg" />
+      
+      {/* Language Selector */}
+      <div className="absolute top-4 right-4 z-50">
+        <Select value={locale} onValueChange={(val) => setLocale(val as SupportedLocale)}>
+          <SelectTrigger className="w-[140px] bg-black/40 border-white/10 text-white backdrop-blur-md hover:border-white/20 transition-all focus:ring-0 focus:ring-offset-0">
+            <Globe className="h-4 w-4 mr-2 text-purple-400" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-background/95 border-white/10 backdrop-blur-md">
+            {languageOptions.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value} className="text-foreground hover:bg-white/10">
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="auth-container">
         <div className="login-card card animate-in animate-in-delay-1">
           {/* Logo */}
@@ -29,22 +52,22 @@ function LoginContent() {
                 <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
               </svg>
             </div>
-            <h1>灵动课堂</h1>
-            <p className="login-subtitle">在线互动教学平台</p>
+            <h1>{t("login.title")}</h1>
+            <p className="login-subtitle">{t("login.subtitle")}</p>
           </div>
 
           {/* Session / OAuth messages */}
           {loggedOut && (
             <div className="login-notice" role="status">
               <span aria-hidden>✓</span>
-              <span>已安全退出。可重新登录进入课程首页。</span>
+              <span>{t("login.loggedOut")}</span>
             </div>
           )}
 
           {reason === "session_expired" && (
             <div className="login-notice" role="status">
               <span aria-hidden>⏱</span>
-              <span>登录状态已过期，请重新登录以继续使用。</span>
+              <span>{t("login.sessionExpired")}</span>
             </div>
           )}
 
@@ -52,9 +75,9 @@ function LoginContent() {
             <div className="login-error">
               <span>⚠️</span>
               <span>
-                {error === "no_code" && "授权码缺失，请重新登录"}
-                {error === "auth_failed" && "认证失败，请重试"}
-                {!["no_code", "auth_failed"].includes(error) && "登录出错，请重试"}
+                {error === "no_code" && t("login.errNoCode")}
+                {error === "auth_failed" && t("login.errAuthFailed")}
+                {!["no_code", "auth_failed"].includes(error) && t("login.errGeneric")}
               </span>
             </div>
           )}
@@ -69,7 +92,7 @@ function LoginContent() {
             {loading ? (
               <>
                 <span className="spinner" />
-                正在跳转…
+                {t("login.redirecting")}
               </>
             ) : (
               <>
@@ -78,13 +101,13 @@ function LoginContent() {
                   <polyline points="10 17 15 12 10 7" />
                   <line x1="15" y1="12" x2="3" y2="12" />
                 </svg>
-                使用 SSO 登录
+                {t("login.btnSso")}
               </>
             )}
           </button>
 
           <p className="login-hint">
-            通过统一身份认证系统登录，系统将自动识别您的教师或学生角色
+            {t("login.ssoHint")}
           </p>
         </div>
 
@@ -92,15 +115,15 @@ function LoginContent() {
         <div className="features animate-in animate-in-delay-2">
           <div className="feature">
             <div className="feature-icon">🔐</div>
-            <div className="feature-text">SSO 认证</div>
+            <div className="feature-text">{t("login.featureSso")}</div>
           </div>
           <div className="feature">
             <div className="feature-icon">📚</div>
-            <div className="feature-text">课程管理</div>
+            <div className="feature-text">{t("login.featureCourse")}</div>
           </div>
           <div className="feature">
             <div className="feature-icon">🎓</div>
-            <div className="feature-text">角色权限</div>
+            <div className="feature-text">{t("login.featureRole")}</div>
           </div>
         </div>
 
