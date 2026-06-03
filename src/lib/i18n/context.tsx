@@ -24,10 +24,18 @@ function isOriginAllowed(origin: string): boolean {
     const hostname = url.hostname;
     if (hostname === "xiangyuwenshu.cn" || hostname.endsWith(".xiangyuwenshu.cn")) return true;
     if (hostname === "rainlib.cn" || hostname.endsWith(".rainlib.cn")) return true;
-  } catch (e) {
+  } catch {
     return false;
   }
   return false;
+}
+
+function mapToSupportedLocale(lang: string): SupportedLocale | null {
+  if (lang in locales) return lang as SupportedLocale;
+  const prefix = lang.split("-")[0];
+  if (prefix in locales) return prefix as SupportedLocale;
+  if (prefix === "zh") return "zh-CN";
+  return null;
 }
 
 interface I18nContextType {
@@ -58,7 +66,22 @@ function setCookie(name: string, value: string, days = 365) {
     date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
     expires = "; expires=" + date.toUTCString();
   }
-  document.cookie = `${name}=${value}${expires}; path=/; SameSite=Lax`;
+
+  let domainAttribute = "";
+  const hostname = window.location.hostname;
+  const isSharedDomain = hostname.endsWith("xiangyuwenshu.cn") || hostname.endsWith("rainlib.cn");
+  if (hostname.endsWith("xiangyuwenshu.cn")) {
+    domainAttribute = "; domain=.xiangyuwenshu.cn";
+  } else if (hostname.endsWith("rainlib.cn")) {
+    domainAttribute = "; domain=.rainlib.cn";
+  }
+
+  if (isSharedDomain) {
+    // Clear any host-only cookie on the current subdomain to avoid shadowing
+    document.cookie = `${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+  }
+
+  document.cookie = `${name}=${value}${expires}; path=/${domainAttribute}; SameSite=Lax`;
 }
 
 function detectDefaultLocale(): SupportedLocale {
@@ -73,13 +96,13 @@ function detectDefaultLocale(): SupportedLocale {
     if (urlLang === "zh") return "zh-CN";
   }
 
-  // 1. LocalStorage
-  const saved = localStorage.getItem("locale");
-  if (saved && saved in locales) return saved as SupportedLocale;
-
-  // 2. Cookie
+  // 1. Cookie
   const cookieVal = getCookie("NEXT_LOCALE");
   if (cookieVal && cookieVal in locales) return cookieVal as SupportedLocale;
+
+  // 2. LocalStorage
+  const saved = localStorage.getItem("locale");
+  if (saved && saved in locales) return saved as SupportedLocale;
 
   // 3. Browser Navigator Language
   const navLang = navigator.language;
@@ -166,6 +189,14 @@ export function I18nProvider({
   useEffect(() => {
     if (typeof window === "undefined") return;
 
+    // Clear any host-only NEXT_LOCALE cookie on mount if we are on a shared domain
+    // to ensure we read the wildcard cookie correctly.
+    const hostname = window.location.hostname;
+    const isSharedDomain = hostname.endsWith("xiangyuwenshu.cn") || hostname.endsWith("rainlib.cn");
+    if (isSharedDomain) {
+      document.cookie = "NEXT_LOCALE=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    }
+
     const handleMessage = (event: MessageEvent) => {
       if (!event.data) return;
 
@@ -175,9 +206,9 @@ export function I18nProvider({
           console.warn("Blocked unauthorized postMessage from origin:", event.origin);
           return;
         }
-        const newLang = event.data.value;
-        if (newLang in locales && newLang !== localeRef.current) {
-          applyLocale(newLang as SupportedLocale);
+        const mappedLang = mapToSupportedLocale(event.data.value);
+        if (mappedLang && mappedLang !== localeRef.current) {
+          applyLocale(mappedLang);
         }
       }
 
@@ -201,9 +232,9 @@ export function I18nProvider({
       channel = new BroadcastChannel(SYNC_CHANNEL_NAME);
       channel.onmessage = (event) => {
         if (event.data && event.data.type === "LANG_CHANGED") {
-          const newLang = event.data.value;
-          if (newLang in locales && newLang !== localeRef.current) {
-            applyLocale(newLang as SupportedLocale);
+          const mappedLang = mapToSupportedLocale(event.data.value);
+          if (mappedLang && mappedLang !== localeRef.current) {
+            applyLocale(mappedLang);
           }
         }
       };
@@ -216,8 +247,26 @@ export function I18nProvider({
       window.parent.postMessage({ type: "REQUEST_LANG" }, "*");
     }
 
+    const syncFromCookie = () => {
+      const cookieVal = getCookie("NEXT_LOCALE");
+      if (cookieVal && cookieVal in locales && cookieVal !== localeRef.current) {
+        applyLocale(cookieVal as SupportedLocale);
+      }
+    };
+
+    window.addEventListener("focus", syncFromCookie);
+    
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        syncFromCookie();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       window.removeEventListener("message", handleMessage);
+      window.removeEventListener("focus", syncFromCookie);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (channel) {
         channel.close();
       }
