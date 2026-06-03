@@ -1,7 +1,34 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useMemo } from "react";
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { locales, SupportedLocale, getTranslation } from "./locales";
+
+const SYNC_CHANNEL_NAME = "matrix_sync_channel";
+const ALLOWED_ORIGINS = [
+  "https://openmaic.org",
+  "https://xiangyuwenshu.cn",
+  "https://rainlib.cn",
+  "http://localhost:3000",
+  "http://localhost:3002",
+];
+
+function isOriginAllowed(origin: string): boolean {
+  if (typeof window === "undefined") return false;
+  if (origin === window.location.origin) return true;
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  // Support local development ports
+  if (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) return true;
+
+  try {
+    const url = new URL(origin);
+    const hostname = url.hostname;
+    if (hostname === "xiangyuwenshu.cn" || hostname.endsWith(".xiangyuwenshu.cn")) return true;
+    if (hostname === "rainlib.cn" || hostname.endsWith(".rainlib.cn")) return true;
+  } catch (e) {
+    return false;
+  }
+  return false;
+}
 
 interface I18nContextType {
   locale: SupportedLocale;
@@ -80,8 +107,13 @@ export function I18nProvider({
     return detectDefaultLocale();
   });
 
-  const setLocale = (newLocale: SupportedLocale) => {
-    if (!(newLocale in locales)) return;
+  const localeRef = useRef(locale);
+  useEffect(() => {
+    localeRef.current = locale;
+  }, [locale]);
+
+  // Helper to apply locale state & browser storage/cookies without broadcasting
+  const applyLocale = (newLocale: SupportedLocale) => {
     setLocaleState(newLocale);
     localStorage.setItem("locale", newLocale);
     setCookie("NEXT_LOCALE", newLocale, 365);
@@ -90,12 +122,107 @@ export function I18nProvider({
     }
   };
 
+  const setLocale = useCallback((newLocale: SupportedLocale) => {
+    if (!(newLocale in locales)) return;
+    if (newLocale === locale) return;
+
+    // 1. Apply locale locally
+    applyLocale(newLocale);
+
+    // 2. Same-origin Broadcast
+    try {
+      const channel = new BroadcastChannel(SYNC_CHANNEL_NAME);
+      channel.postMessage({ type: "LANG_CHANGED", value: newLocale });
+      channel.close();
+    } catch (e) {
+      console.warn("BroadcastChannel postMessage failed", e);
+    }
+
+    // 3. Post to parent window (if we are embedded)
+    if (typeof window !== "undefined" && window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: "LANG_CHANGED", value: newLocale }, "*");
+    }
+
+    // 4. Post to all child iframes
+    if (typeof document !== "undefined") {
+      const iframes = document.getElementsByTagName("iframe");
+      for (let i = 0; i < iframes.length; i++) {
+        const iframe = iframes[i];
+        if (iframe.contentWindow) {
+          iframe.contentWindow.postMessage({ type: "LANG_CHANGED", value: newLocale }, "*");
+        }
+      }
+    }
+  }, [locale]);
+
   // Sync html lang attribute on mount or change
   useEffect(() => {
     if (typeof document !== "undefined") {
       document.documentElement.lang = locale;
     }
   }, [locale]);
+
+  // Setup message listeners and initial handshake
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleMessage = (event: MessageEvent) => {
+      if (!event.data) return;
+
+      // Handle LANG_CHANGED event from parent or iframe
+      if (event.data.type === "LANG_CHANGED") {
+        if (!isOriginAllowed(event.origin)) {
+          console.warn("Blocked unauthorized postMessage from origin:", event.origin);
+          return;
+        }
+        const newLang = event.data.value;
+        if (newLang in locales && newLang !== localeRef.current) {
+          applyLocale(newLang as SupportedLocale);
+        }
+      }
+
+      // Handle REQUEST_LANG request (as a parent responding to child iframe handshake)
+      if (event.data.type === "REQUEST_LANG") {
+        const source = event.source as Window;
+        if (source) {
+          source.postMessage(
+            { type: "LANG_CHANGED", value: localeRef.current },
+            event.origin === "null" ? "*" : event.origin
+          );
+        }
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+
+    // Setup BroadcastChannel listener (for same-origin tab/iframe sync)
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel(SYNC_CHANNEL_NAME);
+      channel.onmessage = (event) => {
+        if (event.data && event.data.type === "LANG_CHANGED") {
+          const newLang = event.data.value;
+          if (newLang in locales && newLang !== localeRef.current) {
+            applyLocale(newLang as SupportedLocale);
+          }
+        }
+      };
+    } catch (e) {
+      console.warn("BroadcastChannel same-origin listening not supported", e);
+    }
+
+    // Initiate handshake with parent window (if we are embedded in an iframe)
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: "REQUEST_LANG" }, "*");
+    }
+
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      if (channel) {
+        channel.close();
+      }
+    };
+  }, []);
 
   const value = useMemo(() => {
     const dict = locales[locale] || locales["en"];
@@ -116,7 +243,7 @@ export function I18nProvider({
       setLocale,
       t,
     };
-  }, [locale]);
+  }, [locale, setLocale]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
