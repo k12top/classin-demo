@@ -339,15 +339,14 @@ curl https://your-domain.com/api/courses/{courseId}/verify-access \
 # https://your-domain.com + classroomUrl
 ```
 
-### 可选：Cron 兜底（Vercel）
+### Vercel Cron 定时任务配置（已启用）
 
-Vercel Cron 已从 `vercel.json` 移除（Hobby 计划不支持高频 Cron）。课程读取 API 会自动晋升到期课程，Cron 仅作兜底。如需启用：
+由于项目已升级至 Vercel Pro，我们在 `vercel.json` 中配置了定时任务，每 **1 分钟** 后台自动触发一次 `/api/cron/promote-course-status`：
 
-1. **升级到 Vercel Pro**：在 `vercel.json` 添加 `{"crons":[{"path":"/api/cron/promote-course-status","schedule":"*/5 * * * *"}]}`
-2. **外部定时服务**：使用 cron-job.org 等免费服务，每 5 分钟调用 `GET /api/cron/promote-course-status`，Header 带入 `Authorization: Bearer <CRON_SECRET>`
-3. **手动触发**：开发环境可直接访问上述接口（无需认证）
+1. **自动状态更新**：所有的课程状态流转（`scheduled` -> `live`, `afterClass` -> `finished`）已改为完全通过 Vercel Cron 后台进行更新。
+2. **读性能优化**：读取课程列表 (`GET /api/courses`) 及详情 (`GET /api/courses/{id}`) 接口中已**移除了同步更新机制**，不再做同步数据库写操作。这极大地加快了查询响应速度，彻底避免了由于大批量数据同步导致接口 504 发生。
+3. **本地开发测试**：开发环境可直接访问 `http://localhost:3000/api/cron/promote-course-status`（本地开发已跳过 `CRON_SECRET` 校验）来手动触发状态更新。
 
-无论是否配置定时调用，读取课程 API 时都会自动晋升到期状态。
 
 ---
 

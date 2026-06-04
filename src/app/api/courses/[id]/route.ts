@@ -50,24 +50,6 @@ export async function GET(
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
     }
 
-    await promoteCourseIfDueById(id);
-    course =
-      (await prisma.course.findUnique({
-        where: { id },
-        include: {
-          students: true,
-          groupLinks: {
-            include: {
-              group: {
-                include: {
-                  members: true,
-                },
-              },
-            },
-          },
-        },
-      })) ?? course;
-
     return NextResponse.json(
       { course: serializeCourse(course) },
       {

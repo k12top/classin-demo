@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promoteCoursesIfDue } from "@/lib/course-promote";
 
+export const maxDuration = 60;
+
 function isAuthorized(request: NextRequest): boolean {
   // Allow unauthenticated manual trigger in local development for easier testing
   if (process.env.NODE_ENV === "development") return true;
