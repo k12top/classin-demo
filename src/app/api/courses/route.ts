@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { name, description, roomType, startTime, endTime, studentRemarks } = body;
+    const { name, description, roomType, startTime, endTime, studentRemarks, passcode } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Course name is required" }, { status: 400 });
@@ -164,6 +164,15 @@ export async function POST(request: NextRequest) {
       if (start < new Date(Date.now() - 120000)) {
         return NextResponse.json({ error: "开始时间不能早于当前时间" }, { status: 400 });
       }
+    }
+
+    let finalPasscode: string | null = null;
+    if (roomType === 10) {
+      const passcodeStr = passcode?.trim() || Math.floor(100000 + Math.random() * 900000).toString();
+      if (!/^\d{6}$/.test(passcodeStr)) {
+        return NextResponse.json({ error: "入会密码必须是6位数字" }, { status: 400 });
+      }
+      finalPasscode = passcodeStr;
     }
 
     // Backend double-submit protection: check if a course with same teacher, name, startTime, and endTime was created within the last 5 seconds
@@ -187,6 +196,7 @@ export async function POST(request: NextRequest) {
         name: name.trim(),
         description: description?.trim() || "",
         roomType: roomType ?? 0,
+        passcode: finalPasscode,
         teacherId: session.userId,
         teacherName: session.displayName || session.name,
         startTime: startTime ? new Date(startTime) : null,

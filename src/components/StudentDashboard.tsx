@@ -36,6 +36,7 @@ const ROOM_TYPE_KEYS: Record<number, string> = {
   0: "common.roomType1v1",
   4: "common.roomTypeSmall",
   2: "common.roomTypeBig",
+  10: "common.roomTypePublic",
 };
 
 type SidebarPage = "learning" | "settings";
@@ -47,7 +48,43 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
   const [activeTab, setActiveTab] = useState<"upcoming" | "finished" | "cancelled">("upcoming");
   const [editingRemarks, setEditingRemarks] = useState<string | null>(null);
   const [remarksValue, setRemarksValue] = useState("");
+  const [joinCourseId, setJoinCourseId] = useState("");
+  const [joining, setJoining] = useState(false);
   const { t, locale } = useTranslation();
+
+  const handleJoinCourseById = async () => {
+    const cid = joinCourseId.trim();
+    if (!cid || joining) return;
+
+    if (/^\d{6}$/.test(cid)) {
+      setJoining(true);
+      try {
+        const res = await fetch(`/api/courses/search-by-passcode?passcode=${cid}`);
+        const data = await res.json();
+        if (res.ok && data.courseId) {
+          router.push(`/courses/${data.courseId}`);
+        } else {
+          const err = data.error === "errPasscodeNotFound"
+            ? t("studentDashboard.errPasscodeNotFound")
+            : t("common.failed");
+          alert(err);
+        }
+      } catch (err) {
+        console.error(err);
+        alert(t("common.failed"));
+      } finally {
+        setJoining(false);
+      }
+    } else {
+      // Validate UUID length/format loosely
+      const isUuid = cid.length === 36 || cid.length === 32;
+      if (!isUuid) {
+        alert(t("studentDashboard.errInvalidCourseId"));
+        return;
+      }
+      router.push(`/courses/${cid}`);
+    }
+  };
 
   const filteredCourses = useMemo(() => {
     switch (activeTab) {
@@ -151,6 +188,31 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                 <p className="text-white/80">{t("studentDashboard.bannerDesc")}</p>
               </div>
             </div>
+
+            {/* Join Public Course Card */}
+            <Card className="glass-panel border-purple-500/20 bg-purple-500/5 p-6 flex flex-col sm:flex-row gap-4 items-center justify-between animate-in fade-in duration-300">
+              <div className="space-y-1 text-center sm:text-left">
+                <h3 className="font-bold text-lg text-white">{t("studentDashboard.joinPublicClassTitle")}</h3>
+                <p className="text-sm text-muted-foreground">{t("studentDashboard.joinPublicClassDesc")}</p>
+              </div>
+              <div className="flex gap-2 w-full sm:w-auto shrink-0">
+                <Input
+                  placeholder={t("studentDashboard.joinPublicClassPlaceholder")}
+                  className="bg-black/40 border-white/10 hover:border-white/20 focus-visible:ring-purple-500/50 w-full sm:w-[320px] font-mono text-sm"
+                  value={joinCourseId}
+                  onChange={(e) => setJoinCourseId(e.target.value.trim())}
+                  onKeyDown={(e) => e.key === "Enter" && joinCourseId && handleJoinCourseById()}
+                  disabled={joining}
+                />
+                <Button 
+                  onClick={handleJoinCourseById}
+                  disabled={!joinCourseId || joining}
+                  className="bg-purple-600 hover:bg-purple-700 text-white shrink-0 shadow-glow-purple"
+                >
+                  {joining ? t("common.loading") : t("studentDashboard.joinPublicClassBtn")}
+                </Button>
+              </div>
+            </Card>
 
             <Tabs defaultValue="upcoming" className="w-full" onValueChange={(v) => setActiveTab(v as any)}>
               <TabsList className="bg-black/20 border border-white/5 backdrop-blur-md mb-6">

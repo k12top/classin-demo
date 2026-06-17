@@ -16,6 +16,7 @@ const ROOM_TYPE_KEYS: Record<number, string> = {
   0: "common.roomType1v1",
   4: "common.roomTypeSmall",
   2: "common.roomTypeBig",
+  10: "common.roomTypePublic",
 };
 
 export default function StudentCourseDetail({ 

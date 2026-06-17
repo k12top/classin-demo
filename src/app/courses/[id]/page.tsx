@@ -8,7 +8,8 @@ import { redirectToSsoLogin } from "@/lib/auth-login";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, AlertTriangle } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { ChevronLeft, AlertTriangle, Key, Loader2 } from "lucide-react";
 
 import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
 import TeacherCourseDetail from "@/components/TeacherCourseDetail";
@@ -157,6 +158,16 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
     );
   }
 
+  const isDirectStudent = Boolean(
+    user && course?.students?.some((s) => casdoorUserIdsMatch(s.studentId, user.userId))
+  );
+  const isGroupStudent = Boolean(
+    user && course?.groupLinks?.some((gl) =>
+      gl.group?.members?.some((m) => casdoorUserIdsMatch(m.userId, user.userId))
+    )
+  );
+  const isEnrolled = isTeacher || isDirectStudent || isGroupStudent;
+
   return (
     <div className="min-h-screen bg-background">
       {/* Top Nav Bar */}
@@ -180,7 +191,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
       </div>
 
       {/* Main Content */}
-      <main className="max-w-6xl mx-auto px-6 py-8">
+      <main className={`max-w-6xl mx-auto px-6 py-8 ${!isEnrolled && course.roomType === 10 ? "flex justify-center items-center min-h-[calc(100vh-10rem)]" : ""}`}>
         {isTeacher ? (
           <TeacherCourseDetail 
             course={course} 
@@ -188,6 +199,15 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
             onEnterClassroom={handleEnterClassroom} 
             enterLoading={enterLoading}
             fetchCourse={fetchCourse}
+          />
+        ) : !isEnrolled && course.roomType === 10 ? (
+          <PasscodeGate 
+            course={course}
+            t={t}
+            onSuccess={async () => {
+              await fetchCourse();
+              void handleEnterClassroom();
+            }}
           />
         ) : (
           <StudentCourseDetail 
@@ -200,5 +220,157 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
         )}
       </main>
     </div>
+  );
+}
+
+function PasscodeGate({
+  course,
+  t,
+  onSuccess,
+}: {
+  course: any;
+  t: (key: string) => string;
+  onSuccess: () => Promise<void>;
+}) {
+  const [digits, setDigits] = useState<string[]>(Array(6).fill(""));
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleDigitChange = (index: number, val: string) => {
+    const cleanVal = val.replace(/\D/g, "");
+    if (!cleanVal) {
+      const newDigits = [...digits];
+      newDigits[index] = "";
+      setDigits(newDigits);
+      return;
+    }
+    const char = cleanVal.slice(-1);
+    const newDigits = [...digits];
+    newDigits[index] = char;
+    setDigits(newDigits);
+    setError("");
+
+    if (index < 5) {
+      const nextInput = document.getElementById(`digit-${index + 1}`);
+      nextInput?.focus();
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace" && !digits[index] && index > 0) {
+      const newDigits = [...digits];
+      newDigits[index - 1] = "";
+      setDigits(newDigits);
+      const prevInput = document.getElementById(`digit-${index - 1}`);
+      prevInput?.focus();
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pasteData = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    if (pasteData.length > 0) {
+      const newDigits = Array(6).fill("");
+      for (let i = 0; i < pasteData.length; i++) {
+        newDigits[i] = pasteData[i] || "";
+      }
+      setDigits(newDigits);
+      const focusIndex = Math.min(pasteData.length, 5);
+      const nextInput = document.getElementById(`digit-${focusIndex}`);
+      nextInput?.focus();
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const passcode = digits.join("");
+    if (passcode.length !== 6) {
+      setError(t("teacherDashboard.errPasscodeInvalid"));
+      return;
+    }
+
+    setSubmitting(true);
+    setError("");
+
+    try {
+      const res = await fetch(`/api/courses/${course.id}/join-by-passcode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ passcode }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || t("passcodeGate.errInvalidPasscode"));
+      } else {
+        await onSuccess();
+      }
+    } catch {
+      setError(t("common.failed"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Card className="glass-panel border-white/10 bg-black/40 p-8 sm:p-12 text-center flex flex-col items-center max-w-lg w-full relative overflow-hidden animate-in fade-in zoom-in duration-300">
+      <div className="absolute top-[-20%] right-[-10%] w-[250px] h-[250px] bg-purple-500/10 rounded-full blur-[80px] pointer-events-none" />
+      
+      <div className="mx-auto w-14 h-14 rounded-full bg-purple-500/10 flex items-center justify-center mb-6">
+        <Key className="h-6 w-6 text-purple-400" />
+      </div>
+
+      <h2 className="text-2xl font-bold text-white mb-2">{t("passcodeGate.title")}</h2>
+      <p className="text-sm text-muted-foreground mb-6 max-w-sm">
+        {t("passcodeGate.desc")}
+      </p>
+
+      <div className="px-4 py-3 bg-white/5 rounded-xl border border-white/5 space-y-1 w-full text-left mb-6">
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{t("teacherDashboard.fieldName")}</div>
+        <div className="text-base font-bold text-white truncate">{course.name}</div>
+        <div className="text-xs text-purple-300 mt-2">{t("courseDetail.teacherInfo").replace("{name}", course.teacherName)}</div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="w-full space-y-6">
+        <div className="flex justify-center gap-2.5">
+          {digits.map((digit, idx) => (
+            <input
+              key={idx}
+              id={`digit-${idx}`}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={1}
+              value={digit}
+              onChange={(e) => handleDigitChange(idx, e.target.value)}
+              onKeyDown={(e) => handleKeyDown(idx, e)}
+              onPaste={handlePaste}
+              className="w-12 h-14 bg-black/50 border border-white/10 hover:border-purple-500/30 focus:border-purple-500 rounded-lg text-center text-2xl font-bold text-white focus:ring-2 focus:ring-purple-500/20 focus-visible:outline-none transition-all font-mono shadow-inner"
+              autoFocus={idx === 0}
+            />
+          ))}
+        </div>
+
+        {error && (
+          <p className="text-xs text-red-400 bg-red-500/10 py-2.5 px-4 rounded border border-red-500/20 animate-in fade-in duration-200">
+            {error}
+          </p>
+        )}
+
+        <Button
+          type="submit"
+          disabled={submitting || digits.some(d => !d)}
+          className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-6 text-base shadow-glow-purple group relative overflow-hidden transition-all duration-300"
+        >
+          {submitting ? (
+            <span className="flex items-center justify-center gap-2">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              {t("common.submitting")}
+            </span>
+          ) : (
+            t("passcodeGate.btnJoin")
+          )}
+        </Button>
+      </form>
+    </Card>
   );
 }

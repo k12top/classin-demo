@@ -50,8 +50,14 @@ export async function GET(
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
     }
 
+    const isTeacher = casdoorUserIdsMatch(course.teacherId, session.userId);
+    const serialized = serializeCourse(course);
+    if (!isTeacher) {
+      delete (serialized as any).passcode;
+    }
+
     return NextResponse.json(
-      { course: serializeCourse(course) },
+      { course: serialized },
       {
         headers: {
           "Cache-Control": "no-store, max-age=0, must-revalidate",
@@ -81,38 +87,59 @@ export async function PUT(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  try {
-    const body = await request.json();
-    const { name, description, roomType, status, startTime, endTime, studentRemarks } = body;
+    try {
+      const body = await request.json();
+      const { name, description, roomType, status, startTime, endTime, studentRemarks, passcode } = body;
 
-    if (status !== undefined && !isValidCourseStatus(status)) {
-      return NextResponse.json({ error: "Invalid status" }, { status: 400 });
-    }
-
-    let finalStatus = status;
-    // Revert LIVE -> SCHEDULED if the teacher reschedules to a future time
-    if (
-      finalStatus === undefined &&
-      existing.status === CourseStatus.LIVE &&
-      startTime
-    ) {
-      if (new Date(startTime) > new Date()) {
-        finalStatus = CourseStatus.SCHEDULED;
+      if (status !== undefined && !isValidCourseStatus(status)) {
+        return NextResponse.json({ error: "Invalid status" }, { status: 400 });
       }
-    }
 
-    let course = await prisma.course.update({
-      where: { id },
-      data: {
-        ...(name !== undefined && { name: name.trim() }),
-        ...(description !== undefined && { description: description.trim() }),
-        ...(roomType !== undefined && { roomType }),
-        ...(finalStatus !== undefined && { status: finalStatus }),
-        ...(startTime !== undefined && { startTime: startTime ? new Date(startTime) : null }),
-        ...(endTime !== undefined && { endTime: endTime ? new Date(endTime) : null }),
-        ...(studentRemarks !== undefined && { studentRemarks: studentRemarks.trim() }),
-      },
-    });
+      let finalStatus = status;
+      // Revert LIVE -> SCHEDULED if the teacher reschedules to a future time
+      if (
+        finalStatus === undefined &&
+        existing.status === CourseStatus.LIVE &&
+        startTime
+      ) {
+        if (new Date(startTime) > new Date()) {
+          finalStatus = CourseStatus.SCHEDULED;
+        }
+      }
+
+      let finalPasscode: string | null | undefined = undefined;
+      const targetRoomType = roomType !== undefined ? roomType : existing.roomType;
+      if (targetRoomType === 10) {
+        if (passcode !== undefined) {
+          if (passcode === null || passcode.trim() === "") {
+            finalPasscode = Math.floor(100000 + Math.random() * 900000).toString();
+          } else {
+            const trimmed = passcode.trim();
+            if (!/^\d{6}$/.test(trimmed)) {
+              return NextResponse.json({ error: "入会密码必须是6位数字" }, { status: 400 });
+            }
+            finalPasscode = trimmed;
+          }
+        }
+      } else {
+        if (roomType !== undefined && existing.roomType === 10) {
+          finalPasscode = null;
+        }
+      }
+
+      let course = await prisma.course.update({
+        where: { id },
+        data: {
+          ...(name !== undefined && { name: name.trim() }),
+          ...(description !== undefined && { description: description.trim() }),
+          ...(roomType !== undefined && { roomType }),
+          ...(finalPasscode !== undefined && { passcode: finalPasscode }),
+          ...(finalStatus !== undefined && { status: finalStatus }),
+          ...(startTime !== undefined && { startTime: startTime ? new Date(startTime) : null }),
+          ...(endTime !== undefined && { endTime: endTime ? new Date(endTime) : null }),
+          ...(studentRemarks !== undefined && { studentRemarks: studentRemarks.trim() }),
+        },
+      });
 
     const promoted = await promoteCourseIfDueById(id);
     if (promoted) {

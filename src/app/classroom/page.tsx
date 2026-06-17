@@ -301,10 +301,13 @@ function ClassroomContent() {
           const resolvedRole: number = verifyData.role === "teacher" ? 1 : 2;
           isTeacherRef.current = resolvedRole === 1;
           lastSyncedClassStateRef.current = null;
-          const resolvedRoomType =
+          let resolvedRoomType =
             typeof verifyData.courseInfo?.roomType === "number"
               ? verifyData.courseInfo.roomType
               : rtp;
+          if (resolvedRoomType === 10) {
+            resolvedRoomType = 2; // Map public class to Large Class (2) in Agora
+          }
           if (verifyData.courseInfo?.name) {
             verifyRoomLabel = verifyData.courseInfo.name;
           }

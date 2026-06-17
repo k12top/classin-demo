@@ -23,6 +23,7 @@ interface Course {
   name: string;
   description: string;
   roomType: number;
+  passcode?: string | null;
   teacherId: string;
   teacherName: string;
   status: string;
@@ -47,6 +48,7 @@ const ROOM_TYPE_KEYS: Record<number, string> = {
   0: "common.roomType1v1",
   4: "common.roomTypeSmall",
   2: "common.roomTypeBig",
+  10: "common.roomTypePublic",
 };
 
 type SidebarPage = "schedule" | "students" | "settings";
@@ -95,11 +97,18 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const [createName, setCreateName] = useState("");
   const [createDesc, setCreateDesc] = useState("");
   const [createRoomType, setCreateRoomType] = useState(0);
+  const [createPasscode, setCreatePasscode] = useState("");
   const [createStartTime, setCreateStartTime] = useState("");
   const [createEndTime, setCreateEndTime] = useState("");
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState("");
   const createLockRef = useRef(false);
+
+  useEffect(() => {
+    if (createRoomType === 10 && !createPasscode) {
+      setCreatePasscode(Math.floor(100000 + Math.random() * 900000).toString());
+    }
+  }, [createRoomType, createPasscode]);
 
   const minDateTime = (() => {
     const now = new Date();
@@ -183,6 +192,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     { value: 0, label: t("common.roomType1v1"), desc: t("teacherDashboard.roomDesc1v1"), icon: "👤" },
     { value: 4, label: t("common.roomTypeSmall"), desc: t("teacherDashboard.roomDescSmall"), icon: "👥" },
     { value: 2, label: t("common.roomTypeBig"), desc: t("teacherDashboard.roomDescBig"), icon: "🏫" },
+    { value: 10, label: t("common.roomTypePublic"), desc: t("teacherDashboard.roomDescPublic"), icon: "🔑" },
   ], [t]);
 
   const fetchMyGroups = useCallback(async () => {
@@ -293,6 +303,12 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     if (new Date(createStartTime) < new Date(Date.now() - 120000)) { setCreateError(t("teacherDashboard.errStartTimePast")); return; }
     if (!createEndTime) { setCreateError(t("teacherDashboard.errEndTimeEmpty")); return; }
     if (new Date(createEndTime) <= new Date(createStartTime)) { setCreateError(t("teacherDashboard.errEndTimeBefore")); return; }
+    if (createRoomType === 10) {
+      if (createPasscode && !/^\d{6}$/.test(createPasscode)) {
+        setCreateError(t("teacherDashboard.errPasscodeInvalid"));
+        return;
+      }
+    }
     
     createLockRef.current = true;
     setCreateLoading(true);
@@ -305,6 +321,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
           name: createName,
           description: createDesc,
           roomType: createRoomType,
+          passcode: createRoomType === 10 ? createPasscode : undefined,
           startTime: new Date(createStartTime).toISOString(),
           endTime: new Date(createEndTime).toISOString(),
         }),
@@ -315,7 +332,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       }
       const { course } = await res.json();
       setCreateOpen(false);
-      setCreateName(""); setCreateDesc(""); setCreateRoomType(0); setCreateStartTime(""); setCreateEndTime("");
+      setCreateName(""); setCreateDesc(""); setCreateRoomType(0); setCreatePasscode(""); setCreateStartTime(""); setCreateEndTime("");
       fetchCourses();
       router.push(`/courses/${course.id}`);
     } catch (err) {
@@ -604,6 +621,19 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                 <h3 className="text-xl font-bold text-foreground">{course.name}</h3>
                                 <CourseStatusBadge status={course.status} />
                                 <Badge variant="secondary" className="bg-white/10 text-white/80">{t(ROOM_TYPE_KEYS[course.roomType]) || t("common.unknown")}</Badge>
+                                {course.roomType === 10 && course.passcode && (
+                                  <Badge 
+                                    variant="outline" 
+                                    className="border-purple-500/30 text-purple-300 bg-purple-500/10 cursor-pointer flex items-center gap-1 hover:bg-purple-500/20 transition-colors"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void copyShareUrl(course.passcode!);
+                                    }}
+                                    title={t("courseDetail.btnCopy")}
+                                  >
+                                    🔑 {t("courseDetail.passcodeLabel")}: {course.passcode}
+                                  </Badge>
+                                )}
                               </div>
                               
                               <div className="flex items-center gap-4 text-sm text-muted-foreground">
@@ -1001,25 +1031,42 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">{t("teacherDashboard.fieldType")}</label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {roomTypes.map((rt) => (
                     <button
                       key={rt.value}
                       type="button"
                       onClick={() => setCreateRoomType(rt.value)}
-                      className={`flex flex-col items-center gap-1.5 p-4 rounded-lg border-2 transition-all text-center ${
+                      className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 transition-all text-center ${
                         createRoomType === rt.value
                           ? "border-purple-500 bg-purple-500/10 shadow-glow-purple"
                           : "border-white/10 bg-black/20 hover:border-white/20"
                       }`}
                     >
                       <span className="text-2xl">{rt.icon}</span>
-                      <span className="text-sm font-semibold">{rt.label}</span>
-                      <span className="text-[10px] text-muted-foreground">{rt.desc}</span>
+                      <span className="text-sm font-semibold whitespace-nowrap">{rt.label}</span>
+                      <span className="text-[10px] text-muted-foreground line-clamp-1">{rt.desc}</span>
                     </button>
                   ))}
                 </div>
               </div>
+
+              {createRoomType === 10 && (
+                <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <label className="text-sm font-medium">{t("teacherDashboard.fieldPasscode")} <span className="text-red-400">*</span></label>
+                  <Input
+                    className="bg-black/40 border-purple-500/30 hover:border-purple-500/50 focus-visible:ring-purple-500/50 font-mono text-center text-lg tracking-widest"
+                    placeholder={t("teacherDashboard.fieldPasscodePlaceholder")}
+                    value={createPasscode}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, "").slice(0, 6);
+                      setCreatePasscode(val);
+                      setCreateError("");
+                    }}
+                    maxLength={6}
+                  />
+                </div>
+              )}
             </div>
 
             <DialogFooter>

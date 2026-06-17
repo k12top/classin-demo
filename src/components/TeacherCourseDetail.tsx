@@ -17,6 +17,7 @@ const ROOM_TYPE_KEYS: Record<number, string> = {
   0: "common.roomType1v1",
   4: "common.roomTypeSmall",
   2: "common.roomTypeBig",
+  10: "common.roomTypePublic",
 };
 
 interface GroupNode {
@@ -401,9 +402,21 @@ export default function TeacherCourseDetail({
         <CardContent className="p-8 relative z-10">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
             <div className="space-y-4 flex-1">
-              <Badge variant="outline" className="border-purple-400/30 text-purple-300 bg-purple-500/10">
-                {t(ROOM_TYPE_KEYS[course.roomType]) || t("common.unknown")}
-              </Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="border-purple-400/30 text-purple-300 bg-purple-500/10">
+                  {t(ROOM_TYPE_KEYS[course.roomType]) || t("common.unknown")}
+                </Badge>
+                {course.roomType === 10 && course.passcode && (
+                  <Badge 
+                    variant="outline" 
+                    className="border-purple-500/30 text-purple-300 bg-purple-500/15 cursor-pointer flex items-center gap-1 hover:bg-purple-500/25 transition-colors font-mono"
+                    onClick={() => void copyText(course.passcode, t("courseDetail.copyPasscodeSuccess"))}
+                    title={t("courseDetail.btnCopy")}
+                  >
+                    🔑 {t("courseDetail.passcodeLabel")}: {course.passcode} <Copy className="h-3 w-3 ml-0.5" />
+                  </Badge>
+                )}
+              </div>
               <h1 className="text-3xl md:text-4xl font-bold text-white">{course.name}</h1>
               
               <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground mt-4">

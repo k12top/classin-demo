@@ -60,18 +60,6 @@ export default async function JoinPage({
     redirect(`/api/auth/login?next=${encodeURIComponent(next)}`);
   }
 
-  const access = await resolveCourseAccess(resolved.courseId, session.userId);
-  if (!access.ok) {
-    redirect(
-      buildAccessDeniedUrl({
-        code: access.code,
-        reason: access.reason,
-        course: t("teacherDashboard.fieldName"),
-        courseId: resolved.courseId,
-      })
-    );
-  }
-
   const course = await prisma.course.findUnique({
     where: { id: resolved.courseId },
     select: { id: true, name: true, roomType: true },
@@ -81,6 +69,21 @@ export default async function JoinPage({
       buildAccessDeniedUrl({
         code: "not_found",
         reason: t("join.courseNotExist"),
+      })
+    );
+  }
+
+  const access = await resolveCourseAccess(resolved.courseId, session.userId);
+  if (!access.ok) {
+    if (course.roomType === 10) {
+      redirect(`/courses/${course.id}`);
+    }
+    redirect(
+      buildAccessDeniedUrl({
+        code: access.code,
+        reason: access.reason,
+        course: t("teacherDashboard.fieldName"),
+        courseId: resolved.courseId,
       })
     );
   }
