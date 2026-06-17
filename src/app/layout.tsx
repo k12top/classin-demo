@@ -20,9 +20,10 @@ export default async function RootLayout({
   const cookieStore = await cookies();
   const cookieVal = cookieStore.get("NEXT_LOCALE")?.value;
   const initialLocale = (cookieVal || "en") as SupportedLocale;
+  const themeVal = cookieStore.get("NEXT_THEME")?.value || "light";
 
   return (
-    <html lang={initialLocale} className="dark">
+    <html lang={initialLocale} className={themeVal}>
       <body className="font-sans antialiased bg-background text-foreground min-h-screen flex flex-col">
         {/* Dynamic Background */}
         <div className="fixed inset-0 z-[-1] bg-[radial-gradient(ellipse_at_20%_50%,rgba(59,130,246,0.08)_0%,transparent_50%),radial-gradient(ellipse_at_80%_20%,rgba(139,92,246,0.06)_0%,transparent_50%),radial-gradient(ellipse_at_50%_80%,rgba(6,182,212,0.05)_0%,transparent_50%)] pointer-events-none">

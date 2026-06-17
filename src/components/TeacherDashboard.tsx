@@ -4,19 +4,21 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Calendar as CalendarIcon, Users, Settings, LogOut, ChevronLeft, ChevronRight, PlayCircle, Plus, Search, Trash2, Link as LinkIcon, Edit, UserPlus, Info, Clock, Globe } from "lucide-react";
+import { Calendar as CalendarIcon, Users, Settings, LogOut, ChevronLeft, ChevronRight, PlayCircle, Plus, Search, Trash2, Link as LinkIcon, Edit, UserPlus, Info, Clock, Globe, Key, Loader2, User, BookOpen } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
 import { SupportedLocale } from "@/lib/i18n/locales";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import ThemeToggle from "@/components/ThemeToggle";
+import TimeDisplay from "@/components/TimeDisplay";
 
 interface Course {
   id: string;
@@ -75,7 +77,12 @@ const SUPPORTED_TIMEZONES: TimezoneConfig[] = [
   { id: "MM", nameCN: "缅甸", nameEN: "Myanmar", timezone: "Asia/Yangon", flag: "🇲🇲", offset: "UTC+6:30" },
   { id: "CN", nameCN: "中国 (北京)", nameEN: "China (Beijing)", timezone: "Asia/Shanghai", flag: "🇨🇳", offset: "UTC+8" },
   { id: "JP", nameCN: "日本", nameEN: "Japan", timezone: "Asia/Tokyo", flag: "🇯🇵", offset: "UTC+9" },
-  { id: "KR", nameCN: "韩国", nameEN: "South Korea", timezone: "Asia/Seoul", flag: "🇰🇷", offset: "UTC+9" }
+  { id: "KR", nameCN: "韩国", nameEN: "South Korea", timezone: "Asia/Seoul", flag: "🇰🇷", offset: "UTC+9" },
+  { id: "US_EST", nameCN: "美国 (东部)", nameEN: "US (Eastern)", timezone: "America/New_York", flag: "🇺🇸", offset: "UTC-5" },
+  { id: "US_PST", nameCN: "美国 (西部)", nameEN: "US (Pacific)", timezone: "America/Los_Angeles", flag: "🇺🇸", offset: "UTC-8" },
+  { id: "UK", nameCN: "英国 (伦敦)", nameEN: "United Kingdom", timezone: "Europe/London", flag: "🇬🇧", offset: "UTC+0" },
+  { id: "FR", nameCN: "法国 (巴黎)", nameEN: "France (Paris)", timezone: "Europe/Paris", flag: "🇫🇷", offset: "UTC+1" },
+  { id: "DE", nameCN: "德国 (柏林)", nameEN: "Germany (Berlin)", timezone: "Europe/Berlin", flag: "🇩🇪", offset: "UTC+1" }
 ];
 
 const DEFAULT_TIMEZONE_IDS = ["TH", "VN", "SG", "ID_WIB"];
@@ -189,10 +196,10 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const [memberTargetGroupId, setMemberTargetGroupId] = useState("");
 
   const roomTypes = useMemo(() => [
-    { value: 0, label: t("common.roomType1v1"), desc: t("teacherDashboard.roomDesc1v1"), icon: "👤" },
-    { value: 4, label: t("common.roomTypeSmall"), desc: t("teacherDashboard.roomDescSmall"), icon: "👥" },
-    { value: 2, label: t("common.roomTypeBig"), desc: t("teacherDashboard.roomDescBig"), icon: "🏫" },
-    { value: 10, label: t("common.roomTypePublic"), desc: t("teacherDashboard.roomDescPublic"), icon: "🔑" },
+    { value: 0, label: t("common.roomType1v1"), desc: t("teacherDashboard.roomDesc1v1"), icon: User },
+    { value: 4, label: t("common.roomTypeSmall"), desc: t("teacherDashboard.roomDescSmall"), icon: Users },
+    { value: 2, label: t("common.roomTypeBig"), desc: t("teacherDashboard.roomDescBig"), icon: BookOpen },
+    { value: 10, label: t("common.roomTypePublic"), desc: t("teacherDashboard.roomDescPublic"), icon: Key },
   ], [t]);
 
   const fetchMyGroups = useCallback(async () => {
@@ -477,66 +484,117 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   }, [t]);
 
   return (
-    <div className="flex min-h-screen bg-background">
-      {/* Sidebar */}
-      <aside className="w-64 border-r border-white/10 bg-black/20 backdrop-blur-xl flex flex-col hidden md:flex">
-        <div className="p-6 flex flex-col flex-1">
-          <div className="flex items-center gap-4 mb-8">
-            <Avatar className="h-12 w-12 border border-purple-500/30 shadow-glow-purple">
-              <AvatarImage src={user.avatar} />
-              <AvatarFallback className="bg-purple-500/20 text-purple-400">{user.displayName?.[0] || 'T'}</AvatarFallback>
-            </Avatar>
-            <div className="flex flex-col">
-              <span className="font-semibold text-foreground truncate w-32">{user.displayName || user.name}</span>
-              <Badge variant="secondary" className="w-fit text-[10px] mt-1 bg-purple-500/20 text-purple-300 hover:bg-purple-500/30">{t("common.roleTeacher")}</Badge>
-            </div>
+    <div className="min-h-screen bg-background flex flex-col transition-colors duration-300">
+      {/* Top Header Navigation */}
+      <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-card/60 backdrop-blur-md px-6 py-4 flex items-center justify-between shadow-sm">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <BookOpen className="h-6 w-6 text-primary animate-pulse" />
+            <span className="font-extrabold text-lg bg-gradient-to-r from-primary to-purple-600 bg-clip-text text-transparent">
+              {t("common.appName") || "灵动课堂"}
+            </span>
           </div>
-          <nav className="space-y-2">
-            <Button 
-              variant={activePage === 'schedule' ? 'secondary' : 'ghost'} 
-              className={`w-full justify-start ${activePage === 'schedule' ? 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30' : ''}`}
-              onClick={() => setActivePage('schedule')}
+          <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20 flex items-center gap-1 text-[10px] font-semibold">
+            <User className="h-3 w-3" />
+            <span>{t("common.roleTeacher")}</span>
+          </Badge>
+        </div>
+
+        {/* Center: Apple-style segment controller buttons */}
+        <div className="hidden md:flex bg-muted/60 border border-border/40 p-1 rounded-xl">
+          <Button 
+            variant="ghost" 
+            size="sm"
+            className={`rounded-lg font-medium px-4 py-1 text-xs transition-all ${activePage === 'schedule' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            onClick={() => setActivePage('schedule')}
+          >
+            <CalendarIcon className="mr-1.5 h-3.5 w-3.5" /> {t("teacherDashboard.schedule")}
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="sm"
+            className={`rounded-lg font-medium px-4 py-1 text-xs transition-all ${activePage === 'students' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            onClick={() => setActivePage('students')}
+          >
+            <Users className="mr-1.5 h-3.5 w-3.5" /> {t("teacherDashboard.studentManage")}
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="sm"
+            className={`rounded-lg font-medium px-4 py-1 text-xs transition-all ${activePage === 'settings' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            onClick={() => setActivePage('settings')}
+          >
+            <Settings className="mr-1.5 h-3.5 w-3.5" /> {t("settingsPanel.title")}
+          </Button>
+        </div>
+
+        {/* Right side: Global settings & user profile */}
+        <div className="flex items-center gap-4">
+          <div className="hidden sm:flex items-center gap-2">
+            <LanguageSwitcher />
+            <ThemeToggle />
+          </div>
+
+          <div className="flex items-center gap-3 border-l border-border/40 pl-4">
+            <Avatar className="h-8 w-8 border border-primary/20 shadow-sm">
+              <AvatarImage src={user.avatar} />
+              <AvatarFallback className="bg-primary/20 text-primary text-xs font-bold">{user.displayName?.[0] || 'T'}</AvatarFallback>
+            </Avatar>
+            <div className="hidden lg:flex flex-col text-left">
+              <span className="text-xs font-semibold text-foreground truncate max-w-[100px]">{user.displayName || user.name}</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-destructive h-8 w-8 hover:bg-destructive/10 rounded-lg transition-colors"
+              onClick={logout}
+              title={t("common.logout")}
             >
-              <CalendarIcon className="mr-2 h-4 w-4" /> {t("teacherDashboard.schedule")}
+              <LogOut className="h-4 w-4" />
             </Button>
-            <Button 
-              variant={activePage === 'students' ? 'secondary' : 'ghost'} 
-              className={`w-full justify-start ${activePage === 'students' ? 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30' : ''}`}
-              onClick={() => setActivePage('students')}
-            >
-              <Users className="mr-2 h-4 w-4" /> {t("teacherDashboard.studentManage")}
-            </Button>
-            <Button 
-              variant={activePage === 'settings' ? 'secondary' : 'ghost'} 
-              className={`w-full justify-start ${activePage === 'settings' ? 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30' : ''}`}
-              onClick={() => setActivePage('settings')}
-            >
-              <Settings className="mr-2 h-4 w-4" /> {t("settingsPanel.title")}
-            </Button>
-          </nav>
-          
-          <div className="mt-auto pt-6 border-t border-white/5 space-y-2">
-            <label className="text-xs text-muted-foreground block px-2">{t("settingsPanel.language")}</label>
-            <LanguageSwitcher className="w-full" />
           </div>
         </div>
-      </aside>
+      </header>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto p-6 md:p-10 relative">
-        {/* Language Switcher for Mobile */}
-        <div className="absolute top-6 right-6 z-20 md:hidden">
-          <LanguageSwitcher />
+      <main className="flex-1 p-6 md:p-10 max-w-7xl mx-auto w-full relative">
+        {/* Mobile Page Selector */}
+        <div className="flex md:hidden bg-muted/60 border border-border/40 p-1 rounded-xl mb-6">
+          <Button 
+            variant="ghost" 
+            size="sm"
+            className={`flex-1 rounded-lg font-medium py-2 text-xs transition-all ${activePage === 'schedule' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground'}`}
+            onClick={() => setActivePage('schedule')}
+          >
+            <CalendarIcon className="mr-1 h-3.5 w-3.5" /> {t("teacherDashboard.schedule")}
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="sm"
+            className={`flex-1 rounded-lg font-medium py-2 text-xs transition-all ${activePage === 'students' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground'}`}
+            onClick={() => setActivePage('students')}
+          >
+            <Users className="mr-1 h-3.5 w-3.5" /> {t("teacherDashboard.studentManage")}
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="sm"
+            className={`flex-1 rounded-lg font-medium py-2 text-xs transition-all ${activePage === 'settings' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground'}`}
+            onClick={() => setActivePage('settings')}
+          >
+            <Settings className="mr-1 h-3.5 w-3.5" /> {t("settingsPanel.title")}
+          </Button>
         </div>
+
         {/* ──── Schedule Page ──── */}
         {activePage === "schedule" && (
           <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div>
-                <h2 className="text-3xl font-bold">{t("teacherDashboard.schedule")}</h2>
-                <p className="text-muted-foreground mt-1">{t("teacherDashboard.groupManageDesc")}</p>
+                <h2 className="text-3xl font-extrabold tracking-tight">{t("teacherDashboard.schedule")}</h2>
+                <p className="text-muted-foreground mt-1 text-sm font-medium">{t("teacherDashboard.groupManageDesc")}</p>
               </div>
-              <Button onClick={() => { setCreateError(""); setCreateOpen(true); }} className="bg-purple-600 hover:bg-purple-700 text-white shadow-glow-purple">
+              <Button onClick={() => { setCreateError(""); setCreateOpen(true); }} className="bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all">
                 <Plus className="mr-2 h-4 w-4" /> {t("teacherDashboard.createCourse")}
               </Button>
             </div>
@@ -544,10 +602,10 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               {/* Calendar Sidebar */}
               <div className="lg:col-span-4 xl:col-span-3">
-                <Card className="glass-panel border-white/10 bg-black/40">
-                  <div className="p-4 flex items-center justify-between border-b border-white/10">
+                <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
+                  <div className="p-4 flex items-center justify-between border-b border-border/40">
                     <Button variant="ghost" size="icon" onClick={() => shiftCalendarMonth(-1)}><ChevronLeft className="h-4 w-4" /></Button>
-                    <span className="font-semibold">
+                    <span className="font-semibold text-sm">
                       {locale === "zh-CN" || locale === "ja" 
                         ? `${selectedDate.getFullYear()}${t("teacherDashboard.calendarYear")} ${selectedDate.getMonth() + 1}${t("teacherDashboard.calendarMonth")}` 
                         : selectedDate.toLocaleString(locale, { month: 'long', year: 'numeric' })}
@@ -557,7 +615,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                   <div className="p-4">
                     <div className="grid grid-cols-7 gap-1 text-center mb-2">
                       {calendarDaysList.map((d: string) => (
-                        <div key={d} className="text-xs font-medium text-muted-foreground py-1">{d}</div>
+                        <div key={d} className="text-xs font-semibold text-muted-foreground py-1">{d}</div>
                       ))}
                     </div>
                     <div className="grid grid-cols-7 gap-1">
@@ -572,17 +630,17 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                             key={idx}
                             onClick={() => setSelectedDate(new Date(date.getFullYear(), date.getMonth(), date.getDate()))}
                             className={`
-                              relative h-8 rounded-full flex items-center justify-center text-sm transition-all
-                              ${isSelected ? 'bg-purple-600 text-white font-bold shadow-md' : 'hover:bg-white/10 text-foreground'}
-                              ${isToday && !isSelected ? 'text-purple-400 font-bold' : ''}
+                              relative h-8 w-8 rounded-full flex items-center justify-center text-sm transition-all mx-auto
+                              ${isSelected ? 'bg-primary text-primary-foreground font-bold shadow-sm' : 'hover:bg-muted text-foreground'}
+                              ${isToday && !isSelected ? 'text-primary font-bold' : ''}
                             `}
                           >
                             {date.getDate()}
                             {hasCourse && !isSelected && (
-                              <span className="absolute bottom-1 w-1 h-1 rounded-full bg-purple-500"></span>
+                              <span className="absolute bottom-1 w-1 h-1 rounded-full bg-primary"></span>
                             )}
                             {hasCourse && isSelected && (
-                              <span className="absolute bottom-1 w-1 h-1 rounded-full bg-white"></span>
+                              <span className="absolute bottom-1 w-1 h-1 rounded-full bg-primary-foreground"></span>
                             )}
                           </button>
                         );
@@ -595,13 +653,13 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
               {/* Daily Schedule List */}
               <div className="lg:col-span-8 xl:col-span-9 space-y-6">
                 <div>
-                  <h3 className="text-xl font-semibold flex items-center gap-2">
+                  <h3 className="text-xl font-bold flex items-center gap-2 text-foreground">
                     {selectedDate.toLocaleString(locale, { month: 'long', day: 'numeric' })} {t("teacherDashboard.schedule")}
                   </h3>
                 </div>
                 
                 {selectedCourses.length === 0 ? (
-                  <Card className="glass-panel border-white/10 bg-white/5 border-dashed p-12 text-center flex flex-col items-center">
+                  <Card className="border border-border/60 bg-card/40 border-dashed p-12 text-center flex flex-col items-center rounded-2xl">
                     <CalendarIcon className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
                     <p className="text-muted-foreground font-medium">{t("teacherDashboard.noClassSchedule")}</p>
                     {(coursesMissingStartTime?.length ?? 0) > 0 && (
@@ -613,114 +671,149 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 ) : (
                   <div className="space-y-4">
                     {selectedCourses.map((course) => (
-                      <Card key={course.id} className="glass-panel border-white/10 bg-white/5 overflow-hidden hover:border-purple-500/30 transition-all">
-                        <div className="p-6">
-                          <div className="flex flex-col md:flex-row justify-between md:items-start gap-4">
-                            <div className="flex-1 space-y-3">
-                              <div className="flex items-center gap-3">
-                                <h3 className="text-xl font-bold text-foreground">{course.name}</h3>
-                                <CourseStatusBadge status={course.status} />
-                                <Badge variant="secondary" className="bg-white/10 text-white/80">{t(ROOM_TYPE_KEYS[course.roomType]) || t("common.unknown")}</Badge>
-                                {course.roomType === 10 && course.passcode && (
-                                  <Badge 
-                                    variant="outline" 
-                                    className="border-purple-500/30 text-purple-300 bg-purple-500/10 cursor-pointer flex items-center gap-1 hover:bg-purple-500/20 transition-colors"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      void copyShareUrl(course.passcode!);
-                                    }}
-                                    title={t("courseDetail.btnCopy")}
-                                  >
-                                    🔑 {t("courseDetail.passcodeLabel")}: {course.passcode}
-                                  </Badge>
-                                )}
-                              </div>
-                              
-                              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                <div className="flex items-center gap-1.5 bg-black/40 px-3 py-1 rounded-md border border-white/5">
-                                  <Clock className="h-4 w-4 text-purple-400" />
-                                  <span className="font-medium text-foreground">
-                                    {course.startTime ? new Date(course.startTime).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }) : t("common.timeUndetermined")}
-                                    {" - "}
-                                    {course.endTime ? new Date(course.endTime).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }) : t("common.timeUndetermined")}
-                                  </span>
-                                </div>
-                              </div>
+                      <Card key={course.id} className="border border-border/60 bg-card overflow-hidden rounded-2xl hover:border-primary/30 hover:shadow-md transition-all duration-300 flex flex-col md:flex-row">
+                        {/* Left date block */}
+                        <div className="md:w-64 bg-muted/40 p-6 flex flex-col justify-center items-center text-center border-b md:border-b-0 md:border-r border-border/50">
+                          <CalendarIcon className="h-7 w-7 text-primary/80 mb-2" />
+                          <div className="font-semibold text-sm text-foreground/90 leading-tight">
+                            <TimeDisplay isoString={course.startTime} />
+                          </div>
+                          <Badge variant="outline" className="mt-3 border-primary/20 bg-primary/5 text-primary text-[10px]">
+                            {t(ROOM_TYPE_KEYS[course.roomType]) || t("common.unknown")}
+                          </Badge>
+                        </div>
 
-                              <div className="mt-4 p-4 bg-black/20 rounded-lg border border-white/5 space-y-2">
-                                <div className="flex items-center gap-2 text-sm font-medium text-purple-300">
-                                  <LinkIcon className="h-4 w-4" /> {t("teacherDashboard.quickInvite")}
+                        {/* Right contents block */}
+                        <div className="flex-1 p-6 flex flex-col justify-between">
+                          <div>
+                            <div className="flex justify-between items-start mb-2">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h3 className="text-lg font-bold text-foreground hover:text-primary transition-colors cursor-pointer" onClick={() => router.push(`/courses/${course.id}`)}>
+                                    {course.name}
+                                  </h3>
+                                  <CourseStatusBadge status={course.status} />
+                                  {course.roomType === 10 && course.passcode && (
+                                    <Badge 
+                                      variant="outline" 
+                                      className="border-primary/20 bg-primary/5 text-primary cursor-pointer flex items-center gap-1 hover:bg-primary/10 transition-colors font-mono"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void copyShareUrl(course.passcode!);
+                                      }}
+                                      title={t("courseDetail.btnCopy")}
+                                    >
+                                      <Key className="h-3 w-3" />
+                                      <span>{t("courseDetail.passcodeLabel")}: {course.passcode}</span>
+                                    </Badge>
+                                  )}
                                 </div>
-                                {course.activeJoinLinks && course.activeJoinLinks.length > 0 ? (
-                                  <div className="flex flex-wrap gap-2">
-                                    {course.activeJoinLinks.map((link) => (
-                                      <Button
-                                        key={link.id}
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-7 text-xs border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300"
-                                        onClick={() => void copyShareUrl(link.joinUrl)}
-                                      >
-                                        {link.label.trim() ? link.label.slice(0, 18) : t("common.unknown")}
-                                        {link.useCount ? ` · ${link.useCount}` : ""}
-                                      </Button>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="text-xs text-muted-foreground">{t("teacherDashboard.inviteLinkEmpty")}</p>
-                                )}
+                                <div className="flex items-center gap-1.5 text-muted-foreground text-xs font-medium">
+                                  <User className="h-3.5 w-3.5" />
+                                  <span>{course.description || t("courseDetail.noDescription")}</span>
+                                </div>
                               </div>
+                            </div>
 
-                              {course.studentRemarks && (
-                                <div className="text-sm bg-blue-500/10 border border-blue-500/20 p-3 rounded-md text-blue-200 mt-2">
-                                  <strong className="text-blue-300 mr-1">{t("studentDashboard.myRemarks")}</strong> {course.studentRemarks}
+                            {/* Quick Invite Links */}
+                            <div className="mt-3 bg-muted/20 border border-border/40 rounded-xl p-3 text-xs space-y-2">
+                              <div className="flex items-center gap-1.5 font-medium text-primary">
+                                <LinkIcon className="h-3.5 w-3.5" />
+                                <span>{t("teacherDashboard.quickInvite")}</span>
+                              </div>
+                              {course.activeJoinLinks && course.activeJoinLinks.length > 0 ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {course.activeJoinLinks.map((link) => (
+                                    <Button
+                                      key={link.id}
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 text-xs border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 rounded-lg"
+                                      onClick={() => void copyShareUrl(link.joinUrl)}
+                                    >
+                                      <span>{link.label.trim() ? link.label.slice(0, 18) : t("common.unknown")}</span>
+                                      {link.useCount ? <span className="ml-1 opacity-70">· {link.useCount}</span> : ""}
+                                    </Button>
+                                  ))}
                                 </div>
+                              ) : (
+                                <p className="text-xs text-muted-foreground italic">{t("teacherDashboard.inviteLinkEmpty")}</p>
                               )}
                             </div>
 
-                            <div className="flex flex-col gap-2 min-w-[140px]">
-                              <Button
-                                variant="outline"
-                                className="w-full justify-start border-white/10 hover:bg-white/10"
-                                onClick={() => router.push(`/courses/${course.id}`)}
-                              >
-                                <Edit className="mr-2 h-4 w-4" /> {t("teacherDashboard.btnDetails")}
-                              </Button>
-                              <Button
-                                className={`w-full justify-start ${
+                            {course.studentRemarks && (
+                              <div className="text-xs bg-blue-500/5 border border-blue-500/20 p-3 rounded-xl text-blue-800 dark:text-blue-200 mt-2">
+                                <strong className="text-blue-600 dark:text-blue-300 mr-1">{t("studentDashboard.myRemarks")}</strong> {course.studentRemarks}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Footer Actions */}
+                          <div className="mt-5 pt-4 border-t border-border/40 flex flex-wrap justify-between items-center gap-3">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-muted-foreground hover:text-foreground text-xs flex items-center gap-1.5 rounded-lg"
+                              onClick={() => router.push(`/courses/${course.id}`)}
+                            >
+                              <Info className="h-4 w-4" />
+                              <span>{t("teacherDashboard.btnDetails")}</span>
+                            </Button>
+
+                            <div className="flex items-center gap-2">
+                              {canEnterClassroom(course.status) && (
+                                <div className="flex items-center gap-1 mr-2">
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="h-8 text-xs text-emerald-600 border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 rounded-lg" 
+                                    onClick={() => handleStatusChange(course.id, CourseStatus.FINISHED)}
+                                  >
+                                    {t("teacherDashboard.btnFinish")}
+                                  </Button>
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="h-8 text-xs text-red-500 border-red-500/20 bg-red-500/5 hover:bg-red-500/10 rounded-lg" 
+                                    onClick={() => handleStatusChange(course.id, CourseStatus.CANCELLED)}
+                                  >
+                                    {t("common.cancel")}
+                                  </Button>
+                                </div>
+                              )}
+
+                              <Button 
+                                disabled={enteringCourseId === course.id || (course.status === "finished" ? !course.recordUrl : !canEnterClassroom(course.status))}
+                                className={`rounded-xl px-5 py-2.5 font-medium shadow-sm text-sm active:scale-[0.98] transition-all flex items-center gap-1.5 ${
                                   course.status === "finished"
-                                    ? "bg-purple-900/50 text-purple-200 hover:bg-purple-900/60 border border-purple-500/30"
-                                    : "bg-purple-600 hover:bg-purple-700 text-white shadow-glow-purple"
+                                    ? "bg-muted text-foreground border border-border/80 hover:bg-muted/80"
+                                    : "bg-primary hover:bg-primary/95 text-white"
                                 }`}
-                                disabled={(course.status === "finished" ? !course.recordUrl : !canEnterClassroom(course.status)) || !!enteringCourseId}
                                 onClick={() => {
                                   if (course.status === "finished") {
-                                    if (course.recordUrl) {
-                                      window.open(course.recordUrl, "_blank");
-                                    }
+                                    if (course.recordUrl) window.open(course.recordUrl, "_blank");
                                   } else {
                                     void handleEnterClassroomFromList(course);
                                   }
                                 }}
                               >
                                 {enteringCourseId === course.id ? (
-                                  <>{t("teacherDashboard.btnEntering")}</>
+                                  <>
+                                    <Loader2 className="h-4 w-4 animate-spin text-current" />
+                                    <span>{t("teacherDashboard.btnEntering")}</span>
+                                  </>
                                 ) : course.status === "finished" ? (
                                   <>
-                                    <PlayCircle className="mr-2 h-4 w-4" />
-                                    {course.recordUrl ? t("studentDashboard.viewPlayback") : t("studentDashboard.livePlayback")}
+                                    <PlayCircle className="h-4.5 w-4.5 text-current" />
+                                    <span>{course.recordUrl ? t("studentDashboard.viewPlayback") : t("studentDashboard.livePlayback")}</span>
                                   </>
                                 ) : (
-                                  <><PlayCircle className="mr-2 h-4 w-4" /> {t("teacherDashboard.btnEnterClass")}</>
+                                  <>
+                                    <PlayCircle className="h-4.5 w-4.5 text-current" />
+                                    <span>{t("teacherDashboard.btnEnterClass")}</span>
+                                  </>
                                 )}
                               </Button>
-                              
-                              {canEnterClassroom(course.status) && (
-                                <div className="grid grid-cols-2 gap-2 mt-2">
-                                  <Button variant="outline" size="sm" className="text-xs border-white/10" onClick={() => handleStatusChange(course.id, CourseStatus.FINISHED)}>{t("teacherDashboard.btnFinish")}</Button>
-                                  <Button variant="outline" size="sm" className="text-xs text-red-400 border-red-500/30 hover:bg-red-500/10" onClick={() => handleStatusChange(course.id, CourseStatus.CANCELLED)}>{t("common.cancel")}</Button>
-                                </div>
-                              )}
                             </div>
                           </div>
                         </div>
@@ -730,16 +823,16 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 )}
 
                 {coursesMissingStartTime.length > 0 && (
-                  <Card className="glass-panel border-orange-500/30 bg-orange-500/5 mt-8">
+                  <Card className="border border-orange-500/20 bg-orange-500/5 mt-8 rounded-2xl">
                     <CardHeader className="pb-2">
-                      <CardTitle className="text-orange-400 text-lg flex items-center gap-2"><Info className="h-5 w-5" /> {t("teacherDashboard.missingTimeListTitle")}</CardTitle>
+                      <CardTitle className="text-orange-600 dark:text-orange-400 text-lg flex items-center gap-2"><Info className="h-5 w-5" /> {t("teacherDashboard.missingTimeListTitle")}</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <ul className="space-y-2">
                         {coursesMissingStartTime.map((c) => (
-                          <li key={c.id} className="flex justify-between items-center text-sm p-2 rounded hover:bg-white/5 transition-colors">
+                          <li key={c.id} className="flex justify-between items-center text-sm p-2 rounded hover:bg-muted transition-colors">
                             <span className="font-medium">{c.name}</span>
-                            <Button variant="link" size="sm" className="text-orange-300" onClick={() => router.push(`/courses/${c.id}`)}>{t("teacherDashboard.missingTimeBtn")}</Button>
+                            <Button variant="link" size="sm" className="text-orange-600 dark:text-orange-400" onClick={() => router.push(`/courses/${c.id}`)}>{t("teacherDashboard.missingTimeBtn")}</Button>
                           </li>
                         ))}
                       </ul>
@@ -755,39 +848,43 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         {activePage === "students" && (
           <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div>
-              <h2 className="text-3xl font-bold">{t("teacherDashboard.studentManage")}</h2>
-              <p className="text-muted-foreground mt-1">{t("teacherDashboard.searchDesc")}</p>
+              <h2 className="text-3xl font-extrabold tracking-tight">{t("teacherDashboard.studentManage")}</h2>
+              <p className="text-muted-foreground mt-1 text-sm font-medium">{t("teacherDashboard.searchDesc")}</p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Left: Search & Add */}
-              <Card className="glass-panel border-white/10 bg-white/5">
+              <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2"><Search className="h-5 w-5 text-purple-400" /> {t("teacherDashboard.searchUser")}</CardTitle>
-                  <CardDescription>{t("teacherDashboard.searchDesc")}</CardDescription>
+                  <CardTitle className="text-lg font-bold flex items-center gap-2"><Search className="h-5 w-5 text-primary" /> {t("teacherDashboard.searchUser")}</CardTitle>
+                  <CardDescription className="text-xs">{t("teacherDashboard.searchDesc")}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="flex gap-2">
-                      <Input
-                        placeholder={t("teacherDashboard.searchPlaceholder")}
-                        value={searchQuery}
-                        className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                      />
-                    <Button className="bg-purple-600 hover:bg-purple-700 text-white shrink-0" onClick={handleSearch} disabled={searching || !searchQuery.trim()}>
+                    <Input
+                      placeholder={t("teacherDashboard.searchPlaceholder")}
+                      value={searchQuery}
+                      className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                    />
+                    <Button 
+                      className="bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all shrink-0" 
+                      onClick={handleSearch} 
+                      disabled={searching || !searchQuery.trim()}
+                    >
                       {searching ? t("teacherDashboard.searching") : t("teacherDashboard.btnSearch")}
                     </Button>
                   </div>
 
                   {searchResults.length > 0 && (
-                    <div className="space-y-3">
-                      <label className="text-sm font-medium text-muted-foreground">{t("teacherDashboard.addToGroupLabel")}</label>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("teacherDashboard.addToGroupLabel")}</label>
                       <Select value={memberTargetGroupId} onValueChange={setMemberTargetGroupId}>
-                        <SelectTrigger className="w-full bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50">
+                        <SelectTrigger className="w-full bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl">
                           <SelectValue placeholder={t("teacherDashboard.selectTargetGroup")} />
                         </SelectTrigger>
-                        <SelectContent className="bg-background/95 backdrop-blur-md border-white/10">
+                        <SelectContent className="bg-popover border-border/85">
                           {flattenGroups(myGroups).map((opt) => (
                             <SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>
                           ))}
@@ -796,20 +893,24 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                     </div>
                   )}
 
-                  {searchError && <p className="text-sm text-red-400 bg-red-500/10 p-3 rounded-md border border-red-500/20">{searchError}</p>}
+                  {searchError && (
+                    <p className="text-xs text-red-500 bg-red-500/5 p-3 rounded-xl border border-red-500/20">
+                      {searchError}
+                    </p>
+                  )}
 
                   {searchResults.length > 0 && (
                     <div className="space-y-2 mt-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                       {searchResults.map((u) => (
-                        <div key={u.id} className="flex justify-between items-center p-3 rounded-lg bg-black/40 border border-white/5 hover:border-purple-500/30 transition-colors">
+                        <div key={u.id} className="flex justify-between items-center p-3 rounded-xl bg-muted/30 border border-border/40 hover:border-primary/20 transition-all">
                           <div className="flex flex-col">
-                            <span className="font-semibold">{u.displayName || u.name}</span>
+                            <span className="font-semibold text-sm">{u.displayName || u.name}</span>
                             <span className="text-xs text-muted-foreground">{u.email}</span>
                           </div>
                           <Button
                             variant="secondary"
                             size="sm"
-                            className="bg-purple-500/20 text-purple-300 hover:bg-purple-500/40"
+                            className="bg-primary/5 text-primary hover:bg-primary/10 rounded-lg text-xs"
                             disabled={groupBusy || !memberTargetGroupId}
                             onClick={() => handleAddUserToGroup(u)}
                           >
@@ -823,56 +924,61 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
               </Card>
 
               {/* Right: Groups */}
-              <Card className="glass-panel border-white/10 bg-white/5">
+              <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5 text-purple-400" /> {t("teacherDashboard.studentGroupManage")}</CardTitle>
-                  <CardDescription>{t("teacherDashboard.groupManageDesc")}</CardDescription>
+                  <CardTitle className="text-lg font-bold flex items-center gap-2"><Users className="h-5 w-5 text-primary" /> {t("teacherDashboard.studentGroupManage")}</CardTitle>
+                  <CardDescription className="text-xs">{t("teacherDashboard.groupManageDesc")}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="flex gap-2">
                     <Input
                       placeholder={t("teacherDashboard.newGroupPlaceholder")}
                       value={newGroupName}
-                      className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
+                      className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
                       onChange={(e) => setNewGroupName(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleCreateGroup()}
                     />
-                    <Button variant="secondary" className="shrink-0" disabled={groupBusy || !newGroupName.trim()} onClick={handleCreateGroup}>
+                    <Button 
+                      variant="secondary" 
+                      className="shrink-0 rounded-xl text-sm active:scale-[0.98] transition-all" 
+                      disabled={groupBusy || !newGroupName.trim()} 
+                      onClick={handleCreateGroup}
+                    >
                       {t("teacherDashboard.btnCreate")}
                     </Button>
                   </div>
 
                   {myGroups.length === 0 ? (
-                    <div className="p-8 text-center border border-dashed border-white/10 rounded-lg text-muted-foreground">
+                    <div className="p-8 text-center border border-dashed border-border/60 rounded-xl text-muted-foreground text-sm bg-muted/20">
                       {t("teacherDashboard.groupEmpty")}
                     </div>
                   ) : (
                     <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
                       {myGroups.map((g) => (
-                        <div key={g.id} className="rounded-lg bg-black/40 border border-white/10 overflow-hidden">
-                          <div className="flex justify-between items-center p-3 bg-white/5 border-b border-white/5">
+                        <div key={g.id} className="rounded-xl border border-border/60 overflow-hidden bg-muted/10">
+                          <div className="flex justify-between items-center p-3 bg-muted/40 border-b border-border/50">
                             <div className="flex items-center gap-2">
-                              <strong className="text-sm font-medium">{g.name}</strong>
-                              <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-white/10">{countMembers(g)} {t("teacherDashboard.memberCount")}</Badge>
+                              <strong className="text-sm font-semibold">{g.name}</strong>
+                              <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-primary/10 text-primary border-primary/10">{countMembers(g)} {t("teacherDashboard.memberCount")}</Badge>
                             </div>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:text-red-300 hover:bg-red-500/20" disabled={groupBusy} onClick={() => handleDeleteGroup(g.id)}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-500/10" disabled={groupBusy} onClick={() => handleDeleteGroup(g.id)}>
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
-                          <div className="p-2">
+                          <div className="p-2 bg-card">
                             {(g.members?.length ?? 0) > 0 ? (
                               <div className="space-y-1">
                                 {g.members.map((m) => (
-                                  <div key={m.userId} className="flex justify-between items-center p-2 rounded-md hover:bg-white/5 group">
-                                    <span className="text-sm text-foreground/80">{m.userName || m.userId}</span>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 hover:bg-red-500/20 transition-all" onClick={() => handleRemoveMember(g.id, m.userId)}>
+                                  <div key={m.userId} className="flex justify-between items-center p-2 rounded-lg hover:bg-muted transition-colors group">
+                                    <span className="text-sm text-foreground/80 font-medium">{m.userName || m.userId}</span>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-all" onClick={() => handleRemoveMember(g.id, m.userId)}>
                                       <Trash2 className="h-3 w-3" />
                                     </Button>
                                   </div>
                                 ))}
                               </div>
                             ) : (
-                              <p className="text-xs text-muted-foreground text-center py-4">{t("teacherDashboard.groupMemberEmpty")}</p>
+                              <p className="text-xs text-muted-foreground text-center py-4 italic">{t("teacherDashboard.groupMemberEmpty")}</p>
                             )}
                           </div>
                         </div>
@@ -892,21 +998,21 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
         {/* ──── Create Course Dialog ──── */}
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogContent className="sm:max-w-[560px] bg-background/95 backdrop-blur-xl border-white/10">
+          <DialogContent className="sm:max-w-[560px] bg-card border border-border/80 rounded-2xl shadow-xl animate-in zoom-in-95 duration-200">
             <DialogHeader>
-              <DialogTitle className="text-xl">{t("teacherDashboard.createTitle")}</DialogTitle>
-              <DialogDescription>{t("teacherDashboard.createDesc")}</DialogDescription>
+              <DialogTitle className="text-xl font-bold">{t("teacherDashboard.createTitle")}</DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground">{t("teacherDashboard.createDesc")}</DialogDescription>
             </DialogHeader>
 
             {createError && (
-              <div className="text-sm text-red-400 bg-red-500/10 p-3 rounded-md border border-red-500/20">{createError}</div>
+              <div className="text-xs text-red-500 bg-red-500/5 p-3 rounded-xl border border-red-500/20">{createError}</div>
             )}
 
             <div className="space-y-4 py-2">
               <div className="space-y-2">
-                <label className="text-sm font-medium">{t("teacherDashboard.fieldName")} <span className="text-red-400">*</span></label>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("teacherDashboard.fieldName")} <span className="text-red-400">*</span></label>
                 <Input
-                  className="bg-black/40 border-white/20 hover:border-white/40 focus-visible:ring-purple-500/50"
+                  className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 rounded-xl"
                   placeholder={t("teacherDashboard.placeholderFieldName")}
                   value={createName}
                   onChange={(e) => { setCreateName(e.target.value); setCreateError(""); }}
@@ -916,9 +1022,9 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">{t("teacherDashboard.fieldDesc")} <span className="text-muted-foreground text-xs">({t("common.cancel")})</span></label>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("teacherDashboard.fieldDesc")} <span className="text-muted-foreground text-xs">({t("common.cancel")})</span></label>
                 <Textarea
-                  className="bg-black/40 border-white/20 hover:border-white/40 focus-visible:ring-purple-500/50 resize-none"
+                  className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 resize-none rounded-xl"
                   placeholder={t("teacherDashboard.placeholderFieldDesc")}
                   value={createDesc}
                   onChange={(e) => setCreateDesc(e.target.value)}
@@ -929,11 +1035,11 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
               <div className="space-y-4 flex flex-col sm:flex-row gap-4 sm:space-y-0">
                 <div className="space-y-2 flex-1">
-                  <label className="text-sm font-medium flex items-center gap-2 text-purple-200">
-                    <Clock className="h-4 w-4 text-purple-400" /> {t("teacherDashboard.fieldStartTime")} <span className="text-red-400">*</span>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-primary" /> {t("teacherDashboard.fieldStartTime")} <span className="text-red-400">*</span>
                   </label>
                   <Input
-                    className="bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20 hover:border-purple-500/50 focus-visible:ring-purple-500/60 cursor-pointer [color-scheme:dark] h-12 px-4 text-base font-medium transition-all text-purple-50 shadow-inner"
+                    className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 cursor-pointer rounded-xl h-11 px-4 text-sm font-medium transition-all shadow-inner"
                     type="datetime-local"
                     min={minDateTime}
                     value={createStartTime}
@@ -944,11 +1050,11 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                   />
                 </div>
                 <div className="space-y-2 flex-1">
-                  <label className="text-sm font-medium flex items-center gap-2 text-purple-200">
-                    <Clock className="h-4 w-4 text-purple-400" /> {t("teacherDashboard.fieldEndTime")} <span className="text-red-400">*</span>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-primary" /> {t("teacherDashboard.fieldEndTime")} <span className="text-red-400">*</span>
                   </label>
                   <Input
-                    className="bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20 hover:border-purple-500/50 focus-visible:ring-purple-500/60 cursor-pointer [color-scheme:dark] h-12 px-4 text-base font-medium transition-all text-purple-50 shadow-inner"
+                    className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 cursor-pointer rounded-xl h-11 px-4 text-sm font-medium transition-all shadow-inner"
                     type="datetime-local"
                     min={createStartTime || minDateTime}
                     value={createEndTime}
@@ -961,16 +1067,16 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
               </div>
 
               {/* Timezone Conversion Helper */}
-              <div className="bg-purple-500/5 border border-purple-500/10 p-3.5 rounded-lg space-y-2.5">
+              <div className="bg-primary/5 border border-primary/10 p-3.5 rounded-xl space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
-                    <Globe className="h-3.5 w-3.5 text-purple-400" />
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-primary">
+                    <Globe className="h-3.5 w-3.5" />
                     <span>{locale === "zh-CN" ? "多国时间对照 (排课辅助)" : "Timezone Comparison (Scheduling Help)"}</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => setShowTzConfig(!showTzConfig)}
-                    className="text-[11px] text-purple-400 hover:text-purple-300 underline font-medium transition-all"
+                    className="text-[11px] text-primary hover:underline font-medium transition-all"
                   >
                     {showTzConfig 
                       ? (locale === "zh-CN" ? "收起设定" : "Hide Settings") 
@@ -979,7 +1085,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 </div>
 
                 {showTzConfig && (
-                  <div className="flex flex-wrap gap-1.5 p-2 bg-black/25 rounded-md border border-white/5 animate-in fade-in duration-200">
+                  <div className="flex flex-wrap gap-1.5 p-2 bg-background rounded-lg border border-border/60 animate-in fade-in duration-200">
                     {SUPPORTED_TIMEZONES.map((tz) => {
                       const isSelected = selectedTzIds.includes(tz.id);
                       return (
@@ -989,8 +1095,8 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                           onClick={() => handleTzToggle(tz.id)}
                           className={`flex items-center gap-1 px-2.5 py-1 text-[10px] rounded-full border transition-all ${
                             isSelected
-                              ? "bg-purple-500/20 border-purple-500/50 text-purple-200 font-medium"
-                              : "bg-black/10 border-white/5 text-muted-foreground hover:border-white/10"
+                              ? "bg-primary/10 border-primary/35 text-primary font-medium"
+                              : "bg-muted border-border/60 text-muted-foreground hover:border-border"
                           }`}
                         >
                           <span>{tz.flag}</span>
@@ -1002,23 +1108,23 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 )}
 
                 {selectedTzIds.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground text-center py-2">
+                  <p className="text-[11px] text-muted-foreground text-center py-2 italic">
                     {locale === "zh-CN" ? "请设定需要对比的国家以进行对照" : "Please select countries to compare times."}
                   </p>
                 ) : !createStartTime ? (
-                  <p className="text-[11px] text-muted-foreground text-center py-2">
+                  <p className="text-[11px] text-muted-foreground text-center py-2 italic">
                     {locale === "zh-CN" ? "请选择上课时间以自动对照其他国家时间" : "Please select start time to display multi-country times."}
                   </p>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {convertedTimes.map((item) => (
-                      <div key={item.id} className="bg-black/35 border border-white/5 rounded-md p-2 flex flex-col justify-center hover:border-purple-500/20 transition-all">
+                      <div key={item.id} className="bg-background border border-border/60 rounded-lg p-2 flex flex-col justify-center hover:border-primary/20 transition-all">
                         <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                          <span className="flex items-center gap-1 font-medium text-purple-300">
+                          <span className="flex items-center gap-1 font-medium text-primary">
                             <span>{item.flag}</span>
                             <span>{locale === "zh-CN" ? item.nameCN : item.nameEN}</span>
                           </span>
-                          <span className="text-[9px] bg-purple-500/10 px-1 rounded text-purple-300/90 font-mono">{item.offset}</span>
+                          <span className="text-[9px] bg-primary/5 px-1 rounded text-primary font-mono">{item.offset}</span>
                         </div>
                         <div className="text-[11px] font-semibold text-foreground mt-1 truncate">
                           {item.convertedTime}
@@ -1030,32 +1136,35 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">{t("teacherDashboard.fieldType")}</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("teacherDashboard.fieldType")}</label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {roomTypes.map((rt) => (
-                    <button
-                      key={rt.value}
-                      type="button"
-                      onClick={() => setCreateRoomType(rt.value)}
-                      className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 transition-all text-center ${
-                        createRoomType === rt.value
-                          ? "border-purple-500 bg-purple-500/10 shadow-glow-purple"
-                          : "border-white/10 bg-black/20 hover:border-white/20"
-                      }`}
-                    >
-                      <span className="text-2xl">{rt.icon}</span>
-                      <span className="text-sm font-semibold whitespace-nowrap">{rt.label}</span>
-                      <span className="text-[10px] text-muted-foreground line-clamp-1">{rt.desc}</span>
-                    </button>
-                  ))}
+                  {roomTypes.map((rt) => {
+                    const IconComponent = rt.icon;
+                    return (
+                      <button
+                        key={rt.value}
+                        type="button"
+                        onClick={() => setCreateRoomType(rt.value)}
+                        className={`flex flex-col items-center gap-2.5 p-4 rounded-xl border-2 transition-all text-center ${
+                          createRoomType === rt.value
+                            ? "border-primary bg-primary/5 shadow-sm"
+                            : "border-border bg-card hover:border-border/80"
+                        }`}
+                      >
+                        <IconComponent className={`h-6 w-6 ${createRoomType === rt.value ? 'text-primary' : 'text-muted-foreground'}`} />
+                        <span className="text-sm font-semibold whitespace-nowrap">{rt.label}</span>
+                        <span className="text-[10px] text-muted-foreground line-clamp-1">{rt.desc}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               {createRoomType === 10 && (
                 <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                  <label className="text-sm font-medium">{t("teacherDashboard.fieldPasscode")} <span className="text-red-400">*</span></label>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("teacherDashboard.fieldPasscode")} <span className="text-red-400">*</span></label>
                   <Input
-                    className="bg-black/40 border-purple-500/30 hover:border-purple-500/50 focus-visible:ring-purple-500/50 font-mono text-center text-lg tracking-widest"
+                    className="bg-background border-primary/20 hover:border-primary/40 focus-visible:ring-primary/40 font-mono text-center text-lg tracking-widest rounded-xl"
                     placeholder={t("teacherDashboard.fieldPasscodePlaceholder")}
                     value={createPasscode}
                     onChange={(e) => {
@@ -1069,14 +1178,14 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
               )}
             </div>
 
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setCreateOpen(false)}>{t("common.cancel")}</Button>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="ghost" className="rounded-xl text-xs" onClick={() => setCreateOpen(false)}>{t("common.cancel")}</Button>
               <Button
-                className="bg-purple-600 hover:bg-purple-700 text-white"
+                className="bg-primary hover:bg-primary/95 text-white rounded-xl text-xs font-semibold shadow-sm active:scale-[0.98]"
                 onClick={handleCreateCourse}
                 disabled={createLoading || !createName.trim()}
               >
-                {createLoading ? t("common.saving") : `🚀 ${t("teacherDashboard.btnCreateCourse")}`}
+                {createLoading ? t("common.saving") : t("teacherDashboard.btnCreateCourse")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1087,70 +1196,73 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 }
 
 function SettingsPanel({ user, onLogout }: { user: any; onLogout: () => void }) {
-  const { t, locale, setLocale } = useTranslation();
+  const { t } = useTranslation();
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="mb-8">
-        <h2 className="text-3xl font-bold">{t("settingsPanel.title")}</h2>
-        <p className="text-muted-foreground mt-2">{t("settingsPanel.desc")}</p>
+    <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500">
+      <div className="mb-6">
+        <h2 className="text-3xl font-extrabold tracking-tight">{t("settingsPanel.title")}</h2>
+        <p className="text-muted-foreground mt-1 text-sm font-medium">{t("settingsPanel.desc")}</p>
       </div>
 
-      <Card className="glass-panel border-white/10 bg-white/5">
+      <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
         <CardHeader>
-          <CardTitle>{t("settingsPanel.basicInfo")}</CardTitle>
-          <CardDescription>{t("settingsPanel.basicInfoDesc")}</CardDescription>
+          <CardTitle className="text-lg font-bold">{t("settingsPanel.basicInfo")}</CardTitle>
+          <CardDescription className="text-xs">{t("settingsPanel.basicInfoDesc")}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <CardContent className="space-y-6 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">{t("settingsPanel.fieldUsername")}</label>
-              <div className="font-medium">{user.name || "—"}</div>
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{t("settingsPanel.fieldUsername")}</label>
+              <div className="font-semibold text-foreground text-sm">{user.name || "—"}</div>
             </div>
             <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">{t("settingsPanel.fieldDisplayName")}</label>
-              <div className="font-medium">{user.displayName || "—"}</div>
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{t("settingsPanel.fieldDisplayName")}</label>
+              <div className="font-semibold text-foreground text-sm">{user.displayName || "—"}</div>
             </div>
             <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">{t("settingsPanel.fieldEmail")}</label>
-              <div className="font-medium">{user.email || "—"}</div>
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{t("settingsPanel.fieldEmail")}</label>
+              <div className="font-semibold text-foreground text-sm">{user.email || "—"}</div>
             </div>
             <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">{t("settingsPanel.fieldRole")}</label>
-              <div><Badge variant="outline" className="bg-purple-500/10 text-purple-400 border-purple-500/20">👨‍🏫 {t("common.roleTeacher")}</Badge></div>
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{t("settingsPanel.fieldRole")}</label>
+              <div>
+                <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px] font-semibold flex items-center gap-1 w-fit">
+                  <User className="h-3 w-3" />
+                  <span>{t("common.roleTeacher")}</span>
+                </Badge>
+              </div>
             </div>
             <div className="space-y-1 md:col-span-2">
-              <label className="text-sm text-muted-foreground">{t("settingsPanel.fieldUserId")}</label>
-              <div className="font-mono text-sm bg-black/40 p-2 rounded-md border border-white/5 break-all">{user.userId}</div>
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{t("settingsPanel.fieldUserId")}</label>
+              <div className="font-mono text-xs bg-muted/40 p-2.5 rounded-xl border border-border/40 break-all select-all">{user.userId}</div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-
-
-      <Card className="glass-panel border-white/10 bg-white/5">
+      <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
         <CardHeader>
-          <CardTitle>{t("settingsPanel.avatar")}</CardTitle>
+          <CardTitle className="text-lg font-bold">{t("settingsPanel.avatar")}</CardTitle>
         </CardHeader>
-        <CardContent className="flex items-center gap-6">
-          <Avatar className="h-20 w-20 border border-purple-500/20 shadow-glow-purple">
+        <CardContent className="flex items-center gap-6 pt-2">
+          <Avatar className="h-16 w-16 border border-border/80 shadow-inner">
             <AvatarImage src={user.avatar} />
-            <AvatarFallback className="text-2xl bg-purple-500/20 text-purple-400">{user.displayName?.[0] || user.name?.[0] || "T"}</AvatarFallback>
+            <AvatarFallback className="text-xl bg-primary/10 text-primary font-bold">{user.displayName?.[0] || user.name?.[0] || "T"}</AvatarFallback>
           </Avatar>
-          <div className="text-sm text-muted-foreground">
+          <div className="text-xs text-muted-foreground leading-relaxed">
             {t("settingsPanel.avatarDesc")}
           </div>
         </CardContent>
       </Card>
 
-      <Card className="border-destructive/20 bg-destructive/5 backdrop-blur-xl">
+      <Card className="border border-destructive/20 bg-destructive/5 rounded-2xl shadow-sm">
         <CardHeader>
-          <CardTitle className="text-destructive">{t("settingsPanel.security")}</CardTitle>
-          <CardDescription>{t("settingsPanel.securityDesc")}</CardDescription>
+          <CardTitle className="text-lg font-bold text-destructive">{t("settingsPanel.security")}</CardTitle>
+          <CardDescription className="text-xs text-destructive/80">{t("settingsPanel.securityDesc")}</CardDescription>
         </CardHeader>
-        <CardContent>
-          <Button variant="destructive" onClick={onLogout}>
+        <CardContent className="pt-2">
+          <Button variant="destructive" onClick={onLogout} className="rounded-xl text-xs active:scale-95 transition-all">
             <LogOut className="mr-2 h-4 w-4" /> {t("settingsPanel.btnLogout")}
           </Button>
         </CardContent>

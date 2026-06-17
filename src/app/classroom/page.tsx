@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Script from "next/script";
+import { Loader2, ShieldCheck, Globe, BookOpen, Video, AlertCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
@@ -90,6 +91,128 @@ function buildLaunchKey(
   userId: string,
 ): string {
   return `${courseId}|${roomUuid}|${userId}`;
+}
+
+function ClassroomWelcomeLoader({
+  status,
+  roomName,
+  t,
+}: {
+  status: "verifying" | "loading";
+  roomName: string;
+  t: (key: string) => string;
+}) {
+  const [progress, setProgress] = useState(10);
+  const [stageIndex, setStageIndex] = useState(0);
+
+  const stages = [
+    { text: t("classroom.verifyingAccess") || "Authenticating session...", icon: ShieldCheck },
+    { text: "Detecting local timezone...", icon: Globe },
+    { text: "Preparing digital whiteboard...", icon: BookOpen },
+    { text: "Establishing secure audio/video channel...", icon: Video },
+    { text: t("classroom.initializing") || "Preparing digital classroom...", icon: Loader2 },
+  ];
+
+  // Adjust stages text based on language if possible
+  const isZh = typeof window !== "undefined" && navigator.language.startsWith("zh");
+  const localStages = stages.map((stage, idx) => {
+    if (idx === 1) return { ...stage, text: isZh ? "正在检测您的本地时区..." : "Detecting local timezone..." };
+    if (idx === 2) return { ...stage, text: isZh ? "正在准备数字白板教具..." : "Preparing digital whiteboard..." };
+    if (idx === 3) return { ...stage, text: isZh ? "正在建立音视频安全通道..." : "Establishing secure audio/video channel..." };
+    return stage;
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev < 95) {
+          const increment = Math.floor(Math.random() * 8) + 2;
+          const next = prev + increment;
+          const newStage = Math.min(Math.floor(next / 20), localStages.length - 1);
+          setStageIndex(newStage);
+          return next;
+        }
+        return prev;
+      });
+    }, 400);
+
+    return () => clearInterval(interval);
+  }, [localStages.length]);
+
+  const CurrentIcon = localStages[stageIndex].icon;
+
+  return (
+    <div className="fixed inset-0 z-[9999] bg-background flex flex-col items-center justify-center p-6 overflow-hidden">
+      {/* Decorative backdrop gradients */}
+      <div className="absolute top-[-10%] left-[-10%] w-[300px] h-[300px] bg-primary/5 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[300px] h-[300px] bg-blue-500/5 rounded-full blur-[100px] pointer-events-none" />
+
+      <div className="max-w-md w-full text-center space-y-8 animate-in fade-in zoom-in duration-500 z-10">
+        {/* Animated Icon Ring */}
+        <div className="relative mx-auto w-24 h-24 flex items-center justify-center">
+          <div className="absolute inset-2 bg-primary/10 rounded-full animate-ping pointer-events-none" />
+          <svg className="absolute inset-0 w-24 h-24 -rotate-90">
+            <circle
+              cx="48"
+              cy="48"
+              r="40"
+              className="stroke-muted"
+              strokeWidth="4"
+              fill="transparent"
+            />
+            <circle
+              cx="48"
+              cy="48"
+              r="40"
+              className="stroke-primary transition-all duration-300 ease-out"
+              strokeWidth="4"
+              fill="transparent"
+              strokeDasharray={2 * Math.PI * 40}
+              strokeDashoffset={2 * Math.PI * 40 * (1 - progress / 100)}
+            />
+          </svg>
+          <div className="relative bg-card p-4 rounded-full border border-border/40 shadow-sm flex items-center justify-center">
+            <CurrentIcon className={`h-8 w-8 text-primary ${stageIndex === 4 ? "animate-spin" : "animate-pulse"}`} />
+          </div>
+        </div>
+
+        {/* Room Header */}
+        <div className="space-y-2">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {isZh ? "正在进入直播间" : "Entering Classroom"}
+          </div>
+          {roomName && (
+            <h2 className="text-xl font-bold text-foreground truncate max-w-sm mx-auto">
+              {roomName}
+            </h2>
+          )}
+        </div>
+
+        {/* Progress Display */}
+        <div className="space-y-3">
+          <div className="flex justify-between text-xs text-muted-foreground font-medium px-1">
+            <span className="transition-all duration-300">
+              {localStages[stageIndex].text}
+            </span>
+            <span className="font-mono">{progress}%</span>
+          </div>
+          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden border border-border/20">
+            <div
+              className="h-full bg-primary transition-all duration-300 ease-out rounded-full"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+
+        <p className="text-[11px] text-muted-foreground/60 leading-relaxed max-w-xs mx-auto">
+          {isZh 
+            ? "第一次加载可能需要较长时间，请保持网络畅通并耐心等待。" 
+            : "First-time setup might take a moment. Please keep your connection active."}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function ClassroomContent() {
@@ -534,16 +657,38 @@ function ClassroomContent() {
 
   if (status === "error") {
     return (
-      <div className="classroom-error">
-        <h2>⚠️ {t("classroom.launchError")}</h2>
-        <p>{errorMsg.includes(".") ? t(errorMsg) : errorMsg}</p>
-        <Link href="/">{t("common.backToHome")}</Link>
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+        <div className="max-w-md w-full space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="mx-auto w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center">
+            <AlertCircle className="h-8 w-8 text-destructive" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-bold text-foreground">{t("classroom.launchError")}</h2>
+            <p className="text-sm text-muted-foreground">
+              {errorMsg.includes(".") ? t(errorMsg) : errorMsg}
+            </p>
+          </div>
+          <Link
+            href="/"
+            className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-sm font-semibold rounded-xl text-primary-foreground bg-primary hover:bg-primary/90 transition-all duration-200 shadow-sm"
+          >
+            {t("common.backToHome")}
+          </Link>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="classroom-container">
+      {(status === "verifying" || status === "loading") && (
+        <ClassroomWelcomeLoader
+          status={status}
+          roomName={roomName}
+          t={t}
+        />
+      )}
+
       {status === "ready" && isEmbed && courseId && (
         <button
           type="button"
@@ -553,15 +698,6 @@ function ClassroomContent() {
         >
           {t("classroom.exit")}
         </button>
-      )}
-
-      {(status === "loading" || status === "verifying") && (
-        <div className="classroom-loading">
-          <div className="loader" />
-          <p>
-            {status === "verifying" ? t("classroom.verifyingAccess") : t("classroom.initializing")}
-          </p>
-        </div>
       )}
 
       <div
@@ -602,9 +738,9 @@ export default function ClassroomPage() {
       />
       <Suspense
         fallback={
-          <div className="classroom-loading">
-            <div className="loader" />
-            <p>{t("common.loading")}</p>
+          <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+            <div className="animate-spin rounded-full h-10 w-10 border-2 border-primary/20 border-t-primary mb-4" />
+            <p className="text-muted-foreground text-sm font-medium">{t("common.loading") || "Loading..."}</p>
           </div>
         }
       >

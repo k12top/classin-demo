@@ -8,10 +8,11 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, UserPlus, Info, Check, Copy, BookOpen, FileText, Loader2 } from "lucide-react";
+import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, UserPlus, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
+import TimeDisplay from "@/components/TimeDisplay";
 
 const ROOM_TYPE_KEYS: Record<number, string> = {
   0: "common.roomType1v1",
@@ -388,45 +389,51 @@ export default function TeacherCourseDetail({
     }
   };
 
-  const formatTime = (isoString: string | null) => {
-    if (!isoString) return t("common.timeUndetermined");
-    const date = new Date(isoString);
-    return date.toLocaleString(locale, { month: 'long', day: 'numeric', weekday: 'long', hour: '2-digit', minute: '2-digit' });
+  const getFileIcon = (ext: string) => {
+    const normExt = ext.toLowerCase();
+    if (normExt === "pdf") return <FileText className="h-5 w-5 text-red-500 shrink-0" />;
+    if (["ppt", "pptx"].includes(normExt)) return <FileText className="h-5 w-5 text-orange-500 shrink-0" />;
+    if (["doc", "docx"].includes(normExt)) return <FileText className="h-5 w-5 text-blue-500 shrink-0" />;
+    return <FileText className="h-5 w-5 text-muted-foreground shrink-0" />;
   };
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 pt-4">
       {/* Header Card */}
-      <Card className="glass-panel border-white/10 bg-gradient-to-br from-purple-900/40 to-black/40 overflow-hidden relative">
-        <div className="absolute top-[-50%] right-[-10%] w-[400px] h-[400px] bg-purple-500/20 rounded-full blur-[120px] pointer-events-none" />
+      <Card className="border border-border/60 bg-card overflow-hidden relative rounded-2xl shadow-sm">
+        <div className="absolute top-[-50%] right-[-10%] w-[400px] h-[400px] bg-primary/5 rounded-full blur-[120px] pointer-events-none" />
         <CardContent className="p-8 relative z-10">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
             <div className="space-y-4 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="border-purple-400/30 text-purple-300 bg-purple-500/10">
+                <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary text-[10px]">
                   {t(ROOM_TYPE_KEYS[course.roomType]) || t("common.unknown")}
                 </Badge>
                 {course.roomType === 10 && course.passcode && (
                   <Badge 
                     variant="outline" 
-                    className="border-purple-500/30 text-purple-300 bg-purple-500/15 cursor-pointer flex items-center gap-1 hover:bg-purple-500/25 transition-colors font-mono"
+                    className="border-primary/20 bg-primary/5 text-primary cursor-pointer flex items-center gap-1 hover:bg-primary/10 transition-colors font-mono text-[10px]"
                     onClick={() => void copyText(course.passcode, t("courseDetail.copyPasscodeSuccess"))}
                     title={t("courseDetail.btnCopy")}
                   >
-                    🔑 {t("courseDetail.passcodeLabel")}: {course.passcode} <Copy className="h-3 w-3 ml-0.5" />
+                    <Key className="h-3 w-3" />
+                    <span>{t("courseDetail.passcodeLabel")}: {course.passcode}</span>
+                    <Copy className="h-3 w-3 ml-0.5" />
                   </Badge>
                 )}
               </div>
-              <h1 className="text-3xl md:text-4xl font-bold text-white">{course.name}</h1>
+              <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-foreground">{course.name}</h1>
               
-              <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground mt-4">
-                <div className="flex items-center gap-1.5 bg-black/30 px-3 py-1.5 rounded-md border border-white/5">
-                  <Users className="h-4 w-4 text-purple-400" />
-                  <span className="font-medium text-foreground">{t("courseDetail.studentCount", { count: course.students.length })}</span>
+              <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mt-4">
+                <div className="flex items-center gap-1.5 bg-muted px-3 py-1.5 rounded-xl border border-border/40 text-xs font-semibold text-foreground">
+                  <Users className="h-4 w-4 text-primary" />
+                  <span className="text-foreground/80">{t("courseDetail.studentCount", { count: course.students.length })}</span>
                 </div>
-                <div className="flex items-center gap-1.5 bg-black/30 px-3 py-1.5 rounded-md border border-white/5">
-                  <Clock className="h-4 w-4 text-purple-400" />
-                  <span className="font-medium text-foreground">{formatTime(course.startTime)}</span>
+                <div className="flex items-center gap-1.5 bg-muted px-3 py-1.5 rounded-xl border border-border/40 text-xs font-semibold text-foreground">
+                  <Clock className="h-4 w-4 text-primary" />
+                  <span className="text-foreground/80">
+                    <TimeDisplay isoString={course.startTime} options={{ month: "long", day: "numeric", weekday: "long", hour: "2-digit", minute: "2-digit" }} />
+                  </span>
                 </div>
                 <CourseStatusBadge status={course.status} />
               </div>
@@ -435,7 +442,7 @@ export default function TeacherCourseDetail({
             <div className="flex flex-col gap-3 w-full md:w-auto shrink-0">
               <Button
                 size="lg"
-                className="w-full bg-purple-600 hover:bg-purple-700 text-white shadow-glow-purple"
+                className="w-full bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all"
                 onClick={() => {
                   if (course.status === "finished") {
                     if (course.recordUrl) {
@@ -448,7 +455,10 @@ export default function TeacherCourseDetail({
                 disabled={enterLoading || (course.status === "finished" ? !course.recordUrl : !canEnterClassroom(course.status))}
               >
                 {enterLoading ? (
-                  <span className="flex items-center gap-2"><span className="animate-spin rounded-full h-4 w-4 border-2 border-white/20 border-t-white" /> {t("teacherDashboard.btnEntering")}</span>
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-current" />
+                    {t("teacherDashboard.btnEntering")}
+                  </span>
                 ) : course.status === "finished" ? (
                   <span className="flex items-center gap-2">
                     <PlayCircle className="h-5 w-5" />
@@ -460,10 +470,10 @@ export default function TeacherCourseDetail({
               </Button>
               {canEnterClassroom(course.status) && (
                 <div className="grid grid-cols-2 gap-2">
-                  <Button variant="outline" className="border-white/10 hover:bg-white/10 text-white" onClick={() => handleStatusChange(CourseStatus.FINISHED)}>
+                  <Button variant="outline" className="border-border/60 bg-muted/20 hover:bg-muted/40 text-foreground rounded-xl h-9 text-xs" onClick={() => handleStatusChange(CourseStatus.FINISHED)}>
                     {t("courseDetail.btnFinishCourse")}
                   </Button>
-                  <Button variant="outline" className="border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => handleStatusChange(CourseStatus.CANCELLED)}>
+                  <Button variant="outline" className="border-red-500/20 text-red-500 bg-red-500/5 hover:bg-red-500/10 rounded-xl h-9 text-xs" onClick={() => handleStatusChange(CourseStatus.CANCELLED)}>
                     {t("courseDetail.btnCancelCourse")}
                   </Button>
                 </div>
@@ -475,17 +485,17 @@ export default function TeacherCourseDetail({
 
       {/* Main Tabs Area */}
       <Tabs defaultValue="members" className="w-full" onValueChange={(v) => setActiveTab(v as any)}>
-        <TabsList className="bg-black/20 border border-white/5 backdrop-blur-md mb-6 inline-flex w-full md:w-auto overflow-x-auto no-scrollbar">
-          <TabsTrigger value="members" className="flex-1 md:flex-none data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300 whitespace-nowrap">
+        <TabsList className="bg-muted/60 border border-border/40 p-1 rounded-xl mb-6 inline-flex w-full md:w-auto overflow-x-auto no-scrollbar">
+          <TabsTrigger value="members" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
             <Users className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.members")}
           </TabsTrigger>
-          <TabsTrigger value="courseware" className="flex-1 md:flex-none data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300 whitespace-nowrap">
+          <TabsTrigger value="courseware" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
             <BookOpen className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.coursewareManage")}
           </TabsTrigger>
-          <TabsTrigger value="sharing" className="flex-1 md:flex-none data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300 whitespace-nowrap">
+          <TabsTrigger value="sharing" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
             <LinkIcon className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.sharing")}
           </TabsTrigger>
-          <TabsTrigger value="requirements" className="flex-1 md:flex-none data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300 whitespace-nowrap">
+          <TabsTrigger value="requirements" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
             <MessageSquare className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.requirementsStudent")}
           </TabsTrigger>
         </TabsList>
@@ -493,10 +503,10 @@ export default function TeacherCourseDetail({
         <TabsContent value="members" className="mt-0">
           <div className={`grid grid-cols-1 ${supportsStudentGroups ? "lg:grid-cols-2" : ""} gap-6`}>
             {/* Left Side: Direct Students */}
-            <Card className="glass-panel border-white/10 bg-white/5 flex flex-col h-[600px]">
-              <CardHeader className="border-b border-white/5 pb-4 shrink-0">
-                <CardTitle className="text-xl">{t("courseDetail.userSearchTitle")}</CardTitle>
-                <CardDescription>{t("courseDetail.userSearchDesc")}</CardDescription>
+            <Card className="border border-border/60 bg-card flex flex-col h-[600px] rounded-2xl shadow-sm">
+              <CardHeader className="border-b border-border/40 pb-4 shrink-0">
+                <CardTitle className="text-lg font-bold">{t("courseDetail.userSearchTitle")}</CardTitle>
+                <CardDescription className="text-xs">{t("courseDetail.userSearchDesc")}</CardDescription>
               </CardHeader>
               <CardContent className="pt-6 flex flex-col overflow-hidden h-full">
                 <div className="flex gap-2 shrink-0">
@@ -505,22 +515,26 @@ export default function TeacherCourseDetail({
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                    className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
+                    className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
                   />
-                  <Button className="bg-purple-600 hover:bg-purple-700 text-white shrink-0" onClick={handleSearch} disabled={searching || !searchQuery.trim()}>
+                  <Button 
+                    className="bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all shrink-0" 
+                    onClick={handleSearch} 
+                    disabled={searching || !searchQuery.trim()}
+                  >
                     {searching ? t("teacherDashboard.searching") : t("teacherDashboard.btnSearch")}
                   </Button>
                 </div>
-                {searchError && <p className="text-sm text-red-400 bg-red-500/10 p-2 mt-3 rounded-md border border-red-500/20 shrink-0">{searchError}</p>}
+                {searchError && <p className="text-xs text-red-500 bg-red-500/5 p-3 mt-3 rounded-xl border border-red-500/20 shrink-0">{searchError}</p>}
 
                 {supportsStudentGroups && searchResults.length > 0 && (
                   <div className="mt-4 space-y-2 shrink-0">
-                    <label className="text-sm text-muted-foreground font-medium">{t("teacherDashboard.addToGroupLabel")}</label>
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("teacherDashboard.addToGroupLabel")}</label>
                     <Select value={memberTargetGroupId} onValueChange={setMemberTargetGroupId}>
-                      <SelectTrigger className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50">
+                      <SelectTrigger className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl">
                         <SelectValue placeholder={t("teacherDashboard.selectTargetGroup")} />
                       </SelectTrigger>
-                      <SelectContent className="bg-background/95 backdrop-blur-md border-white/10">
+                      <SelectContent className="bg-popover border-border/85">
                         {flattenGroups(myGroups).map((opt) => (
                           <SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>
                         ))}
@@ -534,7 +548,7 @@ export default function TeacherCourseDetail({
                     {searchResults.map((u) => {
                       const isAlready = course.students.some((s: any) => casdoorUserIdsMatch(s.studentId, u.id));
                       return (
-                        <div key={u.id} className="flex flex-wrap justify-between items-center p-3 rounded-lg bg-black/40 border border-white/5 mb-2 gap-2">
+                        <div key={u.id} className="flex flex-wrap justify-between items-center p-3 rounded-xl bg-muted/20 border border-border/40 mb-2 gap-2">
                           <div className="flex flex-col">
                             <span className="font-semibold text-sm">{u.displayName || u.name}</span>
                             <span className="text-xs text-muted-foreground">{u.email}</span>
@@ -543,7 +557,7 @@ export default function TeacherCourseDetail({
                             <Button
                               size="sm"
                               variant={isAlready ? "outline" : "secondary"}
-                              className={isAlready ? "border-white/10 opacity-50" : "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"}
+                              className={isAlready ? "border-border/60 opacity-50 text-xs rounded-lg" : "bg-primary/5 text-primary hover:bg-primary/10 text-xs rounded-lg"}
                               disabled={isAlready}
                               onClick={() => handleAddStudent(u.id, u.displayName || u.name)}
                             >
@@ -553,7 +567,7 @@ export default function TeacherCourseDetail({
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="border-white/10"
+                                className="border-border/60 rounded-lg text-xs"
                                 disabled={groupBusy || !memberTargetGroupId}
                                 onClick={() => void handleAddUserToGroup(u)}
                               >
@@ -568,25 +582,25 @@ export default function TeacherCourseDetail({
                 )}
 
                 <div className="mt-6 flex-1 flex flex-col min-h-0">
-                  <h4 className="font-semibold flex items-center justify-between text-sm text-muted-foreground mb-3 pb-2 border-b border-white/5">
-                    {t("courseDetail.assignedStudents")} <Badge variant="secondary" className="bg-white/10">{course.students.length}</Badge>
+                  <h4 className="font-bold flex items-center justify-between text-xs text-muted-foreground uppercase tracking-wider mb-3 pb-2 border-b border-border/40">
+                    {t("courseDetail.assignedStudents")} <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/10">{course.students.length}</Badge>
                   </h4>
                   {course.students.length === 0 ? (
-                    <div className="flex-1 flex items-center justify-center border border-dashed border-white/10 rounded-lg text-muted-foreground text-sm">
+                    <div className="flex-1 flex items-center justify-center border border-dashed border-border/60 rounded-xl text-muted-foreground text-sm bg-muted/10">
                       {t("courseDetail.noAssignedStudents")}
                     </div>
                   ) : (
                     <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-2">
                       {course.students.map((s: any) => (
-                        <div key={s.id} className="flex justify-between items-center p-3 rounded-md bg-black/20 hover:bg-white/5 transition-colors group">
-                          <span className="text-sm font-medium">{s.studentName || s.studentId}</span>
+                        <div key={s.id} className="flex justify-between items-center p-3 rounded-xl bg-muted/20 border border-border/40 hover:border-primary/20 transition-all group">
+                          <span className="text-sm font-semibold">{s.studentName || s.studentId}</span>
                           <Button 
                             variant="ghost" 
                             size="icon" 
-                            className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 hover:bg-red-500/20 transition-all" 
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-all rounded-md" 
                             onClick={() => handleRemoveStudent(s.studentId)}
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       ))}
@@ -597,10 +611,10 @@ export default function TeacherCourseDetail({
             </Card>
 
             {supportsStudentGroups && (
-              <Card className="glass-panel border-white/10 bg-white/5 flex flex-col h-[600px]">
-                <CardHeader className="border-b border-white/5 pb-4 shrink-0">
-                  <CardTitle className="text-xl">{t("teacherDashboard.studentGroupManage")}</CardTitle>
-                  <CardDescription>{t("teacherDashboard.groupManageDesc")}</CardDescription>
+              <Card className="border border-border/60 bg-card flex flex-col h-[600px] rounded-2xl shadow-sm">
+                <CardHeader className="border-b border-border/40 pb-4 shrink-0">
+                  <CardTitle className="text-lg font-bold">{t("teacherDashboard.studentGroupManage")}</CardTitle>
+                  <CardDescription className="text-xs">{t("teacherDashboard.groupManageDesc")}</CardDescription>
                 </CardHeader>
                 <CardContent className="pt-6 flex flex-col overflow-hidden h-full">
                   <div className="flex gap-2 shrink-0">
@@ -609,38 +623,38 @@ export default function TeacherCourseDetail({
                       value={newGroupName}
                       onChange={(e) => setNewGroupName(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleCreateGroup()}
-                      className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
+                      className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
                     />
-                    <Button variant="secondary" className="shrink-0" disabled={groupBusy || !newGroupName.trim()} onClick={handleCreateGroup}>
+                    <Button variant="secondary" className="shrink-0 rounded-xl text-sm active:scale-[0.98] transition-all" disabled={groupBusy || !newGroupName.trim()} onClick={handleCreateGroup}>
                       {t("teacherDashboard.btnCreate")}
                     </Button>
                   </div>
 
                   <div className="mt-6 flex-1 flex flex-col min-h-0 overflow-y-auto pr-2 custom-scrollbar space-y-6">
                     <div>
-                      <h4 className="font-semibold text-sm text-muted-foreground mb-3 pb-2 border-b border-white/5 flex justify-between">
-                        {t("teacherDashboard.allMyGroups")} <Badge variant="secondary" className="bg-white/10">{myGroups.length}</Badge>
+                      <h4 className="font-bold text-xs text-muted-foreground uppercase tracking-wider mb-3 pb-2 border-b border-border/40 flex justify-between">
+                        {t("teacherDashboard.allMyGroups")} <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/10">{myGroups.length}</Badge>
                       </h4>
                       {myGroups.length === 0 ? (
-                        <div className="p-4 text-center border border-dashed border-white/10 rounded-lg text-muted-foreground text-sm">
+                        <div className="p-4 text-center border border-dashed border-border/60 rounded-xl text-muted-foreground text-sm bg-muted/10">
                           {t("teacherDashboard.groupEmpty")}
                         </div>
                       ) : (
                         <div className="space-y-2">
                           {myGroups.map((g) => (
-                            <div key={g.id} className="flex justify-between items-center p-3 rounded-lg bg-black/40 border border-white/5">
+                            <div key={g.id} className="flex justify-between items-center p-3 rounded-xl bg-muted/20 border border-border/40">
                               <div className="flex items-center gap-2">
-                                <strong className="text-sm">{g.name}</strong>
-                                <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-white/10">{countNestedMembers(g)} {t("teacherDashboard.memberCount")}</Badge>
+                                <strong className="text-sm font-semibold">{g.name}</strong>
+                                <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-primary/10 text-primary border-primary/10">{countNestedMembers(g)} {t("teacherDashboard.memberCount")}</Badge>
                               </div>
                               <div className="flex gap-2">
                                 {!linkedGroupIdSet.has(g.id) && (
-                                  <Button size="sm" variant="outline" className="border-purple-500/30 text-purple-300 hover:bg-purple-500/10 h-7 text-xs" disabled={groupBusy} onClick={() => handleLinkGroupToCourse(g.id)}>
+                                  <Button size="sm" variant="outline" className="border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 h-7 text-xs rounded-lg font-semibold" disabled={groupBusy} onClick={() => handleLinkGroupToCourse(g.id)}>
                                     {t("courseDetail.btnLinkToCourse")}
                                   </Button>
                                 )}
-                                <Button size="icon" variant="ghost" className="h-7 w-7 text-red-400 hover:text-red-300 hover:bg-red-500/20" disabled={groupBusy} onClick={() => handleDeleteGroup(g.id)}>
-                                  <Trash2 className="h-3 w-3" />
+                                <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-500/10 rounded-md" disabled={groupBusy} onClick={() => handleDeleteGroup(g.id)}>
+                                  <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
                               </div>
                             </div>
@@ -650,22 +664,22 @@ export default function TeacherCourseDetail({
                     </div>
 
                     <div>
-                      <h4 className="font-semibold text-sm text-muted-foreground mb-3 pb-2 border-b border-white/5 flex justify-between">
-                        {t("courseDetail.linkedGroups")} <Badge variant="secondary" className="bg-white/10">{course.groupLinks.length}</Badge>
+                      <h4 className="font-bold text-xs text-muted-foreground uppercase tracking-wider mb-3 pb-2 border-b border-border/40 flex justify-between">
+                        {t("courseDetail.linkedGroups")} <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/10">{course.groupLinks.length}</Badge>
                       </h4>
                       {course.groupLinks.length === 0 ? (
-                        <div className="p-4 text-center border border-dashed border-white/10 rounded-lg text-muted-foreground text-sm">
+                        <div className="p-4 text-center border border-dashed border-border/60 rounded-xl text-muted-foreground text-sm bg-muted/10">
                           {t("courseDetail.noLinkedGroups")}
                         </div>
                       ) : (
                         <div className="space-y-2">
                           {course.groupLinks.map((link: any) => (
-                            <div key={link.id} className="flex justify-between items-center p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                            <div key={link.id} className="flex justify-between items-center p-3 rounded-xl bg-primary/5 border border-primary/10">
                               <div className="flex items-center gap-2">
-                                <strong className="text-sm text-purple-300">{link.group.name}</strong>
-                                <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-purple-500/20 text-purple-300">{countNestedMembers(link.group)} {t("teacherDashboard.memberCount")}</Badge>
+                                <strong className="text-sm font-semibold text-primary">{link.group.name}</strong>
+                                <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-primary/10 text-primary border-primary/10">{countNestedMembers(link.group)} {t("teacherDashboard.memberCount")}</Badge>
                               </div>
-                              <Badge variant="outline" className="border-purple-500/30 text-purple-300">{t("courseDetail.isLinked")}</Badge>
+                              <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary text-[10px]">{t("courseDetail.isLinked")}</Badge>
                             </div>
                           ))}
                         </div>
@@ -679,47 +693,47 @@ export default function TeacherCourseDetail({
         </TabsContent>
 
         <TabsContent value="sharing" className="mt-0">
-          <Card className="glass-panel border-white/10 bg-white/5 max-w-3xl">
+          <Card className="border border-border/60 bg-card rounded-2xl shadow-sm max-w-3xl">
             <CardHeader>
-              <CardTitle>{t("courseDetail.generateShareLink")}</CardTitle>
-              <CardDescription>
+              <CardTitle className="text-lg font-bold">{t("courseDetail.generateShareLink")}</CardTitle>
+              <CardDescription className="text-xs">
                 {t("courseDetail.generateShareLinkDesc")}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex flex-col sm:flex-row gap-3">
                 <Input
-                  className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
+                  className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
                   placeholder={t("courseDetail.linkLabelPlaceholder")}
                   value={newLinkLabel}
                   onChange={(e) => setNewLinkLabel(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleCreateJoinLink()}
                 />
-                <Button className="bg-purple-600 hover:bg-purple-700 text-white shrink-0" disabled={joinLinkBusy} onClick={handleCreateJoinLink}>
+                <Button className="bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all shrink-0 text-xs px-4" disabled={joinLinkBusy} onClick={handleCreateJoinLink}>
                   {joinLinkBusy ? t("common.submitting") : t("courseDetail.btnGenerateLink")}
                 </Button>
               </div>
               
               {copyHint && (
-                <div className="mt-4 p-3 bg-green-500/10 border border-green-500/20 rounded-md text-green-400 text-sm flex items-center gap-2">
+                <div className="mt-4 p-3 bg-green-500/5 border border-green-500/20 rounded-xl text-green-600 dark:text-green-400 text-xs flex items-center gap-2 font-medium">
                   <Check className="h-4 w-4" /> {copyHint}
                 </div>
               )}
 
               <div className="mt-10">
-                <h4 className="font-semibold text-sm text-muted-foreground mb-4 pb-2 border-b border-white/5 flex items-center justify-between">
-                  {t("courseDetail.activeLinks")} <Badge variant="secondary" className="bg-white/10">{joinLinks.length}</Badge>
+                <h4 className="font-bold text-xs text-muted-foreground uppercase tracking-wider mb-4 pb-2 border-b border-border/40 flex items-center justify-between">
+                  {t("courseDetail.activeLinks")} <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/10">{joinLinks.length}</Badge>
                 </h4>
                 {joinLinks.length === 0 ? (
-                  <div className="p-8 text-center border border-dashed border-white/10 rounded-lg text-muted-foreground text-sm bg-black/20">
+                  <div className="p-8 text-center border border-dashed border-border/60 rounded-xl text-muted-foreground text-sm bg-muted/10">
                     {t("courseDetail.noShareLinks")}
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {joinLinks.map((link) => (
-                      <div key={link.id} className="p-4 rounded-lg bg-black/40 border border-white/10 hover:border-purple-500/30 transition-all flex flex-col h-full group">
+                      <div key={link.id} className="p-4 rounded-xl bg-muted/10 border border-border/40 hover:border-primary/20 transition-all flex flex-col h-full group">
                         <div className="flex justify-between items-start mb-2">
-                          <strong className="font-medium text-foreground">{link.label || t("courseDetail.noLabel")}</strong>
+                          <strong className="font-semibold text-sm text-foreground">{link.label || t("courseDetail.noLabel")}</strong>
                           <span className={`w-2 h-2 rounded-full ${link.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></span>
                         </div>
                         <div className="text-xs text-muted-foreground space-y-1 mb-4 flex-1">
@@ -729,10 +743,10 @@ export default function TeacherCourseDetail({
                         
                         {link.status === "active" && link.joinUrl && (
                           <div className="flex gap-2 mt-auto">
-                            <Button size="sm" className="flex-1 bg-white/10 hover:bg-white/20 text-foreground" onClick={() => void copyText(link.joinUrl!, t("courseDetail.copySuccess"))}>
+                            <Button size="sm" className="flex-1 bg-muted border border-border/60 hover:bg-muted/80 text-foreground rounded-lg text-xs" onClick={() => void copyText(link.joinUrl!, t("courseDetail.copySuccess"))}>
                               <Copy className="h-3.5 w-3.5 mr-1" /> {t("courseDetail.btnCopy")}
                             </Button>
-                            <Button size="sm" variant="destructive" className="bg-red-500/10 text-red-400 hover:bg-red-500/20 border-0" disabled={joinLinkBusy} onClick={() => handleRevokeJoinLink(link.id)}>
+                            <Button size="sm" variant="destructive" className="bg-red-500/5 text-red-500 hover:bg-red-500/10 border-0 rounded-lg text-xs" disabled={joinLinkBusy} onClick={() => handleRevokeJoinLink(link.id)}>
                               {t("courseDetail.btnRevoke")}
                             </Button>
                           </div>
@@ -749,43 +763,43 @@ export default function TeacherCourseDetail({
         <TabsContent value="courseware" className="mt-0">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left Side: Upload / Add Courseware */}
-            <Card className="glass-panel border-white/10 bg-white/5 lg:col-span-1">
+            <Card className="border border-border/60 bg-card rounded-2xl shadow-sm lg:col-span-1">
               <CardHeader>
-                <CardTitle className="text-xl">{t("courseDetail.addCourseware")}</CardTitle>
-                <CardDescription>{t("courseDetail.addCoursewareDesc")}</CardDescription>
+                <CardTitle className="text-lg font-bold">{t("courseDetail.addCourseware")}</CardTitle>
+                <CardDescription className="text-xs">{t("courseDetail.addCoursewareDesc")}</CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleAddCourseware} className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("courseDetail.coursewareName")}</label>
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("courseDetail.coursewareName")}</label>
                     <Input
                       placeholder={t("courseDetail.coursewareNamePlaceholder")}
                       value={cwName}
                       onChange={(e) => setCwName(e.target.value)}
-                      className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
+                      className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("courseDetail.fileUrl")}</label>
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("courseDetail.fileUrl")}</label>
                     <Input
                       placeholder={t("courseDetail.fileUrlPlaceholder")}
                       value={cwUrl}
                       onChange={(e) => setCwUrl(e.target.value)}
-                      className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50"
+                      className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
                     />
-                    <p className="text-[10px] text-muted-foreground/60">
+                    <p className="text-[10px] text-muted-foreground/60 leading-relaxed mt-1">
                       {t("courseDetail.fileUrlDesc")}
                     </p>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("courseDetail.fileType")}</label>
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("courseDetail.fileType")}</label>
                     <Select value={cwExt} onValueChange={setCwExt}>
-                      <SelectTrigger className="bg-black/40 border-white/20 hover:border-white/30 focus-visible:ring-purple-500/50">
+                      <SelectTrigger className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl">
                         <SelectValue placeholder={t("courseDetail.fileType")} />
                       </SelectTrigger>
-                      <SelectContent className="bg-background/95 border-white/10">
+                      <SelectContent className="bg-popover border-border/85">
                         <SelectItem value="pptx">{t("courseDetail.fileTypePptx")}</SelectItem>
                         <SelectItem value="ppt">{t("courseDetail.fileTypePpt")}</SelectItem>
                         <SelectItem value="pdf">{t("courseDetail.fileTypePdf")}</SelectItem>
@@ -796,7 +810,7 @@ export default function TeacherCourseDetail({
                   </div>
 
                   {cwError && (
-                    <p className="text-xs text-red-400 bg-red-500/10 p-2 rounded border border-red-500/20">
+                    <p className="text-xs text-red-500 bg-red-500/5 p-2 rounded-lg border border-red-500/20">
                       {cwError}
                     </p>
                   )}
@@ -804,11 +818,11 @@ export default function TeacherCourseDetail({
                   <Button
                     type="submit"
                     disabled={cwAdding || !cwName.trim()}
-                    className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                    className="w-full bg-primary hover:bg-primary/95 text-white rounded-xl text-xs font-semibold shadow-sm active:scale-[0.98]"
                   >
                     {cwAdding ? (
                       <span className="flex items-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-4 w-4 animate-spin text-current" />
                         {t("courseDetail.cwAdding")}
                       </span>
                     ) : (
@@ -819,17 +833,17 @@ export default function TeacherCourseDetail({
               </CardContent>
             </Card>
 
-            {/* Right Side: Courseware List */}
-            <Card className="glass-panel border-white/10 bg-white/5 lg:col-span-2">
+            {/* Right Side: Courseware Library */}
+            <Card className="border border-border/60 bg-card rounded-2xl shadow-sm lg:col-span-2">
               <CardHeader>
-                <CardTitle className="text-xl">{t("courseDetail.coursewareLibrary")}</CardTitle>
-                <CardDescription>本节课程已绑定的课件。转换成功的课件将在{t("teacherDashboard.btnEnterClass")}后自动显示在“公共资源”云盘中。</CardDescription>
+                <CardTitle className="text-lg font-bold">{t("courseDetail.coursewareLibrary")}</CardTitle>
+                <CardDescription className="text-xs">本节课程已绑定的课件。转换成功的课件将在{t("teacherDashboard.btnEnterClass")}后自动显示在“公共资源”云盘中。</CardDescription>
               </CardHeader>
               <CardContent>
                 {courseware.length === 0 ? (
-                  <div className="text-center py-12 border-2 border-dashed border-white/5 rounded-lg bg-black/10">
+                  <div className="text-center py-12 border border-dashed border-border/60 rounded-xl bg-muted/10">
                     <FileText className="h-12 w-12 text-muted-foreground/40 mx-auto mb-3" />
-                    <p className="text-muted-foreground text-sm">{t("courseDetail.noCourseware")}</p>
+                    <p className="text-muted-foreground text-sm font-medium">{t("courseDetail.noCourseware")}</p>
                     <p className="text-xs text-muted-foreground/60 mt-1">{t("courseDetail.addCoursewareHint")}</p>
                   </div>
                 ) : (
@@ -837,14 +851,12 @@ export default function TeacherCourseDetail({
                     {courseware.map((item) => (
                       <div
                         key={item.id}
-                        className="flex items-center justify-between p-4 rounded-lg bg-black/20 border border-white/5 hover:border-white/10 transition-all"
+                        className="flex items-center justify-between p-4 rounded-xl bg-muted/20 border border-border/40 hover:border-primary/20 transition-all"
                       >
                         <div className="flex items-center gap-3">
-                          <span className="text-2xl">
-                            {item.ext === "pdf" ? "📕" : ["ppt", "pptx"].includes(item.ext) ? "📙" : "📄"}
-                          </span>
+                          {getFileIcon(item.ext)}
                           <div>
-                            <p className="text-sm font-semibold text-white">{item.name}</p>
+                            <p className="text-sm font-bold text-foreground">{item.name}</p>
                             <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                               <span>{t("courseDetail.formatLabel")}: {item.ext.toUpperCase()}</span>
                               <span>•</span>
@@ -853,20 +865,20 @@ export default function TeacherCourseDetail({
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 font-semibold text-xs">
                           {item.taskStatus === "Finished" && (
-                            <Badge className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                            <Badge className="bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 text-[10px]">
                               {t("courseDetail.convertSuccess")}
                             </Badge>
                           )}
                           {(item.taskStatus === "Converting" || item.taskStatus === "Pending") && (
-                            <Badge className="bg-amber-500/10 text-amber-400 border border-amber-500/30 flex items-center gap-1">
-                              <Loader2 className="h-3 w-3 animate-spin" />
+                            <Badge className="bg-amber-500/10 text-amber-600 border border-amber-500/20 flex items-center gap-1 text-[10px]">
+                              <Loader2 className="h-3 w-3 animate-spin text-current" />
                               {t("courseDetail.converting")}
                             </Badge>
                           )}
                           {item.taskStatus === "Failed" && (
-                            <Badge className="bg-rose-500/10 text-rose-400 border border-rose-500/30">
+                            <Badge className="bg-red-500/10 text-red-600 border border-red-500/20 text-[10px]">
                               {t("courseDetail.convertFailed")}
                             </Badge>
                           )}
@@ -875,7 +887,7 @@ export default function TeacherCourseDetail({
                             href={item.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-xs text-purple-400 hover:text-purple-300 font-medium"
+                            className="text-xs text-primary hover:underline font-semibold ml-2"
                           >
                             {t("courseDetail.originalFile")}
                           </a>
@@ -890,24 +902,24 @@ export default function TeacherCourseDetail({
         </TabsContent>
 
         <TabsContent value="requirements" className="mt-0">
-          <Card className="glass-panel border-white/10 bg-white/5 max-w-3xl">
+          <Card className="border border-border/60 bg-card rounded-2xl shadow-sm max-w-3xl">
             <CardHeader>
-              <CardTitle>{t("courseDetail.tabs.requirementsStudent")}</CardTitle>
-              <CardDescription>{t("courseDetail.studentRemarksDesc")}</CardDescription>
+              <CardTitle className="text-lg font-bold">{t("courseDetail.tabs.requirementsStudent")}</CardTitle>
+              <CardDescription className="text-xs">{t("courseDetail.studentRemarksDesc")}</CardDescription>
             </CardHeader>
             <CardContent>
               {course.studentRemarks ? (
-                <div className="relative p-8 rounded-xl bg-gradient-to-br from-blue-900/20 to-purple-900/20 border border-white/10">
-                  <div className="absolute top-4 left-4 text-4xl text-white/10 font-serif leading-none">"</div>
-                  <p className="relative z-10 text-lg text-foreground/90 leading-relaxed indent-4 px-2">
+                <div className="relative p-6 rounded-xl bg-primary/5 border border-primary/10">
+                  <div className="absolute top-4 left-4 text-4xl text-primary/10 font-serif leading-none">"</div>
+                  <p className="relative z-10 text-base text-foreground/95 leading-relaxed indent-4 px-2 font-medium">
                     {course.studentRemarks}
                   </p>
-                  <div className="absolute bottom-[-10px] right-4 text-4xl text-white/10 font-serif leading-none rotate-180">"</div>
+                  <div className="absolute bottom-[-10px] right-4 text-4xl text-primary/10 font-serif leading-none rotate-180">"</div>
                 </div>
               ) : (
-                <div className="p-12 text-center border border-dashed border-white/10 rounded-lg bg-black/20">
+                <div className="p-12 text-center border border-dashed border-border/60 rounded-xl bg-muted/10">
                   <Info className="h-8 w-8 text-muted-foreground/50 mx-auto mb-3" />
-                  <p className="text-muted-foreground">{t("courseDetail.studentRemarksEmpty")}</p>
+                  <p className="text-muted-foreground text-sm font-medium">{t("courseDetail.studentRemarksEmpty")}</p>
                 </div>
               )}
             </CardContent>

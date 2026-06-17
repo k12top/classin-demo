@@ -24,6 +24,7 @@ export const ta: typeof zhCN = {
     success: "வெற்றி",
     failed: "தோல்வி",
     add: "சேர்",
+    appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
     title: "நெகிழ்வான வகுப்பறை",

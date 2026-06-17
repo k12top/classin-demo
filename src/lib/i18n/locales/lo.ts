@@ -24,6 +24,7 @@ export const lo: typeof zhCN = {
     success: "ສຳເລັດ",
     failed: "ຫຼົ້ມເຫຼວ",
     add: "ເພີ່ມ",
+    appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
     title: "ຫ້ອງຮຽນອອນໄລນ໌",

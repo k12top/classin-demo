@@ -28,8 +28,8 @@ export async function GET(
   }
 
   const { id } = await params;
-
   try {
+    await promoteCourseIfDueById(id);
     let course = await prisma.course.findUnique({
       where: { id },
       include: {

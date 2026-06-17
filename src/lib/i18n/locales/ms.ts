@@ -24,6 +24,7 @@ export const ms: typeof zhCN = {
     success: "Berjaya",
     failed: "Gagal",
     add: "Tambah",
+    appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
     title: "Kelas Fleksibel",

@@ -24,6 +24,7 @@ export const fil: typeof zhCN = {
     success: "Matagumpay",
     failed: "Bigo",
     add: "Idagdag",
+    appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
     title: "Flexible Classroom",

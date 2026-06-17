@@ -8,7 +8,7 @@ import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { buildJoinUrl, joinLinkStatus } from "@/lib/join-link";
 import { serializeCourse, serializeCourses } from "@/lib/course-serialize";
-import { promoteCourseIfDueById } from "@/lib/course-promote";
+import { promoteCourseIfDueById, promoteCoursesIfDue } from "@/lib/course-promote";
 import {
   applyCourseListSort,
   courseListOrderBy,
@@ -39,6 +39,8 @@ export async function GET(request: NextRequest) {
   const statusWhere = courseListStatusWhere(statusParsed);
 
   try {
+    // Auto-promote any overdue course statuses before listing
+    await promoteCoursesIfDue();
 
     if (session.role === "teacher") {
       // Teacher sees all their own courses (all statuses)

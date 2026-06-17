@@ -24,6 +24,7 @@ export const vi: typeof zhCN = {
     success: "Thành công",
     failed: "Thất bại",
     add: "Thêm",
+    appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
     title: "Lớp học Linh động",

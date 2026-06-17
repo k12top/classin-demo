@@ -24,6 +24,7 @@ export const ja: typeof zhCN = {
     success: "成功",
     failed: "失敗",
     add: "追加",
+    appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
     title: "スマート教室",

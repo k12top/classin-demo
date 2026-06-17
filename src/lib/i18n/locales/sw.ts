@@ -24,6 +24,7 @@ export const sw: typeof zhCN = {
     success: "Mafanikio",
     failed: "Imefeli",
     add: "Ongeza",
+    appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
     title: "Darasa Linalobadilika",

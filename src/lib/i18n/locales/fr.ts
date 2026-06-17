@@ -24,6 +24,7 @@ export const fr: typeof zhCN = {
     success: "Succès",
     failed: "Échec",
     add: "Ajouter",
+    appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
     title: "Classe Flexible",

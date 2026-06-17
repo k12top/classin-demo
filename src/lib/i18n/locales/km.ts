@@ -24,6 +24,7 @@ export const km: typeof zhCN = {
     success: "ជោគជ័យ",
     failed: "បរាជ័យ",
     add: "បន្ថែម",
+    appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
     title: "ថ្នាក់រៀនបត់បែន",

@@ -22,6 +22,7 @@ export const zhCN = {
     success: "成功",
     failed: "失败",
     add: "添加",
+    appName: "翔宇文淑直播平台",
   },
   login: {
     title: "灵动课堂",

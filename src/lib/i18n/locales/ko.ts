@@ -24,6 +24,7 @@ export const ko: typeof zhCN = {
     success: "성공",
     failed: "실패",
     add: "추가",
+    appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
     title: "유연한 교실",

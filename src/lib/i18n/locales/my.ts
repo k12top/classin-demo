@@ -24,6 +24,7 @@ export const my: typeof zhCN = {
     success: "အောင်မြင်သည်",
     failed: "မအောင်မြင်ပါ",
     add: "ထည့်သွင်းရန်",
+    appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
     title: "ပြောင်းလွယ်ပြင်လွယ် စာသင်ခန်း",
