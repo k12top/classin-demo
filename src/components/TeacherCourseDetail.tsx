@@ -462,7 +462,7 @@ export default function TeacherCourseDetail({
 
       {/* Main Tabs Area */}
       <Tabs defaultValue="members" className="w-full" onValueChange={(v) => setActiveTab(v as any)}>
-        <TabsList className="bg-black/20 border border-white/5 backdrop-blur-md mb-6 inline-flex w-full md:w-auto overflow-x-auto custom-scrollbar">
+        <TabsList className="bg-black/20 border border-white/5 backdrop-blur-md mb-6 inline-flex w-full md:w-auto overflow-x-auto no-scrollbar">
           <TabsTrigger value="members" className="flex-1 md:flex-none data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300 whitespace-nowrap">
             <Users className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.members")}
           </TabsTrigger>

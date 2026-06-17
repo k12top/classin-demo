@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Calendar as CalendarIcon, Users, Settings, LogOut, ChevronLeft, ChevronRight, PlayCircle, Plus, Search, Trash2, Link as LinkIcon, Edit, UserPlus, Info, Clock } from "lucide-react";
+import { Calendar as CalendarIcon, Users, Settings, LogOut, ChevronLeft, ChevronRight, PlayCircle, Plus, Search, Trash2, Link as LinkIcon, Edit, UserPlus, Info, Clock, Globe } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
@@ -51,6 +51,33 @@ const ROOM_TYPE_KEYS: Record<number, string> = {
 
 type SidebarPage = "schedule" | "students" | "settings";
 
+interface TimezoneConfig {
+  id: string;
+  nameCN: string;
+  nameEN: string;
+  timezone: string;
+  flag: string;
+  offset: string;
+}
+
+const SUPPORTED_TIMEZONES: TimezoneConfig[] = [
+  { id: "SG", nameCN: "新加坡", nameEN: "Singapore", timezone: "Asia/Singapore", flag: "🇸🇬", offset: "UTC+8" },
+  { id: "MY", nameCN: "马来西亚", nameEN: "Malaysia", timezone: "Asia/Kuala_Lumpur", flag: "🇲🇾", offset: "UTC+8" },
+  { id: "PH", nameCN: "菲律宾", nameEN: "Philippines", timezone: "Asia/Manila", flag: "🇵🇭", offset: "UTC+8" },
+  { id: "TH", nameCN: "泰国", nameEN: "Thailand", timezone: "Asia/Bangkok", flag: "🇹🇭", offset: "UTC+7" },
+  { id: "VN", nameCN: "越南", nameEN: "Vietnam", timezone: "Asia/Ho_Chi_Minh", flag: "🇻🇳", offset: "UTC+7" },
+  { id: "ID_WIB", nameCN: "印尼 (雅加达)", nameEN: "Indonesia (Jakarta)", timezone: "Asia/Jakarta", flag: "🇮🇩", offset: "UTC+7" },
+  { id: "ID_WITA", nameCN: "印尼 (巴厘岛)", nameEN: "Indonesia (Bali)", timezone: "Asia/Makassar", flag: "🇮🇩", offset: "UTC+8" },
+  { id: "LA", nameCN: "老挝", nameEN: "Laos", timezone: "Asia/Vientiane", flag: "🇱🇦", offset: "UTC+7" },
+  { id: "KH", nameCN: "柬埔寨", nameEN: "Cambodia", timezone: "Asia/Phnom_Penh", flag: "🇰🇭", offset: "UTC+7" },
+  { id: "MM", nameCN: "缅甸", nameEN: "Myanmar", timezone: "Asia/Yangon", flag: "🇲🇲", offset: "UTC+6:30" },
+  { id: "CN", nameCN: "中国 (北京)", nameEN: "China (Beijing)", timezone: "Asia/Shanghai", flag: "🇨🇳", offset: "UTC+8" },
+  { id: "JP", nameCN: "日本", nameEN: "Japan", timezone: "Asia/Tokyo", flag: "🇯🇵", offset: "UTC+9" },
+  { id: "KR", nameCN: "韩国", nameEN: "South Korea", timezone: "Asia/Seoul", flag: "🇰🇷", offset: "UTC+9" }
+];
+
+const DEFAULT_TIMEZONE_IDS = ["TH", "VN", "SG", "ID_WIB"];
+
 export default function TeacherDashboard({ courses, user, fetchCourses }: { courses: Course[], user: any, fetchCourses: () => void }) {
   const router = useRouter();
   const { logout } = useAuth();
@@ -79,6 +106,68 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     const tzOffset = now.getTimezoneOffset() * 60000;
     return new Date(now.getTime() - tzOffset).toISOString().slice(0, 16);
   })();
+
+  // Timezone conversion state
+  const [selectedTzIds, setSelectedTzIds] = useState<string[]>([]);
+  const [showTzConfig, setShowTzConfig] = useState(false);
+
+  // Load selected timezones on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("classroom_selected_timezones");
+      if (saved) {
+        try {
+          setSelectedTzIds(JSON.parse(saved));
+        } catch {
+          setSelectedTzIds(DEFAULT_TIMEZONE_IDS);
+        }
+      } else {
+        setSelectedTzIds(DEFAULT_TIMEZONE_IDS);
+      }
+    }
+  }, []);
+
+  // Save selected timezones when changed
+  const handleTzToggle = (id: string) => {
+    setSelectedTzIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      localStorage.setItem("classroom_selected_timezones", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // Convert createStartTime to target countries' times
+  const convertedTimes = useMemo(() => {
+    if (!createStartTime) return [];
+    const localDate = new Date(createStartTime);
+    if (isNaN(localDate.getTime())) return [];
+
+    return SUPPORTED_TIMEZONES
+      .filter((tz) => selectedTzIds.includes(tz.id))
+      .map((tz) => {
+        try {
+          const formatted = localDate.toLocaleString(locale === "zh-CN" ? "zh-CN" : "en-US", {
+            timeZone: tz.timezone,
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          });
+          return {
+            ...tz,
+            convertedTime: formatted,
+          };
+        } catch (e) {
+          console.error(`Failed to format timezone ${tz.timezone}:`, e);
+          return {
+            ...tz,
+            convertedTime: "Error",
+          };
+        }
+      });
+  }, [createStartTime, selectedTzIds, locale]);
 
   // Student management state
   const [myGroups, setMyGroups] = useState<GroupNode[]>([]);
@@ -839,6 +928,75 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                     }}
                   />
                 </div>
+              </div>
+
+              {/* Timezone Conversion Helper */}
+              <div className="bg-purple-500/5 border border-purple-500/10 p-3.5 rounded-lg space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
+                    <Globe className="h-3.5 w-3.5 text-purple-400" />
+                    <span>{locale === "zh-CN" ? "多国时间对照 (排课辅助)" : "Timezone Comparison (Scheduling Help)"}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowTzConfig(!showTzConfig)}
+                    className="text-[11px] text-purple-400 hover:text-purple-300 underline font-medium transition-all"
+                  >
+                    {showTzConfig 
+                      ? (locale === "zh-CN" ? "收起设定" : "Hide Settings") 
+                      : (locale === "zh-CN" ? "设定国家" : "Set Countries")}
+                  </button>
+                </div>
+
+                {showTzConfig && (
+                  <div className="flex flex-wrap gap-1.5 p-2 bg-black/25 rounded-md border border-white/5 animate-in fade-in duration-200">
+                    {SUPPORTED_TIMEZONES.map((tz) => {
+                      const isSelected = selectedTzIds.includes(tz.id);
+                      return (
+                        <button
+                          key={tz.id}
+                          type="button"
+                          onClick={() => handleTzToggle(tz.id)}
+                          className={`flex items-center gap-1 px-2.5 py-1 text-[10px] rounded-full border transition-all ${
+                            isSelected
+                              ? "bg-purple-500/20 border-purple-500/50 text-purple-200 font-medium"
+                              : "bg-black/10 border-white/5 text-muted-foreground hover:border-white/10"
+                          }`}
+                        >
+                          <span>{tz.flag}</span>
+                          <span>{locale === "zh-CN" ? tz.nameCN : tz.nameEN}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {selectedTzIds.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground text-center py-2">
+                    {locale === "zh-CN" ? "请设定需要对比的国家以进行对照" : "Please select countries to compare times."}
+                  </p>
+                ) : !createStartTime ? (
+                  <p className="text-[11px] text-muted-foreground text-center py-2">
+                    {locale === "zh-CN" ? "请选择上课时间以自动对照其他国家时间" : "Please select start time to display multi-country times."}
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {convertedTimes.map((item) => (
+                      <div key={item.id} className="bg-black/35 border border-white/5 rounded-md p-2 flex flex-col justify-center hover:border-purple-500/20 transition-all">
+                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                          <span className="flex items-center gap-1 font-medium text-purple-300">
+                            <span>{item.flag}</span>
+                            <span>{locale === "zh-CN" ? item.nameCN : item.nameEN}</span>
+                          </span>
+                          <span className="text-[9px] bg-purple-500/10 px-1 rounded text-purple-300/90 font-mono">{item.offset}</span>
+                        </div>
+                        <div className="text-[11px] font-semibold text-foreground mt-1 truncate">
+                          {item.convertedTime}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
