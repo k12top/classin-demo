@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
         }
       );
     } else {
-      // Student sees courses they're directly assigned to (all statuses)
+      // Student sees courses they're assigned to plus public classes.
       const directCourses = await prisma.course.findMany({
         where: {
           students: { some: { studentId: session.userId } },
@@ -125,8 +125,46 @@ export async function GET(request: NextRequest) {
         });
       }
 
+      const publicCourses = await prisma.course.findMany({
+        where: {
+          roomType: 10,
+          NOT: {
+            OR: [
+              { students: { some: { studentId: session.userId } } },
+              ...(groupIds.length > 0
+                ? [{ groupLinks: { some: { groupId: { in: groupIds } } } }]
+                : []),
+            ],
+          },
+          ...statusWhere,
+        },
+        include: {
+          students: { select: { studentId: true, studentName: true } },
+        },
+        orderBy,
+      });
+
       const courses = applyCourseListSort(
-        [...directCourses, ...groupCourses],
+        [
+          ...directCourses.map((course) => ({
+            ...course,
+            requiresPasscode: course.roomType === 10 && Boolean(course.passcode),
+            publicListing: false,
+            passcode: undefined,
+          })),
+          ...groupCourses.map((course) => ({
+            ...course,
+            requiresPasscode: course.roomType === 10 && Boolean(course.passcode),
+            publicListing: false,
+            passcode: undefined,
+          })),
+          ...publicCourses.map((course) => ({
+            ...course,
+            requiresPasscode: Boolean(course.passcode),
+            publicListing: true,
+            passcode: undefined,
+          })),
+        ],
         sortParsed
       );
       return NextResponse.json(
@@ -155,7 +193,16 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { name, description, roomType, startTime, endTime, studentRemarks, passcode } = body;
+    const {
+      name,
+      description,
+      roomType,
+      startTime,
+      endTime,
+      studentRemarks,
+      passcode,
+      requirePasscode,
+    } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Course name is required" }, { status: 400 });
@@ -170,11 +217,15 @@ export async function POST(request: NextRequest) {
 
     let finalPasscode: string | null = null;
     if (roomType === 10) {
-      const passcodeStr = passcode?.trim() || Math.floor(100000 + Math.random() * 900000).toString();
-      if (!/^\d{6}$/.test(passcodeStr)) {
-        return NextResponse.json({ error: "入会密码必须是6位数字" }, { status: 400 });
+      const shouldRequirePasscode =
+        requirePasscode === true || (requirePasscode === undefined && Boolean(passcode?.trim()));
+      if (shouldRequirePasscode) {
+        const passcodeStr = passcode?.trim() || Math.floor(100000 + Math.random() * 900000).toString();
+        if (!/^\d{6}$/.test(passcodeStr)) {
+          return NextResponse.json({ error: "入会密码必须是6位数字" }, { status: 400 });
+        }
+        finalPasscode = passcodeStr;
       }
-      finalPasscode = passcodeStr;
     }
 
     // Backend double-submit protection: check if a course with same teacher, name, startTime, and endTime was created within the last 5 seconds

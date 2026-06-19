@@ -136,6 +136,16 @@ export async function resolveCourseAccess(
       };
     }
 
+    if (course.roomType === 10 && !course.passcode) {
+      return {
+        ok: true,
+        role: "student",
+        roomType: course.roomType,
+        roomName: course.name,
+        teacherName: course.teacherName,
+      };
+    }
+
     return {
       ok: false,
       httpStatus: 403,

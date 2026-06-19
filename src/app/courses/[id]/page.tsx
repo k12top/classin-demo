@@ -22,6 +22,7 @@ interface CourseDetail {
   name: string;
   description: string;
   roomType: number;
+  requiresPasscode?: boolean;
   teacherId: string;
   teacherName: string;
   status: string;
@@ -192,7 +193,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
       </div>
 
       {/* Main Content */}
-      <main className={`max-w-6xl mx-auto px-6 py-8 ${!isEnrolled && course.roomType === 10 ? "flex justify-center items-center min-h-[calc(100vh-10rem)]" : ""}`}>
+      <main className={`max-w-6xl mx-auto px-6 py-8 ${!isEnrolled && course.roomType === 10 && course.requiresPasscode ? "flex justify-center items-center min-h-[calc(100vh-10rem)]" : ""}`}>
         {isTeacher ? (
           <TeacherCourseDetail 
             course={course} 
@@ -201,7 +202,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
             enterLoading={enterLoading}
             fetchCourse={fetchCourse}
           />
-        ) : !isEnrolled && course.roomType === 10 ? (
+        ) : !isEnrolled && course.roomType === 10 && course.requiresPasscode ? (
           <PasscodeGate 
             course={course}
             t={t}

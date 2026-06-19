@@ -104,18 +104,13 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const [createName, setCreateName] = useState("");
   const [createDesc, setCreateDesc] = useState("");
   const [createRoomType, setCreateRoomType] = useState(0);
+  const [createRequirePasscode, setCreateRequirePasscode] = useState(true);
   const [createPasscode, setCreatePasscode] = useState("");
   const [createStartTime, setCreateStartTime] = useState("");
   const [createEndTime, setCreateEndTime] = useState("");
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState("");
   const createLockRef = useRef(false);
-
-  useEffect(() => {
-    if (createRoomType === 10 && !createPasscode) {
-      setCreatePasscode(Math.floor(100000 + Math.random() * 900000).toString());
-    }
-  }, [createRoomType, createPasscode]);
 
   const minDateTime = (() => {
     const now = new Date();
@@ -310,7 +305,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     if (new Date(createStartTime) < new Date(Date.now() - 120000)) { setCreateError(t("teacherDashboard.errStartTimePast")); return; }
     if (!createEndTime) { setCreateError(t("teacherDashboard.errEndTimeEmpty")); return; }
     if (new Date(createEndTime) <= new Date(createStartTime)) { setCreateError(t("teacherDashboard.errEndTimeBefore")); return; }
-    if (createRoomType === 10) {
+    if (createRoomType === 10 && createRequirePasscode) {
       if (createPasscode && !/^\d{6}$/.test(createPasscode)) {
         setCreateError(t("teacherDashboard.errPasscodeInvalid"));
         return;
@@ -328,7 +323,8 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
           name: createName,
           description: createDesc,
           roomType: createRoomType,
-          passcode: createRoomType === 10 ? createPasscode : undefined,
+          requirePasscode: createRoomType === 10 ? createRequirePasscode : undefined,
+          passcode: createRoomType === 10 && createRequirePasscode ? createPasscode : undefined,
           startTime: new Date(createStartTime).toISOString(),
           endTime: new Date(createEndTime).toISOString(),
         }),
@@ -339,7 +335,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       }
       const { course } = await res.json();
       setCreateOpen(false);
-      setCreateName(""); setCreateDesc(""); setCreateRoomType(0); setCreatePasscode(""); setCreateStartTime(""); setCreateEndTime("");
+      setCreateName(""); setCreateDesc(""); setCreateRoomType(0); setCreateRequirePasscode(true); setCreatePasscode(""); setCreateStartTime(""); setCreateEndTime("");
       fetchCourses();
       router.push(`/courses/${course.id}`);
     } catch (err) {
@@ -1144,7 +1140,12 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                       <button
                         key={rt.value}
                         type="button"
-                        onClick={() => setCreateRoomType(rt.value)}
+                        onClick={() => {
+                          setCreateRoomType(rt.value);
+                          if (rt.value === 10 && createRequirePasscode && !createPasscode) {
+                            setCreatePasscode(Math.floor(100000 + Math.random() * 900000).toString());
+                          }
+                        }}
                         className={`flex flex-col items-center gap-2.5 p-4 rounded-xl border-2 transition-all text-center ${
                           createRoomType === rt.value
                             ? "border-primary bg-primary/5 shadow-sm"
@@ -1162,18 +1163,55 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
               {createRoomType === 10 && (
                 <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("teacherDashboard.fieldPasscode")} <span className="text-red-400">*</span></label>
-                  <Input
-                    className="bg-background border-primary/20 hover:border-primary/40 focus-visible:ring-primary/40 font-mono text-center text-lg tracking-widest rounded-xl"
-                    placeholder={t("teacherDashboard.fieldPasscodePlaceholder")}
-                    value={createPasscode}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/\D/g, "").slice(0, 6);
-                      setCreatePasscode(val);
-                      setCreateError("");
-                    }}
-                    maxLength={6}
-                  />
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("teacherDashboard.fieldPasscode")}</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCreateRequirePasscode(false);
+                        setCreateError("");
+                      }}
+                      className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold transition-all ${
+                        !createRequirePasscode
+                          ? "border-primary bg-primary/5 text-primary"
+                          : "border-border bg-card text-muted-foreground hover:border-border/80"
+                      }`}
+                    >
+                      <Globe className="h-4 w-4" />
+                      <span>{locale === "zh-CN" ? "无需密码，直接进入" : "Open entry"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCreateRequirePasscode(true);
+                        if (!createPasscode) {
+                          setCreatePasscode(Math.floor(100000 + Math.random() * 900000).toString());
+                        }
+                        setCreateError("");
+                      }}
+                      className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold transition-all ${
+                        createRequirePasscode
+                          ? "border-primary bg-primary/5 text-primary"
+                          : "border-border bg-card text-muted-foreground hover:border-border/80"
+                      }`}
+                    >
+                      <Key className="h-4 w-4" />
+                      <span>{locale === "zh-CN" ? "需要 Passcode" : "Require passcode"}</span>
+                    </button>
+                  </div>
+                  {createRequirePasscode && (
+                    <Input
+                      className="bg-background border-primary/20 hover:border-primary/40 focus-visible:ring-primary/40 font-mono text-center text-lg tracking-widest rounded-xl"
+                      placeholder={t("teacherDashboard.fieldPasscodePlaceholder")}
+                      value={createPasscode}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, "").slice(0, 6);
+                        setCreatePasscode(val);
+                        setCreateError("");
+                      }}
+                      maxLength={6}
+                    />
+                  )}
                 </div>
               )}
             </div>

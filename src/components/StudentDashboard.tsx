@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { BookOpen, Settings, LogOut, Calendar, Clock, User, Pencil, PlayCircle, Loader2, Info, FileText, MessageSquare, ExternalLink } from "lucide-react";
+import { BookOpen, Settings, LogOut, Calendar, Clock, User, Pencil, PlayCircle, Loader2, Info, FileText, MessageSquare, ExternalLink, Key } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { CourseStatus, isUpcomingStatus, canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
@@ -33,6 +33,8 @@ interface Course {
   createdAt: string;
   updatedAt: string;
   recordUrl?: string | null;
+  requiresPasscode?: boolean;
+  publicListing?: boolean;
 }
 
 const ROOM_TYPE_KEYS: Record<number, string> = {
@@ -157,6 +159,10 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
   // Direct joining logic
   const handleEnterClassroomDirect = async (course: Course) => {
     if (enteringCourseId) return;
+    if (course.publicListing && course.requiresPasscode) {
+      router.push(`/courses/${course.id}`);
+      return;
+    }
     setEnteringCourseId(course.id);
 
     try {
@@ -392,6 +398,12 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                                       {course.name}
                                     </h3>
                                     <CourseStatusBadge status={course.status} />
+                                    {course.publicListing && course.requiresPasscode && (
+                                      <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary text-[10px] flex items-center gap-1">
+                                        <Key className="h-3 w-3" />
+                                        <span>{t("courseDetail.passcodeLabel")}</span>
+                                      </Badge>
+                                    )}
                                   </div>
                                   <div className="flex items-center gap-1.5 text-muted-foreground text-xs font-medium">
                                     <User className="h-3.5 w-3.5" />
@@ -510,6 +522,12 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                     {t(ROOM_TYPE_KEYS[selectedDetailCourse.roomType]) || t("common.unknown")}
                   </Badge>
                   <CourseStatusBadge status={selectedDetailCourse.status} />
+                  {selectedDetailCourse.publicListing && selectedDetailCourse.requiresPasscode && (
+                    <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary text-[10px] flex items-center gap-1">
+                      <Key className="h-3 w-3" />
+                      <span>{t("courseDetail.passcodeLabel")}</span>
+                    </Badge>
+                  )}
                 </div>
                 <DialogTitle className="text-xl font-bold text-foreground leading-tight">
                   {selectedDetailCourse.name}

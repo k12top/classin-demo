@@ -51,7 +51,10 @@ export async function GET(
     }
 
     const isTeacher = casdoorUserIdsMatch(course.teacherId, session.userId);
-    const serialized = serializeCourse(course);
+    const serialized = serializeCourse({
+      ...course,
+      requiresPasscode: course.roomType === 10 && Boolean(course.passcode),
+    });
     if (!isTeacher) {
       delete (serialized as any).passcode;
     }
