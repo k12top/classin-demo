@@ -240,7 +240,6 @@ export default async function CourseSharePage({
   );
 
   if (
-    session.role === "student" &&
     !isTeacher &&
     !isDirectStudent &&
     !isGroupStudent

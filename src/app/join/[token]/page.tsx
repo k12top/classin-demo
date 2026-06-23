@@ -75,6 +75,21 @@ export default async function JoinPage({
 
   const access = await resolveCourseAccess(resolved.courseId, session.userId);
   if (!access.ok) {
+    if (access.code === "not_enrolled") {
+      await prisma.courseStudent.createMany({
+        data: [
+          {
+            courseId: course.id,
+            studentId: session.userId,
+            studentName: session.displayName || session.name,
+          },
+        ],
+        skipDuplicates: true,
+      });
+      await recordJoinLinkUse(resolved.linkId);
+      redirect(`/courses/${course.id}`);
+    }
+
     if (course.roomType === 10) {
       redirect(`/courses/${course.id}`);
     }
