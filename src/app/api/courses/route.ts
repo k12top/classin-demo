@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { buildJoinUrl, joinLinkStatus } from "@/lib/join-link";
+import { buildCourseShareUrl, buildJoinUrl, joinLinkStatus } from "@/lib/join-link";
 import { serializeCourse, serializeCourses } from "@/lib/course-serialize";
 import { promoteCourseIfDueById, promoteCoursesIfDue } from "@/lib/course-promote";
 import {
@@ -58,6 +58,7 @@ export async function GET(request: NextRequest) {
             select: {
               id: true,
               token: true,
+              purpose: true,
               label: true,
               expiresAt: true,
               revokedAt: true,
@@ -72,11 +73,19 @@ export async function GET(request: NextRequest) {
         coursesRaw.map(({ joinLinks, ...course }) => ({
           ...course,
           activeJoinLinks: joinLinks
-            .filter((l) => joinLinkStatus(l) === "active")
+            .filter((l) => joinLinkStatus(l) === "active" && l.purpose !== "course")
             .map((l) => ({
               id: l.id,
               label: l.label,
               joinUrl: buildJoinUrl(origin, l.token),
+              useCount: l.useCount,
+            })),
+          activeCourseShareLinks: joinLinks
+            .filter((l) => joinLinkStatus(l) === "active" && l.purpose === "course")
+            .map((l) => ({
+              id: l.id,
+              label: l.label,
+              courseShareUrl: buildCourseShareUrl(origin, l.token),
               useCount: l.useCount,
             })),
         })),

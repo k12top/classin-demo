@@ -37,6 +37,7 @@ interface Course {
   updatedAt: string;
   students?: { studentId: string; studentName: string }[];
   activeJoinLinks?: { id: string; label: string; joinUrl: string; useCount: number }[];
+  activeCourseShareLinks?: { id: string; label: string; courseShareUrl: string; useCount: number }[];
 }
 
 interface GroupNode {
@@ -717,9 +718,25 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                 <LinkIcon className="h-3.5 w-3.5" />
                                 <span>{t("teacherDashboard.quickInvite")}</span>
                               </div>
-                              {course.activeJoinLinks && course.activeJoinLinks.length > 0 ? (
+                              {Boolean(
+                                course.activeCourseShareLinks?.length ||
+                                  course.activeJoinLinks?.length
+                              ) ? (
                                 <div className="flex flex-wrap gap-1.5">
-                                  {course.activeJoinLinks.map((link) => (
+                                  {course.activeCourseShareLinks?.map((link) => (
+                                    <Button
+                                      key={link.id}
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 text-xs border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 rounded-lg"
+                                      onClick={() => void copyShareUrl(link.courseShareUrl)}
+                                    >
+                                      <BookOpen className="h-3 w-3 mr-1" />
+                                      <span>{link.label.trim() ? link.label.slice(0, 14) : t("common.unknown")}</span>
+                                      {link.useCount ? <span className="ml-1 opacity-70">· {link.useCount}</span> : ""}
+                                    </Button>
+                                  ))}
+                                  {course.activeJoinLinks?.map((link) => (
                                     <Button
                                       key={link.id}
                                       variant="outline"
@@ -727,7 +744,8 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                       className="h-7 text-xs border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 rounded-lg"
                                       onClick={() => void copyShareUrl(link.joinUrl)}
                                     >
-                                      <span>{link.label.trim() ? link.label.slice(0, 18) : t("common.unknown")}</span>
+                                      <PlayCircle className="h-3 w-3 mr-1" />
+                                      <span>{link.label.trim() ? link.label.slice(0, 14) : t("common.unknown")}</span>
                                       {link.useCount ? <span className="ml-1 opacity-70">· {link.useCount}</span> : ""}
                                     </Button>
                                   ))}

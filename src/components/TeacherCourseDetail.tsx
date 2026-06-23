@@ -79,7 +79,8 @@ export default function TeacherCourseDetail({
   // Links
   const [joinLinks, setJoinLinks] = useState<any[]>([]);
   const [joinLinkBusy, setJoinLinkBusy] = useState(false);
-  const [newLinkLabel, setNewLinkLabel] = useState("");
+  const [newCourseLinkLabel, setNewCourseLinkLabel] = useState("");
+  const [newLiveLinkLabel, setNewLiveLinkLabel] = useState("");
   const [copyHint, setCopyHint] = useState("");
 
   // Courseware Tab State
@@ -204,21 +205,28 @@ export default function TeacherCourseDetail({
     }
   };
 
-  const handleCreateJoinLink = async () => {
+  const handleCreateJoinLink = async (purpose: "course" | "live") => {
+    const label =
+      purpose === "course" ? newCourseLinkLabel.trim() : newLiveLinkLabel.trim();
     setJoinLinkBusy(true);
     try {
       const res = await fetch(`/api/courses/${course.id}/join-links`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ label: newLinkLabel.trim() || undefined }),
+        body: JSON.stringify({ purpose, label: label || undefined }),
       });
       if (res.ok) {
-        setNewLinkLabel("");
+        if (purpose === "course") {
+          setNewCourseLinkLabel("");
+        } else {
+          setNewLiveLinkLabel("");
+        }
         await fetchJoinLinks();
         const data = await res.json();
-        if (data.link?.joinUrl) {
-          await copyText(data.link.joinUrl, t("courseDetail.shareLinkCreatedAndCopied"));
+        const url = data.link?.shareUrl || data.link?.courseShareUrl || data.link?.joinUrl;
+        if (url) {
+          await copyText(url, t("courseDetail.shareLinkCreatedAndCopied"));
         }
       }
     } finally {
@@ -388,6 +396,37 @@ export default function TeacherCourseDetail({
       console.error(err);
     }
   };
+
+  const courseShareLinks = joinLinks.filter((link) => link.purpose === "course");
+  const liveJoinLinks = joinLinks.filter((link) => link.purpose !== "course");
+  const sharingText =
+    locale === "zh-CN"
+      ? {
+          courseTitle: "课程分享链接",
+          courseDesc: "学生打开后会登录或注册，并自动加入课程，最后进入课程详情页。",
+          liveTitle: "直播分享链接",
+          liveDesc: "用于已有课程权限的用户直接进入直播教室；不会自动加入课程。",
+          coursePlaceholder: "课程链接备注（如：报名群）",
+          livePlaceholder: "直播链接备注（如：家长旁听）",
+          courseEmpty: "暂无课程分享链接。",
+          liveEmpty: "暂无直播分享链接。",
+          activeCourseLinks: "课程链接",
+          activeLiveLinks: "直播链接",
+        }
+      : {
+          courseTitle: "Course Share Links",
+          courseDesc:
+            "Students open this link to sign in or register, auto-enroll, then land on the course page.",
+          liveTitle: "Live Share Links",
+          liveDesc:
+            "For users who already have course access to open the live classroom directly. It does not enroll students.",
+          coursePlaceholder: "Course link note, e.g. enrollment group",
+          livePlaceholder: "Live link note, e.g. parent observer",
+          courseEmpty: "No course share links yet.",
+          liveEmpty: "No live share links yet.",
+          activeCourseLinks: "Course Links",
+          activeLiveLinks: "Live Links",
+        };
 
   const getFileIcon = (ext: string) => {
     const normExt = ext.toLowerCase();
@@ -693,71 +732,159 @@ export default function TeacherCourseDetail({
         </TabsContent>
 
         <TabsContent value="sharing" className="mt-0">
-          <Card className="border border-border/60 bg-card rounded-2xl shadow-sm max-w-3xl">
-            <CardHeader>
-              <CardTitle className="text-lg font-bold">{t("courseDetail.generateShareLink")}</CardTitle>
-              <CardDescription className="text-xs">
-                {t("courseDetail.generateShareLinkDesc")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <Input
-                  className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
-                  placeholder={t("courseDetail.linkLabelPlaceholder")}
-                  value={newLinkLabel}
-                  onChange={(e) => setNewLinkLabel(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleCreateJoinLink()}
-                />
-                <Button className="bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all shrink-0 text-xs px-4" disabled={joinLinkBusy} onClick={handleCreateJoinLink}>
-                  {joinLinkBusy ? t("common.submitting") : t("courseDetail.btnGenerateLink")}
-                </Button>
-              </div>
-              
-              {copyHint && (
-                <div className="mt-4 p-3 bg-green-500/5 border border-green-500/20 rounded-xl text-green-600 dark:text-green-400 text-xs flex items-center gap-2 font-medium">
-                  <Check className="h-4 w-4" /> {copyHint}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-lg font-bold flex items-center gap-2">
+                  <BookOpen className="h-5 w-5 text-primary" />
+                  {sharingText.courseTitle}
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  {sharingText.courseDesc}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <Input
+                    className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
+                    placeholder={sharingText.coursePlaceholder}
+                    value={newCourseLinkLabel}
+                    onChange={(e) => setNewCourseLinkLabel(e.target.value)}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && handleCreateJoinLink("course")
+                    }
+                  />
+                  <Button
+                    className="bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all shrink-0 text-xs px-4"
+                    disabled={joinLinkBusy}
+                    onClick={() => handleCreateJoinLink("course")}
+                  >
+                    {joinLinkBusy ? t("common.submitting") : t("courseDetail.btnGenerateLink")}
+                  </Button>
                 </div>
-              )}
 
-              <div className="mt-10">
-                <h4 className="font-bold text-xs text-muted-foreground uppercase tracking-wider mb-4 pb-2 border-b border-border/40 flex items-center justify-between">
-                  {t("courseDetail.activeLinks")} <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/10">{joinLinks.length}</Badge>
-                </h4>
-                {joinLinks.length === 0 ? (
-                  <div className="p-8 text-center border border-dashed border-border/60 rounded-xl text-muted-foreground text-sm bg-muted/10">
-                    {t("courseDetail.noShareLinks")}
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {joinLinks.map((link) => (
-                      <div key={link.id} className="p-4 rounded-xl bg-muted/10 border border-border/40 hover:border-primary/20 transition-all flex flex-col h-full group">
-                        <div className="flex justify-between items-start mb-2">
-                          <strong className="font-semibold text-sm text-foreground">{link.label || t("courseDetail.noLabel")}</strong>
-                          <span className={`w-2 h-2 rounded-full ${link.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                        </div>
-                        <div className="text-xs text-muted-foreground space-y-1 mb-4 flex-1">
-                          <p>{t("courseDetail.linkUses", { count: link.useCount })}</p>
-                          {link.expiresAt && <p>{t("courseDetail.expiresAtLabel", { date: new Date(link.expiresAt).toLocaleDateString(locale) })}</p>}
-                        </div>
-                        
-                        {link.status === "active" && link.joinUrl && (
-                          <div className="flex gap-2 mt-auto">
-                            <Button size="sm" className="flex-1 bg-muted border border-border/60 hover:bg-muted/80 text-foreground rounded-lg text-xs" onClick={() => void copyText(link.joinUrl!, t("courseDetail.copySuccess"))}>
-                              <Copy className="h-3.5 w-3.5 mr-1" /> {t("courseDetail.btnCopy")}
-                            </Button>
-                            <Button size="sm" variant="destructive" className="bg-red-500/5 text-red-500 hover:bg-red-500/10 border-0 rounded-lg text-xs" disabled={joinLinkBusy} onClick={() => handleRevokeJoinLink(link.id)}>
-                              {t("courseDetail.btnRevoke")}
-                            </Button>
+                <div className="mt-8">
+                  <h4 className="font-bold text-xs text-muted-foreground uppercase tracking-wider mb-4 pb-2 border-b border-border/40 flex items-center justify-between">
+                    {sharingText.activeCourseLinks}
+                    <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/10">{courseShareLinks.length}</Badge>
+                  </h4>
+                  {courseShareLinks.length === 0 ? (
+                    <div className="p-8 text-center border border-dashed border-border/60 rounded-xl text-muted-foreground text-sm bg-muted/10">
+                      {sharingText.courseEmpty}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-4">
+                      {courseShareLinks.map((link) => {
+                        const url = link.courseShareUrl || link.shareUrl;
+                        return (
+                          <div key={link.id} className="p-4 rounded-xl bg-muted/10 border border-border/40 hover:border-primary/20 transition-all flex flex-col h-full group">
+                            <div className="flex justify-between items-start mb-2">
+                              <strong className="font-semibold text-sm text-foreground">{link.label || t("courseDetail.noLabel")}</strong>
+                              <span className={`w-2 h-2 rounded-full ${link.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                            </div>
+                            <div className="text-xs text-muted-foreground space-y-1 mb-4 flex-1">
+                              <p>{t("courseDetail.linkUses", { count: link.useCount })}</p>
+                              {link.expiresAt && <p>{t("courseDetail.expiresAtLabel", { date: new Date(link.expiresAt).toLocaleDateString(locale) })}</p>}
+                            </div>
+
+                            {link.status === "active" && url && (
+                              <div className="flex gap-2 mt-auto">
+                                <Button size="sm" className="flex-1 bg-muted border border-border/60 hover:bg-muted/80 text-foreground rounded-lg text-xs" onClick={() => void copyText(url, t("courseDetail.copySuccess"))}>
+                                  <Copy className="h-3.5 w-3.5 mr-1" /> {t("courseDetail.btnCopy")}
+                                </Button>
+                                <Button size="sm" variant="destructive" className="bg-red-500/5 text-red-500 hover:bg-red-500/10 border-0 rounded-lg text-xs" disabled={joinLinkBusy} onClick={() => handleRevokeJoinLink(link.id)}>
+                                  {t("courseDetail.btnRevoke")}
+                                </Button>
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-lg font-bold flex items-center gap-2">
+                  <LinkIcon className="h-5 w-5 text-primary" />
+                  {sharingText.liveTitle}
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  {sharingText.liveDesc}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <Input
+                    className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
+                    placeholder={sharingText.livePlaceholder}
+                    value={newLiveLinkLabel}
+                    onChange={(e) => setNewLiveLinkLabel(e.target.value)}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && handleCreateJoinLink("live")
+                    }
+                  />
+                  <Button
+                    className="bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all shrink-0 text-xs px-4"
+                    disabled={joinLinkBusy}
+                    onClick={() => handleCreateJoinLink("live")}
+                  >
+                    {joinLinkBusy ? t("common.submitting") : t("courseDetail.btnGenerateLink")}
+                  </Button>
+                </div>
+
+                <div className="mt-8">
+                  <h4 className="font-bold text-xs text-muted-foreground uppercase tracking-wider mb-4 pb-2 border-b border-border/40 flex items-center justify-between">
+                    {sharingText.activeLiveLinks}
+                    <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/10">{liveJoinLinks.length}</Badge>
+                  </h4>
+                  {liveJoinLinks.length === 0 ? (
+                    <div className="p-8 text-center border border-dashed border-border/60 rounded-xl text-muted-foreground text-sm bg-muted/10">
+                      {sharingText.liveEmpty}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-4">
+                      {liveJoinLinks.map((link) => {
+                        const url = link.joinUrl || link.shareUrl;
+                        return (
+                          <div key={link.id} className="p-4 rounded-xl bg-muted/10 border border-border/40 hover:border-primary/20 transition-all flex flex-col h-full group">
+                            <div className="flex justify-between items-start mb-2">
+                              <strong className="font-semibold text-sm text-foreground">{link.label || t("courseDetail.noLabel")}</strong>
+                              <span className={`w-2 h-2 rounded-full ${link.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                            </div>
+                            <div className="text-xs text-muted-foreground space-y-1 mb-4 flex-1">
+                              <p>{t("courseDetail.linkUses", { count: link.useCount })}</p>
+                              {link.expiresAt && <p>{t("courseDetail.expiresAtLabel", { date: new Date(link.expiresAt).toLocaleDateString(locale) })}</p>}
+                            </div>
+
+                            {link.status === "active" && url && (
+                              <div className="flex gap-2 mt-auto">
+                                <Button size="sm" className="flex-1 bg-muted border border-border/60 hover:bg-muted/80 text-foreground rounded-lg text-xs" onClick={() => void copyText(url, t("courseDetail.copySuccess"))}>
+                                  <Copy className="h-3.5 w-3.5 mr-1" /> {t("courseDetail.btnCopy")}
+                                </Button>
+                                <Button size="sm" variant="destructive" className="bg-red-500/5 text-red-500 hover:bg-red-500/10 border-0 rounded-lg text-xs" disabled={joinLinkBusy} onClick={() => handleRevokeJoinLink(link.id)}>
+                                  {t("courseDetail.btnRevoke")}
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {copyHint && (
+              <div className="xl:col-span-2 p-3 bg-green-500/5 border border-green-500/20 rounded-xl text-green-600 dark:text-green-400 text-xs flex items-center gap-2 font-medium">
+                <Check className="h-4 w-4" /> {copyHint}
               </div>
-            </CardContent>
-          </Card>
+            )}
+          </div>
         </TabsContent>
 
         <TabsContent value="courseware" className="mt-0">

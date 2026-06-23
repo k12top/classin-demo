@@ -82,6 +82,9 @@ GET /api/courses?status=scheduled
       ],
       "activeJoinLinks": [
         { "id": "...", "label": "分享链接", "joinUrl": "https://.../join/xxx", "useCount": 3 }
+      ],
+      "activeCourseShareLinks": [
+        { "id": "...", "label": "课程分享链接", "courseShareUrl": "https://.../course-share/xxx", "useCount": 5 }
       ]
     }
   ]
@@ -130,7 +133,8 @@ GET /api/courses?status=scheduled
 | endTime | string? | 结束时间（ISO 格式） |
 | studentRemarks | string | 学生需求备注 |
 | students | array | 直接分配的学生列表 |
-| activeJoinLinks | array | 教师可见：活跃的分享链接（学生无此字段） |
+| activeJoinLinks | array | 教师可见：活跃的直播分享链接，打开后进入直播教室（学生无此字段） |
+| activeCourseShareLinks | array | 教师可见：活跃的课程分享链接，学生登录/注册后自动加入课程并进入课程详情页（学生无此字段） |
 
 ---
 

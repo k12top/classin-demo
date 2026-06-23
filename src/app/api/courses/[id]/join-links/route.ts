@@ -1,5 +1,5 @@
 /**
- * Course share / join links (teacher only)
+ * Course share / live join links (teacher only)
  * GET  /api/courses/:id/join-links — list
  * POST /api/courses/:id/join-links — create
  */
@@ -10,9 +10,12 @@ import { assertTeacherOwnsCourse } from "@/lib/course-teacher";
 
 export const dynamic = "force-dynamic";
 import {
+  buildCourseShareUrl,
   buildEmbedSnippet,
   buildJoinUrl,
   createJoinToken,
+  isJoinLinkPurpose,
+  JoinLinkPurpose,
   joinLinkStatus,
 } from "@/lib/join-link";
 
@@ -20,6 +23,7 @@ function serializeLink(
   link: {
     id: string;
     token: string;
+    purpose: string;
     label: string;
     expiresAt: Date | null;
     revokedAt: Date | null;
@@ -30,8 +34,13 @@ function serializeLink(
   origin: string
 ) {
   const status = joinLinkStatus(link);
+  const purpose: JoinLinkPurpose = link.purpose === "course" ? "course" : "live";
+  const liveUrl = buildJoinUrl(origin, link.token);
+  const courseShareUrl = buildCourseShareUrl(origin, link.token);
+  const shareUrl = purpose === "course" ? courseShareUrl : liveUrl;
   return {
     id: link.id,
+    purpose,
     label: link.label,
     token: link.token,
     status,
@@ -40,11 +49,18 @@ function serializeLink(
     useCount: link.useCount,
     lastUsedAt: link.lastUsedAt?.toISOString() ?? null,
     createdAt: link.createdAt.toISOString(),
-    joinUrl: status === "active" ? buildJoinUrl(origin, link.token) : null,
+    shareUrl: status === "active" ? shareUrl : null,
+    joinUrl: status === "active" && purpose === "live" ? liveUrl : null,
+    courseShareUrl:
+      status === "active" && purpose === "course" ? courseShareUrl : null,
     embedUrl:
-      status === "active" ? buildJoinUrl(origin, link.token, true) : null,
+      status === "active" && purpose === "live"
+        ? buildJoinUrl(origin, link.token, true)
+        : null,
     embedSnippet:
-      status === "active" ? buildEmbedSnippet(origin, link.token) : null,
+      status === "active" && purpose === "live"
+        ? buildEmbedSnippet(origin, link.token)
+        : null,
   };
 }
 
@@ -68,9 +84,12 @@ export async function GET(
       orderBy: { createdAt: "desc" },
     });
     const origin = request.nextUrl.origin;
+    const serializedLinks = links.map((l) => serializeLink(l, origin));
     return NextResponse.json(
       {
-        links: links.map((l) => serializeLink(l, origin)),
+        links: serializedLinks,
+        liveLinks: serializedLinks.filter((l) => l.purpose === "live"),
+        courseShareLinks: serializedLinks.filter((l) => l.purpose === "course"),
       },
       {
         headers: {
@@ -104,6 +123,9 @@ export async function POST(
   try {
     const body = await request.json().catch(() => ({}));
     const label = typeof body.label === "string" ? body.label.trim() : "";
+    const purpose: JoinLinkPurpose = isJoinLinkPurpose(body.purpose)
+      ? body.purpose
+      : "live";
     let expiresAt: Date | null = null;
     if (body.expiresAt) {
       const parsed = new Date(body.expiresAt);
@@ -117,7 +139,8 @@ export async function POST(
       data: {
         courseId,
         token,
-        label: label || "直播分享链接",
+        purpose,
+        label: label || (purpose === "course" ? "课程分享链接" : "直播分享链接"),
         createdBy: session.userId,
         expiresAt,
       },

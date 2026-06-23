@@ -37,11 +37,12 @@ model Course {
   @@index([status])
 }
 
-// ── Share link: SSO deep-link into live classroom (teacher-created, revocable) ──
+// ── Share link: teacher-created, revocable live or course enrollment link ──
 model CourseJoinLink {
   id         String    @id @default(uuid())
   courseId   String
   token      String    @unique
+  purpose    String    @default("live") // live | course
   label      String    @default("")
   createdBy  String
   expiresAt  DateTime?
@@ -53,6 +54,7 @@ model CourseJoinLink {
   course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@index([courseId])
+  @@index([courseId, purpose])
   @@index([createdBy])
 }
 

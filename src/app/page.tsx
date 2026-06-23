@@ -27,6 +27,7 @@ interface Course {
   students?: { studentId: string; studentName: string }[];
   groupLinks?: { group: { id: string; name: string } }[];
   activeJoinLinks?: { id: string; label: string; joinUrl: string; useCount: number }[];
+  activeCourseShareLinks?: { id: string; label: string; courseShareUrl: string; useCount: number }[];
 }
 
 function LoadingView({ message }: { message: string }) {
