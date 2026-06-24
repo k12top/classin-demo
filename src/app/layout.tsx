@@ -7,7 +7,7 @@ import { SupportedLocale } from "@/lib/i18n/locales";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "灵动课堂 — 在线互动教学平台",
+  title: "翔宇文淑-在线课堂",
   description:
     "基于声网技术打造 of 在线互动课堂，支持实时音视频、互动白板、即时消息等功能，为师生提供沉浸式教学体验。",
 };
@@ -40,4 +40,3 @@ export default async function RootLayout({
     </html>
   );
 }
-
