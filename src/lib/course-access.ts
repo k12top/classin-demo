@@ -1,7 +1,13 @@
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import type { CourseAccessDeniedCode } from "@/lib/access-denied-codes";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
-import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
+import {
+  canEnterClassroom,
+  courseNotStartedReason,
+  CourseStatus,
+  getEarlyClassroomEntryMinutes,
+  isTooEarlyToEnterClassroom,
+} from "@/lib/course-status";
 import { prisma } from "@/lib/db";
 
 export type CourseGateRole = "teacher" | "student";
@@ -90,6 +96,16 @@ export async function resolveCourseAccess(
         httpStatus: 403,
         reason: "课程已结束",
         code: "course_finished",
+      };
+    }
+
+    const earlyMinutes = getEarlyClassroomEntryMinutes();
+    if (isTooEarlyToEnterClassroom(course.startTime, new Date(), earlyMinutes)) {
+      return {
+        ok: false,
+        httpStatus: 403,
+        reason: courseNotStartedReason(earlyMinutes),
+        code: "course_not_started",
       };
     }
 

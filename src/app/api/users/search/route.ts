@@ -1,5 +1,5 @@
 /**
- * Search Casdoor users (for student assignment)
+ * Search Casdoor users (for course access assignment)
  * GET /api/users/search?q=xxx
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
   try {
     const users = await searchCasdoorUsers(query, {
       excludeUserId: session.userId,
-      studentsOnly: true,
+      studentsOnly: false,
       limit: 50,
     });
 

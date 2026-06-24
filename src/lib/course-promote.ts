@@ -1,11 +1,12 @@
 import { CourseStatus, getFinishedDelayMinutes } from "@/lib/course-status";
 import { prisma } from "@/lib/db";
 
-/** Promote afterClass courses whose endedAt + delay has passed to finished. */
+/** Promote courses to finished when their scheduled or fallback end time is due. */
 export async function promoteCoursesIfDue(
   courseIds?: string[]
 ): Promise<number> {
-  // 1. Promote afterClass courses whose endedAt + delay has passed
+  // 1. Promote afterClass courses only after their scheduled end time has
+  // passed. If no endTime exists, fall back to endedAt + delay.
   const delayMinutes = getFinishedDelayMinutes();
   const threshold = new Date(Date.now() - delayMinutes * 60 * 1000);
 
@@ -13,6 +14,7 @@ export async function promoteCoursesIfDue(
     where: {
       status: CourseStatus.AFTER_CLASS,
       endedAt: { not: null, lte: threshold },
+      OR: [{ endTime: null }, { endTime: { lte: threshold } }],
       ...(courseIds?.length ? { id: { in: courseIds } } : {}),
     },
     data: { status: CourseStatus.FINISHED },

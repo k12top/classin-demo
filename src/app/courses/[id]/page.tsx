@@ -15,6 +15,7 @@ import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
 import TeacherCourseDetail from "@/components/TeacherCourseDetail";
 import StudentCourseDetail from "@/components/StudentCourseDetail";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import { PageLoadingState } from "@/components/ui/page-loading-state";
 import { useTranslation } from "@/lib/i18n/context";
 
 interface CourseDetail {
@@ -122,14 +123,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   };
 
   if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-10 w-10 border-2 border-purple-500/20 border-t-purple-500" />
-          <p className="text-muted-foreground text-sm">{t("common.loading")}</p>
-        </div>
-      </div>
-    );
+    return <PageLoadingState message={t("common.loading")} variant="course" />;
   }
 
   if (error || !course) {
@@ -230,7 +224,7 @@ function PasscodeGate({
   t,
   onSuccess,
 }: {
-  course: any;
+  course: Pick<CourseDetail, "id" | "name" | "teacherName">;
   t: (key: string) => string;
   onSuccess: () => Promise<void>;
 }) {

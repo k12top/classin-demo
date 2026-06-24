@@ -87,6 +87,7 @@ const SUPPORTED_TIMEZONES: TimezoneConfig[] = [
 ];
 
 const DEFAULT_TIMEZONE_IDS = ["TH", "VN", "SG", "ID_WIB"];
+const CREATE_SUBMIT_DEBOUNCE_MS = 1200;
 
 export default function TeacherDashboard({ courses, user, fetchCourses }: { courses: Course[], user: any, fetchCourses: () => void }) {
   const router = useRouter();
@@ -112,6 +113,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState("");
   const createLockRef = useRef(false);
+  const lastCreateSubmitAtRef = useRef(0);
 
   const minDateTime = (() => {
     const now = new Date();
@@ -312,6 +314,12 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         return;
       }
     }
+
+    const now = Date.now();
+    if (now - lastCreateSubmitAtRef.current < CREATE_SUBMIT_DEBOUNCE_MS) {
+      return;
+    }
+    lastCreateSubmitAtRef.current = now;
     
     createLockRef.current = true;
     setCreateLoading(true);
@@ -337,7 +345,6 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       const { course } = await res.json();
       setCreateOpen(false);
       setCreateName(""); setCreateDesc(""); setCreateRoomType(0); setCreateRequirePasscode(true); setCreatePasscode(""); setCreateStartTime(""); setCreateEndTime("");
-      fetchCourses();
       router.push(`/courses/${course.id}`);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : t("common.failed"));
@@ -1239,7 +1246,12 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
               <Button
                 className="bg-primary hover:bg-primary/95 text-white rounded-xl text-xs font-semibold shadow-sm active:scale-[0.98]"
                 onClick={handleCreateCourse}
-                disabled={createLoading || !createName.trim()}
+                disabled={
+                  createLoading ||
+                  !createName.trim() ||
+                  !createStartTime ||
+                  !createEndTime
+                }
               >
                 {createLoading ? t("common.saving") : t("teacherDashboard.btnCreateCourse")}
               </Button>

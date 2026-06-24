@@ -4,12 +4,13 @@ import { useCallback, useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Script from "next/script";
-import { Loader2, ShieldCheck, Globe, BookOpen, Video, AlertCircle } from "lucide-react";
+import { ShieldCheck, BookOpen, Video, AlertCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
 import { useTranslation } from "@/lib/i18n/context";
+import { PageLoadingState } from "@/components/ui/page-loading-state";
 import {
   markClassroomDocumentActive,
   resetDocumentAfterClassroom,
@@ -93,6 +94,23 @@ function buildLaunchKey(
   return `${courseId}|${roomUuid}|${userId}`;
 }
 
+interface ClassroomCourseware {
+  id: string;
+  name: string;
+  ext: string;
+  url: string;
+  size?: number | null;
+  updatedAt: string;
+  taskStatus?: string | null;
+  taskUuid?: string | null;
+  type: string;
+  conversion?: unknown;
+}
+
+interface ClassroomCoursewareResponse {
+  courseware?: ClassroomCourseware[];
+}
+
 function ClassroomWelcomeLoader({
   status,
   roomName,
@@ -102,114 +120,107 @@ function ClassroomWelcomeLoader({
   roomName: string;
   t: (key: string) => string;
 }) {
-  const [progress, setProgress] = useState(10);
-  const [stageIndex, setStageIndex] = useState(0);
-
-  const stages = [
-    { text: t("classroom.verifyingAccess") || "Authenticating session...", icon: ShieldCheck },
-    { text: "Detecting local timezone...", icon: Globe },
-    { text: "Preparing digital whiteboard...", icon: BookOpen },
-    { text: "Establishing secure audio/video channel...", icon: Video },
-    { text: t("classroom.initializing") || "Preparing digital classroom...", icon: Loader2 },
-  ];
-
-  // Adjust stages text based on language if possible
+  const [progress, setProgress] = useState(status === "verifying" ? 18 : 48);
   const isZh = typeof window !== "undefined" && navigator.language.startsWith("zh");
-  const localStages = stages.map((stage, idx) => {
-    if (idx === 1) return { ...stage, text: isZh ? "正在检测您的本地时区..." : "Detecting local timezone..." };
-    if (idx === 2) return { ...stage, text: isZh ? "正在准备数字白板教具..." : "Preparing digital whiteboard..." };
-    if (idx === 3) return { ...stage, text: isZh ? "正在建立音视频安全通道..." : "Establishing secure audio/video channel..." };
-    return stage;
-  });
+  const activeIndex = status === "verifying" ? 0 : 2;
+  const steps = [
+    {
+      label: isZh ? "身份校验" : "Access check",
+      detail: t("classroom.verifyingAccess") || (isZh ? "正在校验课堂权限" : "Checking classroom access"),
+      icon: ShieldCheck,
+    },
+    {
+      label: isZh ? "课堂资源" : "Class assets",
+      detail: isZh ? "正在准备白板和课件" : "Preparing whiteboard and courseware",
+      icon: BookOpen,
+    },
+    {
+      label: isZh ? "音视频通道" : "Media channel",
+      detail: isZh ? "正在建立音视频连接" : "Opening audio/video channel",
+      icon: Video,
+    },
+  ];
+  const ActiveIcon = steps[activeIndex].icon;
+  const targetProgress = status === "verifying" ? 48 : 92;
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev < 95) {
-          const increment = Math.floor(Math.random() * 8) + 2;
-          const next = prev + increment;
-          const newStage = Math.min(Math.floor(next / 20), localStages.length - 1);
-          setStageIndex(newStage);
-          return next;
-        }
-        return prev;
-      });
-    }, 400);
+      const floor = status === "verifying" ? 18 : 48;
+      setProgress((prev) => Math.min(Math.max(prev, floor) + 4, targetProgress));
+    }, 300);
 
     return () => clearInterval(interval);
-  }, [localStages.length]);
-
-  const CurrentIcon = localStages[stageIndex].icon;
+  }, [status, targetProgress]);
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-background flex flex-col items-center justify-center p-6 overflow-hidden">
-      {/* Decorative backdrop gradients */}
-      <div className="absolute top-[-10%] left-[-10%] w-[300px] h-[300px] bg-primary/5 rounded-full blur-[100px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[300px] h-[300px] bg-blue-500/5 rounded-full blur-[100px] pointer-events-none" />
-
-      <div className="max-w-md w-full text-center space-y-8 animate-in fade-in zoom-in duration-500 z-10">
-        {/* Animated Icon Ring */}
-        <div className="relative mx-auto w-24 h-24 flex items-center justify-center">
-          <div className="absolute inset-2 bg-primary/10 rounded-full animate-ping pointer-events-none" />
-          <svg className="absolute inset-0 w-24 h-24 -rotate-90">
-            <circle
-              cx="48"
-              cy="48"
-              r="40"
-              className="stroke-muted"
-              strokeWidth="4"
-              fill="transparent"
-            />
-            <circle
-              cx="48"
-              cy="48"
-              r="40"
-              className="stroke-primary transition-all duration-300 ease-out"
-              strokeWidth="4"
-              fill="transparent"
-              strokeDasharray={2 * Math.PI * 40}
-              strokeDashoffset={2 * Math.PI * 40 * (1 - progress / 100)}
-            />
-          </svg>
-          <div className="relative bg-card p-4 rounded-full border border-border/40 shadow-sm flex items-center justify-center">
-            <CurrentIcon className={`h-8 w-8 text-primary ${stageIndex === 4 ? "animate-spin" : "animate-pulse"}`} />
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-background/95 px-5 py-8"
+      role="status"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      <div className="app-loading-progress" aria-hidden="true" />
+      <div className="w-full max-w-xl rounded-2xl border border-border/70 bg-card/90 p-5 shadow-sm backdrop-blur sm:p-6">
+        <div className="flex items-start gap-4">
+          <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <span className="app-loading-sheen absolute inset-0 rounded-xl" aria-hidden="true" />
+            <ActiveIcon className="relative h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">
+              {status === "verifying"
+                ? t("classroom.verifyingAccess") || (isZh ? "正在校验课堂权限" : "Checking classroom access")
+                : t("classroom.initializing") || (isZh ? "正在进入课堂" : "Entering classroom")}
+            </p>
+            {roomName && (
+              <h2 className="mt-1 truncate text-xl font-semibold tracking-tight text-foreground">
+                {roomName}
+              </h2>
+            )}
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {steps[activeIndex].detail}
+            </p>
           </div>
         </div>
 
-        {/* Room Header */}
-        <div className="space-y-2">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            {isZh ? "正在进入直播间" : "Entering Classroom"}
-          </div>
-          {roomName && (
-            <h2 className="text-xl font-bold text-foreground truncate max-w-sm mx-auto">
-              {roomName}
-            </h2>
-          )}
-        </div>
-
-        {/* Progress Display */}
-        <div className="space-y-3">
-          <div className="flex justify-between text-xs text-muted-foreground font-medium px-1">
-            <span className="transition-all duration-300">
-              {localStages[stageIndex].text}
-            </span>
-            <span className="font-mono">{progress}%</span>
-          </div>
-          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden border border-border/20">
+        <div className="mt-6 space-y-3">
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full bg-primary transition-all duration-300 ease-out rounded-full"
+              className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out motion-reduce:transition-none"
               style={{ width: `${progress}%` }}
             />
           </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {steps.map((step, index) => {
+              const StepIcon = step.icon;
+              const isActive = index === activeIndex;
+              const isDone = index < activeIndex;
+
+              return (
+                <div
+                  key={step.label}
+                  className={`rounded-xl border px-3 py-2 transition-colors duration-200 ${
+                    isActive || isDone
+                      ? "border-primary/30 bg-primary/10 text-primary"
+                      : "border-border/60 bg-background/70 text-muted-foreground"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-xs font-medium">
+                    <StepIcon className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{step.label}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
-        <p className="text-[11px] text-muted-foreground/60 leading-relaxed max-w-xs mx-auto">
-          {isZh 
-            ? "第一次加载可能需要较长时间，请保持网络畅通并耐心等待。" 
-            : "First-time setup might take a moment. Please keep your connection active."}
+        <p className="mt-5 text-xs leading-5 text-muted-foreground">
+          {isZh
+            ? "首次进入会加载声网 SDK 和课件资源，完成后会自动切换到课堂。"
+            : "First entry loads the Agora SDK and course assets, then switches into the classroom automatically."}
         </p>
+        <span className="sr-only">{steps[activeIndex].detail}</span>
       </div>
     </div>
   );
@@ -250,14 +261,16 @@ function ClassroomContent() {
       searchParams.get("embed") === "1" || searchParams.get("embed") === "true";
     const classroomDebug = searchParams.get("debug") === "1";
     const classroomDebugRef = useRef(classroomDebug);
-    classroomDebugRef.current = classroomDebug;
-
-    userRef.current = user;
-    routerRef.current = router;
-    courseIdRef.current = courseId;
-    launchParamsRef.current = { roomUuid, courseId, roomName, roomTypeParam };
 
     const userId = user?.userId ?? "";
+
+    useEffect(() => {
+      classroomDebugRef.current = classroomDebug;
+      userRef.current = user;
+      routerRef.current = router;
+      courseIdRef.current = courseId;
+      launchParamsRef.current = { roomUuid, courseId, roomName, roomTypeParam };
+    }, [classroomDebug, courseId, roomName, roomTypeParam, roomUuid, router, user]);
 
     const logClassroomDebug = (...args: unknown[]) => {
       if (classroomDebugRef.current) {
@@ -481,14 +494,14 @@ function ClassroomContent() {
           const { token, appId } = await tokenRes.json();
 
           // Fetch and map courseware for classroom whiteboard public slides
-          let sdkCoursewareList = [];
+          let sdkCoursewareList: Array<Record<string, unknown>> = [];
           try {
             const cwRes = await fetch(`/api/courses/${cid}/courseware`);
             if (cwRes.ok) {
-              const cwData = await cwRes.json();
+              const cwData = (await cwRes.json()) as ClassroomCoursewareResponse;
               sdkCoursewareList = (cwData.courseware || [])
-                .filter((cw: any) => cw.taskStatus === "Finished")
-                .map((cw: any) => {
+                .filter((cw) => cw.taskStatus === "Finished")
+                .map((cw) => {
                   const scenes = Array.isArray(cw.conversion) ? cw.conversion : [];
                   return {
                     resourceName: cw.name,
@@ -582,9 +595,6 @@ function ClassroomContent() {
                   code === AGORA_EVT_DESTROYED ||
                   code === AGORA_EVT_KICK_OUT
                 ) {
-                  if (code === AGORA_EVT_DESTROYED && isTeacherRef.current) {
-                    void syncClassStateToServer(3);
-                  }
                   leaveClassroom();
                 }
               } catch {
@@ -653,7 +663,7 @@ function ClassroomContent() {
       launchKeyRef.current = null;
       launchingRef.current = false;
     };
-  }, [authLoading, userId, leaveClassroom, syncClassStateToServer]);
+  }, [authLoading, userId, leaveClassroom, locale, syncClassStateToServer]);
 
   if (status === "error") {
     return (
@@ -738,10 +748,10 @@ export default function ClassroomPage() {
       />
       <Suspense
         fallback={
-          <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
-            <div className="animate-spin rounded-full h-10 w-10 border-2 border-primary/20 border-t-primary mb-4" />
-            <p className="text-muted-foreground text-sm font-medium">{t("common.loading") || "Loading..."}</p>
-          </div>
+          <PageLoadingState
+            message={t("classroom.initializing") || t("common.loading") || "Loading..."}
+            variant="classroom"
+          />
         }
       >
         <ClassroomContent />

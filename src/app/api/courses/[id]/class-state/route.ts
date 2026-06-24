@@ -2,6 +2,7 @@
  * Sync course status from Agora ClassState (internal — classroom page only)
  * PATCH /api/courses/:id/class-state
  * Body: { classState: 0|1|2|3 }
+ * Agora close/destroy (3) is not treated as course end; schedule controls finish.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";

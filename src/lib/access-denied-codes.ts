@@ -1,5 +1,6 @@
 export type CourseAccessDeniedCode =
   | "not_enrolled"
+  | "course_not_started"
   | "course_finished"
   | "course_cancelled"
   | "not_found"
@@ -25,6 +26,14 @@ export function accessDeniedContentForCode(
         hint: "请联系授课老师将您加入课程，或使用老师提供的分享链接。",
         icon: "lock",
         tone: "blue",
+      };
+    case "course_not_started":
+      return {
+        title: "课程还未开启",
+        description: reason || "课程还未开启，可以在课前20分钟进入",
+        hint: "请稍后再进入课堂。",
+        icon: "clock",
+        tone: "amber",
       };
     case "course_finished":
       return {

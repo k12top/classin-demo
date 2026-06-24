@@ -24,6 +24,13 @@ export function getFinishedDelayMinutes(): number {
   return Number.isFinite(n) && n >= 0 ? n : 20;
 }
 
+export function getEarlyClassroomEntryMinutes(): number {
+  const raw = process.env.COURSE_EARLY_ENTRY_MINUTES;
+  if (raw === undefined || raw === "") return 20;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 20;
+}
+
 export function isValidCourseStatus(value: string): value is CourseStatusValue {
   return (COURSE_STATUSES as string[]).includes(value);
 }
@@ -70,6 +77,23 @@ export function canEnterClassroom(status: string): boolean {
   );
 }
 
+export function isTooEarlyToEnterClassroom(
+  startTime: Date | string | null | undefined,
+  now: Date = new Date(),
+  earlyMinutes = getEarlyClassroomEntryMinutes()
+): boolean {
+  if (!startTime) return false;
+  const start = startTime instanceof Date ? startTime : new Date(startTime);
+  if (Number.isNaN(start.getTime())) return false;
+  return now.getTime() < start.getTime() - earlyMinutes * 60 * 1000;
+}
+
+export function courseNotStartedReason(
+  earlyMinutes = getEarlyClassroomEntryMinutes()
+): string {
+  return `课程还未开启，可以在课前${earlyMinutes}分钟进入`;
+}
+
 export function isUpcomingStatus(status: string): boolean {
   return (
     status === CourseStatus.SCHEDULED ||
@@ -95,7 +119,6 @@ export function mapAgoraClassStateToCourseStatus(
     case 1:
       return CourseStatus.LIVE;
     case 2:
-    case 3:
       return CourseStatus.AFTER_CLASS;
     default:
       return null;

@@ -8,7 +8,7 @@ import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { buildCourseShareUrl, buildJoinUrl, joinLinkStatus } from "@/lib/join-link";
 import { serializeCourse, serializeCourses } from "@/lib/course-serialize";
-import { promoteCourseIfDueById, promoteCoursesIfDue } from "@/lib/course-promote";
+import { promoteCoursesIfDue } from "@/lib/course-promote";
 import {
   applyCourseListSort,
   courseListOrderBy,
@@ -217,11 +217,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Course name is required" }, { status: 400 });
     }
 
-    if (startTime) {
-      const start = new Date(startTime);
-      if (start < new Date(Date.now() - 120000)) {
-        return NextResponse.json({ error: "开始时间不能早于当前时间" }, { status: 400 });
-      }
+    if (!startTime) {
+      return NextResponse.json({ error: "开始时间不能为空" }, { status: 400 });
+    }
+    if (!endTime) {
+      return NextResponse.json({ error: "结束时间不能为空" }, { status: 400 });
+    }
+
+    const parsedStartTime = new Date(startTime);
+    const parsedEndTime = new Date(endTime);
+    if (Number.isNaN(parsedStartTime.getTime()) || Number.isNaN(parsedEndTime.getTime())) {
+      return NextResponse.json({ error: "课程时间格式无效" }, { status: 400 });
+    }
+    if (parsedStartTime < new Date(Date.now() - 120000)) {
+      return NextResponse.json({ error: "开始时间不能早于当前时间" }, { status: 400 });
+    }
+    if (parsedEndTime <= parsedStartTime) {
+      return NextResponse.json({ error: "结束时间必须晚于开始时间" }, { status: 400 });
+    }
+    if (parsedEndTime < new Date()) {
+      return NextResponse.json({ error: "结束时间不能早于当前时间" }, { status: 400 });
     }
 
     let finalPasscode: string | null = null;
@@ -242,8 +257,8 @@ export async function POST(request: NextRequest) {
       where: {
         teacherId: session.userId,
         name: name.trim(),
-        startTime: startTime ? new Date(startTime) : null,
-        endTime: endTime ? new Date(endTime) : null,
+        startTime: parsedStartTime,
+        endTime: parsedEndTime,
         createdAt: {
           gte: new Date(Date.now() - 5000), // created in last 5 seconds
         },
@@ -253,7 +268,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "检测到重复提交，请勿在 5 秒内重复创建相同课程" }, { status: 409 });
     }
 
-    let course = await prisma.course.create({
+    const course = await prisma.course.create({
       data: {
         name: name.trim(),
         description: description?.trim() || "",
@@ -261,16 +276,11 @@ export async function POST(request: NextRequest) {
         passcode: finalPasscode,
         teacherId: session.userId,
         teacherName: session.displayName || session.name,
-        startTime: startTime ? new Date(startTime) : null,
-        endTime: endTime ? new Date(endTime) : null,
+        startTime: parsedStartTime,
+        endTime: parsedEndTime,
         studentRemarks: studentRemarks?.trim() || "",
       },
     });
-
-    const promoted = await promoteCourseIfDueById(course.id);
-    if (promoted) {
-      course = promoted;
-    }
 
     return NextResponse.json({ course: serializeCourse(course) }, { status: 201 });
   } catch (error) {

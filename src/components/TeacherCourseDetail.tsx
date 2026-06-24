@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, UserPlus, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User } from "lucide-react";
+import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, UserPlus, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
@@ -59,10 +59,14 @@ export default function TeacherCourseDetail({
   user: any; 
   onEnterClassroom: () => void;
   enterLoading: boolean;
-  fetchCourse: () => void;
+  fetchCourse: () => void | Promise<void>;
 }) {
   const { t, locale } = useTranslation();
   const [activeTab, setActiveTab] = useState<"members" | "sharing" | "requirements" | "courseware">("members");
+  const [isEditingCourseName, setIsEditingCourseName] = useState(false);
+  const [courseNameDraft, setCourseNameDraft] = useState("");
+  const [courseNameSaving, setCourseNameSaving] = useState(false);
+  const [courseNameError, setCourseNameError] = useState("");
 
   // Search / add students
   const [searchQuery, setSearchQuery] = useState("");
@@ -275,6 +279,52 @@ export default function TeacherCourseDetail({
     }
   };
 
+  const handleSaveCourseName = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const nextName = courseNameDraft.trim();
+    if (!nextName) {
+      setCourseNameError(
+        locale === "zh-CN" ? "课程名称不能为空" : "Course name is required"
+      );
+      return;
+    }
+    if (nextName === course.name) {
+      setIsEditingCourseName(false);
+      return;
+    }
+
+    setCourseNameSaving(true);
+    setCourseNameError("");
+    try {
+      const res = await fetch(`/api/courses/${course.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ name: nextName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          data.error ||
+            (locale === "zh-CN" ? "课程名称保存失败" : "Failed to save course name")
+        );
+      }
+      setIsEditingCourseName(false);
+      setCourseNameDraft(nextName);
+      await fetchCourse();
+    } catch (error) {
+      setCourseNameError(
+        error instanceof Error
+          ? error.message
+          : locale === "zh-CN"
+            ? "课程名称保存失败"
+            : "Failed to save course name"
+      );
+    } finally {
+      setCourseNameSaving(false);
+    }
+  };
+
   const handleAddStudent = async (studentId: string, studentName: string) => {
     try {
       const res = await fetch(`/api/courses/${course.id}/students`, {
@@ -461,7 +511,76 @@ export default function TeacherCourseDetail({
                   </Badge>
                 )}
               </div>
-              <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-foreground">{course.name}</h1>
+              {isEditingCourseName ? (
+                <form
+                  onSubmit={handleSaveCourseName}
+                  className="flex flex-col gap-2 max-w-2xl"
+                >
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={courseNameDraft}
+                      onChange={(e) => {
+                        setCourseNameDraft(e.target.value);
+                        setCourseNameError("");
+                      }}
+                      className="h-12 min-w-0 flex-1 rounded-xl border-border/80 bg-background text-xl font-bold md:text-2xl"
+                      maxLength={100}
+                      autoFocus
+                    />
+                    <Button
+                      type="submit"
+                      size="icon"
+                      className="h-10 w-10 shrink-0 rounded-xl"
+                      disabled={courseNameSaving}
+                      title={t("common.save")}
+                    >
+                      {courseNameSaving ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Check className="h-4 w-4" />
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="h-10 w-10 shrink-0 rounded-xl"
+                      disabled={courseNameSaving}
+                      onClick={() => {
+                        setCourseNameDraft(course.name || "");
+                        setCourseNameError("");
+                        setIsEditingCourseName(false);
+                      }}
+                      title={t("common.cancel")}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  {courseNameError && (
+                    <p className="text-xs text-red-500">{courseNameError}</p>
+                  )}
+                </form>
+              ) : (
+                <div className="flex items-start gap-2">
+                  <h1 className="min-w-0 break-words text-3xl md:text-4xl font-extrabold tracking-tight text-foreground">
+                    {course.name}
+                  </h1>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="mt-1 h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:text-primary"
+                    onClick={() => {
+                      setCourseNameDraft(course.name || "");
+                      setCourseNameError("");
+                      setIsEditingCourseName(true);
+                    }}
+                    title={t("common.edit")}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
               
               <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mt-4">
                 <div className="flex items-center gap-1.5 bg-muted px-3 py-1.5 rounded-xl border border-border/40 text-xs font-semibold text-foreground">

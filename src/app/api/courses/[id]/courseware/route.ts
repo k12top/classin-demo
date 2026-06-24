@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { Courseware } from "@prisma/client";
+import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import {
   startWhiteboardConversion,
   getWhiteboardConversionStatus,
@@ -104,7 +105,10 @@ export async function POST(
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
     }
 
-    if (session.role !== "teacher" || course.teacherId !== session.userId) {
+    if (
+      session.role !== "teacher" ||
+      !casdoorUserIdsMatch(course.teacherId, session.userId)
+    ) {
       return NextResponse.json({ error: "Only the teacher can upload courseware" }, { status: 403 });
     }
 

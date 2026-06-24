@@ -190,6 +190,91 @@
   to { transform: rotate(360deg); }
 }
 
+.app-loading-progress {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 60;
+  height: 2px;
+  overflow: hidden;
+  background: hsl(var(--primary) / 0.1);
+}
+
+.app-loading-progress::after {
+  content: "";
+  display: block;
+  width: 45%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    hsl(var(--primary) / 0.85),
+    transparent
+  );
+  animation: app-loading-progress 1.45s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  transform-origin: left center;
+}
+
+.app-loading-track {
+  animation: app-loading-track 1.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  transform-origin: left center;
+}
+
+.app-loading-sheen {
+  background: linear-gradient(
+    115deg,
+    transparent 0%,
+    hsl(var(--primary) / 0.16) 45%,
+    transparent 70%
+  );
+  animation: app-loading-sheen 1.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+@keyframes app-loading-progress {
+  0% {
+    transform: translateX(-100%) scaleX(0.42);
+  }
+  55% {
+    transform: translateX(85%) scaleX(1);
+  }
+  100% {
+    transform: translateX(230%) scaleX(0.48);
+  }
+}
+
+@keyframes app-loading-track {
+  0% {
+    transform: translateX(-95%) scaleX(0.6);
+  }
+  55% {
+    transform: translateX(55%) scaleX(1);
+  }
+  100% {
+    transform: translateX(210%) scaleX(0.7);
+  }
+}
+
+@keyframes app-loading-sheen {
+  0% {
+    transform: translateX(-120%);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-loading-progress::after,
+  .app-loading-track,
+  .app-loading-sheen {
+    animation: none;
+  }
+}
+
 /* ── Agora SDK overrides ── */
 body.app-shell {
   background-color: hsl(var(--background)) !important;
@@ -243,4 +328,3 @@ body.agora-classroom-active {
   -ms-overflow-style: none;  /* IE and Edge */
   scrollbar-width: none;  /* Firefox */
 }
-

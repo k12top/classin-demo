@@ -1,15 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { useTranslation } from "@/lib/i18n/context";
 import StudentDashboard from "@/components/StudentDashboard";
 import TeacherDashboard from "@/components/TeacherDashboard";
-import { Card, CardContent } from "@/components/ui/card";
-import { Loader2 } from "lucide-react";
+import { PageLoadingState } from "@/components/ui/page-loading-state";
 
 interface Course {
   id: string;
@@ -31,21 +29,11 @@ interface Course {
 }
 
 function LoadingView({ message }: { message: string }) {
-  return (
-    <div className="flex h-screen w-full items-center justify-center p-4">
-      <Card className="glass-panel w-full max-w-sm border-white/10 bg-white/5 animate-in fade-in zoom-in duration-300">
-        <CardContent className="flex flex-col items-center justify-center p-12 text-center space-y-4">
-          <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground font-medium">{message}</p>
-        </CardContent>
-      </Card>
-    </div>
-  );
+  return <PageLoadingState message={message} variant="dashboard" />;
 }
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
-  const router = useRouter();
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
 
