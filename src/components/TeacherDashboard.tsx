@@ -18,7 +18,7 @@ import { useTranslation } from "@/lib/i18n/context";
 import { SupportedLocale } from "@/lib/i18n/locales";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import ThemeToggle from "@/components/ThemeToggle";
-import TimeDisplay from "@/components/TimeDisplay";
+import { CourseTimeRangeDisplay } from "@/components/TimeDisplay";
 
 interface Course {
   id: string;
@@ -680,7 +680,10 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                         <div className="md:w-64 bg-muted/40 p-6 flex flex-col justify-center items-center text-center border-b md:border-b-0 md:border-r border-border/50">
                           <CalendarIcon className="h-7 w-7 text-primary/80 mb-2" />
                           <div className="font-semibold text-sm text-foreground/90 leading-tight">
-                            <TimeDisplay isoString={course.startTime} />
+                            <CourseTimeRangeDisplay
+                              startIsoString={course.startTime}
+                              endIsoString={course.endTime}
+                            />
                           </div>
                           <Badge variant="outline" className="mt-3 border-primary/20 bg-primary/5 text-primary text-[10px]">
                             {t(ROOM_TYPE_KEYS[course.roomType]) || t("common.unknown")}

@@ -21,7 +21,7 @@ model Course {
   status         String    @default("scheduled") // scheduled | live | afterClass | cancelled | finished
   startTime      DateTime?
   endTime        DateTime?
-  endedAt        DateTime? // Agora class end time; finished after delay
+  endedAt        DateTime? // Agora afterClass time; scheduled endTime controls auto-finish
   studentRemarks String    @default("")
   recordUrl      String?   // Agora or external recording playback URL
   createdAt      DateTime  @default(now())

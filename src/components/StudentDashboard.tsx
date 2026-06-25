@@ -16,7 +16,7 @@ import { CourseStatus, isUpcomingStatus, canEnterClassroom } from "@/lib/course-
 import { useTranslation } from "@/lib/i18n/context";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import ThemeToggle from "@/components/ThemeToggle";
-import TimeDisplay from "@/components/TimeDisplay";
+import TimeDisplay, { CourseTimeRangeDisplay } from "@/components/TimeDisplay";
 import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
 
 interface Course {
@@ -378,7 +378,10 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                           <div className="md:w-64 bg-muted/40 p-6 flex flex-col justify-center items-center text-center border-b md:border-b-0 md:border-r border-border/50">
                             <Calendar className="h-7 w-7 text-primary/80 mb-2" />
                             <div className="font-semibold text-sm text-foreground/90 leading-tight">
-                              <TimeDisplay isoString={course.startTime} />
+                              <CourseTimeRangeDisplay
+                                startIsoString={course.startTime}
+                                endIsoString={course.endTime}
+                              />
                             </div>
                             
 

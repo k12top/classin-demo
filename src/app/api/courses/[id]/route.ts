@@ -211,7 +211,7 @@ export async function PATCH(
       } else if (isTeacher && status === CourseStatus.FINISHED) {
         const resolved = resolveManualFinishedStatus(
           existing.status,
-          existing.endedAt,
+          existing.endTime,
           force === true
         );
         if (!resolved) {

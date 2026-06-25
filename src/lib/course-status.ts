@@ -103,12 +103,12 @@ export function isUpcomingStatus(status: string): boolean {
 }
 
 export function isFinishedDue(
-  endedAt: Date | null | undefined,
+  endTime: Date | null | undefined,
   now: Date = new Date(),
   delayMinutes = getFinishedDelayMinutes()
 ): boolean {
-  if (!endedAt) return false;
-  return now.getTime() >= endedAt.getTime() + delayMinutes * 60 * 1000;
+  if (!endTime) return false;
+  return now.getTime() >= endTime.getTime() + delayMinutes * 60 * 1000;
 }
 
 /** Agora ClassState: 0=beforeClass, 1=ongoing, 2=afterClass, 3=close */
@@ -166,15 +166,15 @@ export function canApplyStatusFromAgora(
   return false;
 }
 
-/** Teacher manual finish: respect delay unless force. */
+/** Teacher manual finish: respect scheduled end time delay unless force. */
 export function resolveManualFinishedStatus(
   currentStatus: string,
-  endedAt: Date | null | undefined,
+  endTime: Date | null | undefined,
   force: boolean
 ): CourseStatusValue | null {
   if (currentStatus === CourseStatus.CANCELLED) return null;
   if (currentStatus === CourseStatus.FINISHED) return CourseStatus.FINISHED;
-  if (force || isFinishedDue(endedAt)) {
+  if (force || isFinishedDue(endTime)) {
     return CourseStatus.FINISHED;
   }
   return CourseStatus.AFTER_CLASS;

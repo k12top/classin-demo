@@ -1,5 +1,5 @@
 /**
- * Optional cron: promote afterClass -> finished when delay elapsed.
+ * Optional cron: promote courses to finished after scheduled endTime + delay.
  * GET /api/cron/promote-course-status
  * Authorization: Bearer CRON_SECRET or x-cron-secret header
  */
