@@ -33,12 +33,12 @@ declare global {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-/** Agora Edu classroom events (see AgoraEduClassroomEvent). */
-const AGORA_EVT_DESTROYED = 2;
-const AGORA_EVT_KICK_OUT = 101;
-const AGORA_EVT_CLASS_STATE_CHANGED = 202;
+/** External classroom events. */
+const CLASSROOM_EVT_DESTROYED = 2;
+const CLASSROOM_EVT_KICK_OUT = 101;
+const CLASSROOM_EVT_CLASS_STATE_CHANGED = 202;
 
-function parseAgoraEvent(
+function parseClassroomEvent(
   evt: unknown,
   args: unknown[],
 ): { code: number | null; classState: number | null } {
@@ -54,7 +54,7 @@ function parseAgoraEvent(
     if (typeof o.state === "number") classState = o.state;
   }
 
-  if (code === AGORA_EVT_CLASS_STATE_CHANGED && classState === null) {
+  if (code === CLASSROOM_EVT_CLASS_STATE_CHANGED && classState === null) {
     const first = args[0];
     if (typeof first === "number") {
       classState = first;
@@ -217,8 +217,8 @@ function ClassroomWelcomeLoader({
 
         <p className="mt-5 text-xs leading-5 text-muted-foreground">
           {isZh
-            ? "首次进入会加载声网 SDK 和课件资源，完成后会自动切换到课堂。"
-            : "First entry loads the Agora SDK and course assets, then switches into the classroom automatically."}
+            ? "首次进入会加载课堂和课件资源，完成后会自动切换到课堂。"
+            : "First entry loads classroom and course assets, then switches into the classroom automatically."}
         </p>
         <span className="sr-only">{steps[activeIndex].detail}</span>
       </div>
@@ -581,10 +581,10 @@ function ClassroomContent() {
             widgets,
             listener: (evt: unknown, ...args: unknown[]) => {
               try {
-                const { code, classState } = parseAgoraEvent(evt, args);
+                const { code, classState } = parseClassroomEvent(evt, args);
 
                 if (
-                  code === AGORA_EVT_CLASS_STATE_CHANGED &&
+                  code === CLASSROOM_EVT_CLASS_STATE_CHANGED &&
                   classState !== null
                 ) {
                   void syncClassStateToServer(classState);
@@ -592,13 +592,13 @@ function ClassroomContent() {
                 }
 
                 if (
-                  code === AGORA_EVT_DESTROYED ||
-                  code === AGORA_EVT_KICK_OUT
+                  code === CLASSROOM_EVT_DESTROYED ||
+                  code === CLASSROOM_EVT_KICK_OUT
                 ) {
                   leaveClassroom();
                 }
               } catch {
-                // Swallow errors from Agora event callback — unhandled errors
+                // Swallow errors from classroom event callback — unhandled errors
                 // here crash the React tree and cause Next.js to reload the
                 // entire page (especially when DevTools is closed).
               }

@@ -128,11 +128,7 @@ function LoginContent() {
         </div>
 
         <footer className="footer animate-in animate-in-delay-3">
-          Powered by{" "}
-          <a href="https://www.shengwang.cn/" target="_blank" rel="noopener noreferrer">
-            声网 Agora
-          </a>{" "}
-          · 灵动课堂 SDK
+          {t("common.appName")}
         </footer>
       </div>
     </>

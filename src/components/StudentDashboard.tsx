@@ -238,7 +238,7 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
           <div className="flex items-center gap-2">
             <BookOpen className="h-6 w-6 text-primary animate-pulse" />
             <span className="font-extrabold text-lg bg-gradient-to-r from-primary to-purple-600 bg-clip-text text-transparent">
-              {t("common.appName") || "灵动课堂"}
+              {t("common.appName") || "在线课堂"}
             </span>
           </div>
           <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20 flex items-center gap-1 text-[10px] font-semibold">

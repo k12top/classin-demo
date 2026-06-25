@@ -1,5 +1,5 @@
 /**
- * Agora Flexible Classroom mutates documentElement/body and injects global CSS.
+ * The external classroom runtime mutates documentElement/body and injects global CSS.
  * Reset when leaving /classroom so dashboard/course pages render correctly.
  */
 

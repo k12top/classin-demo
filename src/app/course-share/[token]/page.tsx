@@ -1,5 +1,5 @@
 /**
- * Course-share entry: valid token + Casdoor session -> enroll student -> course page.
+ * Course-share entry: valid token + auth session -> enroll student -> course page.
  */
 import Link from "next/link";
 import { redirect } from "next/navigation";

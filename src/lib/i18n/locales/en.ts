@@ -27,7 +27,7 @@ export const en: typeof zhCN = {
     appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
-    title: "Flexible Classroom",
+    title: "Online Classroom",
     subtitle: "Interactive Online Teaching Platform",
     loggedOut: "Logged out safely. Log in again to access courses.",
     sessionExpired: "Session expired. Please log in again to continue.",
@@ -43,7 +43,7 @@ export const en: typeof zhCN = {
   },
   classroom: {
     launchError: "Unable to launch classroom",
-    sdkTimeout: "SDK loading timed out, please check your network connection.",
+    sdkTimeout: "Classroom resources timed out while loading, please check your network connection.",
     missingParams: "Missing parameters: roomUuid or courseId. Enter from the course details page.",
     verifyFailed: "Verification failed, please try again later.",
     noAccess: "No access",
@@ -239,7 +239,7 @@ export const en: typeof zhCN = {
     expiresAtLabel: "Expires: {date}",
     confirmRevokeLink: "Are you sure you want to revoke this share link? It will no longer be accessible.",
     addCourseware: "Add Courseware",
-    addCoursewareDesc: "Upload or add courseware; the system will automatically request Agora whiteboard conversion.",
+    addCoursewareDesc: "Upload or add courseware; the system will automatically handle document conversion.",
     coursewareName: "Name",
     coursewareNamePlaceholder: "e.g., Chapter 1: Quadratic Functions.pptx",
     fileUrl: "File URL",

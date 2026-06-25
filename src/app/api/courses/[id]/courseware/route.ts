@@ -124,7 +124,7 @@ export async function POST(
 
     const cleanExt = ext.toLowerCase().replace(/^\./, "");
     
-    // Start conversion in Netless / Agora
+    // Start whiteboard document conversion.
     const conversion = await startWhiteboardConversion(url.trim(), cleanExt);
 
     // Initial status polling

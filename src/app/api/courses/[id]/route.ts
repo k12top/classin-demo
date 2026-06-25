@@ -226,7 +226,7 @@ export async function PATCH(
         (status === CourseStatus.SCHEDULED || status === CourseStatus.LIVE)
       ) {
         return NextResponse.json(
-          { error: "scheduled/live status is synced from classroom SDK" },
+          { error: "scheduled/live status is synced from classroom state" },
           { status: 400 }
         );
       } else if (!isValidCourseStatus(status)) {

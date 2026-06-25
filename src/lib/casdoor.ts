@@ -1,5 +1,5 @@
 /**
- * Casdoor JS SDK — client-side configuration
+ * Auth JS SDK — client-side configuration
  * Used for SSO redirect login flow
  */
 import Sdk from "casdoor-js-sdk";
@@ -15,7 +15,7 @@ const sdkConfig = {
 export const casdoorSdk = new Sdk(sdkConfig);
 
 /**
- * Get the full sign-in URL for Casdoor SSO
+ * Get the full sign-in URL for SSO.
  */
 export function getSignInUrl(): string {
   return casdoorSdk.getSigninUrl();

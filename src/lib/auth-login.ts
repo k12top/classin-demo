@@ -1,7 +1,7 @@
-/** Server sets this before redirecting to Casdoor; callback restores the path. */
+/** Server sets this before redirecting to SSO; callback restores the path. */
 export const AUTH_RETURN_COOKIE = "auth_return_to";
 
-/** Browser hits this route; server responds with 302 to Casdoor authorize URL. */
+/** Browser hits this route; server responds with 302 to the SSO authorize URL. */
 export const SSO_LOGIN_PATH = "/api/auth/login";
 
 export function safeNextPath(next: string | null | undefined): string {
@@ -17,7 +17,7 @@ export function ssoLoginUrl(next?: string): string {
   return `${SSO_LOGIN_PATH}?next=${encodeURIComponent(path)}`;
 }
 
-/** Full-page redirect to Casdoor SSO via `/api/auth/login`. */
+/** Full-page redirect to SSO via `/api/auth/login`. */
 export function redirectToSsoLogin(next?: string): void {
   if (typeof window === "undefined") return;
   const target =

@@ -1,5 +1,5 @@
 /**
- * Search Casdoor users (for course access assignment)
+ * Search auth users (for course access assignment)
  * GET /api/users/search?q=xxx
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: "Forbidden",
-        hint: "当前账号在 Casdoor 中未识别为教师，无法搜索学生。请在 Casdoor 为用户分配教师角色或加入 teacher 用户组。",
+        hint: "当前账号未识别为教师，无法搜索学生。请为用户分配教师角色或加入 teacher 用户组。",
       },
       { status: 403 }
     );

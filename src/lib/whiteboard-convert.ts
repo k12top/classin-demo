@@ -17,7 +17,7 @@ export interface ConversionResult {
 }
 
 /**
- * Request Netless / Agora Interactive Whiteboard to convert a document (PPT, PDF, DOC, etc.)
+ * Request the whiteboard conversion service to convert a document (PPT, PDF, DOC, etc.)
  */
 export async function startWhiteboardConversion(
   fileUrl: string,
@@ -28,7 +28,7 @@ export async function startWhiteboardConversion(
   const type = isDynamic ? "dynamic" : "static";
 
   if (!token) {
-    // FALLBACK / DEV MODE: Simulate Netless conversion task UUID
+    // FALLBACK / DEV MODE: Simulate a conversion task UUID.
     console.warn("WHITEBOARD_SDK_TOKEN not set in environment. Running in SIMULATED fallback mode.");
     return {
       taskUuid: `mock-${md5(fileUrl).slice(0, 16)}`,
@@ -65,7 +65,7 @@ export async function startWhiteboardConversion(
       type,
     };
   } catch (error) {
-    console.error("Netless projector API error:", error);
+    console.error("Whiteboard projector API error:", error);
     // Graceful fallback to mock uuid on network or auth failure
     return {
       taskUuid: `mock-${md5(fileUrl).slice(0, 16)}`,
@@ -76,7 +76,7 @@ export async function startWhiteboardConversion(
 }
 
 /**
- * Poll the conversion progress of an Agora interactive whiteboard task
+ * Poll the conversion progress of an interactive whiteboard task.
  */
 export async function getWhiteboardConversionStatus(
   taskUuid: string,
@@ -124,7 +124,7 @@ export async function getWhiteboardConversionStatus(
       scenes,
     };
   } catch (error) {
-    console.error("Netless check status error:", error);
+    console.error("Whiteboard conversion status error:", error);
     return {
       taskUuid,
       status: "Finished", // fallback to finished mock so dev flows are unblocked
@@ -135,7 +135,7 @@ export async function getWhiteboardConversionStatus(
 }
 
 /**
- * Generates beautiful mock scenes for testing slide conversion without Netless API keys
+ * Generates mock scenes for testing slide conversion without external API keys.
  */
 function generateMockScenes(
   fileName: string,

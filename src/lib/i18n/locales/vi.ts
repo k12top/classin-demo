@@ -27,7 +27,7 @@ export const vi: typeof zhCN = {
     appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
-    title: "Lớp học Linh động",
+    title: "Lớp học trực tuyến",
     subtitle: "Nền tảng dạy học tương tác trực tuyến",
     loggedOut: "Đã đăng xuất an toàn. Bạn có thể đăng nhập lại để vào trang chủ khóa học.",
     sessionExpired: "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại để tiếp tục sử dụng.",
@@ -43,7 +43,7 @@ export const vi: typeof zhCN = {
   },
   classroom: {
     launchError: "Không thể khởi động lớp học",
-    sdkTimeout: "Tải SDK quá thời gian, vui lòng kiểm tra kết nối mạng của bạn.",
+    sdkTimeout: "Tải tài nguyên lớp học quá thời gian, vui lòng kiểm tra kết nối mạng của bạn.",
     missingParams: "Thiếu tham số bắt buộc: roomUuid hoặc courseId, vui lòng vào lớp học từ chi tiết khóa học.",
     verifyFailed: "Yêu cầu xác thực quyền hạn thất bại, vui lòng thử lại sau.",
     noAccess: "Không có quyền truy cập",
@@ -212,7 +212,7 @@ export const vi: typeof zhCN = {
     expiresAtLabel: "Hết hạn: {date}",
     confirmRevokeLink: "Bạn có chắc muốn thu hồi liên kết chia sẻ này? Nó sẽ không thể truy cập được nữa.",
     addCourseware: "Thêm giáo trình",
-    addCoursewareDesc: "Tải lên giáo trình; hệ thống sẽ tự động yêu cầu chuyển đổi bảng trắng Agora.",
+    addCoursewareDesc: "Tải lên giáo trình; hệ thống sẽ tự động xử lý chuyển đổi tài liệu.",
     coursewareName: "Tên giáo trình",
     coursewareNamePlaceholder: "VD: Chương 1: Hàm số bậc hai.pptx",
     fileUrl: "URL tệp",

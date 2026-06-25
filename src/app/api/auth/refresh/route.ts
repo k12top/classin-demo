@@ -1,6 +1,6 @@
 /**
  * OAuth token refresh — GET for browser redirect recovery, POST for silent refresh (XHR).
- * Requires Casdoor refresh_token (stored in HttpOnly cookie after login when IdP returns it).
+ * Requires refresh_token stored in an HttpOnly cookie after login when the IdP returns it.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";

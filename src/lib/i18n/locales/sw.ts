@@ -27,7 +27,7 @@ export const sw: typeof zhCN = {
     appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
-    title: "Darasa Linalobadilika",
+    title: "Darasa la Mtandaoni",
     subtitle: "Jukwaa la Kufundishia Mtandaoni",
     loggedOut: "Umetoka salama. Unaweza kuingia tena ili kupata ukurasa wa kozi.",
     sessionExpired: "Muda wa kuingia umekwisha, tafadhali ingia tena ili kuendelea.",
@@ -43,7 +43,7 @@ export const sw: typeof zhCN = {
   },
   classroom: {
     launchError: "Imeshindwa kuzindua darasa",
-    sdkTimeout: "Muda wa kupakia SDK umekwisha, tafadhali angalia muunganisho wa mtandao.",
+    sdkTimeout: "Muda wa kupakia rasilimali za darasa umekwisha, tafadhali angalia muunganisho wa mtandao.",
     missingParams: "Kigezo kinachohitajika kinakosekana: roomUuid au courseId, wasilisha darasani kutoka kwa maelezo ya kozi.",
     verifyFailed: "Ombi la kuthibitisha kibali limefeli, tafadhali jaribu tena baadaye.",
     noAccess: "Huna ufikiaji",
@@ -237,7 +237,7 @@ export const sw: typeof zhCN = {
     expiresAtLabel: "Itaisha muda wake: {date}",
     confirmRevokeLink: "Je, una uhakika unataka kufuta kiungo hiki cha kushiriki? Baada ya kufuta huwezi kuingia tena kupitia kiungo hiki.",
     addCourseware: "Ongeza Vifaa vya Kufundishia",
-    addCoursewareDesc: "Pakia au ingiza maelezo ya vifaa vya kufundishia, mfumo utaomba kiotomatiki huduma ya ubadilishaji wa ubao wa Agora.",
+    addCoursewareDesc: "Pakia au ingiza maelezo ya vifaa vya kufundishia, mfumo utashughulikia ubadilishaji wa hati kiotomatiki.",
     coursewareName: "Jina la Kifaa",
     coursewareNamePlaceholder: "Mfano: Sura ya 1: Kujifunza Kazi ya quadratic.pptx",
     fileUrl: "URL ya Faili",

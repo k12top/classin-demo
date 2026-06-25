@@ -1,5 +1,5 @@
 /**
- * Re-issue app session + Casdoor access token using OAuth refresh_token.
+ * Re-issue app session and upstream access token using OAuth refresh_token.
  */
 import {
   refreshAccessToken,

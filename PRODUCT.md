@@ -9,7 +9,7 @@ product
 - **Students**: Learners viewing upcoming and finished class schedules, requesting leaves (cancelled status), entering classrooms using passcodes or share-links, and submitting feedback/remarks.
 
 ## Product Purpose
-An online interactive virtual classroom workspace powered by Agora Edu SDK and Casdoor SSO authentication, designed to make real-time audio/video lecturing and interactive whiteboard activities seamless, accessible, and fast.
+An online interactive virtual classroom workspace with unified SSO authentication, designed to make live teaching, courseware presentation, and classroom collaboration seamless, accessible, and fast.
 
 ## Brand Personality
 - **Apple-like Craft**: Crisp, clean, minimalist layout with high contrast, elegant typography (Outfit/Inter), and spacious, breathable padding.

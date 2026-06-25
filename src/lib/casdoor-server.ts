@@ -1,5 +1,5 @@
 /**
- * Casdoor server-side SDK — for JWT verification and user API calls
+ * Auth provider server integration — for JWT verification and user API calls
  * This file should only be imported in server-side code (API routes, server components)
  *
  * URLs are read at call time so `.env` changes apply after restart.
@@ -54,7 +54,7 @@ export interface CasdoorRole {
   owner: string;
 }
 
-/** OAuth token response from Casdoor `/api/login/oauth/access_token` */
+/** OAuth token response from the configured auth provider. */
 export interface CasdoorTokenResponse {
   access_token: string;
   refresh_token?: string;
@@ -65,7 +65,7 @@ async function postTokenRequest(params: URLSearchParams): Promise<CasdoorTokenRe
   const base = getCasdoorServerUrl();
   if (!base) {
     throw new Error(
-      "Casdoor server URL is not set. Define NEXT_PUBLIC_CASDOOR_SERVER_URL or CASDOOR_SERVER_URL."
+      "Auth server URL is not set. Define NEXT_PUBLIC_CASDOOR_SERVER_URL or CASDOOR_SERVER_URL."
     );
   }
   const tokenUrl = `${base.replace(/\/$/, "")}/api/login/oauth/access_token`;
@@ -78,7 +78,7 @@ async function postTokenRequest(params: URLSearchParams): Promise<CasdoorTokenRe
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Casdoor token request failed: ${res.status} ${text}`);
+    throw new Error(`Auth token request failed: ${res.status} ${text}`);
   }
 
   const data = (await res.json()) as Record<string, unknown>;
@@ -96,7 +96,7 @@ async function postTokenRequest(params: URLSearchParams): Promise<CasdoorTokenRe
 
 /**
  * Exchange authorization code for tokens.
- * Enable refresh tokens in the Casdoor Application; optionally use a scope that includes offline access
+ * Enable refresh tokens in the auth application; optionally use a scope that includes offline access
  * (see NEXT_PUBLIC_CASDOOR_OAUTH_SCOPE).
  */
 export async function exchangeCodeForTokens(
@@ -127,8 +127,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<CasdoorT
 }
 
 /**
- * Parse a Casdoor JWT token to extract user claims
- * Casdoor JWTs are standard JWTs; we decode the payload
+ * Parse an auth JWT token to extract user claims.
  */
 export function parseJwtPayload(token: string): CasdoorUser {
   const parts = token.split(".");
@@ -154,7 +153,7 @@ export function parseJwtPayload(token: string): CasdoorUser {
 }
 
 /**
- * Determine teacher vs student from Casdoor roles and/or groups (JWT or user list).
+ * Determine teacher vs student from auth roles and/or groups (JWT or user list).
  */
 export function determineRole(
   roles: CasdoorRole[],
@@ -177,7 +176,7 @@ export function determineRole(
 }
 
 /**
- * Get user details from Casdoor API
+ * Get user details from the auth provider API.
  */
 export async function getCasdoorUser(username: string): Promise<CasdoorUser | null> {
   const base = getCasdoorServerUrl();
@@ -200,13 +199,13 @@ export async function getCasdoorUser(username: string): Promise<CasdoorUser | nu
 export type SearchCasdoorUsersOptions = {
   /** Exclude this login name (typically current teacher). */
   excludeUserId?: string;
-  /** When true, omit users in Casdoor teacher groups. */
+  /** When true, omit users in teacher groups. */
   studentsOnly?: boolean;
   limit?: number;
 };
 
 /**
- * Search users in the Casdoor organization (for assigning students).
+ * Search users in the auth organization (for assigning students).
  */
 export async function searchCasdoorUsers(
   query: string,
@@ -224,7 +223,7 @@ export async function searchCasdoorUsers(
     const url = `${base.replace(/\/$/, "")}/api/get-users?owner=${encodeURIComponent(org)}&clientId=${encodeURIComponent(clientId)}&clientSecret=${encodeURIComponent(clientSecret)}`;
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) {
-      console.error("Casdoor get-users HTTP", res.status, await res.text());
+      console.error("Auth get-users HTTP", res.status, await res.text());
       return [];
     }
     const data = (await res.json()) as {
@@ -232,7 +231,7 @@ export async function searchCasdoorUsers(
       data?: CasdoorUser[];
     };
     if (data.status && data.status !== "ok") {
-      console.error("Casdoor get-users status", data);
+      console.error("Auth get-users status", data);
       return [];
     }
 
@@ -271,20 +270,20 @@ export async function searchCasdoorUsers(
 
     return users.slice(0, limit);
   } catch (e) {
-    console.error("searchCasdoorUsers:", e);
+    console.error("searchAuthUsers:", e);
     return [];
   }
 }
 
 /**
- * Get the Casdoor sign-in URL for SSO redirect.
+ * Get the sign-in URL for SSO redirect.
  * Set NEXT_PUBLIC_CASDOOR_OAUTH_SCOPE to e.g. "read offline_access" if your IdP issues refresh tokens via scope.
  */
 export function getServerSignInUrl(redirectUri: string): string {
   const base = getCasdoorServerUrl();
   if (!base) {
     throw new Error(
-      "Casdoor server URL is not set. Define NEXT_PUBLIC_CASDOOR_SERVER_URL or CASDOOR_SERVER_URL in .env.local"
+      "Auth server URL is not set. Define NEXT_PUBLIC_CASDOOR_SERVER_URL or CASDOOR_SERVER_URL in .env.local"
     );
   }
   const scope =

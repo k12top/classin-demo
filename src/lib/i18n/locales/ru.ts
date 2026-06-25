@@ -27,7 +27,7 @@ export const ru: typeof zhCN = {
     appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
-    title: "Гибкий Класс",
+    title: "Онлайн-класс",
     subtitle: "Платформа для интерактивного онлайн-обучения",
     loggedOut: "Вы успешно вышли из системы. Войдите снова, чтобы получить доступ к курсам.",
     sessionExpired: "Срок действия сессии истек. Пожалуйста, войдите снова.",
@@ -43,7 +43,7 @@ export const ru: typeof zhCN = {
   },
   classroom: {
     launchError: "Не удалось запустить класс",
-    sdkTimeout: "Время загрузки SDK истекло, проверьте подключение к сети.",
+    sdkTimeout: "Время загрузки ресурсов класса истекло, проверьте подключение к сети.",
     missingParams: "Отсутствуют обязательные параметры: roomUuid или courseId. Войдите из деталей курса.",
     verifyFailed: "Ошибка проверки прав доступа, повторите попытку позже.",
     noAccess: "Доступ ограничен",
@@ -212,7 +212,7 @@ export const ru: typeof zhCN = {
     expiresAtLabel: "Истекает: {date}",
     confirmRevokeLink: "Вы уверены, что хотите отозвать эту ссылку? Доступ будет закрыт.",
     addCourseware: "Добавить учебный материал",
-    addCoursewareDesc: "Загрузите материал; система автоматически отправит запрос на конвертацию в Agora.",
+    addCoursewareDesc: "Загрузите материал; система автоматически обработает преобразование документа.",
     coursewareName: "Название материала",
     coursewareNamePlaceholder: "Напр: Глава 1: Квадратные функции.pptx",
     fileUrl: "URL файла",

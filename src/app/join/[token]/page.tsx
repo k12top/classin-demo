@@ -1,5 +1,5 @@
 /**
- * Live share-link entry: valid token + Casdoor session + course access → live classroom.
+ * Live share-link entry: valid token + auth session + course access -> live classroom.
  */
 import { redirect } from "next/navigation";
 import Link from "next/link";

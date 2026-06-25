@@ -11,7 +11,7 @@
 | Cookie | 浏览器前端 | HttpOnly cookie，现有流程不变 |
 | Bearer Token | 服务端间调用 | `Authorization: Bearer <casdoor_access_token>` |
 
-Bearer Token 直接使用你服务的 Casdoor access_token（同一个 Casdoor，不同 app），无需额外换 token。我们会自动解析 Casdoor JWT 提取用户身份和角色。
+Bearer Token 直接使用你服务的统一认证 access_token（同一认证体系，不同 app），无需额外换 token。我们会自动解析认证 JWT 提取用户身份和角色。
 
 ---
 
@@ -33,13 +33,13 @@ Authorization: Bearer <casdoor_access_token>
 | status | string? | 筛选课程状态（`scheduled` / `live` / `afterClass` / `finished` / `cancelled`）；`active` 已废弃 |
 | createdAt | `asc` \| `desc`? | 按创建时间全局排序，**覆盖**下方默认规则 |
 
-**默认排序**（省略 `createdAt` 时，类似 ClassIn 列表）：
+**默认排序**（省略 `createdAt` 时，按课堂列表展示规则）：
 
 - 整体顺序：未开始+进行中+已下课 → 已结束 → 已取消
 - `scheduled` + `live` + `afterClass`：按 `startTime` **升序**；同时间时 `live` > `afterClass` > `scheduled`
 - `finished` / `cancelled`：按 `endTime` **降序**（从近到远）；无 `endTime` 时回退按 `startTime` 降序
 
-**课后延时结束**：声网下课（SDK `afterClass`/`close`）后，课程先进入 `afterClass`（已下课），写入 `endedAt`；默认 **20 分钟** 内仍可进课堂，之后自动变为 `finished`（已结束）。延时可通过环境变量 `COURSE_FINISHED_DELAY_MINUTES` 配置。列表/详情 API 读取时会自动晋升到期课程；可选 Vercel Cron 作兜底。
+**课后延时结束**：课堂下课信号（`afterClass`/`close`）后，课程先进入 `afterClass`（已下课），写入 `endedAt`；默认 **20 分钟** 内仍可进课堂，之后自动变为 `finished`（已结束）。延时可通过环境变量 `COURSE_FINISHED_DELAY_MINUTES` 配置。列表/详情 API 读取时会自动晋升到期课程；可选后台定时任务作兜底。
 
 示例：
 
@@ -128,7 +128,7 @@ GET /api/courses?status=scheduled
 | teacherName | string | 教师显示名 |
 | status | string | 状态：`scheduled` / `live` / `afterClass` / `finished` / `cancelled` |
 | statusLabel | string | 中文展示：`未开始` / `进行中` / `已下课` / `已结束` / `已取消` |
-| endedAt | string? | 声网下课时刻（ISO）；`afterClass` 时存在，用于计算何时晋升为 `finished` |
+| endedAt | string? | 下课时刻（ISO）；`afterClass` 时存在，用于计算何时晋升为 `finished` |
 | startTime | string? | 开始时间（ISO 格式） |
 | endTime | string? | 结束时间（ISO 格式） |
 | studentRemarks | string | 学生需求备注 |
@@ -244,9 +244,9 @@ https://your-domain.com/classroom?roomUuid=...&roomType=...&roomName=...&courseI
 
 ---
 
-### 4. 获取声网 Token（嵌入模式）
+### 4. 获取课堂 Token（嵌入模式）
 
-如果要在 iframe 中嵌入课堂，需要额外获取声网 token。
+如果要在 iframe 中嵌入课堂，需要额外获取课堂 token。
 
 ```
 POST /api/token
@@ -276,8 +276,8 @@ Content-Type: application/json
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| token | string | 声网 rtmToken，用于 SDK launch |
-| appId | string | 声网 App ID |
+| token | string | 课堂访问 token，用于课堂启动 |
+| appId | string | 课堂应用标识 |
 | classroomUrl | string | 课堂入口路径 |
 
 ---
@@ -294,11 +294,11 @@ Content-Type: application/json
 { "status": "cancelled" }
 ```
 
-教师结束课程（兜底，通常由课堂 SDK 自动同步）：`{ "status": "finished" }`
+教师结束课程（兜底，通常由课堂自动同步）：`{ "status": "finished" }`
 
 若仍在课后延时期内，上述请求会将课程设为 `afterClass` 并写入 `endedAt`，到期后自动变为 `finished`。教师可强制立即结束：`{ "status": "finished", "force": true }`
 
-`scheduled` / `live` / `afterClass` 由课堂内声网 SDK 同步，请勿通过 PATCH 手动写入。
+`scheduled` / `live` / `afterClass` 由课堂状态同步，请勿通过 PATCH 手动写入。
 
 **响应**：同课程详情结构，`status` / `statusLabel` 字段已更新。
 
@@ -323,7 +323,7 @@ Content-Type: application/json
 只需 2 个接口即可完成对接：
 
 ```bash
-# 1. 获取课程列表（默认 ClassIn 式：未开始+进行中 startTime 升序，已结束/已取消 endTime 降序）
+# 1. 获取课程列表（默认：未开始+进行中 startTime 升序，已结束/已取消 endTime 降序）
 curl https://your-domain.com/api/courses \
   -H "Authorization: Bearer <casdoor_access_token>"
 
@@ -343,11 +343,11 @@ curl https://your-domain.com/api/courses/{courseId}/verify-access \
 # https://your-domain.com + classroomUrl
 ```
 
-### Vercel Cron 定时任务配置（已启用）
+### 定时任务配置（已启用）
 
-由于项目已升级至 Vercel Pro，我们在 `vercel.json` 中配置了定时任务，每 **1 分钟** 后台自动触发一次 `/api/cron/promote-course-status`：
+项目已配置定时任务，每 **1 分钟** 后台自动触发一次 `/api/cron/promote-course-status`：
 
-1. **自动状态更新**：所有的课程状态流转（`scheduled` -> `live`, `afterClass` -> `finished`）已改为完全通过 Vercel Cron 后台进行更新。
+1. **自动状态更新**：所有的课程状态流转（`scheduled` -> `live`, `afterClass` -> `finished`）已改为完全通过后台定时任务进行更新。
 2. **读性能优化**：读取课程列表 (`GET /api/courses`) 及详情 (`GET /api/courses/{id}`) 接口中已**移除了同步更新机制**，不再做同步数据库写操作。这极大地加快了查询响应速度，彻底避免了由于大批量数据同步导致接口 504 发生。
 3. **本地开发测试**：开发环境可直接访问 `http://localhost:3000/api/cron/promote-course-status`（本地开发已跳过 `CRON_SECRET` 校验）来手动触发状态更新。
 

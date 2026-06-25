@@ -40,7 +40,7 @@ export function buildCourseShareUrl(origin: string, token: string, lang?: string
 
 export function buildEmbedSnippet(origin: string, token: string, lang?: string): string {
   const src = buildJoinUrl(origin, token, true, lang);
-  return `<iframe src="${src}" allow="camera; microphone; display-capture; fullscreen" style="width:100%;height:100vh;border:0" title="灵动课堂"></iframe>`;
+  return `<iframe src="${src}" allow="camera; microphone; display-capture; fullscreen" style="width:100%;height:100vh;border:0" title="在线课堂"></iframe>`;
 }
 
 export type ResolvedJoinLink =

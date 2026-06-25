@@ -1,5 +1,5 @@
 /**
- * Login redirect — sends user to Casdoor SSO
+ * Login redirect — sends user to SSO.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSignInUrl } from "@/lib/casdoor-server";

@@ -27,7 +27,7 @@ export const ms: typeof zhCN = {
     appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
-    title: "Kelas Fleksibel",
+    title: "Kelas Dalam Talian",
     subtitle: "Platform Pembelajaran Online Interaktif",
     loggedOut: "Berjaya log keluar dengan selamat. Sila log masuk semula untuk mengakses laman utama.",
     sessionExpired: "Sesi log masuk telah tamat tempoh, sila log masuk semula untuk meneruskan.",
@@ -43,7 +43,7 @@ export const ms: typeof zhCN = {
   },
   classroom: {
     launchError: "Tidak dapat melancarkan kelas",
-    sdkTimeout: "Pemuatan SDK tamat masa, sila periksa sambungan rangkaian anda.",
+    sdkTimeout: "Pemuatan sumber kelas tamat masa, sila periksa sambungan rangkaian anda.",
     missingParams: "Parameter wajib hilang: roomUuid atau courseId, sila masuk dari halaman butiran kelas.",
     verifyFailed: "Pengesahan hak akses gagal, sila cuba seketika lagi.",
     noAccess: "Tidak mempunyai hak akses",
@@ -212,7 +212,7 @@ export const ms: typeof zhCN = {
     expiresAtLabel: "Tamat Tempoh: {date}",
     confirmRevokeLink: "Adakah anda pasti mahu membatalkan pautan kongsi ini? Ia tidak lagi boleh diakses.",
     addCourseware: "Tambah Bahan Pembelajaran",
-    addCoursewareDesc: "Muat naik bahan pembelajaran; sistem akan meminta konversi papan putih Agora secara automatik.",
+    addCoursewareDesc: "Muat naik bahan pembelajaran; sistem akan mengendalikan penukaran dokumen secara automatik.",
     coursewareName: "Nama Bahan Pembelajaran",
     coursewareNamePlaceholder: "Misal: Bab 1: Fungsi Kuadratik.pptx",
     fileUrl: "URL Fail",

@@ -107,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [loading, user]);
 
-  // Proactive refresh while user is logged in (keeps Casdoor access + rolling session cookie).
+  // Proactive refresh while user is logged in (keeps upstream access + rolling session cookie).
   useEffect(() => {
     if (!user) return;
     const id = window.setInterval(() => {

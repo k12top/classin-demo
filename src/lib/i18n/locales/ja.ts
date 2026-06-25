@@ -27,7 +27,7 @@ export const ja: typeof zhCN = {
     appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
-    title: "スマート教室",
+    title: "オンライン教室",
     subtitle: "オンラインインタラクティブ授業プラットフォーム",
     loggedOut: "安全にログアウトしました。再度ログインして授業にアクセスしてください。",
     sessionExpired: "セッションの有効期限が切れました。続行するには再度ログインしてください。",
@@ -43,7 +43,7 @@ export const ja: typeof zhCN = {
   },
   classroom: {
     launchError: "教室を起動できません",
-    sdkTimeout: "SDKの読み込みがタイムアウトしました。ネットワーク接続を確認してください。",
+    sdkTimeout: "教室リソースの読み込みがタイムアウトしました。ネットワーク接続を確認してください。",
     missingParams: "必要なパラメータが不足しています：roomUuid または courseId。授業詳細から入室してください。",
     verifyFailed: "権限の検証に失敗しました。時間をおいて再試行してください。",
     noAccess: "アクセス権限がありません",
@@ -212,7 +212,7 @@ export const ja: typeof zhCN = {
     expiresAtLabel: "有効期限: {date}",
     confirmRevokeLink: "この共有リンクを無効化しますか？以降アクセスできなくなります。",
     addCourseware: "授業教材を追加",
-    addCoursewareDesc: "教材をアップロードまたは追加すると、システムが自動的にAgoraホワイトボード変換をリクエストします。",
+    addCoursewareDesc: "教材をアップロードまたは追加すると、システムが文書変換を自動的に処理します。",
     coursewareName: "教材名",
     coursewareNamePlaceholder: "例：第1章 二次関数.pptx",
     fileUrl: "ファイルURL",

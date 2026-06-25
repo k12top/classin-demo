@@ -1,6 +1,6 @@
 /**
- * Stable Casdoor user identifiers — align session, search, and DB assignments.
- * Casdoor login name (`name`) is stable; JWT `id` (UUID) may differ from API list `id`.
+ * Stable auth user identifiers — align session, search, and DB assignments.
+ * Login name (`name`) is stable; JWT `id` (UUID) may differ from API list `id`.
  */
 
 export type CasdoorIdentity = {
@@ -11,7 +11,7 @@ export type CasdoorIdentity = {
   groups?: string[] | null;
 };
 
-/** Casdoor login name — use for student enrollment keys. */
+/** Login name — use for student enrollment keys. */
 export function resolveCasdoorUserId(user: CasdoorIdentity): string {
   if (user.name?.trim()) return user.name.trim();
   if (user.id?.trim()) return user.id.trim();

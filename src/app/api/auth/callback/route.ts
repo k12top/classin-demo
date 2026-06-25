@@ -1,6 +1,6 @@
 /**
  * OAuth callback handler
- * Casdoor redirects here with ?code=xxx&state=xxx
+ * The auth provider redirects here with ?code=xxx&state=xxx
  * We exchange code for tokens, parse user info, create session, redirect to dashboard
  */
 import { NextRequest, NextResponse } from "next/server";

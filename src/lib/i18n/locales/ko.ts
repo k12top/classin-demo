@@ -27,7 +27,7 @@ export const ko: typeof zhCN = {
     appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
-    title: "유연한 교실",
+    title: "온라인 교실",
     subtitle: "온라인 대화형 학습 플랫폼",
     loggedOut: "안전하게 로그아웃되었습니다. 로그인하여 과정 홈페이지로 다시 입장하실 수 있습니다.",
     sessionExpired: "로그인 세션이 만료되었습니다. 계속하려면 다시 로그인해 주세요.",
@@ -43,7 +43,7 @@ export const ko: typeof zhCN = {
   },
   classroom: {
     launchError: "교실을 시작할 수 없습니다",
-    sdkTimeout: "SDK 로드 시간 초과. 네트워크 연결을 확인하세요.",
+    sdkTimeout: "교실 리소스 로드 시간이 초과되었습니다. 네트워크 연결을 확인하세요.",
     missingParams: "필수 매개변수 누락: roomUuid 또는 courseId. 코스 세부 정보 페이지에서 진입하십시오.",
     verifyFailed: "권한 확인 요청이 실패했습니다. 잠시 후 다시 시도해 주세요.",
     noAccess: "접근 권한 없음",
@@ -237,7 +237,7 @@ export const ko: typeof zhCN = {
     expiresAtLabel: "만료: {date}",
     confirmRevokeLink: "이 공유 링크를 취소하시겠습니까? 취소 후에는 이 링크로 진입할 수 없습니다.",
     addCourseware: "교재 추가",
-    addCoursewareDesc: "교재를 업로드하거나 링크를 입력하면 시스템이 자동으로 Agora 백보드 서비스를 요청하여 문서를 변환합니다.",
+    addCoursewareDesc: "교재를 업로드하거나 링크를 입력하면 시스템이 자동으로 문서 변환을 처리합니다.",
     coursewareName: "교재 이름",
     coursewareNamePlaceholder: "예: 제1장: 이차함수 이해하기.pptx",
     fileUrl: "파일 URL",

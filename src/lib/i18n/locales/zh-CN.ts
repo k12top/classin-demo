@@ -25,7 +25,7 @@ export const zhCN = {
     appName: "翔宇文淑直播平台",
   },
   login: {
-    title: "灵动课堂",
+    title: "在线课堂",
     subtitle: "在线互动教学平台",
     loggedOut: "已安全退出。可重新登录进入课程首页。",
     sessionExpired: "登录状态已过期，请重新登录以继续使用。",
@@ -41,7 +41,7 @@ export const zhCN = {
   },
   classroom: {
     launchError: "无法启动课堂",
-    sdkTimeout: "SDK 加载超时，请检查网络连接",
+    sdkTimeout: "课堂资源加载超时，请检查网络连接",
     missingParams: "缺少必要参数：roomUuid 或 courseId，请从课程详情进入课堂",
     verifyFailed: "权限验证请求失败，请稍后重试",
     noAccess: "无权访问",
@@ -237,7 +237,7 @@ export const zhCN = {
     expiresAtLabel: "到期: {date}",
     confirmRevokeLink: "确定撤销该分享链接？撤销后无法再通过此链接进入。",
     addCourseware: "添加教学课件",
-    addCoursewareDesc: "上传或录入教学课件，系统会自动请求声网白板服务进行文档转换。",
+    addCoursewareDesc: "上传或录入教学课件，系统会自动处理文档转换。",
     coursewareName: "课件名称",
     coursewareNamePlaceholder: "例如：第一章：认识二次函数.pptx",
     fileUrl: "文件 URL",

@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { useTranslation } from "@/lib/i18n/context";
 
-/** Legacy URL — immediately continue to Casdoor SSO. */
+/** Legacy URL — immediately continue to SSO login. */
 export default function SessionExpiredPage() {
   const { t } = useTranslation();
 

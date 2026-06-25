@@ -1,5 +1,5 @@
 /**
- * Client-only: silent OAuth session refresh (Casdoor refresh_token cookie).
+ * Client-only: silent OAuth session refresh.
  */
 export async function tryOAuthRefresh(): Promise<boolean> {
   try {

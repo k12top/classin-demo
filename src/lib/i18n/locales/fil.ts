@@ -27,7 +27,7 @@ export const fil: typeof zhCN = {
     appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
-    title: "Flexible Classroom",
+    title: "Online na Silid-aralan",
     subtitle: "Interactive na Platform para sa Online Teaching",
     loggedOut: "Matagumpay na naka-log out. Mag-log in muli upang ma-access ang kurso.",
     sessionExpired: "Lipas na ang iyong session, mangyaring mag-log in muli upang magpatuloy.",
@@ -43,7 +43,7 @@ export const fil: typeof zhCN = {
   },
   classroom: {
     launchError: "Hindi mapasimulan ang classroom",
-    sdkTimeout: "Nag-time out ang pag-load ng SDK, mangyaring suriin ang iyong koneksyon sa network.",
+    sdkTimeout: "Nag-time out ang pag-load ng mga classroom resource, mangyaring suriin ang iyong koneksyon sa network.",
     missingParams: "Nawawala ang kinakailangang mga parameter: roomUuid o courseId, mangyaring pumasok mula sa mga detalye ng kurso.",
     verifyFailed: "Bigo ang pagpapatunay ng pag-access, mangyaring subukang muli mamaya.",
     noAccess: "Walang pahintulot na ma-access",
@@ -212,7 +212,7 @@ export const fil: typeof zhCN = {
     expiresAtLabel: "Mawawalan ng bisa: {date}",
     confirmRevokeLink: "Sigurado ka bang gusto mong bawiin ang share link na ito? Hindi na ito maa-access.",
     addCourseware: "Magdagdag ng Materyal sa Pagtuturo",
-    addCoursewareDesc: "Mag-upload ng materyal; awtomatikong hihilingin ng system ang pag-convert ng Agora whiteboard.",
+    addCoursewareDesc: "Mag-upload ng materyal; awtomatikong hahawakan ng system ang pag-convert ng dokumento.",
     coursewareName: "Pangalan ng Materyal",
     coursewareNamePlaceholder: "Hal: Kabanata 1: Quadratic Functions.pptx",
     fileUrl: "URL ng File",

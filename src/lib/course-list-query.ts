@@ -31,7 +31,7 @@ export function parseCourseListSort(
 
 export { parseCourseStatusFilter };
 
-/** DB orderBy — default mode uses arbitrary order; ClassIn sort applied in memory. */
+/** DB orderBy — default mode uses arbitrary order; display sort is applied in memory. */
 export function courseListOrderBy(
   sort: CourseListSort
 ): Prisma.CourseOrderByWithRelationInput {
@@ -89,8 +89,8 @@ const UPCOMING_STATUSES = new Set<string>([
   CourseStatus.AFTER_CLASS,
 ]);
 
-/** ClassIn-style: scheduled+live+afterClass by startTime asc; finished/cancelled by endTime desc. */
-export function sortCoursesClassInStyle<T extends CourseForListSort>(
+/** Display sort: scheduled+live+afterClass by startTime asc; finished/cancelled by endTime desc. */
+export function sortCoursesDisplayStyle<T extends CourseForListSort>(
   courses: T[]
 ): T[] {
   const upcoming = courses
@@ -128,7 +128,7 @@ export function applyCourseListSort<T extends CourseForListSort>(
   if (sort.mode === "createdAt") {
     return sortCoursesByCreatedAt(courses, sort.direction);
   }
-  return sortCoursesClassInStyle(courses);
+  return sortCoursesDisplayStyle(courses);
 }
 
 export function courseListStatusWhere(

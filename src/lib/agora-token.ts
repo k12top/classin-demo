@@ -1,7 +1,7 @@
 import { ApaasTokenBuilder } from "agora-token/src/ApaasTokenBuilder";
 
 /**
- * Generate a room-user token for Agora Flexible Classroom.
+ * Generate a room-user token for the classroom runtime.
  * This must only be called on the server side.
  */
 export function buildRoomUserToken(

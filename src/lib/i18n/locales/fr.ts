@@ -27,7 +27,7 @@ export const fr: typeof zhCN = {
     appName: "Xiangyu Wenshu Live Platform",
   },
   login: {
-    title: "Classe Flexible",
+    title: "Classe en ligne",
     subtitle: "Plateforme interactive d'enseignement en ligne",
     loggedOut: "Déconnexion réussie. Reconnectez-vous pour accéder à vos cours.",
     sessionExpired: "Votre session a expiré. Veuillez vous reconnecter.",
@@ -43,7 +43,7 @@ export const fr: typeof zhCN = {
   },
   classroom: {
     launchError: "Impossible de lancer la classe",
-    sdkTimeout: "Délai d'attente du SDK dépassé. Veuillez vérifier votre connexion réseau.",
+    sdkTimeout: "Le chargement des ressources de classe a expiré. Veuillez vérifier votre connexion réseau.",
     missingParams: "Paramètres manquants : roomUuid ou courseId. Entrez depuis les détails du cours.",
     verifyFailed: "Échec de la vérification de l'accès. Veuillez réessayer plus tard.",
     noAccess: "Accès refusé",
@@ -212,7 +212,7 @@ export const fr: typeof zhCN = {
     expiresAtLabel: "Expire le : {date}",
     confirmRevokeLink: "Voulez-vous révoquer ce lien ? Il ne sera plus accessible.",
     addCourseware: "Ajouter un support",
-    addCoursewareDesc: "Téléversez un support ; la conversion Agora s'effectuera automatiquement.",
+    addCoursewareDesc: "Téléversez un support ; la conversion du document s'effectuera automatiquement.",
     coursewareName: "Nom du support",
     coursewareNamePlaceholder: "Ex: Chapitre 1 : Fonctions Quadratiques.pptx",
     fileUrl: "URL du fichier",

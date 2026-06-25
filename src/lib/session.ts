@@ -16,10 +16,10 @@ const SESSION_SECRET =
   "fallback-secret-change-me-in-production-32chars!";
 const encodedKey = new TextEncoder().encode(SESSION_SECRET);
 export const SESSION_COOKIE = "classroom_session";
-/** HttpOnly cookie storing Casdoor OAuth refresh_token (when issued). */
+/** HttpOnly cookie storing OAuth refresh_token (when issued). */
 export const OAUTH_REFRESH_COOKIE = "classroom_oauth_refresh";
 const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days
-/** Refresh cookie lifetime — Casdoor may rotate tokens sooner; this is an upper bound for the cookie. */
+/** Refresh cookie lifetime — the auth provider may rotate tokens sooner; this is an upper bound for the cookie. */
 const REFRESH_COOKIE_MAX_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 export interface SessionPayload extends JWTPayload {
@@ -76,12 +76,12 @@ export async function decrypt(session: string): Promise<SessionPayload | null> {
 }
 
 export type CreateSessionOAuthOptions = {
-  /** When set, stores Casdoor refresh_token in a separate HttpOnly cookie. */
+  /** When set, stores OAuth refresh_token in a separate HttpOnly cookie. */
   refreshToken?: string;
 };
 
 /**
- * Build session JWT + optional refresh token (do not store Casdoor access_token in cookie — too large).
+ * Build session JWT + optional refresh token; do not store the upstream access_token in cookie.
  */
 export async function buildSessionCookies(
   data: SessionUserData,
@@ -163,7 +163,7 @@ export async function getSession(): Promise<SessionPayload | null> {
  * Supports three auth methods:
  * 1. Cookie — browser flow (our own session JWT)
  * 2. Bearer token — our session JWT (from service-token endpoint)
- * 3. Bearer token — Casdoor access_token (from same Casdoor, different app)
+ * 3. Bearer token — upstream access_token from the same identity provider.
  */
 export async function getSessionFromRequest(
   request: NextRequest
@@ -184,7 +184,7 @@ export async function getSessionFromRequest(
     const ourPayload = await decrypt(token);
     if (ourPayload) return ourPayload;
 
-    // 2b. Try as Casdoor access_token (same IdP, different app)
+    // 2b. Try as upstream access_token from the same IdP.
     const casdoorPayload = await parseCasdoorBearerToken(token);
     if (casdoorPayload) return casdoorPayload;
   }
@@ -193,7 +193,7 @@ export async function getSessionFromRequest(
 }
 
 /**
- * Parse a Casdoor JWT into our SessionPayload.
+ * Parse an upstream JWT into our SessionPayload.
  * Decodes the JWT payload, checks expiry, resolves role and userId.
  */
 async function parseCasdoorBearerToken(
@@ -202,7 +202,7 @@ async function parseCasdoorBearerToken(
   try {
     const casdoorUser = parseJwtPayload(token);
 
-    // Check token expiry (Casdoor JWTs have `exp` claim)
+    // Check token expiry.
     const parts = token.split(".");
     if (parts.length === 3) {
       const rawPayload = JSON.parse(
