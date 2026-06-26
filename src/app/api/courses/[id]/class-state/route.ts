@@ -5,7 +5,6 @@
  * Agora close/destroy (3) is not treated as course end; schedule controls finish.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { serializeCourse } from "@/lib/course-serialize";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
 import {
@@ -15,6 +14,7 @@ import {
 } from "@/lib/course-status";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
+import { userCanTeachCourse } from "@/lib/course-teacher";
 
 export async function PATCH(
   request: NextRequest,
@@ -27,12 +27,15 @@ export async function PATCH(
 
   const { id } = await params;
 
-  let existing = await prisma.course.findUnique({ where: { id } });
+  const existing = await prisma.course.findUnique({
+    where: { id },
+    include: { teachers: { select: { teacherId: true } } },
+  });
   if (!existing) {
     return NextResponse.json({ error: "Course not found" }, { status: 404 });
   }
 
-  if (!casdoorUserIdsMatch(existing.teacherId, session.userId)) {
+  if (!userCanTeachCourse(existing, session.userId)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

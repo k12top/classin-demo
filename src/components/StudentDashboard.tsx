@@ -4,13 +4,13 @@ import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { BookOpen, Settings, LogOut, Calendar, Clock, User, Pencil, PlayCircle, Loader2, Info, FileText, MessageSquare, ExternalLink, Key } from "lucide-react";
+import { BookOpen, Settings, LogOut, Calendar, Clock, User, Users, Pencil, PlayCircle, Loader2, Info, FileText, MessageSquare, ExternalLink, Key } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { CourseStatus, isUpcomingStatus, canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
@@ -26,6 +26,8 @@ interface Course {
   roomType: number;
   teacherId: string;
   teacherName: string;
+  teacherAvatar?: string;
+  teachers?: CourseTeacherSummary[];
   status: string;
   startTime: string | null;
   endTime: string | null;
@@ -37,6 +39,22 @@ interface Course {
   publicListing?: boolean;
 }
 
+interface CourseTeacherSummary {
+  id?: string;
+  teacherId: string;
+  teacherName: string;
+  teacherAvatar?: string;
+}
+
+interface DashboardUser {
+  userId: string;
+  name?: string;
+  displayName?: string;
+  avatar?: string;
+  email?: string;
+  role?: string;
+}
+
 const ROOM_TYPE_KEYS: Record<number, string> = {
   0: "common.roomType1v1",
   4: "common.roomTypeSmall",
@@ -45,12 +63,20 @@ const ROOM_TYPE_KEYS: Record<number, string> = {
 };
 
 type SidebarPage = "learning" | "settings";
+type CourseTab = "upcoming" | "finished" | "cancelled";
 
-export default function StudentDashboard({ courses, user, fetchCourses }: { courses: Course[], user: any, fetchCourses: () => void }) {
+interface CoursewareItem {
+  id: string;
+  name: string;
+  ext: string;
+  url: string;
+}
+
+export default function StudentDashboard({ courses, user, fetchCourses }: { courses: Course[], user: DashboardUser, fetchCourses: () => void }) {
   const router = useRouter();
   const { logout } = useAuth();
   const [activePage, setActivePage] = useState<SidebarPage>("learning");
-  const [activeTab, setActiveTab] = useState<"upcoming" | "finished" | "cancelled">("upcoming");
+  const [activeTab, setActiveTab] = useState<CourseTab>("upcoming");
   
   // Inline remarks edit on dashboard
   const [editingRemarks, setEditingRemarks] = useState<string | null>(null);
@@ -65,12 +91,27 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
 
   // Dialog course details state
   const [selectedDetailCourse, setSelectedDetailCourse] = useState<Course | null>(null);
-  const [detailCourseware, setDetailCourseware] = useState<any[]>([]);
+  const [detailCourseware, setDetailCourseware] = useState<CoursewareItem[]>([]);
   const [loadingCourseware, setLoadingCourseware] = useState(false);
   const [dialogRemarksValue, setDialogRemarksValue] = useState("");
   const [savingDialogRemarks, setSavingDialogRemarks] = useState(false);
 
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+
+  const formatCourseTeacherNames = (course: Course) => {
+    const teachers =
+      course.teachers && course.teachers.length > 0
+        ? course.teachers
+        : [{ teacherId: course.teacherId, teacherName: course.teacherName }];
+    const uniqueNames: string[] = [];
+    for (const teacher of teachers) {
+      const name = teacher.teacherName || teacher.teacherId;
+      if (!uniqueNames.includes(name)) {
+        uniqueNames.push(name);
+      }
+    }
+    return uniqueNames.join(locale === "zh-CN" ? "、" : ", ");
+  };
 
   const handleJoinCourseById = async () => {
     const cid = joinCourseId.trim();
@@ -205,10 +246,14 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
   // Dialog details courseware load
   useEffect(() => {
     if (!selectedDetailCourse) {
-      setDetailCourseware([]);
+      queueMicrotask(() => {
+        setDetailCourseware([]);
+      });
       return;
     }
-    setDialogRemarksValue(selectedDetailCourse.studentRemarks || "");
+    queueMicrotask(() => {
+      setDialogRemarksValue(selectedDetailCourse.studentRemarks || "");
+    });
     let active = true;
     const loadCw = async () => {
       setLoadingCourseware(true);
@@ -353,7 +398,7 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
               </div>
             </Card>
 
-            <Tabs defaultValue="upcoming" className="w-full" onValueChange={(v) => setActiveTab(v as any)}>
+            <Tabs defaultValue="upcoming" className="w-full" onValueChange={(v) => setActiveTab(v as CourseTab)}>
               <TabsList className="bg-muted/60 border border-border/40 p-1 rounded-xl mb-6">
                 <TabsTrigger value="upcoming" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium">{t("studentDashboard.tabUpcoming")}</TabsTrigger>
                 <TabsTrigger value="finished" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium">{t("studentDashboard.tabFinished")}</TabsTrigger>
@@ -410,7 +455,15 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                                   </div>
                                   <div className="flex items-center gap-1.5 text-muted-foreground text-xs font-medium">
                                     <User className="h-3.5 w-3.5" />
-                                    <span>{t("courseDetail.teacherInfo", { name: course.teacherName })}</span>
+                                    <span>
+                                      {t("common.leadTeacher")}: {course.teacherName}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 text-muted-foreground text-xs font-medium">
+                                    <Users className="h-3.5 w-3.5 shrink-0" />
+                                    <span className="truncate" title={formatCourseTeacherNames(course)}>
+                                      {t("common.teachingTeachers")}: {formatCourseTeacherNames(course)}
+                                    </span>
                                   </div>
                                 </div>
                                 
@@ -535,9 +588,17 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                 <DialogTitle className="text-xl font-bold text-foreground leading-tight">
                   {selectedDetailCourse.name}
                 </DialogTitle>
-                <DialogDescription className="text-xs text-muted-foreground font-medium flex items-center gap-1 mt-1">
-                  <User className="h-3.5 w-3.5" />
-                  <span>{t("courseDetail.teacherInfo", { name: selectedDetailCourse.teacherName })}</span>
+                <DialogDescription className="text-xs text-muted-foreground font-medium flex flex-col gap-1 mt-1">
+                  <span className="flex items-center gap-1">
+                    <User className="h-3.5 w-3.5" />
+                    <span>{t("common.leadTeacher")}: {selectedDetailCourse.teacherName}</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Users className="h-3.5 w-3.5" />
+                    <span className="truncate" title={formatCourseTeacherNames(selectedDetailCourse)}>
+                      {t("common.teachingTeachers")}: {formatCourseTeacherNames(selectedDetailCourse)}
+                    </span>
+                  </span>
                 </DialogDescription>
               </DialogHeader>
 
@@ -654,8 +715,51 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
   );
 }
 
-function SettingsPanel({ user, onLogout }: { user: any; onLogout: () => void }) {
-  const { t, locale } = useTranslation();
+function SettingsPanel({ user, onLogout }: { user: DashboardUser; onLogout: () => void }) {
+  const { t } = useTranslation();
+  const { updateUserAvatar } = useAuth();
+  const [avatarDraft, setAvatarDraft] = useState(user.avatar || "");
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const [avatarMessage, setAvatarMessage] = useState("");
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setAvatarDraft(user.avatar || "");
+    });
+  }, [user.avatar]);
+
+  const handleSaveAvatar = async () => {
+    const avatar = avatarDraft.trim();
+    setAvatarSaving(true);
+    setAvatarMessage("");
+
+    try {
+      const res = await fetch("/api/auth/avatar", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ avatar }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAvatarMessage(
+          data?.error === "Invalid avatar URL"
+            ? t("settingsPanel.errAvatarUrlInvalid")
+            : t("settingsPanel.avatarUpdateFailed")
+        );
+        return;
+      }
+
+      const nextAvatar = typeof data?.avatar === "string" ? data.avatar : avatar;
+      updateUserAvatar(nextAvatar);
+      setAvatarDraft(nextAvatar);
+      setAvatarMessage(t("settingsPanel.avatarUpdateSuccess"));
+    } catch {
+      setAvatarMessage(t("settingsPanel.avatarUpdateFailed"));
+    } finally {
+      setAvatarSaving(false);
+    }
+  };
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500">
@@ -704,13 +808,47 @@ function SettingsPanel({ user, onLogout }: { user: any; onLogout: () => void }) 
         <CardHeader>
           <CardTitle className="text-lg font-bold">{t("settingsPanel.avatar")}</CardTitle>
         </CardHeader>
-        <CardContent className="flex items-center gap-6 pt-2">
+        <CardContent className="flex flex-col gap-5 pt-2 sm:flex-row sm:items-start">
           <Avatar className="h-16 w-16 border border-border/80 shadow-inner">
-            <AvatarImage src={user.avatar} />
+            <AvatarImage src={avatarDraft.trim() || user.avatar} />
             <AvatarFallback className="text-xl bg-primary/10 text-primary font-bold">{user.displayName?.[0] || user.name?.[0] || "U"}</AvatarFallback>
           </Avatar>
-          <div className="text-xs text-muted-foreground leading-relaxed">
-            {t("settingsPanel.avatarDesc")}
+          <div className="min-w-0 flex-1 space-y-3">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {t("settingsPanel.avatarDesc")}
+            </p>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                {t("settingsPanel.avatarUrl")}
+              </label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  type="url"
+                  value={avatarDraft}
+                  onChange={(e) => {
+                    setAvatarDraft(e.target.value);
+                    setAvatarMessage("");
+                  }}
+                  placeholder={t("settingsPanel.avatarUrlPlaceholder")}
+                  className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
+                />
+                <Button
+                  type="button"
+                  className="rounded-xl text-xs"
+                  disabled={avatarSaving}
+                  onClick={() => void handleSaveAvatar()}
+                >
+                  {avatarSaving ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    t("settingsPanel.btnSaveAvatar")
+                  )}
+                </Button>
+              </div>
+              {avatarMessage && (
+                <p className="text-xs text-muted-foreground">{avatarMessage}</p>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>

@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
+import { userCanTeachCourse } from "@/lib/course-teacher";
 import { canEnterClassroom } from "@/lib/course-status";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
 import { prisma } from "@/lib/db";
@@ -188,6 +189,7 @@ export default async function CourseSharePage({
   const course = await prisma.course.findUnique({
     where: { id: resolved.courseId },
     include: {
+      teachers: { select: { teacherId: true } },
       students: { select: { studentId: true } },
       groupLinks: {
         include: {
@@ -229,7 +231,7 @@ export default async function CourseSharePage({
     );
   }
 
-  const isTeacher = casdoorUserIdsMatch(course.teacherId, session.userId);
+  const isTeacher = userCanTeachCourse(course, session.userId);
   const isDirectStudent = course.students.some((student) =>
     casdoorUserIdsMatch(student.studentId, session.userId)
   );
@@ -250,6 +252,7 @@ export default async function CourseSharePage({
           courseId: course.id,
           studentId: session.userId,
           studentName: session.displayName || session.name,
+          studentAvatar: session.avatar || "",
         },
       ],
       skipDuplicates: true,

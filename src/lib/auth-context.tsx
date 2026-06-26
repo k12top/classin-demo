@@ -25,6 +25,7 @@ interface AuthContextType {
   loading: boolean;
   login: () => void;
   logout: () => Promise<void>;
+  updateUserAvatar: (avatar: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -32,6 +33,7 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   login: () => {},
   logout: async () => {},
+  updateUserAvatar: () => {},
 });
 
 async function fetchMeWithRefresh(): Promise<AuthUser | null> {
@@ -87,6 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               !user ||
               u.userId !== user.userId ||
               u.displayName !== user.displayName ||
+              u.avatar !== user.avatar ||
               u.role !== user.role
             ) {
               setUser(u);
@@ -132,8 +135,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const updateUserAvatar = useCallback((avatar: string) => {
+    setUser((current) => (current ? { ...current, avatar } : current));
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, updateUserAvatar }}>
       {children}
     </AuthContext.Provider>
   );

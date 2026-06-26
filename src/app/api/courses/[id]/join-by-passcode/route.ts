@@ -71,6 +71,7 @@ export async function POST(
           courseId: course.id,
           studentId: session.userId,
           studentName: session.displayName || session.name,
+          studentAvatar: session.avatar || "",
         },
       });
     }

@@ -4,9 +4,9 @@
  * DELETE /api/courses/:id/students — remove a student
  */
 import { NextRequest, NextResponse } from "next/server";
-import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
+import { assertCanTeachCourse } from "@/lib/course-teacher";
 
 export async function POST(
   request: NextRequest,
@@ -19,15 +19,14 @@ export async function POST(
 
   const { id: courseId } = await params;
 
-  // Verify teacher ownership
-  const course = await prisma.course.findUnique({ where: { id: courseId } });
-  if (!course || !casdoorUserIdsMatch(course.teacherId, session.userId)) {
+  // Verify teaching access
+  if (!(await assertCanTeachCourse(session.userId, courseId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   try {
     const body = await request.json();
-    const { students } = body; // Array of { studentId, studentName }
+    const { students } = body; // Array of { studentId, studentName, studentAvatar }
 
     if (!Array.isArray(students) || students.length === 0) {
       return NextResponse.json({ error: "students array is required" }, { status: 400 });
@@ -35,10 +34,11 @@ export async function POST(
 
     // Use createMany with skipDuplicates to avoid conflicts
     const result = await prisma.courseStudent.createMany({
-      data: students.map((s: { studentId: string; studentName?: string }) => ({
+      data: students.map((s: { studentId: string; studentName?: string; studentAvatar?: string }) => ({
         courseId,
         studentId: s.studentId,
         studentName: s.studentName || "",
+        studentAvatar: s.studentAvatar || "",
       })),
       skipDuplicates: true,
     });
@@ -61,8 +61,7 @@ export async function DELETE(
 
   const { id: courseId } = await params;
 
-  const course = await prisma.course.findUnique({ where: { id: courseId } });
-  if (!course || !casdoorUserIdsMatch(course.teacherId, session.userId)) {
+  if (!(await assertCanTeachCourse(session.userId, courseId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

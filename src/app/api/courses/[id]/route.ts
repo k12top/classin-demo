@@ -15,6 +15,11 @@ import {
 import { promoteCourseIfDueById } from "@/lib/course-promote";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
+import {
+  normalizeCourseTeachers,
+  userCanTeachCourse,
+  userOwnsCourse,
+} from "@/lib/course-teacher";
 
 export const dynamic = "force-dynamic";
 
@@ -30,9 +35,10 @@ export async function GET(
   const { id } = await params;
   try {
     await promoteCourseIfDueById(id);
-    let course = await prisma.course.findUnique({
+    const course = await prisma.course.findUnique({
       where: { id },
       include: {
+        teachers: { orderBy: { createdAt: "asc" } },
         students: true,
         groupLinks: {
           include: {
@@ -50,13 +56,22 @@ export async function GET(
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
     }
 
-    const isTeacher = casdoorUserIdsMatch(course.teacherId, session.userId);
+    const isTeacher = userCanTeachCourse(course, session.userId);
+    type SerializedCourse = Omit<typeof course, "passcode"> & {
+      statusLabel: string;
+      isCourseOwner: boolean;
+      canTeach: boolean;
+      requiresPasscode: boolean;
+      passcode?: string | null;
+    };
     const serialized = serializeCourse({
       ...course,
+      isCourseOwner: userOwnsCourse(course, session.userId),
+      canTeach: isTeacher,
       requiresPasscode: course.roomType === 10 && Boolean(course.passcode),
-    });
+    }) as SerializedCourse;
     if (!isTeacher) {
-      delete (serialized as any).passcode;
+      delete serialized.passcode;
     }
 
     return NextResponse.json(
@@ -84,15 +99,32 @@ export async function PUT(
 
   const { id } = await params;
 
-  // Only the course teacher can update
-  const existing = await prisma.course.findUnique({ where: { id } });
-  if (!existing || !casdoorUserIdsMatch(existing.teacherId, session.userId)) {
+  // Course owner or teaching teachers can update course details.
+  const existing = await prisma.course.findUnique({
+    where: { id },
+    include: { teachers: { orderBy: { createdAt: "asc" } } },
+  });
+  if (!existing || !userCanTeachCourse(existing, session.userId)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
     try {
       const body = await request.json();
-      const { name, description, roomType, status, startTime, endTime, studentRemarks, passcode } = body;
+      const {
+        name,
+        description,
+        roomType,
+        status,
+        startTime,
+        endTime,
+        studentRemarks,
+        passcode,
+        primaryTeacher,
+        primaryTeacherId,
+        primaryTeacherName,
+        teachers,
+        teacherIds,
+      } = body;
 
       if (status !== undefined && !isValidCourseStatus(status)) {
         return NextResponse.json({ error: "Invalid status" }, { status: 400 });
@@ -130,9 +162,53 @@ export async function PUT(
         }
       }
 
-      let course = await prisma.course.update({
-        where: { id },
-        data: {
+      const teacherFieldsRequested =
+        primaryTeacher !== undefined ||
+        primaryTeacherId !== undefined ||
+        primaryTeacherName !== undefined ||
+        teachers !== undefined ||
+        teacherIds !== undefined;
+
+      let nextLeadTeacher:
+        | { teacherId: string; teacherName: string; teacherAvatar: string }
+        | undefined;
+      let nextTeachers:
+        | { teacherId: string; teacherName: string; teacherAvatar: string }[]
+        | undefined;
+
+      if (teacherFieldsRequested) {
+        if (!userOwnsCourse(existing, session.userId)) {
+          return NextResponse.json(
+            { error: "Only the course owner can change course teachers" },
+            { status: 403 }
+          );
+        }
+
+        const primaryTeacherInput = primaryTeacher ?? {
+          teacherId: primaryTeacherId ?? existing.teacherId,
+          teacherName: primaryTeacherName ?? existing.teacherName,
+          teacherAvatar: existing.teacherAvatar,
+        };
+        const teacherInputs =
+          teachers !== undefined
+            ? Array.isArray(teachers)
+              ? teachers
+              : []
+            : teacherIds !== undefined && Array.isArray(teacherIds)
+              ? teacherIds.map((teacherId: string) => ({ teacherId }))
+              : existing.teachers;
+
+        nextTeachers = normalizeCourseTeachers(primaryTeacherInput, teacherInputs);
+        if (nextTeachers.length === 0) {
+          return NextResponse.json(
+            { error: "At least one course teacher is required" },
+            { status: 400 }
+          );
+        }
+        nextLeadTeacher = nextTeachers[0];
+      }
+
+      const updateData = {
           ...(name !== undefined && { name: name.trim() }),
           ...(description !== undefined && { description: description.trim() }),
           ...(roomType !== undefined && { roomType }),
@@ -141,12 +217,45 @@ export async function PUT(
           ...(startTime !== undefined && { startTime: startTime ? new Date(startTime) : null }),
           ...(endTime !== undefined && { endTime: endTime ? new Date(endTime) : null }),
           ...(studentRemarks !== undefined && { studentRemarks: studentRemarks.trim() }),
-        },
-      });
+          ...(nextLeadTeacher && {
+            teacherId: nextLeadTeacher.teacherId,
+            teacherName: nextLeadTeacher.teacherName,
+            teacherAvatar: nextLeadTeacher.teacherAvatar,
+          }),
+        };
+
+      if (nextTeachers) {
+        await prisma.$transaction([
+          prisma.course.update({
+            where: { id },
+            data: updateData,
+          }),
+          prisma.courseTeacher.deleteMany({ where: { courseId: id } }),
+          prisma.courseTeacher.createMany({
+            data: nextTeachers.map((teacher) => ({
+              courseId: id,
+              teacherId: teacher.teacherId,
+              teacherName: teacher.teacherName,
+              teacherAvatar: teacher.teacherAvatar,
+            })),
+            skipDuplicates: true,
+          }),
+        ]);
+      } else {
+        await prisma.course.update({
+          where: { id },
+          data: updateData,
+        });
+      }
 
     const promoted = await promoteCourseIfDueById(id);
-    if (promoted) {
-      course = promoted;
+    const course =
+      (await prisma.course.findUnique({
+        where: { id: promoted?.id ?? id },
+        include: { teachers: { orderBy: { createdAt: "asc" } } },
+      })) ?? promoted;
+    if (!course) {
+      return NextResponse.json({ error: "Course not found" }, { status: 404 });
     }
 
     return NextResponse.json({ course: serializeCourse(course) });
@@ -170,14 +279,18 @@ export async function PATCH(
   // Find course and check permissions
   const existing = await prisma.course.findUnique({
     where: { id },
-    include: { students: true, groupLinks: true }
+    include: {
+      students: true,
+      groupLinks: true,
+      teachers: { select: { teacherId: true } },
+    }
   });
 
   if (!existing) {
     return NextResponse.json({ error: "Course not found" }, { status: 404 });
   }
 
-  const isTeacher = casdoorUserIdsMatch(existing.teacherId, session.userId);
+  const isTeacher = userCanTeachCourse(existing, session.userId);
   const isDirectStudent = existing.students.some(s => casdoorUserIdsMatch(s.studentId, session.userId));
   
   // Also check if user is a member of any group linked to this course
@@ -264,8 +377,11 @@ export async function DELETE(
 
   const { id } = await params;
 
-  const existing = await prisma.course.findUnique({ where: { id } });
-  if (!existing || !casdoorUserIdsMatch(existing.teacherId, session.userId)) {
+  const existing = await prisma.course.findUnique({
+    where: { id },
+    select: { ownerId: true, teacherId: true },
+  });
+  if (!existing || !userOwnsCourse(existing, session.userId)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

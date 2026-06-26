@@ -5,6 +5,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
+import { assertCourseOwner } from "@/lib/course-teacher";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 
@@ -19,17 +20,6 @@ async function assertTeacherOwnsGroup(
     select: { createdBy: true },
   });
   return Boolean(group && casdoorUserIdsMatch(group.createdBy, userId));
-}
-
-async function assertTeacherOwnsCourse(
-  userId: string,
-  courseId: string
-): Promise<boolean> {
-  const course = await prisma.course.findUnique({
-    where: { id: courseId },
-    select: { teacherId: true },
-  });
-  return Boolean(course && casdoorUserIdsMatch(course.teacherId, userId));
 }
 
 export async function GET(request: NextRequest) {
@@ -122,10 +112,11 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
         const result = await prisma.groupMember.createMany({
-          data: members.map((m: { userId: string; userName?: string }) => ({
+          data: members.map((m: { userId: string; userName?: string; userAvatar?: string }) => ({
             groupId,
             userId: m.userId,
             userName: m.userName || "",
+            userAvatar: m.userAvatar || "",
           })),
           skipDuplicates: true,
         });
@@ -159,12 +150,9 @@ export async function POST(request: NextRequest) {
         }
         const courseForLink = await prisma.course.findUnique({
           where: { id: courseId },
-          select: { teacherId: true, roomType: true },
+          select: { roomType: true },
         });
-        if (
-          !courseForLink ||
-          !casdoorUserIdsMatch(courseForLink.teacherId, session.userId)
-        ) {
+        if (!courseForLink || !(await assertCourseOwner(session.userId, courseId))) {
           return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
         if (courseForLink.roomType === 0) {
@@ -200,7 +188,7 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
-        if (!(await assertTeacherOwnsCourse(session.userId, unlinkCid))) {
+        if (!(await assertCourseOwner(session.userId, unlinkCid))) {
           return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
         if (!(await assertTeacherOwnsGroup(session.userId, unlinkGid))) {

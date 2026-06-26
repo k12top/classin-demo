@@ -4,18 +4,17 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Calendar as CalendarIcon, Users, Settings, LogOut, ChevronLeft, ChevronRight, PlayCircle, Plus, Search, Trash2, Link as LinkIcon, Edit, UserPlus, Info, Clock, Globe, Key, Loader2, User, BookOpen } from "lucide-react";
+import { Calendar as CalendarIcon, Users, Settings, LogOut, ChevronLeft, ChevronRight, PlayCircle, Plus, Search, Trash2, Link as LinkIcon, UserPlus, Info, Clock, Globe, Key, Loader2, User, BookOpen } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
-import { SupportedLocale } from "@/lib/i18n/locales";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import ThemeToggle from "@/components/ThemeToggle";
 import { CourseTimeRangeDisplay } from "@/components/TimeDisplay";
@@ -26,8 +25,14 @@ interface Course {
   description: string;
   roomType: number;
   passcode?: string | null;
+  ownerId?: string;
+  ownerName?: string;
   teacherId: string;
   teacherName: string;
+  teacherAvatar?: string;
+  teachers?: CourseTeacherSummary[];
+  isCourseOwner?: boolean;
+  canTeach?: boolean;
   status: string;
   startTime: string | null;
   endTime: string | null;
@@ -35,15 +40,41 @@ interface Course {
   recordUrl?: string | null;
   createdAt: string;
   updatedAt: string;
-  students?: { studentId: string; studentName: string }[];
+  students?: { studentId: string; studentName: string; studentAvatar?: string }[];
   activeJoinLinks?: { id: string; label: string; joinUrl: string; useCount: number }[];
   activeCourseShareLinks?: { id: string; label: string; courseShareUrl: string; useCount: number }[];
+}
+
+interface CourseTeacherSummary {
+  id?: string;
+  teacherId: string;
+  teacherName: string;
+  teacherAvatar?: string;
+}
+
+interface UserSearchResult {
+  id: string;
+  casdoorUuid?: string | null;
+  name: string;
+  displayName: string;
+  email: string;
+  avatar?: string;
+  role?: string;
+}
+
+interface TeacherUser {
+  userId: string;
+  name?: string;
+  displayName?: string;
+  avatar?: string;
+  email?: string;
+  role?: string;
 }
 
 interface GroupNode {
   id: string;
   name: string;
-  members: { userId: string; userName?: string }[];
+  members: { userId: string; userName?: string; userAvatar?: string }[];
   children?: GroupNode[];
 }
 
@@ -89,7 +120,7 @@ const SUPPORTED_TIMEZONES: TimezoneConfig[] = [
 const DEFAULT_TIMEZONE_IDS = ["TH", "VN", "SG", "ID_WIB"];
 const CREATE_SUBMIT_DEBOUNCE_MS = 1200;
 
-export default function TeacherDashboard({ courses, user, fetchCourses }: { courses: Course[], user: any, fetchCourses: () => void }) {
+export default function TeacherDashboard({ courses, user, fetchCourses }: { courses: Course[], user: TeacherUser, fetchCourses: () => void }) {
   const router = useRouter();
   const { logout } = useAuth();
   const [activePage, setActivePage] = useState<SidebarPage>("schedule");
@@ -112,8 +143,31 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const [createEndTime, setCreateEndTime] = useState("");
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState("");
+  const [createTeacherQuery, setCreateTeacherQuery] = useState("");
+  const [createTeacherResults, setCreateTeacherResults] = useState<UserSearchResult[]>([]);
+  const [createTeacherSearching, setCreateTeacherSearching] = useState(false);
+  const [createTeacherError, setCreateTeacherError] = useState("");
+  const [createTeachers, setCreateTeachers] = useState<CourseTeacherSummary[]>([]);
+  const [createPrimaryTeacherId, setCreatePrimaryTeacherId] = useState("");
   const createLockRef = useRef(false);
   const lastCreateSubmitAtRef = useRef(0);
+
+  const currentTeacher = useMemo<CourseTeacherSummary>(
+    () => ({
+      teacherId: user.userId,
+      teacherName: user.displayName || user.name || user.userId,
+      teacherAvatar: user.avatar || "",
+    }),
+    [user.avatar, user.displayName, user.name, user.userId]
+  );
+
+  const resetCreateTeacherSelection = useCallback(() => {
+    setCreateTeachers([currentTeacher]);
+    setCreatePrimaryTeacherId(currentTeacher.teacherId);
+    setCreateTeacherQuery("");
+    setCreateTeacherResults([]);
+    setCreateTeacherError("");
+  }, [currentTeacher]);
 
   const minDateTime = (() => {
     const now = new Date();
@@ -128,16 +182,18 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   // Load selected timezones on mount
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("classroom_selected_timezones");
-      if (saved) {
-        try {
-          setSelectedTzIds(JSON.parse(saved));
-        } catch {
+      queueMicrotask(() => {
+        const saved = localStorage.getItem("classroom_selected_timezones");
+        if (saved) {
+          try {
+            setSelectedTzIds(JSON.parse(saved));
+          } catch {
+            setSelectedTzIds(DEFAULT_TIMEZONE_IDS);
+          }
+        } else {
           setSelectedTzIds(DEFAULT_TIMEZONE_IDS);
         }
-      } else {
-        setSelectedTzIds(DEFAULT_TIMEZONE_IDS);
-      }
+      });
     }
   }, []);
 
@@ -210,7 +266,9 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
   useEffect(() => {
     if (activePage === "students") {
-      fetchMyGroups();
+      queueMicrotask(() => {
+        void fetchMyGroups();
+      });
     }
   }, [activePage, fetchMyGroups]);
 
@@ -301,6 +359,98 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     }
   };
 
+  const sameTeacherId = (a: string, b: string) => {
+    if (a === b) return true;
+    const strip = (value: string) => (value.includes("/") ? value.split("/").pop() || value : value);
+    return strip(a) === strip(b);
+  };
+
+  const makeTeacherFromSearchResult = (u: UserSearchResult): CourseTeacherSummary => ({
+    teacherId: u.casdoorUuid || u.id,
+    teacherName: u.displayName || u.name || u.email || u.id,
+    teacherAvatar: u.avatar || "",
+  });
+
+  const formatCourseTeacherNames = (course: Course) => {
+    const teachers =
+      course.teachers && course.teachers.length > 0
+        ? course.teachers
+        : [{ teacherId: course.teacherId, teacherName: course.teacherName }];
+    const uniqueNames: string[] = [];
+    for (const teacher of teachers) {
+      const name = teacher.teacherName || teacher.teacherId;
+      if (!uniqueNames.includes(name)) {
+        uniqueNames.push(name);
+      }
+    }
+    return uniqueNames.join(locale === "zh-CN" ? "、" : ", ");
+  };
+
+  const addCreateTeacher = (teacher: CourseTeacherSummary, makePrimary = false) => {
+    setCreateTeachers((prev) => {
+      const exists = prev.some((item) => sameTeacherId(item.teacherId, teacher.teacherId));
+      return exists ? prev : [...prev, teacher];
+    });
+    if (makePrimary || !createPrimaryTeacherId) {
+      setCreatePrimaryTeacherId(teacher.teacherId);
+    }
+  };
+
+  const removeCreateTeacher = (teacherId: string) => {
+    setCreateTeachers((prev) => {
+      if (prev.length <= 1) return prev;
+      const next = prev.filter((item) => !sameTeacherId(item.teacherId, teacherId));
+      if (sameTeacherId(createPrimaryTeacherId, teacherId)) {
+        setCreatePrimaryTeacherId(next[0]?.teacherId || "");
+      }
+      return next;
+    });
+  };
+
+  const fetchCreateTeacherOptions = useCallback(async (query: string) => {
+    setCreateTeacherSearching(true);
+    setCreateTeacherError("");
+    try {
+      const res = await fetch(
+        `/api/users/teachers?limit=100&q=${encodeURIComponent(query.trim())}`,
+        { credentials: "same-origin" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const teachers = data.teachers ?? data.users ?? [];
+        setCreateTeacherResults(teachers);
+        if (!teachers.length) {
+          setCreateTeacherError(t("teacherDashboard.searchUserNotFound"));
+        }
+      } else {
+        setCreateTeacherResults([]);
+        setCreateTeacherError(data.hint || data.error || t("common.failed"));
+      }
+    } catch {
+      setCreateTeacherResults([]);
+      setCreateTeacherError(t("common.failed"));
+    } finally {
+      setCreateTeacherSearching(false);
+    }
+  }, [t]);
+
+  const handleSearchCreateTeachers = async () => {
+    await fetchCreateTeacherOptions(createTeacherQuery);
+  };
+
+  const openCreateDialog = () => {
+    setCreateError("");
+    resetCreateTeacherSelection();
+    setCreateOpen(true);
+  };
+
+  useEffect(() => {
+    if (!createOpen) return;
+    queueMicrotask(() => {
+      void fetchCreateTeacherOptions("");
+    });
+  }, [createOpen, fetchCreateTeacherOptions]);
+
   const handleCreateCourse = async () => {
     if (createLockRef.current) return;
     if (!createName.trim()) { setCreateError(t("teacherDashboard.errNameEmpty")); return; }
@@ -314,6 +464,10 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         return;
       }
     }
+    const selectedPrimaryTeacher =
+      createTeachers.find((teacher) =>
+        sameTeacherId(teacher.teacherId, createPrimaryTeacherId)
+      ) || createTeachers[0] || currentTeacher;
 
     const now = Date.now();
     if (now - lastCreateSubmitAtRef.current < CREATE_SUBMIT_DEBOUNCE_MS) {
@@ -336,6 +490,8 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
           passcode: createRoomType === 10 && createRequirePasscode ? createPasscode : undefined,
           startTime: new Date(createStartTime).toISOString(),
           endTime: new Date(createEndTime).toISOString(),
+          primaryTeacher: selectedPrimaryTeacher,
+          teachers: createTeachers.length ? createTeachers : [currentTeacher],
         }),
       });
       if (!res.ok) {
@@ -345,6 +501,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       const { course } = await res.json();
       setCreateOpen(false);
       setCreateName(""); setCreateDesc(""); setCreateRoomType(0); setCreateRequirePasscode(true); setCreatePasscode(""); setCreateStartTime(""); setCreateEndTime("");
+      resetCreateTeacherSelection();
       router.push(`/courses/${course.id}`);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : t("common.failed"));
@@ -426,7 +583,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     }
   };
 
-  const handleAddUserToGroup = async (u: { id: string; name: string; displayName: string }) => {
+  const handleAddUserToGroup = async (u: UserSearchResult) => {
     if (!memberTargetGroupId) {
       alert(t("teacherDashboard.selectTargetGroup"));
       return;
@@ -439,7 +596,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         body: JSON.stringify({
           action: "addMembers",
           groupId: memberTargetGroupId,
-          members: [{ userId: u.id, userName: u.displayName || u.name }],
+          members: [{ userId: u.id, userName: u.displayName || u.name, userAvatar: u.avatar || "" }],
         }),
       });
       if (res.ok) await fetchMyGroups();
@@ -474,7 +631,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     for (const g of roots) {
       const label = prefix ? `${prefix} / ${g.name}` : g.name;
       rows.push({ id: g.id, label });
-      if (g.children?.length) roots && rows.push(...flattenGroups(g.children, label));
+      if (g.children?.length) rows.push(...flattenGroups(g.children, label));
     }
     return rows;
   }
@@ -598,7 +755,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 <h2 className="text-3xl font-extrabold tracking-tight">{t("teacherDashboard.schedule")}</h2>
                 <p className="text-muted-foreground mt-1 text-sm font-medium">{t("teacherDashboard.groupManageDesc")}</p>
               </div>
-              <Button onClick={() => { setCreateError(""); setCreateOpen(true); }} className="bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all">
+              <Button onClick={openCreateDialog} className="bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all">
                 <Plus className="mr-2 h-4 w-4" /> {t("teacherDashboard.createCourse")}
               </Button>
             </div>
@@ -715,8 +872,20 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                     </Badge>
                                   )}
                                 </div>
-                                <div className="flex items-center gap-1.5 text-muted-foreground text-xs font-medium">
+                                <div className="flex flex-wrap items-center gap-1.5 text-muted-foreground text-xs font-medium">
                                   <User className="h-3.5 w-3.5" />
+                                  <span>
+                                    {t("common.leadTeacher")}: {course.teacherName}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 text-muted-foreground text-xs font-medium">
+                                  <Users className="h-3.5 w-3.5 shrink-0" />
+                                  <span className="truncate" title={formatCourseTeacherNames(course)}>
+                                    {t("common.teachingTeachers")}: {formatCourseTeacherNames(course)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 text-muted-foreground text-xs font-medium">
+                                  <Info className="h-3.5 w-3.5" />
                                   <span>{course.description || t("courseDetail.noDescription")}</span>
                                 </div>
                               </div>
@@ -1022,7 +1191,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
         {/* ──── Create Course Dialog ──── */}
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogContent className="sm:max-w-[560px] bg-card border border-border/80 rounded-2xl shadow-xl animate-in zoom-in-95 duration-200">
+          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[640px] bg-card border border-border/80 rounded-2xl shadow-xl animate-in zoom-in-95 duration-200">
             <DialogHeader>
               <DialogTitle className="text-xl font-bold">{t("teacherDashboard.createTitle")}</DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">{t("teacherDashboard.createDesc")}</DialogDescription>
@@ -1055,6 +1224,141 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                   maxLength={200}
                   rows={3}
                 />
+              </div>
+
+              <div className="space-y-3 rounded-xl border border-border/60 bg-muted/10 p-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                      {t("common.teachingTeachers")}
+                    </label>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {t("teacherDashboard.teachingTeachersHint")}
+                    </p>
+                  </div>
+                  <Badge variant="secondary" className="shrink-0 bg-primary/10 text-primary border-primary/10">
+                    {createTeachers.length}
+                  </Badge>
+                </div>
+
+                <div className="space-y-2">
+                  {createTeachers.map((teacher) => {
+                    const isPrimary = sameTeacherId(teacher.teacherId, createPrimaryTeacherId);
+                    return (
+                      <div
+                        key={teacher.teacherId}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/50 bg-background px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="truncate text-sm font-semibold">{teacher.teacherName}</span>
+                            {isPrimary && (
+                              <Badge className="h-5 bg-primary/10 text-primary border border-primary/15 text-[10px]">
+                                {t("common.lead")}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="truncate text-[10px] text-muted-foreground">{teacher.teacherId}</p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {!isPrimary && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7 rounded-md px-2 text-[11px]"
+                              onClick={() => setCreatePrimaryTeacherId(teacher.teacherId)}
+                            >
+                              {t("common.makeLeadTeacher")}
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
+                            disabled={createTeachers.length <= 1}
+                            onClick={() => removeCreateTeacher(teacher.teacherId)}
+                            title={t("common.delete")}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex gap-2">
+                  <Input
+                    className="h-9 bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-lg"
+                    placeholder={t("teacherDashboard.teacherSearchPlaceholder")}
+                    value={createTeacherQuery}
+                    onChange={(e) => {
+                      setCreateTeacherQuery(e.target.value);
+                      setCreateTeacherError("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void handleSearchCreateTeachers();
+                      }
+                    }}
+                  />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="h-9 shrink-0 rounded-lg px-3 text-xs"
+                    disabled={createTeacherSearching}
+                      onClick={() => void handleSearchCreateTeachers()}
+                    >
+                    {createTeacherSearching ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Search className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+
+                {createTeacherError && (
+                  <p className="text-xs text-red-500 bg-red-500/5 p-2 rounded-lg border border-red-500/20">
+                    {createTeacherError}
+                  </p>
+                )}
+
+                {createTeacherResults.length > 0 && (
+                  <div className="max-h-36 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                    {createTeacherResults.map((result) => {
+                      const teacher = makeTeacherFromSearchResult(result);
+                      const alreadySelected = createTeachers.some((item) =>
+                        sameTeacherId(item.teacherId, teacher.teacherId)
+                      );
+                      return (
+                        <div
+                          key={teacher.teacherId}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-background/70 px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold">{teacher.teacherName}</p>
+                            <p className="truncate text-[10px] text-muted-foreground">{result.email || result.name}</p>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={alreadySelected ? "outline" : "secondary"}
+                            className="h-7 shrink-0 rounded-md px-2 text-[11px]"
+                            disabled={alreadySelected}
+                            onClick={() => addCreateTeacher(teacher)}
+                          >
+                            {alreadySelected
+                              ? t("common.added")
+                              : t("common.add")}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-4 flex flex-col sm:flex-row gap-4 sm:space-y-0">
@@ -1266,8 +1570,51 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   );
 }
 
-function SettingsPanel({ user, onLogout }: { user: any; onLogout: () => void }) {
+function SettingsPanel({ user, onLogout }: { user: TeacherUser; onLogout: () => void }) {
   const { t } = useTranslation();
+  const { updateUserAvatar } = useAuth();
+  const [avatarDraft, setAvatarDraft] = useState(user.avatar || "");
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const [avatarMessage, setAvatarMessage] = useState("");
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setAvatarDraft(user.avatar || "");
+    });
+  }, [user.avatar]);
+
+  const handleSaveAvatar = async () => {
+    const avatar = avatarDraft.trim();
+    setAvatarSaving(true);
+    setAvatarMessage("");
+
+    try {
+      const res = await fetch("/api/auth/avatar", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ avatar }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAvatarMessage(
+          data?.error === "Invalid avatar URL"
+            ? t("settingsPanel.errAvatarUrlInvalid")
+            : t("settingsPanel.avatarUpdateFailed")
+        );
+        return;
+      }
+
+      const nextAvatar = typeof data?.avatar === "string" ? data.avatar : avatar;
+      updateUserAvatar(nextAvatar);
+      setAvatarDraft(nextAvatar);
+      setAvatarMessage(t("settingsPanel.avatarUpdateSuccess"));
+    } catch {
+      setAvatarMessage(t("settingsPanel.avatarUpdateFailed"));
+    } finally {
+      setAvatarSaving(false);
+    }
+  };
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500">
@@ -1316,13 +1663,47 @@ function SettingsPanel({ user, onLogout }: { user: any; onLogout: () => void }) 
         <CardHeader>
           <CardTitle className="text-lg font-bold">{t("settingsPanel.avatar")}</CardTitle>
         </CardHeader>
-        <CardContent className="flex items-center gap-6 pt-2">
+        <CardContent className="flex flex-col gap-5 pt-2 sm:flex-row sm:items-start">
           <Avatar className="h-16 w-16 border border-border/80 shadow-inner">
-            <AvatarImage src={user.avatar} />
+            <AvatarImage src={avatarDraft.trim() || user.avatar} />
             <AvatarFallback className="text-xl bg-primary/10 text-primary font-bold">{user.displayName?.[0] || user.name?.[0] || "T"}</AvatarFallback>
           </Avatar>
-          <div className="text-xs text-muted-foreground leading-relaxed">
-            {t("settingsPanel.avatarDesc")}
+          <div className="min-w-0 flex-1 space-y-3">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {t("settingsPanel.avatarDesc")}
+            </p>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                {t("settingsPanel.avatarUrl")}
+              </label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  type="url"
+                  value={avatarDraft}
+                  onChange={(e) => {
+                    setAvatarDraft(e.target.value);
+                    setAvatarMessage("");
+                  }}
+                  placeholder={t("settingsPanel.avatarUrlPlaceholder")}
+                  className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
+                />
+                <Button
+                  type="button"
+                  className="rounded-xl text-xs"
+                  disabled={avatarSaving}
+                  onClick={() => void handleSaveAvatar()}
+                >
+                  {avatarSaving ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    t("settingsPanel.btnSaveAvatar")
+                  )}
+                </Button>
+              </div>
+              {avatarMessage && (
+                <p className="text-xs text-muted-foreground">{avatarMessage}</p>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>

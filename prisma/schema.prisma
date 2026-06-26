@@ -9,6 +9,20 @@ datasource db {
   provider = "postgresql"
 }
 
+// ── Local user profile overrides ──
+model UserProfile {
+  id          String   @id @default(uuid())
+  userId      String   @unique // App session user ID
+  displayName String   @default("")
+  avatar      String   @default("")
+  role        String   @default("")
+  email       String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([role])
+}
+
 // ── Course ──
 model Course {
   id             String    @id @default(uuid())
@@ -16,8 +30,12 @@ model Course {
   description    String    @default("")
   roomType       Int       @default(0) // 0=一对一, 4=小班, 2=大班, 10=公开课
   passcode       String?   // 6-digit passcode for public course
+  ownerId        String    // Course owner Casdoor user ID
+  ownerName      String
+  ownerAvatar    String    @default("")
   teacherId      String    // Casdoor user ID
   teacherName    String
+  teacherAvatar  String    @default("")
   status         String    @default("scheduled") // scheduled | live | afterClass | cancelled | finished
   startTime      DateTime?
   endTime        DateTime?
@@ -32,9 +50,27 @@ model Course {
   groupLinks   CourseGroupLink[]
   joinLinks    CourseJoinLink[]
   courseware   Courseware[]
+  teachers     CourseTeacher[]
 
+  @@index([ownerId])
   @@index([teacherId])
   @@index([status])
+}
+
+// ── Course ↔ Teacher (lecturers; includes the lead teacher) ──
+model CourseTeacher {
+  id          String   @id @default(uuid())
+  courseId    String
+  teacherId   String   // Casdoor user ID
+  teacherName String   @default("")
+  teacherAvatar String @default("")
+  createdAt   DateTime @default(now())
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, teacherId])
+  @@index([teacherId])
+  @@index([courseId])
 }
 
 // ── Share link: teacher-created, revocable live or course enrollment link ──
@@ -85,6 +121,7 @@ model CourseStudent {
   courseId   String
   studentId String   // Casdoor user ID
   studentName String @default("")
+  studentAvatar String @default("")
   joinedAt  DateTime @default(now())
 
   course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
@@ -112,6 +149,7 @@ model GroupMember {
   groupId   String
   userId    String   // Casdoor user ID
   userName  String   @default("")
+  userAvatar String  @default("")
   joinedAt  DateTime @default(now())
 
   group StudentGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)

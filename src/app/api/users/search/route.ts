@@ -4,8 +4,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
-import { searchCasdoorUsers } from "@/lib/casdoor-server";
-import { resolveCasdoorUserId } from "@/lib/casdoor-user";
+import { DirectoryUserRole, listDirectoryUsers } from "@/lib/user-directory";
 
 export const dynamic = "force-dynamic";
 
@@ -25,25 +24,23 @@ export async function GET(request: NextRequest) {
   }
 
   const query = request.nextUrl.searchParams.get("q") || "";
+  const roleFilter = request.nextUrl.searchParams.get("role");
+  const limit = Number(request.nextUrl.searchParams.get("limit") || 50);
+  if (roleFilter && roleFilter !== "teacher" && roleFilter !== "student") {
+    return NextResponse.json({ error: "Invalid role filter" }, { status: 400 });
+  }
 
   try {
-    const users = await searchCasdoorUsers(query, {
+    const users = await listDirectoryUsers({
+      query,
+      role: roleFilter as DirectoryUserRole | undefined,
       excludeUserId: session.userId,
-      studentsOnly: false,
-      limit: 50,
+      limit,
     });
 
     return NextResponse.json(
       {
-        users: users.map((u) => ({
-          id: resolveCasdoorUserId(u),
-          casdoorUuid: u.id,
-          name: u.name,
-          displayName: u.displayName || u.name,
-          email: u.email,
-          avatar: u.avatar,
-          groups: u.groups ?? [],
-        })),
+        users,
       },
       {
         headers: {

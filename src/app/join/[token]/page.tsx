@@ -82,6 +82,7 @@ export default async function JoinPage({
             courseId: course.id,
             studentId: session.userId,
             studentName: session.displayName || session.name,
+            studentAvatar: session.avatar || "",
           },
         ],
         skipDuplicates: true,

@@ -10,6 +10,11 @@ import { buildCourseShareUrl, buildJoinUrl, joinLinkStatus } from "@/lib/join-li
 import { serializeCourse, serializeCourses } from "@/lib/course-serialize";
 import { promoteCoursesIfDue } from "@/lib/course-promote";
 import {
+  casdoorUserIdCandidates,
+  normalizeCourseTeachers,
+  userOwnsCourse,
+} from "@/lib/course-teacher";
+import {
   applyCourseListSort,
   courseListOrderBy,
   courseListStatusWhere,
@@ -43,11 +48,20 @@ export async function GET(request: NextRequest) {
     await promoteCoursesIfDue();
 
     if (session.role === "teacher") {
-      // Teacher sees all their own courses (all statuses)
+      // Teacher sees courses they own or teach (all statuses)
+      const userIdCandidates = casdoorUserIdCandidates(session.userId);
       const coursesRaw = await prisma.course.findMany({
-        where: { teacherId: session.userId, ...statusWhere },
+        where: {
+          OR: [
+            { ownerId: { in: userIdCandidates } },
+            { teacherId: { in: userIdCandidates } },
+            { teachers: { some: { teacherId: { in: userIdCandidates } } } },
+          ],
+          ...statusWhere,
+        },
         include: {
-          students: { select: { studentId: true, studentName: true } },
+          teachers: { orderBy: { createdAt: "asc" } },
+          students: { select: { studentId: true, studentName: true, studentAvatar: true } },
           groupLinks: {
             include: {
               group: { select: { id: true, name: true } },
@@ -72,6 +86,8 @@ export async function GET(request: NextRequest) {
       const courses = applyCourseListSort(
         coursesRaw.map(({ joinLinks, ...course }) => ({
           ...course,
+          isCourseOwner: userOwnsCourse(course, session.userId),
+          canTeach: true,
           activeJoinLinks: joinLinks
             .filter((l) => joinLinkStatus(l) === "active" && l.purpose !== "course")
             .map((l) => ({
@@ -107,7 +123,8 @@ export async function GET(request: NextRequest) {
           ...statusWhere,
         },
         include: {
-          students: { select: { studentId: true, studentName: true } },
+          teachers: { orderBy: { createdAt: "asc" } },
+          students: { select: { studentId: true, studentName: true, studentAvatar: true } },
         },
         orderBy,
       });
@@ -128,7 +145,8 @@ export async function GET(request: NextRequest) {
             ...statusWhere,
           },
           include: {
-            students: { select: { studentId: true, studentName: true } },
+            teachers: { orderBy: { createdAt: "asc" } },
+            students: { select: { studentId: true, studentName: true, studentAvatar: true } },
           },
           orderBy,
         });
@@ -148,7 +166,8 @@ export async function GET(request: NextRequest) {
           ...statusWhere,
         },
         include: {
-          students: { select: { studentId: true, studentName: true } },
+          teachers: { orderBy: { createdAt: "asc" } },
+          students: { select: { studentId: true, studentName: true, studentAvatar: true } },
         },
         orderBy,
       });
@@ -211,6 +230,11 @@ export async function POST(request: NextRequest) {
       studentRemarks,
       passcode,
       requirePasscode,
+      primaryTeacher,
+      primaryTeacherId,
+      primaryTeacherName,
+      teachers,
+      teacherIds,
     } = body;
 
     if (!name?.trim()) {
@@ -252,10 +276,39 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Backend double-submit protection: check if a course with same teacher, name, startTime, and endTime was created within the last 5 seconds
+    const ownerName = session.displayName || session.name;
+    const fallbackTeacher = {
+      teacherId: session.userId,
+      teacherName: ownerName,
+      teacherAvatar: session.avatar || "",
+    };
+    const primaryTeacherSpecified =
+      primaryTeacher !== undefined ||
+      primaryTeacherId !== undefined ||
+      primaryTeacherName !== undefined;
+    const primaryTeacherInput = primaryTeacherSpecified
+      ? primaryTeacher ?? {
+          teacherId: primaryTeacherId,
+          teacherName: primaryTeacherName,
+        }
+      : fallbackTeacher;
+    let normalizedTeachers = normalizeCourseTeachers(
+      primaryTeacherInput,
+      Array.isArray(teachers)
+        ? teachers
+        : Array.isArray(teacherIds)
+          ? teacherIds.map((teacherId: string) => ({ teacherId }))
+          : []
+    );
+    if (normalizedTeachers.length === 0) {
+      normalizedTeachers = normalizeCourseTeachers(fallbackTeacher);
+    }
+    const leadTeacher = normalizedTeachers[0] ?? fallbackTeacher;
+
+    // Backend double-submit protection: check if a course with same owner, name, startTime, and endTime was created within the last 5 seconds
     const existing = await prisma.course.findFirst({
       where: {
-        teacherId: session.userId,
+        ownerId: session.userId,
         name: name.trim(),
         startTime: parsedStartTime,
         endTime: parsedEndTime,
@@ -274,12 +327,24 @@ export async function POST(request: NextRequest) {
         description: description?.trim() || "",
         roomType: roomType ?? 0,
         passcode: finalPasscode,
-        teacherId: session.userId,
-        teacherName: session.displayName || session.name,
+        ownerId: session.userId,
+        ownerName,
+        ownerAvatar: session.avatar || "",
+        teacherId: leadTeacher.teacherId,
+        teacherName: leadTeacher.teacherName,
+        teacherAvatar: leadTeacher.teacherAvatar,
         startTime: parsedStartTime,
         endTime: parsedEndTime,
         studentRemarks: studentRemarks?.trim() || "",
+        teachers: {
+          create: normalizedTeachers.map((teacher) => ({
+            teacherId: teacher.teacherId,
+            teacherName: teacher.teacherName,
+            teacherAvatar: teacher.teacherAvatar,
+          })),
+        },
       },
+      include: { teachers: { orderBy: { createdAt: "asc" } } },
     });
 
     return NextResponse.json({ course: serializeCourse(course) }, { status: 201 });

@@ -12,6 +12,7 @@ import {
   deleteSession,
   type BuiltSessionCookies,
 } from "@/lib/session";
+import { resolveUserAvatar } from "@/lib/user-profile";
 
 export async function refreshSessionWithToken(
   refreshToken: string
@@ -27,13 +28,15 @@ export async function refreshSessionWithToken(
 
     const casdoorUser = parseJwtPayload(access);
     const role = determineRole(casdoorUser.roles || [], casdoorUser.groups);
+    const userId = resolveSessionUserId(casdoorUser, role);
+    const avatar = await resolveUserAvatar(userId, casdoorUser.avatar || "");
 
     return await buildSessionCookies(
       {
-        userId: resolveSessionUserId(casdoorUser, role),
+        userId,
         name: casdoorUser.name,
         displayName: casdoorUser.displayName || casdoorUser.name,
-        avatar: casdoorUser.avatar || "",
+        avatar,
         role,
         email: casdoorUser.email || "",
       },

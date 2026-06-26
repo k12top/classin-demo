@@ -9,6 +9,7 @@ import {
   isTooEarlyToEnterClassroom,
 } from "@/lib/course-status";
 import { prisma } from "@/lib/db";
+import { userCanTeachCourse } from "@/lib/course-teacher";
 
 export type CourseGateRole = "teacher" | "student";
 
@@ -40,6 +41,7 @@ export async function resolveCourseAccess(
     let course = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
+        teachers: { select: { teacherId: true } },
         students: { select: { studentId: true } },
         groupLinks: {
           include: {
@@ -66,6 +68,7 @@ export async function resolveCourseAccess(
     const refreshed = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
+        teachers: { select: { teacherId: true } },
         students: { select: { studentId: true } },
         groupLinks: {
           include: {
@@ -109,7 +112,7 @@ export async function resolveCourseAccess(
       };
     }
 
-    if (casdoorUserIdsMatch(course.teacherId, userId)) {
+    if (userCanTeachCourse(course, userId)) {
       return {
         ok: true,
         role: "teacher",

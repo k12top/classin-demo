@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, UserPlus, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X } from "lucide-react";
+import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
@@ -24,8 +24,82 @@ const ROOM_TYPE_KEYS: Record<number, string> = {
 interface GroupNode {
   id: string;
   name: string;
-  members: { userId: string; userName?: string }[];
+  members: { userId: string; userName?: string; userAvatar?: string }[];
   children?: GroupNode[];
+}
+
+interface CourseTeacherSummary {
+  id?: string;
+  teacherId: string;
+  teacherName: string;
+  teacherAvatar?: string;
+}
+
+interface UserSearchResult {
+  id: string;
+  casdoorUuid?: string | null;
+  name: string;
+  displayName: string;
+  email: string;
+  avatar?: string;
+  role?: string;
+}
+
+interface CourseStudentSummary {
+  id?: string;
+  studentId: string;
+  studentName: string;
+  studentAvatar?: string;
+}
+
+interface CourseGroupLinkSummary {
+  id: string;
+  group: GroupNode;
+}
+
+interface CoursewareItem {
+  id: string;
+  name: string;
+  ext: string;
+  size?: number;
+  url: string;
+  taskStatus: string;
+}
+
+interface CourseJoinLinkSummary {
+  id: string;
+  purpose: "course" | "live";
+  label: string;
+  status: string;
+  useCount: number;
+  expiresAt?: string | null;
+  shareUrl?: string | null;
+  joinUrl?: string | null;
+  courseShareUrl?: string | null;
+}
+
+interface TeacherCourse {
+  id: string;
+  name: string;
+  description: string;
+  roomType: number;
+  passcode?: string | null;
+  teacherId: string;
+  teacherName: string;
+  teacherAvatar?: string;
+  ownerId?: string;
+  ownerName?: string;
+  ownerAvatar?: string;
+  teachers?: CourseTeacherSummary[];
+  isCourseOwner?: boolean;
+  canTeach?: boolean;
+  status: string;
+  startTime: string | null;
+  endTime: string | null;
+  studentRemarks: string;
+  recordUrl?: string | null;
+  students: CourseStudentSummary[];
+  groupLinks: CourseGroupLinkSummary[];
 }
 
 function countNestedMembers(g: GroupNode): number {
@@ -50,27 +124,35 @@ function flattenGroups(roots: GroupNode[], prefix = ""): { id: string; label: st
 
 export default function TeacherCourseDetail({ 
   course, 
-  user,
   onEnterClassroom,
   enterLoading,
   fetchCourse
 }: { 
-  course: any; 
-  user: any; 
+  course: TeacherCourse;
+  user?: unknown;
   onEnterClassroom: () => void;
   enterLoading: boolean;
   fetchCourse: () => void | Promise<void>;
 }) {
   const { t, locale } = useTranslation();
-  const [activeTab, setActiveTab] = useState<"members" | "sharing" | "requirements" | "courseware">("members");
+  const isCourseOwner = Boolean(course.isCourseOwner);
   const [isEditingCourseName, setIsEditingCourseName] = useState(false);
   const [courseNameDraft, setCourseNameDraft] = useState("");
   const [courseNameSaving, setCourseNameSaving] = useState(false);
   const [courseNameError, setCourseNameError] = useState("");
 
+  // Teaching teachers
+  const [teacherQuery, setTeacherQuery] = useState("");
+  const [teacherResults, setTeacherResults] = useState<UserSearchResult[]>([]);
+  const [teacherSearching, setTeacherSearching] = useState(false);
+  const [teacherError, setTeacherError] = useState("");
+  const [teacherSaving, setTeacherSaving] = useState(false);
+  const [selectedTeachers, setSelectedTeachers] = useState<CourseTeacherSummary[]>([]);
+  const [primaryTeacherId, setPrimaryTeacherId] = useState("");
+
   // Search / add students
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<{ id: string; name: string; displayName: string; email: string }[]>([]);
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
 
@@ -81,19 +163,156 @@ export default function TeacherCourseDetail({
   const [groupBusy, setGroupBusy] = useState(false);
 
   // Links
-  const [joinLinks, setJoinLinks] = useState<any[]>([]);
+  const [joinLinks, setJoinLinks] = useState<CourseJoinLinkSummary[]>([]);
   const [joinLinkBusy, setJoinLinkBusy] = useState(false);
   const [newCourseLinkLabel, setNewCourseLinkLabel] = useState("");
   const [newLiveLinkLabel, setNewLiveLinkLabel] = useState("");
   const [copyHint, setCopyHint] = useState("");
 
   // Courseware Tab State
-  const [courseware, setCourseware] = useState<any[]>([]);
+  const [courseware, setCourseware] = useState<CoursewareItem[]>([]);
   const [cwName, setCwName] = useState("");
   const [cwUrl, setCwUrl] = useState("");
   const [cwExt, setCwExt] = useState("pptx");
   const [cwAdding, setCwAdding] = useState(false);
   const [cwError, setCwError] = useState("");
+
+  const sameTeacherId = (a: string, b: string) => {
+    if (a === b) return true;
+    const strip = (value: string) => (value.includes("/") ? value.split("/").pop() || value : value);
+    return strip(a) === strip(b);
+  };
+
+  const baseCourseTeachers = useCallback((): CourseTeacherSummary[] => {
+    const teachers =
+      Array.isArray(course.teachers) && course.teachers.length > 0
+        ? course.teachers
+        : [{ teacherId: course.teacherId, teacherName: course.teacherName, teacherAvatar: course.teacherAvatar }];
+    const normalized: CourseTeacherSummary[] = [];
+    for (const teacher of teachers) {
+      const teacherId = teacher.teacherId?.trim();
+      if (!teacherId) continue;
+      if (normalized.some((item) => sameTeacherId(item.teacherId, teacherId))) {
+        continue;
+      }
+      normalized.push({
+        id: teacher.id,
+        teacherId,
+        teacherName: teacher.teacherName || teacherId,
+        teacherAvatar: teacher.teacherAvatar || "",
+      });
+    }
+    return normalized.length
+      ? normalized
+      : [{ teacherId: course.teacherId, teacherName: course.teacherName, teacherAvatar: course.teacherAvatar || "" }];
+  }, [course.teacherAvatar, course.teacherId, course.teacherName, course.teachers]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setSelectedTeachers(baseCourseTeachers());
+      setPrimaryTeacherId(course.teacherId);
+      setTeacherQuery("");
+      setTeacherResults([]);
+      setTeacherError("");
+    });
+  }, [baseCourseTeachers, course.teacherId]);
+
+  const makeTeacherFromSearchResult = (u: UserSearchResult): CourseTeacherSummary => ({
+    teacherId: u.casdoorUuid || u.id,
+    teacherName: u.displayName || u.name || u.email || u.id,
+    teacherAvatar: u.avatar || "",
+  });
+
+  const addSelectedTeacher = (teacher: CourseTeacherSummary) => {
+    setSelectedTeachers((prev) => {
+      if (prev.some((item) => sameTeacherId(item.teacherId, teacher.teacherId))) {
+        return prev;
+      }
+      return [...prev, teacher];
+    });
+  };
+
+  const removeSelectedTeacher = (teacherId: string) => {
+    setSelectedTeachers((prev) => {
+      if (prev.length <= 1) return prev;
+      const next = prev.filter((item) => !sameTeacherId(item.teacherId, teacherId));
+      if (sameTeacherId(primaryTeacherId, teacherId)) {
+        setPrimaryTeacherId(next[0]?.teacherId || "");
+      }
+      return next;
+    });
+  };
+
+  const fetchTeacherOptions = useCallback(async (query: string) => {
+    setTeacherSearching(true);
+    setTeacherError("");
+    try {
+      const res = await fetch(
+        `/api/users/teachers?limit=100&q=${encodeURIComponent(query.trim())}`,
+        { credentials: "same-origin" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const teachers = data.teachers ?? data.users ?? [];
+        setTeacherResults(teachers);
+        if (!teachers.length) {
+          setTeacherError(t("teacherDashboard.searchUserNotFound"));
+        }
+      } else {
+        setTeacherResults([]);
+        setTeacherError(data.hint || data.error || t("common.failed"));
+      }
+    } catch {
+      setTeacherResults([]);
+      setTeacherError(t("common.failed"));
+    } finally {
+      setTeacherSearching(false);
+    }
+  }, [t]);
+
+  const handleSearchTeachers = async () => {
+    await fetchTeacherOptions(teacherQuery);
+  };
+
+  useEffect(() => {
+    if (!isCourseOwner) return;
+    queueMicrotask(() => {
+      void fetchTeacherOptions("");
+    });
+  }, [fetchTeacherOptions, isCourseOwner]);
+
+  const handleSaveTeachers = async () => {
+    const primaryTeacher =
+      selectedTeachers.find((teacher) => sameTeacherId(teacher.teacherId, primaryTeacherId)) ||
+      selectedTeachers[0];
+    if (!primaryTeacher) {
+      setTeacherError(t("courseDetail.atLeastOneTeacherRequired"));
+      return;
+    }
+
+    setTeacherSaving(true);
+    setTeacherError("");
+    try {
+      const res = await fetch(`/api/courses/${course.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          primaryTeacher,
+          teachers: selectedTeachers,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || t("common.failed"));
+      }
+      await fetchCourse();
+    } catch (error) {
+      setTeacherError(error instanceof Error ? error.message : t("common.failed"));
+    } finally {
+      setTeacherSaving(false);
+    }
+  };
 
   const fetchCourseware = useCallback(async () => {
     try {
@@ -108,10 +327,12 @@ export default function TeacherCourseDetail({
   }, [course.id]);
 
   useEffect(() => {
-    if (casdoorUserIdsMatch(course.teacherId, user.userId)) {
-      fetchCourseware();
+    if (course.canTeach) {
+      queueMicrotask(() => {
+        void fetchCourseware();
+      });
     }
-  }, [course.teacherId, user.userId, fetchCourseware]);
+  }, [course.canTeach, fetchCourseware]);
 
   // Poll for conversions every 4 seconds if there are items converting
   useEffect(() => {
@@ -186,16 +407,17 @@ export default function TeacherCourseDetail({
   }, [course.id]);
 
   useEffect(() => {
-    if (casdoorUserIdsMatch(course.teacherId, user.userId)) {
-      if (supportsStudentGroups) fetchMyGroups();
-      fetchJoinLinks();
+    if (isCourseOwner) {
+      queueMicrotask(() => {
+        if (supportsStudentGroups) void fetchMyGroups();
+        void fetchJoinLinks();
+      });
     }
   }, [
-    course.teacherId,
     course.roomType,
-    user.userId,
     fetchMyGroups,
     fetchJoinLinks,
+    isCourseOwner,
     supportsStudentGroups,
   ]);
 
@@ -325,16 +547,24 @@ export default function TeacherCourseDetail({
     }
   };
 
-  const handleAddStudent = async (studentId: string, studentName: string) => {
+  const handleAddStudent = async (student: UserSearchResult) => {
     try {
       const res = await fetch(`/api/courses/${course.id}/students`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ students: [{ studentId, studentName }] }),
+        body: JSON.stringify({
+          students: [
+            {
+              studentId: student.id,
+              studentName: student.displayName || student.name,
+              studentAvatar: student.avatar || "",
+            },
+          ],
+        }),
       });
       if (res.ok) {
         fetchCourse();
-        setSearchResults((prev) => prev.filter((u) => u.id !== studentId));
+        setSearchResults((prev) => prev.filter((u) => u.id !== student.id));
       }
     } catch { }
   };
@@ -351,7 +581,7 @@ export default function TeacherCourseDetail({
     } catch { }
   };
 
-  const linkedGroupIdSet = course ? new Set(course.groupLinks.map((l: any) => l.group.id)) : new Set<string>();
+  const linkedGroupIdSet = new Set(course.groupLinks.map((l) => l.group.id));
 
   const handleCreateGroup = async () => {
     const name = newGroupName.trim();
@@ -408,7 +638,7 @@ export default function TeacherCourseDetail({
     }
   };
 
-  const handleAddUserToGroup = async (u: { id: string; name: string; displayName: string }) => {
+  const handleAddUserToGroup = async (u: UserSearchResult) => {
     if (!memberTargetGroupId) {
       alert(t("teacherDashboard.selectTargetGroup"));
       return;
@@ -421,7 +651,7 @@ export default function TeacherCourseDetail({
         body: JSON.stringify({
           action: "addMembers",
           groupId: memberTargetGroupId,
-          members: [{ userId: u.id, userName: u.displayName || u.name }],
+          members: [{ userId: u.id, userName: u.displayName || u.name, userAvatar: u.avatar || "" }],
         }),
       });
       if (res.ok) await fetchMyGroups();
@@ -502,7 +732,7 @@ export default function TeacherCourseDetail({
                   <Badge 
                     variant="outline" 
                     className="border-primary/20 bg-primary/5 text-primary cursor-pointer flex items-center gap-1 hover:bg-primary/10 transition-colors font-mono text-[10px]"
-                    onClick={() => void copyText(course.passcode, t("courseDetail.copyPasscodeSuccess"))}
+                    onClick={() => void copyText(course.passcode!, t("courseDetail.copyPasscodeSuccess"))}
                     title={t("courseDetail.btnCopy")}
                   >
                     <Key className="h-3 w-3" />
@@ -584,6 +814,12 @@ export default function TeacherCourseDetail({
               
               <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mt-4">
                 <div className="flex items-center gap-1.5 bg-muted px-3 py-1.5 rounded-xl border border-border/40 text-xs font-semibold text-foreground">
+                  <User className="h-4 w-4 text-primary" />
+                  <span className="text-foreground/80">
+                    {t("common.lead")}: {course.teacherName}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-muted px-3 py-1.5 rounded-xl border border-border/40 text-xs font-semibold text-foreground">
                   <Users className="h-4 w-4 text-primary" />
                   <span className="text-foreground/80">{t("courseDetail.studentCount", { count: course.students.length })}</span>
                 </div>
@@ -642,24 +878,200 @@ export default function TeacherCourseDetail({
       </Card>
 
       {/* Main Tabs Area */}
-      <Tabs defaultValue="members" className="w-full" onValueChange={(v) => setActiveTab(v as any)}>
+      <Tabs defaultValue="members" className="w-full">
         <TabsList className="bg-muted/60 border border-border/40 p-1 rounded-xl mb-6 inline-flex w-full md:w-auto overflow-x-auto no-scrollbar">
           <TabsTrigger value="members" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
             <Users className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.members")}
           </TabsTrigger>
+          <TabsTrigger value="teachers" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
+            <User className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.teachers")}
+          </TabsTrigger>
           <TabsTrigger value="courseware" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
             <BookOpen className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.coursewareManage")}
           </TabsTrigger>
-          <TabsTrigger value="sharing" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
-            <LinkIcon className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.sharing")}
-          </TabsTrigger>
+          {isCourseOwner && (
+            <TabsTrigger value="sharing" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
+              <LinkIcon className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.sharing")}
+            </TabsTrigger>
+          )}
           <TabsTrigger value="requirements" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
             <MessageSquare className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.requirementsStudent")}
           </TabsTrigger>
         </TabsList>
 
+        <TabsContent value="teachers" className="mt-0">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <Card className="border border-border/60 bg-card rounded-2xl shadow-sm lg:col-span-2">
+              <CardHeader className="border-b border-border/40 pb-4">
+                <CardTitle className="text-lg font-bold">
+                  {t("courseDetail.teachingTeachersTitle")}
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  {t("courseDetail.teachingTeachersDesc")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-6 space-y-3">
+                {selectedTeachers.map((teacher) => {
+                  const isPrimary = sameTeacherId(teacher.teacherId, primaryTeacherId);
+                  return (
+                    <div
+                      key={teacher.teacherId}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/50 bg-muted/10 p-4"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="truncate text-sm font-bold">{teacher.teacherName}</span>
+                          {isPrimary && (
+                            <Badge className="h-5 bg-primary/10 text-primary border border-primary/15 text-[10px]">
+                              {t("common.lead")}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="mt-1 truncate text-[11px] text-muted-foreground">{teacher.teacherId}</p>
+                      </div>
+                      {isCourseOwner && (
+                        <div className="flex items-center gap-2">
+                          {!isPrimary && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-lg text-xs"
+                              onClick={() => setPrimaryTeacherId(teacher.teacherId)}
+                            >
+                              {t("common.makeLeadTeacher")}
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
+                            disabled={selectedTeachers.length <= 1 || teacherSaving}
+                            onClick={() => removeSelectedTeacher(teacher.teacherId)}
+                            title={t("common.delete")}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {!isCourseOwner && (
+                  <p className="rounded-xl border border-border/50 bg-muted/20 p-3 text-xs text-muted-foreground">
+                    {t("courseDetail.teacherOwnerOnly")}
+                  </p>
+                )}
+
+                {teacherError && (
+                  <p className="text-xs text-red-500 bg-red-500/5 p-3 rounded-xl border border-red-500/20">
+                    {teacherError}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {isCourseOwner && (
+              <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
+                <CardHeader className="border-b border-border/40 pb-4">
+                  <CardTitle className="text-lg font-bold flex items-center gap-2">
+                    <Search className="h-5 w-5 text-primary" />
+                    {t("courseDetail.addTeacher")}
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    {t("courseDetail.addTeacherDesc")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6 space-y-4">
+                  <div className="flex gap-2">
+                    <Input
+                      className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
+                      placeholder={t("courseDetail.teacherSearchShortPlaceholder")}
+                      value={teacherQuery}
+                      onChange={(e) => {
+                        setTeacherQuery(e.target.value);
+                        setTeacherError("");
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void handleSearchTeachers();
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      className="shrink-0 rounded-xl"
+                      disabled={teacherSearching}
+                      onClick={() => void handleSearchTeachers()}
+                    >
+                      {teacherSearching ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Search className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+
+                  {teacherResults.length > 0 && (
+                    <div className="max-h-64 overflow-y-auto pr-1 custom-scrollbar space-y-2">
+                      {teacherResults.map((result) => {
+                        const teacher = makeTeacherFromSearchResult(result);
+                        const alreadySelected = selectedTeachers.some((item) =>
+                          sameTeacherId(item.teacherId, teacher.teacherId)
+                        );
+                        return (
+                          <div
+                            key={teacher.teacherId}
+                            className="flex items-center justify-between gap-3 rounded-xl border border-border/40 bg-muted/10 p-3"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold">{teacher.teacherName}</p>
+                              <p className="truncate text-[11px] text-muted-foreground">{result.email || result.name}</p>
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={alreadySelected ? "outline" : "secondary"}
+                              className="h-8 shrink-0 rounded-lg text-xs"
+                              disabled={alreadySelected}
+                              onClick={() => addSelectedTeacher(teacher)}
+                            >
+                              {alreadySelected
+                                ? t("common.added")
+                                : t("common.add")}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <Button
+                    type="button"
+                    className="w-full rounded-xl bg-primary text-white hover:bg-primary/95"
+                    disabled={teacherSaving || selectedTeachers.length === 0}
+                    onClick={() => void handleSaveTeachers()}
+                  >
+                    {teacherSaving ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {t("common.saving")}
+                      </span>
+                    ) : (
+                      t("courseDetail.saveTeacherSettings")
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </TabsContent>
+
         <TabsContent value="members" className="mt-0">
-          <div className={`grid grid-cols-1 ${supportsStudentGroups ? "lg:grid-cols-2" : ""} gap-6`}>
+          <div className={`grid grid-cols-1 ${supportsStudentGroups && isCourseOwner ? "lg:grid-cols-2" : ""} gap-6`}>
             {/* Left Side: Direct Students */}
             <Card className="border border-border/60 bg-card flex flex-col h-[600px] rounded-2xl shadow-sm">
               <CardHeader className="border-b border-border/40 pb-4 shrink-0">
@@ -685,7 +1097,7 @@ export default function TeacherCourseDetail({
                 </div>
                 {searchError && <p className="text-xs text-red-500 bg-red-500/5 p-3 mt-3 rounded-xl border border-red-500/20 shrink-0">{searchError}</p>}
 
-                {supportsStudentGroups && searchResults.length > 0 && (
+                {supportsStudentGroups && isCourseOwner && searchResults.length > 0 && (
                   <div className="mt-4 space-y-2 shrink-0">
                     <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("teacherDashboard.addToGroupLabel")}</label>
                     <Select value={memberTargetGroupId} onValueChange={setMemberTargetGroupId}>
@@ -704,7 +1116,7 @@ export default function TeacherCourseDetail({
                 {searchResults.length > 0 && (
                   <div className="mt-4 overflow-y-auto pr-2 custom-scrollbar shrink-0 max-h-[150px]">
                     {searchResults.map((u) => {
-                      const isAlready = course.students.some((s: any) => casdoorUserIdsMatch(s.studentId, u.id));
+                      const isAlready = course.students.some((s) => casdoorUserIdsMatch(s.studentId, u.id));
                       return (
                         <div key={u.id} className="flex flex-wrap justify-between items-center p-3 rounded-xl bg-muted/20 border border-border/40 mb-2 gap-2">
                           <div className="flex flex-col">
@@ -717,11 +1129,11 @@ export default function TeacherCourseDetail({
                               variant={isAlready ? "outline" : "secondary"}
                               className={isAlready ? "border-border/60 opacity-50 text-xs rounded-lg" : "bg-primary/5 text-primary hover:bg-primary/10 text-xs rounded-lg"}
                               disabled={isAlready}
-                              onClick={() => handleAddStudent(u.id, u.displayName || u.name)}
+                              onClick={() => handleAddStudent(u)}
                             >
                               {isAlready ? t("courseDetail.inviteLinkActive") : t("common.add")}
                             </Button>
-                            {supportsStudentGroups && (
+                            {supportsStudentGroups && isCourseOwner && (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -749,7 +1161,7 @@ export default function TeacherCourseDetail({
                     </div>
                   ) : (
                     <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-2">
-                      {course.students.map((s: any) => (
+                      {course.students.map((s) => (
                         <div key={s.id} className="flex justify-between items-center p-3 rounded-xl bg-muted/20 border border-border/40 hover:border-primary/20 transition-all group">
                           <span className="text-sm font-semibold">{s.studentName || s.studentId}</span>
                           <Button 
@@ -768,7 +1180,7 @@ export default function TeacherCourseDetail({
               </CardContent>
             </Card>
 
-            {supportsStudentGroups && (
+            {supportsStudentGroups && isCourseOwner && (
               <Card className="border border-border/60 bg-card flex flex-col h-[600px] rounded-2xl shadow-sm">
                 <CardHeader className="border-b border-border/40 pb-4 shrink-0">
                   <CardTitle className="text-lg font-bold">{t("teacherDashboard.studentGroupManage")}</CardTitle>
@@ -831,7 +1243,7 @@ export default function TeacherCourseDetail({
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          {course.groupLinks.map((link: any) => (
+                          {course.groupLinks.map((link) => (
                             <div key={link.id} className="flex justify-between items-center p-3 rounded-xl bg-primary/5 border border-primary/10">
                               <div className="flex items-center gap-2">
                                 <strong className="text-sm font-semibold text-primary">{link.group.name}</strong>
@@ -1156,11 +1568,11 @@ export default function TeacherCourseDetail({
             <CardContent>
               {course.studentRemarks ? (
                 <div className="relative p-6 rounded-xl bg-primary/5 border border-primary/10">
-                  <div className="absolute top-4 left-4 text-4xl text-primary/10 font-serif leading-none">"</div>
+                  <div className="absolute top-4 left-4 text-4xl text-primary/10 font-serif leading-none">&quot;</div>
                   <p className="relative z-10 text-base text-foreground/95 leading-relaxed indent-4 px-2 font-medium">
                     {course.studentRemarks}
                   </p>
-                  <div className="absolute bottom-[-10px] right-4 text-4xl text-primary/10 font-serif leading-none rotate-180">"</div>
+                  <div className="absolute bottom-[-10px] right-4 text-4xl text-primary/10 font-serif leading-none rotate-180">&quot;</div>
                 </div>
               ) : (
                 <div className="p-12 text-center border border-dashed border-border/60 rounded-xl bg-muted/10">

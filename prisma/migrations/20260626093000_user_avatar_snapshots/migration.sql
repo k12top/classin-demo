@@ -1,0 +1,12 @@
+ALTER TABLE "Course"
+ADD COLUMN "ownerAvatar" TEXT NOT NULL DEFAULT '',
+ADD COLUMN "teacherAvatar" TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE "CourseTeacher"
+ADD COLUMN "teacherAvatar" TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE "CourseStudent"
+ADD COLUMN "studentAvatar" TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE "GroupMember"
+ADD COLUMN "userAvatar" TEXT NOT NULL DEFAULT '';

@@ -24,19 +24,26 @@ interface CourseDetail {
   description: string;
   roomType: number;
   requiresPasscode?: boolean;
+  ownerId?: string;
+  ownerName?: string;
+  ownerAvatar?: string;
   teacherId: string;
   teacherName: string;
+  teacherAvatar?: string;
+  teachers?: { id?: string; teacherId: string; teacherName: string; teacherAvatar?: string }[];
+  isCourseOwner?: boolean;
+  canTeach?: boolean;
   status: string;
   startTime: string | null;
   endTime: string | null;
   studentRemarks: string;
-  students: { id: string; studentId: string; studentName: string }[];
+  students: { id: string; studentId: string; studentName: string; studentAvatar?: string }[];
   groupLinks: {
     id: string;
     group: {
       id: string;
       name: string;
-      members: { id: string; userId: string; userName: string }[];
+      members: { id: string; userId: string; userName: string; userAvatar?: string }[];
     };
   }[];
 }
@@ -80,7 +87,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
     });
   }, [fetchCourse]);
 
-  const isTeacher = Boolean(user && course && casdoorUserIdsMatch(course.teacherId, user.userId));
+  const isTeacher = Boolean(user && course?.canTeach);
 
   const handleEnterClassroom = async () => {
     if (!course || !user) return;
