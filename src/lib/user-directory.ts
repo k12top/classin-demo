@@ -1,5 +1,11 @@
-import { determineRole, searchCasdoorUsers } from "@/lib/casdoor-server";
-import { resolveCasdoorUserId } from "@/lib/casdoor-user";
+import {
+  determineRole,
+  getCasdoorRoles,
+  searchCasdoorUsers,
+  type CasdoorRole,
+  type CasdoorUser,
+} from "@/lib/casdoor-server";
+import { casdoorUserIdsMatch, resolveCasdoorUserId } from "@/lib/casdoor-user";
 import { prisma } from "@/lib/db";
 
 export type DirectoryUserRole = "teacher" | "student";
@@ -48,19 +54,83 @@ async function profileAvatarMap(userIds: string[]): Promise<Map<string, string>>
   }
 }
 
+function userReferenceCandidates(user: CasdoorUser): string[] {
+  return Array.from(
+    new Set(
+      [
+        user.id,
+        user.name,
+        user.owner && user.name ? `${user.owner}/${user.name}` : "",
+        resolveCasdoorUserId(user),
+      ].filter(Boolean)
+    )
+  );
+}
+
+function roleMembershipsByUser(roles: CasdoorRole[]): Map<string, CasdoorRole[]> {
+  const memberships = new Map<string, CasdoorRole[]>();
+  for (const role of roles) {
+    for (const userRef of role.users ?? []) {
+      const roleWithoutUsers = {
+        name: role.name,
+        displayName: role.displayName,
+        owner: role.owner,
+      };
+      const keys = Array.from(
+        new Set([
+          userRef,
+          userRef.includes("/") ? userRef.split("/").pop() || userRef : userRef,
+        ])
+      );
+      for (const key of keys) {
+        const existing = memberships.get(key) ?? [];
+        existing.push(roleWithoutUsers);
+        memberships.set(key, existing);
+      }
+    }
+  }
+  return memberships;
+}
+
+function rolesForUser(
+  user: CasdoorUser,
+  memberships: Map<string, CasdoorRole[]>
+): CasdoorRole[] {
+  const roles = [...(user.roles ?? [])];
+  for (const candidate of userReferenceCandidates(user)) {
+    for (const role of memberships.get(candidate) ?? []) {
+      if (
+        !roles.some(
+          (existing) =>
+            existing.name === role.name &&
+            existing.owner === role.owner
+        )
+      ) {
+        roles.push(role);
+      }
+    }
+  }
+  return roles;
+}
+
 export async function listDirectoryUsers(
   options: ListDirectoryUsersOptions = {}
 ): Promise<DirectoryUser[]> {
   const limit = normalizeLimit(options.limit);
-  const users = await searchCasdoorUsers(options.query || "", {
-    excludeUserId: options.excludeUserId,
-    studentsOnly: false,
-    limit: options.role ? Math.max(limit * 4, 100) : limit,
-  });
+  const [users, roles] = await Promise.all([
+    searchCasdoorUsers(options.query || "", {
+      excludeUserId: options.excludeUserId,
+      studentsOnly: false,
+      limit: options.role ? 1000 : limit,
+    }),
+    getCasdoorRoles(),
+  ]);
+  const memberships = roleMembershipsByUser(roles);
 
   const mappedUsers = users
     .map((user): DirectoryUser => {
-      const role = determineRole(user.roles ?? [], user.groups);
+      const mergedRoles = rolesForUser(user, memberships);
+      const role = determineRole(mergedRoles, user.groups);
       return {
         id: resolveCasdoorUserId(user),
         casdoorUuid: user.id,
@@ -72,7 +142,12 @@ export async function listDirectoryUsers(
         role,
       };
     })
-    .filter((user) => !options.role || user.role === options.role)
+    .filter((user) => {
+      if (options.excludeUserId && casdoorUserIdsMatch(user.id, options.excludeUserId)) {
+        return false;
+      }
+      return !options.role || user.role === options.role;
+    })
     .slice(0, limit);
 
   const avatars = await profileAvatarMap(

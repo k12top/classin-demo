@@ -4,11 +4,12 @@ import { useState, useEffect, useCallback } from "react";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X } from "lucide-react";
+import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
@@ -142,7 +143,6 @@ export default function TeacherCourseDetail({
   const [courseNameError, setCourseNameError] = useState("");
 
   // Teaching teachers
-  const [teacherQuery, setTeacherQuery] = useState("");
   const [teacherResults, setTeacherResults] = useState<UserSearchResult[]>([]);
   const [teacherSearching, setTeacherSearching] = useState(false);
   const [teacherError, setTeacherError] = useState("");
@@ -211,7 +211,6 @@ export default function TeacherCourseDetail({
     queueMicrotask(() => {
       setSelectedTeachers(baseCourseTeachers());
       setPrimaryTeacherId(course.teacherId);
-      setTeacherQuery("");
       setTeacherResults([]);
       setTeacherError("");
     });
@@ -222,6 +221,9 @@ export default function TeacherCourseDetail({
     teacherName: u.displayName || u.name || u.email || u.id,
     teacherAvatar: u.avatar || "",
   });
+
+  const teacherInitial = (teacher: Pick<CourseTeacherSummary, "teacherName" | "teacherId">) =>
+    (teacher.teacherName || teacher.teacherId || "T").trim().slice(0, 1).toUpperCase();
 
   const addSelectedTeacher = (teacher: CourseTeacherSummary) => {
     setSelectedTeachers((prev) => {
@@ -243,12 +245,12 @@ export default function TeacherCourseDetail({
     });
   };
 
-  const fetchTeacherOptions = useCallback(async (query: string) => {
+  const fetchTeacherOptions = useCallback(async () => {
     setTeacherSearching(true);
     setTeacherError("");
     try {
       const res = await fetch(
-        `/api/users/teachers?limit=100&q=${encodeURIComponent(query.trim())}`,
+        "/api/users/teachers?limit=100",
         { credentials: "same-origin" }
       );
       const data = await res.json().catch(() => ({}));
@@ -270,14 +272,19 @@ export default function TeacherCourseDetail({
     }
   }, [t]);
 
-  const handleSearchTeachers = async () => {
-    await fetchTeacherOptions(teacherQuery);
+  const handleSelectTeacher = (teacherId: string) => {
+    const result = teacherResults.find((item) => {
+      const teacher = makeTeacherFromSearchResult(item);
+      return sameTeacherId(teacher.teacherId, teacherId);
+    });
+    if (!result) return;
+    addSelectedTeacher(makeTeacherFromSearchResult(result));
   };
 
   useEffect(() => {
     if (!isCourseOwner) return;
     queueMicrotask(() => {
-      void fetchTeacherOptions("");
+      void fetchTeacherOptions();
     });
   }, [fetchTeacherOptions, isCourseOwner]);
 
@@ -918,16 +925,24 @@ export default function TeacherCourseDetail({
                       key={teacher.teacherId}
                       className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/50 bg-muted/10 p-4"
                     >
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="truncate text-sm font-bold">{teacher.teacherName}</span>
-                          {isPrimary && (
-                            <Badge className="h-5 bg-primary/10 text-primary border border-primary/15 text-[10px]">
-                              {t("common.lead")}
-                            </Badge>
-                          )}
+                      <div className="flex min-w-0 items-center gap-3">
+                        <Avatar className="h-9 w-9 border border-border/70">
+                          <AvatarImage src={teacher.teacherAvatar || ""} />
+                          <AvatarFallback className="bg-primary/10 text-xs font-bold text-primary">
+                            {teacherInitial(teacher)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="truncate text-sm font-bold">{teacher.teacherName}</span>
+                            {isPrimary && (
+                              <Badge className="h-5 bg-primary/10 text-primary border border-primary/15 text-[10px]">
+                                {t("common.lead")}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="mt-1 truncate text-[11px] text-muted-foreground">{teacher.teacherId}</p>
                         </div>
-                        <p className="mt-1 truncate text-[11px] text-muted-foreground">{teacher.teacherId}</p>
                       </div>
                       {isCourseOwner && (
                         <div className="flex items-center gap-2">
@@ -986,68 +1001,69 @@ export default function TeacherCourseDetail({
                 </CardHeader>
                 <CardContent className="pt-6 space-y-4">
                   <div className="flex gap-2">
-                    <Input
-                      className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
-                      placeholder={t("courseDetail.teacherSearchShortPlaceholder")}
-                      value={teacherQuery}
-                      onChange={(e) => {
-                        setTeacherQuery(e.target.value);
-                        setTeacherError("");
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void handleSearchTeachers();
+                    <Select
+                      disabled={teacherSearching}
+                      onOpenChange={(open) => {
+                        if (open) {
+                          void fetchTeacherOptions();
                         }
                       }}
-                    />
+                      onValueChange={handleSelectTeacher}
+                    >
+                      <SelectTrigger className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl">
+                        <SelectValue
+                          placeholder={
+                            teacherSearching
+                              ? t("common.loading")
+                              : t("courseDetail.teacherSelectPlaceholder")
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent className="bg-popover border-border/85">
+                        {teacherResults.map((result) => {
+                          const teacher = makeTeacherFromSearchResult(result);
+                          const alreadySelected = selectedTeachers.some((item) =>
+                            sameTeacherId(item.teacherId, teacher.teacherId)
+                          );
+                          return (
+                            <SelectItem
+                              key={teacher.teacherId}
+                              value={teacher.teacherId}
+                              disabled={alreadySelected}
+                            >
+                              <span className="flex min-w-0 items-center gap-2">
+                                <Avatar className="h-6 w-6 border border-border/60">
+                                  <AvatarImage src={teacher.teacherAvatar || ""} />
+                                  <AvatarFallback className="bg-primary/10 text-[10px] font-bold text-primary">
+                                    {teacherInitial(teacher)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span className="min-w-0">
+                                  <span className="block truncate text-sm">{teacher.teacherName}</span>
+                                  <span className="block truncate text-[11px] text-muted-foreground">
+                                    {result.email || result.name || teacher.teacherId}
+                                  </span>
+                                </span>
+                              </span>
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
                     <Button
                       type="button"
                       className="shrink-0 rounded-xl"
                       disabled={teacherSearching}
-                      onClick={() => void handleSearchTeachers()}
+                      onClick={() => void fetchTeacherOptions()}
+                      title={t("courseDetail.teacherSelectPlaceholder")}
                     >
                       {teacherSearching ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
-                        <Search className="h-4 w-4" />
+                        <RefreshCw className="h-4 w-4" />
                       )}
                     </Button>
                   </div>
-
-                  {teacherResults.length > 0 && (
-                    <div className="max-h-64 overflow-y-auto pr-1 custom-scrollbar space-y-2">
-                      {teacherResults.map((result) => {
-                        const teacher = makeTeacherFromSearchResult(result);
-                        const alreadySelected = selectedTeachers.some((item) =>
-                          sameTeacherId(item.teacherId, teacher.teacherId)
-                        );
-                        return (
-                          <div
-                            key={teacher.teacherId}
-                            className="flex items-center justify-between gap-3 rounded-xl border border-border/40 bg-muted/10 p-3"
-                          >
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold">{teacher.teacherName}</p>
-                              <p className="truncate text-[11px] text-muted-foreground">{result.email || result.name}</p>
-                            </div>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant={alreadySelected ? "outline" : "secondary"}
-                              className="h-8 shrink-0 rounded-lg text-xs"
-                              disabled={alreadySelected}
-                              onClick={() => addSelectedTeacher(teacher)}
-                            >
-                              {alreadySelected
-                                ? t("common.added")
-                                : t("common.add")}
-                            </Button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
 
                   <Button
                     type="button"

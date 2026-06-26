@@ -52,6 +52,7 @@ export interface CasdoorRole {
   name: string;
   displayName: string;
   owner: string;
+  users?: string[];
 }
 
 /** OAuth token response from the configured auth provider. */
@@ -163,16 +164,52 @@ export function determineRole(
     return "teacher";
   }
   for (const role of roles) {
-    const name = role.name.toLowerCase();
+    const name = `${role.name || ""} ${role.displayName || ""}`.toLowerCase();
     if (
       name.includes("teacher") ||
       name.includes("老师") ||
-      name.includes("教师")
+      name.includes("教師") ||
+      name.includes("教师") ||
+      name.includes("講師") ||
+      name.includes("先生")
     ) {
       return "teacher";
     }
   }
   return "student";
+}
+
+/**
+ * Get roles from the auth provider. Casdoor's get-users response may omit
+ * user.roles, while get-roles carries role.users membership.
+ */
+export async function getCasdoorRoles(): Promise<CasdoorRole[]> {
+  const base = getCasdoorServerUrl();
+  const org = getOrgName();
+  const clientId = getClientId();
+  const clientSecret = getClientSecret();
+  if (!base || !org) return [];
+
+  try {
+    const url = `${base.replace(/\/$/, "")}/api/get-roles?owner=${encodeURIComponent(org)}&clientId=${encodeURIComponent(clientId)}&clientSecret=${encodeURIComponent(clientSecret)}`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) {
+      console.error("Auth get-roles HTTP", res.status, await res.text());
+      return [];
+    }
+    const data = (await res.json()) as {
+      status?: string;
+      data?: CasdoorRole[];
+    };
+    if (data.status && data.status !== "ok") {
+      console.error("Auth get-roles status", data);
+      return [];
+    }
+    return Array.isArray(data.data) ? data.data : [];
+  } catch (error) {
+    console.error("getCasdoorRoles:", error);
+    return [];
+  }
 }
 
 /**

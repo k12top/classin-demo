@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { BookOpen, Settings, LogOut, Calendar, Clock, User, Users, Pencil, PlayCircle, Loader2, Info, FileText, MessageSquare, ExternalLink, Key } from "lucide-react";
+import { BookOpen, Settings, LogOut, Calendar, Clock, User, Pencil, PlayCircle, Loader2, Info, FileText, MessageSquare, ExternalLink, Key } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { CourseStatus, isUpcomingStatus, canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
@@ -18,6 +18,7 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 import ThemeToggle from "@/components/ThemeToggle";
 import TimeDisplay, { CourseTimeRangeDisplay } from "@/components/TimeDisplay";
 import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
+import { CourseTeacherAvatarGroup, type CourseTeacherAvatarItem } from "@/components/CourseTeacherAvatarGroup";
 
 interface Course {
   id: string;
@@ -96,21 +97,28 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
   const [dialogRemarksValue, setDialogRemarksValue] = useState("");
   const [savingDialogRemarks, setSavingDialogRemarks] = useState(false);
 
-  const { t, locale } = useTranslation();
+  const { t } = useTranslation();
 
-  const formatCourseTeacherNames = (course: Course) => {
+  const getCourseTeacherItems = (course: Course): CourseTeacherAvatarItem[] => {
     const teachers =
       course.teachers && course.teachers.length > 0
         ? course.teachers
-        : [{ teacherId: course.teacherId, teacherName: course.teacherName }];
-    const uniqueNames: string[] = [];
+        : [{
+            teacherId: course.teacherId,
+            teacherName: course.teacherName,
+            teacherAvatar: course.teacherAvatar || "",
+          }];
+    const uniqueTeachers: CourseTeacherAvatarItem[] = [];
     for (const teacher of teachers) {
-      const name = teacher.teacherName || teacher.teacherId;
-      if (!uniqueNames.includes(name)) {
-        uniqueNames.push(name);
+      if (!uniqueTeachers.some((item) => item.teacherId === teacher.teacherId)) {
+        uniqueTeachers.push({
+          teacherId: teacher.teacherId,
+          teacherName: teacher.teacherName || teacher.teacherId,
+          teacherAvatar: teacher.teacherAvatar || "",
+        });
       }
     }
-    return uniqueNames.join(locale === "zh-CN" ? "、" : ", ");
+    return uniqueTeachers;
   };
 
   const handleJoinCourseById = async () => {
@@ -453,18 +461,16 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                                       </Badge>
                                     )}
                                   </div>
-                                  <div className="flex items-center gap-1.5 text-muted-foreground text-xs font-medium">
-                                    <User className="h-3.5 w-3.5" />
-                                    <span>
-                                      {t("common.leadTeacher")}: {course.teacherName}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-1.5 text-muted-foreground text-xs font-medium">
-                                    <Users className="h-3.5 w-3.5 shrink-0" />
-                                    <span className="truncate" title={formatCourseTeacherNames(course)}>
-                                      {t("common.teachingTeachers")}: {formatCourseTeacherNames(course)}
-                                    </span>
-                                  </div>
+                                  <CourseTeacherAvatarGroup
+                                    leadLabel={t("common.lead")}
+                                    leadTeacher={{
+                                      teacherId: course.teacherId,
+                                      teacherName: course.teacherName,
+                                      teacherAvatar: course.teacherAvatar || "",
+                                    }}
+                                    teachers={getCourseTeacherItems(course)}
+                                    className="mt-2"
+                                  />
                                 </div>
                                 
                                 {activeTab === 'upcoming' && (
@@ -588,17 +594,16 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                 <DialogTitle className="text-xl font-bold text-foreground leading-tight">
                   {selectedDetailCourse.name}
                 </DialogTitle>
-                <DialogDescription className="text-xs text-muted-foreground font-medium flex flex-col gap-1 mt-1">
-                  <span className="flex items-center gap-1">
-                    <User className="h-3.5 w-3.5" />
-                    <span>{t("common.leadTeacher")}: {selectedDetailCourse.teacherName}</span>
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Users className="h-3.5 w-3.5" />
-                    <span className="truncate" title={formatCourseTeacherNames(selectedDetailCourse)}>
-                      {t("common.teachingTeachers")}: {formatCourseTeacherNames(selectedDetailCourse)}
-                    </span>
-                  </span>
+                <DialogDescription className="mt-3">
+                  <CourseTeacherAvatarGroup
+                    leadLabel={t("common.lead")}
+                    leadTeacher={{
+                      teacherId: selectedDetailCourse.teacherId,
+                      teacherName: selectedDetailCourse.teacherName,
+                      teacherAvatar: selectedDetailCourse.teacherAvatar || "",
+                    }}
+                    teachers={getCourseTeacherItems(selectedDetailCourse)}
+                  />
                 </DialogDescription>
               </DialogHeader>
 

@@ -153,6 +153,7 @@ export const zhCN = {
     btnCreateCourse: "创建课程",
     teachingTeachersHint: "主讲老师会显示在课程信息中；所有讲课老师都可以进入课堂授课。",
     teacherSearchPlaceholder: "搜索教师姓名、邮箱或账号",
+    teacherSelectPlaceholder: "选择讲课老师",
   },
   courseDetail: {
     updateRemarksSuccess: "已更新要求！",
@@ -212,8 +213,9 @@ export const zhCN = {
     teachingTeachersDesc: "主讲老师会显示给学生；所有讲课老师都可以进入课堂授课。",
     teacherOwnerOnly: "只有课程拥有者可以调整主讲老师和讲课老师。",
     addTeacher: "添加老师",
-    addTeacherDesc: "搜索教师账号并加入本课程。",
+    addTeacherDesc: "从老师列表中选择并加入本课程。",
     teacherSearchShortPlaceholder: "姓名、邮箱或账号",
+    teacherSelectPlaceholder: "选择老师",
     saveTeacherSettings: "保存老师设置",
     atLeastOneTeacherRequired: "至少需要一位讲课老师",
     courseDescription: "课程描述",

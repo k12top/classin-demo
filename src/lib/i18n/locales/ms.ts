@@ -155,6 +155,7 @@ export const ms: typeof zhCN = {
     btnCreateCourse: "Buat Kelas",
     teachingTeachersHint: "The lead teacher is shown on the course; all selected teachers can enter and teach.",
     teacherSearchPlaceholder: "Search teacher name, email, or account",
+    teacherSelectPlaceholder: "Select teaching teacher",
   },
   courseDetail: {
     updateRemarksSuccess: "Permintaan berjaya dikemas kini!",
@@ -258,8 +259,9 @@ export const ms: typeof zhCN = {
     teachingTeachersDesc: "The lead teacher is shown to students; all teaching teachers can enter the classroom.",
     teacherOwnerOnly: "Only the course owner can change the lead teacher and teaching teachers.",
     addTeacher: "Add Teacher",
-    addTeacherDesc: "Search teacher accounts and add them to this course.",
+    addTeacherDesc: "Choose from the teacher list and add them to this course.",
     teacherSearchShortPlaceholder: "Name, email, or account",
+    teacherSelectPlaceholder: "Select teacher",
     saveTeacherSettings: "Save teacher settings",
     atLeastOneTeacherRequired: "At least one teacher is required",
     courseDescription: "Keterangan Kursus",
