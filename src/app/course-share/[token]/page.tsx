@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AlertCircle, BookOpen, CalendarX, Home } from "lucide-react";
+import JoinLinkPasscodeGate from "@/components/JoinLinkPasscodeGate";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -148,6 +149,9 @@ export default async function CourseSharePage({
           invalidHint: "请确认老师提供的链接是否完整，或联系老师重新发送新的课程分享链接。",
           linkLabel: "课程分享链接",
           detailLabel: "查看课程详情",
+          passcodeTitle: "输入密码加入课程",
+          passcodeDesc: "老师为这个课程分享链接设置了入会密码，请输入 6 位数字密码继续。",
+          passcodeButton: "验证并加入",
         }
       : {
           closedTitle: "Course unavailable",
@@ -158,6 +162,10 @@ export default async function CourseSharePage({
             "Check that the link from your teacher is complete, or ask them to send a new course share link.",
           linkLabel: "Course share link",
           detailLabel: "View course details",
+          passcodeTitle: "Enter passcode to join",
+          passcodeDesc:
+            "The teacher protected this course share link. Enter the 6-digit passcode to continue.",
+          passcodeButton: "Verify and join",
         };
 
   const resolved = await resolveJoinLinkForPurpose(token, "course");
@@ -227,6 +235,27 @@ export default async function CourseSharePage({
         courseName={course.name}
         detailHref={`/courses/${course.id}`}
         detailLabel={copy.detailLabel}
+      />
+    );
+  }
+
+  if (resolved.requiresPasscode) {
+    return (
+      <JoinLinkPasscodeGate
+        token={token}
+        purpose="course"
+        title={copy.passcodeTitle}
+        description={copy.passcodeDesc}
+        linkLabel={copy.linkLabel}
+        buttonLabel={copy.passcodeButton}
+        backLabel={t("common.backToHome")}
+        errorFallback={t("passcodeGate.errInvalidPasscode")}
+        courseName={course.name}
+        teacherName={t("courseDetail.teacherInfo").replace(
+          "{name}",
+          course.teacherName
+        )}
+        lang={langParam}
       />
     );
   }

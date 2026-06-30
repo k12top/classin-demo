@@ -79,6 +79,7 @@ model CourseJoinLink {
   courseId   String
   token      String    @unique
   purpose    String    @default("live") // live | course
+  passcode   String?   // Optional 6-digit passcode required before using this share link
   label      String    @default("")
   createdBy  String
   expiresAt  DateTime?

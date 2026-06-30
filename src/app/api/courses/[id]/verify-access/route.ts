@@ -22,7 +22,10 @@ export async function GET(
   }
 
   const { id: courseId } = await params;
-  const access = await resolveCourseAccess(courseId, session.userId);
+  const shareAccess = request.nextUrl.searchParams.get("shareAccess");
+  const access = await resolveCourseAccess(courseId, session.userId, {
+    shareAccessToken: shareAccess,
+  });
 
   if (!access.ok) {
     const status = access.httpStatus === 403 ? 200 : access.httpStatus;
@@ -38,7 +41,16 @@ export async function GET(
   }
 
   const roomUuid = courseIdToRoomUuid(courseId);
-  const classroomUrl = `/classroom?roomUuid=${roomUuid}&roomType=${access.roomType}&roomName=${encodeURIComponent(access.roomName)}&courseId=${courseId}`;
+  const qs = new URLSearchParams({
+    roomUuid,
+    roomType: String(access.roomType),
+    roomName: access.roomName,
+    courseId,
+  });
+  if (shareAccess) {
+    qs.set("shareAccess", shareAccess);
+  }
+  const classroomUrl = `/classroom?${qs.toString()}`;
 
   return NextResponse.json(
     {

@@ -13,7 +13,9 @@ import {
   buildCourseShareUrl,
   buildEmbedSnippet,
   buildJoinUrl,
+  createJoinPasscode,
   createJoinToken,
+  isValidJoinPasscode,
   isJoinLinkPurpose,
   JoinLinkPurpose,
   joinLinkStatus,
@@ -24,6 +26,7 @@ function serializeLink(
     id: string;
     token: string;
     purpose: string;
+    passcode: string | null;
     label: string;
     expiresAt: Date | null;
     revokedAt: Date | null;
@@ -43,6 +46,8 @@ function serializeLink(
     purpose,
     label: link.label,
     token: link.token,
+    requiresPasscode: Boolean(link.passcode),
+    passcode: link.passcode,
     status,
     expiresAt: link.expiresAt?.toISOString() ?? null,
     revokedAt: link.revokedAt?.toISOString() ?? null,
@@ -121,11 +126,39 @@ export async function POST(
   }
 
   try {
+    const course = await prisma.course.findUnique({
+      where: { id: courseId },
+      select: { roomType: true, passcode: true },
+    });
+    if (!course) {
+      return NextResponse.json({ error: "Course not found" }, { status: 404 });
+    }
+
     const body = await request.json().catch(() => ({}));
     const label = typeof body.label === "string" ? body.label.trim() : "";
     const purpose: JoinLinkPurpose = isJoinLinkPurpose(body.purpose)
       ? body.purpose
       : "live";
+    const defaultPasscode =
+      course.roomType === 10 && course.passcode ? course.passcode : null;
+    const requirePasscode =
+      typeof body.requirePasscode === "boolean"
+        ? body.requirePasscode
+        : Boolean(defaultPasscode);
+    let passcode: string | null = null;
+    if (requirePasscode) {
+      const candidate =
+        typeof body.passcode === "string" && body.passcode.trim()
+          ? body.passcode.trim()
+          : defaultPasscode || createJoinPasscode();
+      if (!isValidJoinPasscode(candidate)) {
+        return NextResponse.json(
+          { error: "Passcode must be 6 digits" },
+          { status: 400 }
+        );
+      }
+      passcode = candidate;
+    }
     let expiresAt: Date | null = null;
     if (body.expiresAt) {
       const parsed = new Date(body.expiresAt);
@@ -140,6 +173,7 @@ export async function POST(
         courseId,
         token,
         purpose,
+        passcode,
         label: label || (purpose === "course" ? "课程分享链接" : "直播分享链接"),
         createdBy: session.userId,
         expiresAt,

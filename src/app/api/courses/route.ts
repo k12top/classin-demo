@@ -73,6 +73,7 @@ export async function GET(request: NextRequest) {
               id: true,
               token: true,
               purpose: true,
+              passcode: true,
               label: true,
               expiresAt: true,
               revokedAt: true,
@@ -93,6 +94,8 @@ export async function GET(request: NextRequest) {
             .map((l) => ({
               id: l.id,
               label: l.label,
+              requiresPasscode: Boolean(l.passcode),
+              passcode: l.passcode,
               joinUrl: buildJoinUrl(origin, l.token),
               useCount: l.useCount,
             })),
@@ -101,6 +104,8 @@ export async function GET(request: NextRequest) {
             .map((l) => ({
               id: l.id,
               label: l.label,
+              requiresPasscode: Boolean(l.passcode),
+              passcode: l.passcode,
               courseShareUrl: buildCourseShareUrl(origin, l.token),
               useCount: l.useCount,
             })),

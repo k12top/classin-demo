@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { roomUuid, courseId, userUuid } = body;
+    const { roomUuid, courseId, userUuid, shareAccess } = body;
 
     if (!roomUuid || !courseId) {
       return NextResponse.json(
@@ -48,7 +48,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const access = await resolveCourseAccess(String(courseId), session.userId);
+    const access = await resolveCourseAccess(String(courseId), session.userId, {
+      shareAccessToken:
+        typeof shareAccess === "string" ? shareAccess : undefined,
+    });
     if (!access.ok) {
       return NextResponse.json(
         { error: access.reason || "Not allowed for this course" },
@@ -68,7 +71,16 @@ export async function POST(request: NextRequest) {
 
     const token = buildRoomUserToken(roomUuid, session.userId, role);
 
-    const classroomUrl = `/classroom?roomUuid=${roomUuid}&roomType=${access.roomType}&roomName=${encodeURIComponent(access.roomName)}&courseId=${courseId}`;
+    const qs = new URLSearchParams({
+      roomUuid: String(roomUuid),
+      roomType: String(access.roomType),
+      roomName: access.roomName,
+      courseId: String(courseId),
+    });
+    if (typeof shareAccess === "string" && shareAccess.trim()) {
+      qs.set("shareAccess", shareAccess.trim());
+    }
+    const classroomUrl = `/classroom?${qs.toString()}`;
 
     return NextResponse.json({ token, appId, classroomUrl });
   } catch (error) {

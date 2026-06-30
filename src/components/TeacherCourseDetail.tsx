@@ -77,6 +77,8 @@ interface CourseJoinLinkSummary {
   shareUrl?: string | null;
   joinUrl?: string | null;
   courseShareUrl?: string | null;
+  requiresPasscode?: boolean;
+  passcode?: string | null;
 }
 
 interface TeacherCourse {
@@ -123,6 +125,10 @@ function flattenGroups(roots: GroupNode[], prefix = ""): { id: string; label: st
   return rows;
 }
 
+function createClientPasscode(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
 export default function TeacherCourseDetail({ 
   course, 
   onEnterClassroom,
@@ -137,6 +143,8 @@ export default function TeacherCourseDetail({
 }) {
   const { t, locale } = useTranslation();
   const isCourseOwner = Boolean(course.isCourseOwner);
+  const defaultJoinLinkPasscode =
+    course.roomType === 10 && course.passcode ? course.passcode : "";
   const [isEditingCourseName, setIsEditingCourseName] = useState(false);
   const [courseNameDraft, setCourseNameDraft] = useState("");
   const [courseNameSaving, setCourseNameSaving] = useState(false);
@@ -167,7 +175,20 @@ export default function TeacherCourseDetail({
   const [joinLinkBusy, setJoinLinkBusy] = useState(false);
   const [newCourseLinkLabel, setNewCourseLinkLabel] = useState("");
   const [newLiveLinkLabel, setNewLiveLinkLabel] = useState("");
+  const [newCourseRequirePasscode, setNewCourseRequirePasscode] = useState(
+    Boolean(defaultJoinLinkPasscode)
+  );
+  const [newLiveRequirePasscode, setNewLiveRequirePasscode] = useState(
+    Boolean(defaultJoinLinkPasscode)
+  );
+  const [newCoursePasscode, setNewCoursePasscode] = useState(
+    defaultJoinLinkPasscode
+  );
+  const [newLivePasscode, setNewLivePasscode] = useState(
+    defaultJoinLinkPasscode
+  );
   const [copyHint, setCopyHint] = useState("");
+  const [joinLinkError, setJoinLinkError] = useState("");
 
   // Courseware Tab State
   const [courseware, setCourseware] = useState<CoursewareItem[]>([]);
@@ -215,6 +236,15 @@ export default function TeacherCourseDetail({
       setTeacherError("");
     });
   }, [baseCourseTeachers, course.teacherId]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setNewCourseRequirePasscode(Boolean(defaultJoinLinkPasscode));
+      setNewLiveRequirePasscode(Boolean(defaultJoinLinkPasscode));
+      setNewCoursePasscode(defaultJoinLinkPasscode);
+      setNewLivePasscode(defaultJoinLinkPasscode);
+    });
+  }, [course.id, defaultJoinLinkPasscode]);
 
   const makeTeacherFromSearchResult = (u: UserSearchResult): CourseTeacherSummary => ({
     teacherId: u.casdoorUuid || u.id,
@@ -431,6 +461,7 @@ export default function TeacherCourseDetail({
   const copyText = async (text: string, hint: string) => {
     try {
       await navigator.clipboard.writeText(text);
+      setJoinLinkError("");
       setCopyHint(hint);
       setTimeout(() => setCopyHint(""), 2000);
     } catch {
@@ -441,14 +472,30 @@ export default function TeacherCourseDetail({
   const handleCreateJoinLink = async (purpose: "course" | "live") => {
     const label =
       purpose === "course" ? newCourseLinkLabel.trim() : newLiveLinkLabel.trim();
+    const requirePasscode =
+      purpose === "course" ? newCourseRequirePasscode : newLiveRequirePasscode;
+    const passcode =
+      purpose === "course" ? newCoursePasscode.trim() : newLivePasscode.trim();
+    if (requirePasscode && passcode && !/^\d{6}$/.test(passcode)) {
+      setCopyHint("");
+      setJoinLinkError(t("teacherDashboard.errPasscodeInvalid"));
+      return;
+    }
+    setJoinLinkError("");
     setJoinLinkBusy(true);
     try {
       const res = await fetch(`/api/courses/${course.id}/join-links`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ purpose, label: label || undefined }),
+        body: JSON.stringify({
+          purpose,
+          label: label || undefined,
+          requirePasscode,
+          passcode: requirePasscode && passcode ? passcode : undefined,
+        }),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         if (purpose === "course") {
           setNewCourseLinkLabel("");
@@ -456,11 +503,14 @@ export default function TeacherCourseDetail({
           setNewLiveLinkLabel("");
         }
         await fetchJoinLinks();
-        const data = await res.json();
         const url = data.link?.shareUrl || data.link?.courseShareUrl || data.link?.joinUrl;
         if (url) {
           await copyText(url, t("courseDetail.shareLinkCreatedAndCopied"));
         }
+      } else {
+        setJoinLinkError(
+          typeof data.error === "string" ? data.error : t("common.failed")
+        );
       }
     } finally {
       setJoinLinkBusy(false);
@@ -695,6 +745,11 @@ export default function TeacherCourseDetail({
           liveDesc: "用于已有课程权限的用户直接进入直播教室；不会自动加入课程。",
           coursePlaceholder: "课程链接备注（如：报名群）",
           livePlaceholder: "直播链接备注（如：家长旁听）",
+          requirePasscode: "需要 Passcode",
+          passcodePlaceholder: "6 位数字密码，留空自动生成",
+          generatePasscode: "生成",
+          passcodeProtected: "已启用密码",
+          copyPasscode: "复制密码",
           courseEmpty: "暂无课程分享链接。",
           liveEmpty: "暂无直播分享链接。",
           activeCourseLinks: "课程链接",
@@ -709,11 +764,85 @@ export default function TeacherCourseDetail({
             "For users who already have course access to open the live classroom directly. It does not enroll students.",
           coursePlaceholder: "Course link note, e.g. enrollment group",
           livePlaceholder: "Live link note, e.g. parent observer",
+          requirePasscode: "Require passcode",
+          passcodePlaceholder: "6-digit passcode, blank to auto-generate",
+          generatePasscode: "Generate",
+          passcodeProtected: "Passcode enabled",
+          copyPasscode: "Copy passcode",
           courseEmpty: "No course share links yet.",
           liveEmpty: "No live share links yet.",
           activeCourseLinks: "Course Links",
           activeLiveLinks: "Live Links",
-        };
+      };
+
+  const renderPasscodeControls = ({
+    enabled,
+    passcode,
+    setEnabled,
+    setPasscode,
+  }: {
+    enabled: boolean;
+    passcode: string;
+    setEnabled: (enabled: boolean) => void;
+    setPasscode: (passcode: string) => void;
+  }) => (
+    <div className="mt-3 rounded-xl border border-border/60 bg-muted/20 p-3">
+      <label className="flex items-center justify-between gap-3 text-xs font-semibold text-foreground">
+        <span className="flex items-center gap-2">
+          <Key className="h-3.5 w-3.5 text-primary" />
+          {sharingText.requirePasscode}
+        </span>
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(event) => {
+            const checked = event.target.checked;
+            setEnabled(checked);
+            if (checked && !passcode) {
+              setPasscode(defaultJoinLinkPasscode || createClientPasscode());
+            }
+          }}
+          className="h-4 w-4 rounded border-border accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        />
+      </label>
+      {enabled ? (
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <Input
+            className="bg-background border-border/80 font-mono text-sm tracking-widest rounded-xl"
+            placeholder={sharingText.passcodePlaceholder}
+            value={passcode}
+            maxLength={6}
+            inputMode="numeric"
+            onChange={(event) => {
+              setPasscode(event.target.value.replace(/\D/g, "").slice(0, 6));
+              setJoinLinkError("");
+              setCopyHint("");
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-xl text-xs shrink-0"
+            onClick={() => setPasscode(createClientPasscode())}
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            {sharingText.generatePasscode}
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  const renderPasscodeMeta = (link: CourseJoinLinkSummary) =>
+    link.requiresPasscode ? (
+      <p className="flex items-center gap-1.5 text-primary">
+        <Key className="h-3.5 w-3.5" />
+        <span>
+          {sharingText.passcodeProtected}
+          {link.passcode ? `: ${link.passcode}` : ""}
+        </span>
+      </p>
+    ) : null;
 
   const getFileIcon = (ext: string) => {
     const normExt = ext.toLowerCase();
@@ -1309,6 +1438,12 @@ export default function TeacherCourseDetail({
                     {joinLinkBusy ? t("common.submitting") : t("courseDetail.btnGenerateLink")}
                   </Button>
                 </div>
+                {renderPasscodeControls({
+                  enabled: newCourseRequirePasscode,
+                  passcode: newCoursePasscode,
+                  setEnabled: setNewCourseRequirePasscode,
+                  setPasscode: setNewCoursePasscode,
+                })}
 
                 <div className="mt-8">
                   <h4 className="font-bold text-xs text-muted-foreground uppercase tracking-wider mb-4 pb-2 border-b border-border/40 flex items-center justify-between">
@@ -1331,14 +1466,20 @@ export default function TeacherCourseDetail({
                             </div>
                             <div className="text-xs text-muted-foreground space-y-1 mb-4 flex-1">
                               <p>{t("courseDetail.linkUses", { count: link.useCount })}</p>
+                              {renderPasscodeMeta(link)}
                               {link.expiresAt && <p>{t("courseDetail.expiresAtLabel", { date: new Date(link.expiresAt).toLocaleDateString(locale) })}</p>}
                             </div>
 
                             {link.status === "active" && url && (
-                              <div className="flex gap-2 mt-auto">
+                              <div className="flex flex-wrap gap-2 mt-auto">
                                 <Button size="sm" className="flex-1 bg-muted border border-border/60 hover:bg-muted/80 text-foreground rounded-lg text-xs" onClick={() => void copyText(url, t("courseDetail.copySuccess"))}>
                                   <Copy className="h-3.5 w-3.5 mr-1" /> {t("courseDetail.btnCopy")}
                                 </Button>
+                                {link.passcode && (
+                                  <Button size="sm" variant="outline" className="rounded-lg text-xs" onClick={() => void copyText(link.passcode!, t("courseDetail.copyPasscodeSuccess"))}>
+                                    <Key className="h-3.5 w-3.5 mr-1" /> {sharingText.copyPasscode}
+                                  </Button>
+                                )}
                                 <Button size="sm" variant="destructive" className="bg-red-500/5 text-red-500 hover:bg-red-500/10 border-0 rounded-lg text-xs" disabled={joinLinkBusy} onClick={() => handleRevokeJoinLink(link.id)}>
                                   {t("courseDetail.btnRevoke")}
                                 </Button>
@@ -1382,6 +1523,12 @@ export default function TeacherCourseDetail({
                     {joinLinkBusy ? t("common.submitting") : t("courseDetail.btnGenerateLink")}
                   </Button>
                 </div>
+                {renderPasscodeControls({
+                  enabled: newLiveRequirePasscode,
+                  passcode: newLivePasscode,
+                  setEnabled: setNewLiveRequirePasscode,
+                  setPasscode: setNewLivePasscode,
+                })}
 
                 <div className="mt-8">
                   <h4 className="font-bold text-xs text-muted-foreground uppercase tracking-wider mb-4 pb-2 border-b border-border/40 flex items-center justify-between">
@@ -1404,14 +1551,20 @@ export default function TeacherCourseDetail({
                             </div>
                             <div className="text-xs text-muted-foreground space-y-1 mb-4 flex-1">
                               <p>{t("courseDetail.linkUses", { count: link.useCount })}</p>
+                              {renderPasscodeMeta(link)}
                               {link.expiresAt && <p>{t("courseDetail.expiresAtLabel", { date: new Date(link.expiresAt).toLocaleDateString(locale) })}</p>}
                             </div>
 
                             {link.status === "active" && url && (
-                              <div className="flex gap-2 mt-auto">
+                              <div className="flex flex-wrap gap-2 mt-auto">
                                 <Button size="sm" className="flex-1 bg-muted border border-border/60 hover:bg-muted/80 text-foreground rounded-lg text-xs" onClick={() => void copyText(url, t("courseDetail.copySuccess"))}>
                                   <Copy className="h-3.5 w-3.5 mr-1" /> {t("courseDetail.btnCopy")}
                                 </Button>
+                                {link.passcode && (
+                                  <Button size="sm" variant="outline" className="rounded-lg text-xs" onClick={() => void copyText(link.passcode!, t("courseDetail.copyPasscodeSuccess"))}>
+                                    <Key className="h-3.5 w-3.5 mr-1" /> {sharingText.copyPasscode}
+                                  </Button>
+                                )}
                                 <Button size="sm" variant="destructive" className="bg-red-500/5 text-red-500 hover:bg-red-500/10 border-0 rounded-lg text-xs" disabled={joinLinkBusy} onClick={() => handleRevokeJoinLink(link.id)}>
                                   {t("courseDetail.btnRevoke")}
                                 </Button>
@@ -1429,6 +1582,11 @@ export default function TeacherCourseDetail({
             {copyHint && (
               <div className="xl:col-span-2 p-3 bg-green-500/5 border border-green-500/20 rounded-xl text-green-600 dark:text-green-400 text-xs flex items-center gap-2 font-medium">
                 <Check className="h-4 w-4" /> {copyHint}
+              </div>
+            )}
+            {joinLinkError && (
+              <div className="xl:col-span-2 p-3 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive text-xs flex items-center gap-2 font-medium">
+                <X className="h-4 w-4" /> {joinLinkError}
               </div>
             )}
           </div>

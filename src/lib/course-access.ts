@@ -10,6 +10,7 @@ import {
 } from "@/lib/course-status";
 import { prisma } from "@/lib/db";
 import { userCanTeachCourse } from "@/lib/course-teacher";
+import { verifyShareAccessToken } from "@/lib/join-link";
 
 export type CourseGateRole = "teacher" | "student";
 
@@ -35,7 +36,8 @@ export type CourseAccessResult = CourseAccessOk | CourseAccessDenied;
  */
 export async function resolveCourseAccess(
   courseId: string,
-  userId: string
+  userId: string,
+  options: { shareAccessToken?: string | null } = {}
 ): Promise<CourseAccessResult> {
   try {
     let course = await prisma.course.findUnique({
@@ -146,6 +148,20 @@ export async function resolveCourseAccess(
       casdoorUserIdsMatch(mid, userId)
     );
     if (inGroup) {
+      return {
+        ok: true,
+        role: "student",
+        roomType: course.roomType,
+        roomName: course.name,
+        teacherName: course.teacherName,
+      };
+    }
+
+    const shareAccess = await verifyShareAccessToken(options.shareAccessToken, {
+      userId,
+      courseId,
+    });
+    if (shareAccess.ok) {
       return {
         ok: true,
         role: "student",

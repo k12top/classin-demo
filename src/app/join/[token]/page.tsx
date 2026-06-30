@@ -3,13 +3,18 @@
  */
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import JoinLinkPasscodeGate from "@/components/JoinLinkPasscodeGate";
 import { getSession } from "@/lib/session";
 import {
   courseIdToRoomUuid,
   resolveCourseAccess,
 } from "@/lib/course-access";
 import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
-import { recordJoinLinkUse, resolveJoinLink } from "@/lib/join-link";
+import {
+  createShareAccessToken,
+  recordJoinLinkUse,
+  resolveJoinLink,
+} from "@/lib/join-link";
 import { prisma } from "@/lib/db";
 import { getServerTranslation } from "@/lib/i18n/server";
 
@@ -23,7 +28,23 @@ export default async function JoinPage({
   const { token } = await params;
   const { embed: embedParam, lang: langParam } = await searchParams;
   const wantEmbed = embedParam === "1" || embedParam === "true";
-  const { t } = await getServerTranslation(langParam);
+  const { locale, t } = await getServerTranslation(langParam);
+  const copy =
+    locale === "zh-CN"
+      ? {
+          linkLabel: "直播分享链接",
+          passcodeTitle: "输入密码进入直播",
+          passcodeDesc:
+            "老师为这个直播分享链接设置了入会密码，请输入 6 位数字密码继续。",
+          passcodeButton: "验证并进入",
+        }
+      : {
+          linkLabel: "Live share link",
+          passcodeTitle: "Enter passcode to join live",
+          passcodeDesc:
+            "The teacher protected this live share link. Enter the 6-digit passcode to continue.",
+          passcodeButton: "Verify and enter",
+        };
 
   const resolved = await resolveJoinLink(token);
   if (!resolved.ok) {
@@ -62,7 +83,7 @@ export default async function JoinPage({
 
   const course = await prisma.course.findUnique({
     where: { id: resolved.courseId },
-    select: { id: true, name: true, roomType: true },
+    select: { id: true, name: true, roomType: true, teacherName: true },
   });
   if (!course) {
     redirect(
@@ -73,26 +94,48 @@ export default async function JoinPage({
     );
   }
 
+  if (resolved.requiresPasscode) {
+    return (
+      <JoinLinkPasscodeGate
+        token={token}
+        purpose="live"
+        title={copy.passcodeTitle}
+        description={copy.passcodeDesc}
+        linkLabel={copy.linkLabel}
+        buttonLabel={copy.passcodeButton}
+        backLabel={t("common.backToHome")}
+        errorFallback={t("passcodeGate.errInvalidPasscode")}
+        courseName={course.name}
+        teacherName={t("courseDetail.teacherInfo").replace(
+          "{name}",
+          course.teacherName
+        )}
+        embed={wantEmbed}
+        lang={langParam}
+      />
+    );
+  }
+
   const access = await resolveCourseAccess(resolved.courseId, session.userId);
   if (!access.ok) {
     if (access.code === "not_enrolled") {
-      await prisma.courseStudent.createMany({
-        data: [
-          {
-            courseId: course.id,
-            studentId: session.userId,
-            studentName: session.displayName || session.name,
-            studentAvatar: session.avatar || "",
-          },
-        ],
-        skipDuplicates: true,
-      });
       await recordJoinLinkUse(resolved.linkId);
-      redirect(`/courses/${course.id}`);
-    }
-
-    if (course.roomType === 10) {
-      redirect(`/courses/${course.id}`);
+      const shareAccess = createShareAccessToken({
+        userId: session.userId,
+        courseId: course.id,
+        linkId: resolved.linkId,
+      });
+      const roomUuid = courseIdToRoomUuid(course.id);
+      const qs = new URLSearchParams({
+        roomUuid,
+        roomType: String(course.roomType),
+        roomName: course.name,
+        courseId: course.id,
+        shareAccess,
+      });
+      if (wantEmbed) qs.set("embed", "1");
+      if (langParam) qs.set("lang", langParam);
+      redirect(`/classroom?${qs.toString()}`);
     }
     redirect(
       buildAccessDeniedUrl({

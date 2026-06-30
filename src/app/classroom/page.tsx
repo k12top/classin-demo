@@ -90,8 +90,9 @@ function buildLaunchKey(
   courseId: string,
   roomUuid: string,
   userId: string,
+  shareAccess: string,
 ): string {
-  return `${courseId}|${roomUuid}|${userId}`;
+  return `${courseId}|${roomUuid}|${userId}|${shareAccess}`;
 }
 
 interface ClassroomCourseware {
@@ -245,6 +246,7 @@ function ClassroomContent() {
     courseId: "",
     roomName: "",
     roomTypeParam: 0,
+    shareAccess: "",
   });
 
     const { t, locale } = useTranslation();
@@ -257,6 +259,7 @@ function ClassroomContent() {
     const roomTypeParam = Number(searchParams.get("roomType") || "0");
     const roomName = searchParams.get("roomName") || roomUuid;
     const courseId = searchParams.get("courseId") || "";
+    const shareAccess = searchParams.get("shareAccess") || "";
     const isEmbed =
       searchParams.get("embed") === "1" || searchParams.get("embed") === "true";
     const classroomDebug = searchParams.get("debug") === "1";
@@ -269,8 +272,23 @@ function ClassroomContent() {
       userRef.current = user;
       routerRef.current = router;
       courseIdRef.current = courseId;
-      launchParamsRef.current = { roomUuid, courseId, roomName, roomTypeParam };
-    }, [classroomDebug, courseId, roomName, roomTypeParam, roomUuid, router, user]);
+      launchParamsRef.current = {
+        roomUuid,
+        courseId,
+        roomName,
+        roomTypeParam,
+        shareAccess,
+      };
+    }, [
+      classroomDebug,
+      courseId,
+      roomName,
+      roomTypeParam,
+      roomUuid,
+      router,
+      shareAccess,
+      user,
+    ]);
 
     const logClassroomDebug = (...args: unknown[]) => {
       if (classroomDebugRef.current) {
@@ -359,8 +377,9 @@ function ClassroomContent() {
         courseId: cid,
         roomName: rn,
         roomTypeParam: rtp,
+        shareAccess: grant,
       } = launchParamsRef.current;
-      const launchKey = buildLaunchKey(cid, ru, userId);
+      const launchKey = buildLaunchKey(cid, ru, userId, grant);
 
       if (launchKeyRef.current === launchKey && unmountRef.current) {
         logClassroomDebug("launch skipped — already active", { launchKey });
@@ -400,11 +419,16 @@ function ClassroomContent() {
           let verifyRoomLabel = rn;
 
           try {
-            let verifyRes = await fetch(`/api/courses/${cid}/verify-access`);
+            const verifyPath = grant
+              ? `/api/courses/${cid}/verify-access?${new URLSearchParams({
+                  shareAccess: grant,
+                }).toString()}`
+              : `/api/courses/${cid}/verify-access`;
+            let verifyRes = await fetch(verifyPath);
             if (cancelled) return;
 
             if (verifyRes.status === 401 && (await tryOAuthRefresh())) {
-              verifyRes = await fetch(`/api/courses/${cid}/verify-access`);
+              verifyRes = await fetch(verifyPath);
             }
             if (verifyRes.status === 401) {
               launchingRef.current = false;
@@ -460,6 +484,7 @@ function ClassroomContent() {
               roomUuid: ru,
               courseId: cid,
               userUuid: currentUser.userId,
+              ...(grant && { shareAccess: grant }),
             }),
           });
 
@@ -477,6 +502,7 @@ function ClassroomContent() {
                 roomUuid: ru,
                 courseId: cid,
                 userUuid: currentUser.userId,
+                ...(grant && { shareAccess: grant }),
               }),
             });
           }
