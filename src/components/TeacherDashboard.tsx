@@ -16,6 +16,7 @@ import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import { SiteLogo } from "@/components/SiteLogo";
 import ThemeToggle from "@/components/ThemeToggle";
 import { CourseTimeRangeDisplay } from "@/components/TimeDisplay";
 import { CourseTeacherAvatarGroup, type CourseTeacherAvatarItem } from "@/components/CourseTeacherAvatarGroup";
@@ -664,7 +665,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-card/60 backdrop-blur-md px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
-            <BookOpen className="h-6 w-6 text-primary animate-pulse" />
+            <SiteLogo decorative className="h-6 w-6 text-primary animate-pulse" />
             <span className="font-extrabold text-lg bg-gradient-to-r from-primary to-purple-600 bg-clip-text text-transparent">
               {t("common.appName") || "在线课堂"}
             </span>

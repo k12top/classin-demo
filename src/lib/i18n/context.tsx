@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { getSiteName } from "@/lib/site-brand";
 import { locales, SupportedLocale, getTranslation } from "./locales";
 
 const SYNC_CHANNEL_NAME = "matrix_sync_channel";
@@ -283,6 +284,9 @@ export function I18nProvider({
       // Fallback to key if not translated or translates to the key itself
       if (translated === key) {
         translated = getTranslation(fallbackDict, key, replacements);
+      }
+      if (key === "common.appName") {
+        return getSiteName(translated);
       }
       return translated;
     };

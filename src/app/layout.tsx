@@ -4,12 +4,15 @@ import { AppDocumentGuard } from "@/components/app-document-guard";
 import { AuthProvider } from "@/lib/auth-context";
 import { I18nProvider } from "@/lib/i18n/context";
 import { SupportedLocale } from "@/lib/i18n/locales";
+import { siteDescription, siteIcon, siteTitle } from "@/lib/site-brand";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "翔宇文淑-在线课堂",
-  description:
-    "在线互动课堂，支持实时教学、互动课件、课程管理等功能，为师生提供沉浸式教学体验。",
+  title: siteTitle,
+  description: siteDescription,
+  icons: {
+    icon: siteIcon,
+  },
 };
 
 export default async function RootLayout({

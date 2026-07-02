@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { getSiteName } from "@/lib/site-brand";
 import { locales, SupportedLocale, getTranslation } from "./locales";
 
 export async function getServerTranslation(lang?: string) {
@@ -27,6 +28,9 @@ export async function getServerTranslation(lang?: string) {
     let translated = getTranslation(dict, key, replacements);
     if (translated === key) {
       translated = getTranslation(fallbackDict, key, replacements);
+    }
+    if (key === "common.appName") {
+      return getSiteName(translated);
     }
     return translated;
   };

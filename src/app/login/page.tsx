@@ -7,6 +7,7 @@ import { useTranslation } from "@/lib/i18n/context";
 import { languageOptions, SupportedLocale } from "@/lib/i18n/locales";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Globe } from "lucide-react";
+import { SiteLogo } from "@/components/SiteLogo";
 
 function LoginContent() {
   const searchParams = useSearchParams();
@@ -46,12 +47,10 @@ function LoginContent() {
         <div className="login-card card animate-in animate-in-delay-1">
           {/* Logo */}
           <div className="login-header">
-            <div className="logo-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
-              </svg>
-            </div>
+            <SiteLogo
+              decorative
+              className="logo-icon mx-auto mb-5 h-16 w-16 rounded-2xl border border-white/10 bg-white/10 p-3 shadow-lg shadow-primary/10 backdrop-blur"
+            />
             <h1>{t("login.title")}</h1>
             <p className="login-subtitle">{t("login.subtitle")}</p>
           </div>

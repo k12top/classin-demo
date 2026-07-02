@@ -16,6 +16,21 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Brand Configuration
+
+The public site brand can be overridden with environment variables:
+
+```bash
+NEXT_PUBLIC_SITE_NAME=翔宇文淑直播平台
+NEXT_PUBLIC_SITE_TITLE=翔宇文淑-在线课堂
+NEXT_PUBLIC_SITE_LOGO=/site-logo.svg
+NEXT_PUBLIC_SITE_ICON=/favicon.ico
+```
+
+If these variables are not set, the app uses the values above.
+
+`NEXT_PUBLIC_SITE_LOGO` and `NEXT_PUBLIC_SITE_ICON` support either site-relative paths or absolute HTTPS URLs.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
