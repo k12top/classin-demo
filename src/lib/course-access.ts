@@ -1,5 +1,6 @@
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import type { CourseAccessDeniedCode } from "@/lib/access-denied-codes";
+import type { ClassroomAccessRole } from "@/lib/agora-classroom-role";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
 import {
   canEnterClassroom,
@@ -12,8 +13,6 @@ import { prisma } from "@/lib/db";
 import { userCanTeachCourse } from "@/lib/course-teacher";
 import { verifyShareAccessToken } from "@/lib/join-link";
 
-export type CourseGateRole = "teacher" | "student";
-
 export type CourseAccessDenied = {
   ok: false;
   httpStatus: number;
@@ -23,7 +22,7 @@ export type CourseAccessDenied = {
 
 export type CourseAccessOk = {
   ok: true;
-  role: CourseGateRole;
+  role: ClassroomAccessRole;
   roomType: number;
   roomName: string;
   teacherName: string;
@@ -117,7 +116,9 @@ export async function resolveCourseAccess(
     if (userCanTeachCourse(course, userId)) {
       return {
         ok: true,
-        role: "teacher",
+        role: casdoorUserIdsMatch(course.teacherId, userId)
+          ? "teacher"
+          : "assistant",
         roomType: course.roomType,
         roomName: course.name,
         teacherName: course.teacherName,

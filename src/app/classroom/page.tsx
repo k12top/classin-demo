@@ -5,6 +5,10 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Script from "next/script";
 import { ShieldCheck, BookOpen, Video, AlertCircle } from "lucide-react";
+import {
+  agoraRoleTypeForClassroomRole,
+  isClassroomAccessRole,
+} from "@/lib/agora-classroom-role";
 import { useAuth } from "@/lib/auth-context";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
@@ -458,8 +462,12 @@ function ClassroomContent() {
             return;
           }
 
-          const resolvedRole: number = verifyData.role === "teacher" ? 1 : 2;
-          isTeacherRef.current = resolvedRole === 1;
+          if (!isClassroomAccessRole(verifyData.role)) {
+            throw new Error("classroom.verifyFailed");
+          }
+
+          const resolvedRole = agoraRoleTypeForClassroomRole(verifyData.role);
+          isTeacherRef.current = verifyData.role === "teacher";
           lastSyncedClassStateRef.current = null;
           let resolvedRoomType =
             typeof verifyData.courseInfo?.roomType === "number"

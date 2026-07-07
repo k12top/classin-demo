@@ -218,7 +218,7 @@ Authorization: Bearer <casdoor_access_token>
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | allowed | bool | 是否允许访问 |
-| role | string | `"teacher"` 或 `"student"` |
+| role | string | `"teacher"`、`"assistant"` 或 `"student"`；课程主讲老师返回 `teacher`，其他授课老师返回 `assistant` |
 | courseInfo.name | string | 课程名称 |
 | courseInfo.roomType | int | 房间类型 |
 | courseInfo.teacherName | string | 教师名 |
@@ -270,7 +270,9 @@ Content-Type: application/json
 {
   "token": "007eJx...",
   "appId": "c99134753386...",
-  "classroomUrl": "/classroom?roomUuid=...&roomType=...&roomName=...&courseId=..."
+  "classroomUrl": "/classroom?roomUuid=...&roomType=...&roomName=...&courseId=...",
+  "role": "assistant",
+  "roleType": 3
 }
 ```
 
@@ -279,6 +281,8 @@ Content-Type: application/json
 | token | string | 课堂访问 token，用于课堂启动 |
 | appId | string | 课堂应用标识 |
 | classroomUrl | string | 课堂入口路径 |
+| role | string | `"teacher"`、`"assistant"` 或 `"student"` |
+| roleType | int | 声网 SDK 角色：`1`=老师，`2`=学生，`3`=助教 |
 
 ---
 

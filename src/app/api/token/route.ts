@@ -2,6 +2,7 @@
  * Token generation API — session-bound user + course access
  */
 import { NextRequest, NextResponse } from "next/server";
+import { agoraRoleTypeForClassroomRole } from "@/lib/agora-classroom-role";
 import { buildRoomUserToken } from "@/lib/agora-token";
 import { getSessionFromRequest } from "@/lib/session";
 import {
@@ -59,7 +60,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const role = access.role === "teacher" ? 1 : 2;
+    const role = agoraRoleTypeForClassroomRole(access.role);
 
     const appId = process.env.AGORA_APP_ID;
     if (!appId) {
@@ -82,7 +83,13 @@ export async function POST(request: NextRequest) {
     }
     const classroomUrl = `/classroom?${qs.toString()}`;
 
-    return NextResponse.json({ token, appId, classroomUrl });
+    return NextResponse.json({
+      token,
+      appId,
+      classroomUrl,
+      role: access.role,
+      roleType: role,
+    });
   } catch (error) {
     console.error("Token generation error:", error);
     return NextResponse.json(
