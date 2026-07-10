@@ -24,6 +24,16 @@ import {
 
 export const dynamic = "force-dynamic";
 
+function sessionStudentIdCandidates(session: { userId: string; name?: string }): string[] {
+  const values = [session.userId, session.name || ""].flatMap((value) => {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    const stripped = trimmed.includes("/") ? trimmed.split("/").pop() || trimmed : trimmed;
+    return [trimmed, stripped];
+  });
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) {
@@ -64,7 +74,19 @@ export async function GET(request: NextRequest) {
           students: { select: { studentId: true, studentName: true, studentAvatar: true } },
           groupLinks: {
             include: {
-              group: { select: { id: true, name: true } },
+              group: {
+                select: {
+                  id: true,
+                  name: true,
+                  members: {
+                    select: {
+                      userId: true,
+                      userName: true,
+                      userAvatar: true,
+                    },
+                  },
+                },
+              },
             },
           },
           joinLinks: {
@@ -122,9 +144,10 @@ export async function GET(request: NextRequest) {
       );
     } else {
       // Student sees courses they're assigned to plus public classes.
+      const studentIdCandidates = sessionStudentIdCandidates(session);
       const directCourses = await prisma.course.findMany({
         where: {
-          students: { some: { studentId: session.userId } },
+          students: { some: { studentId: { in: studentIdCandidates } } },
           ...statusWhere,
         },
         include: {
@@ -136,7 +159,7 @@ export async function GET(request: NextRequest) {
 
       // Also find courses via group membership
       const groupMemberships = await prisma.groupMember.findMany({
-        where: { userId: session.userId },
+        where: { userId: { in: studentIdCandidates } },
         select: { groupId: true },
       });
       const groupIds = groupMemberships.map((m: { groupId: string }) => m.groupId);
@@ -146,7 +169,7 @@ export async function GET(request: NextRequest) {
         groupCourses = await prisma.course.findMany({
           where: {
             groupLinks: { some: { groupId: { in: groupIds } } },
-            NOT: { students: { some: { studentId: session.userId } } },
+            NOT: { students: { some: { studentId: { in: studentIdCandidates } } } },
             ...statusWhere,
           },
           include: {
@@ -162,7 +185,7 @@ export async function GET(request: NextRequest) {
           roomType: 10,
           NOT: {
             OR: [
-              { students: { some: { studentId: session.userId } } },
+              { students: { some: { studentId: { in: studentIdCandidates } } } },
               ...(groupIds.length > 0
                 ? [{ groupLinks: { some: { groupId: { in: groupIds } } } }]
                 : []),

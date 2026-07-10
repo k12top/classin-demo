@@ -208,14 +208,36 @@ export async function PUT(
         nextLeadTeacher = nextTeachers[0];
       }
 
+      const nextStartTime =
+        startTime !== undefined
+          ? startTime
+            ? new Date(startTime)
+            : null
+          : existing.startTime;
+      const nextEndTime =
+        endTime !== undefined
+          ? endTime
+            ? new Date(endTime)
+            : null
+          : existing.endTime;
+      if (
+        (nextStartTime && Number.isNaN(nextStartTime.getTime())) ||
+        (nextEndTime && Number.isNaN(nextEndTime.getTime()))
+      ) {
+        return NextResponse.json({ error: "课程时间格式无效" }, { status: 400 });
+      }
+      if (nextStartTime && nextEndTime && nextEndTime <= nextStartTime) {
+        return NextResponse.json({ error: "结束时间必须晚于开始时间" }, { status: 400 });
+      }
+
       const updateData = {
           ...(name !== undefined && { name: name.trim() }),
           ...(description !== undefined && { description: description.trim() }),
           ...(roomType !== undefined && { roomType }),
           ...(finalPasscode !== undefined && { passcode: finalPasscode }),
           ...(finalStatus !== undefined && { status: finalStatus }),
-          ...(startTime !== undefined && { startTime: startTime ? new Date(startTime) : null }),
-          ...(endTime !== undefined && { endTime: endTime ? new Date(endTime) : null }),
+          ...(startTime !== undefined && { startTime: nextStartTime }),
+          ...(endTime !== undefined && { endTime: nextEndTime }),
           ...(studentRemarks !== undefined && { studentRemarks: studentRemarks.trim() }),
           ...(nextLeadTeacher && {
             teacherId: nextLeadTeacher.teacherId,

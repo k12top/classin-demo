@@ -322,6 +322,22 @@ function ClassroomContent() {
       }
     }, []);
 
+    const syncAttendanceLeave = useCallback(() => {
+      const cid = courseIdRef.current;
+      if (!cid || isTeacherRef.current) return;
+
+      try {
+        void fetch(`/api/courses/${cid}/attendance`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ event: "leave" }),
+          keepalive: true,
+        });
+      } catch {
+        // Best-effort attendance close; the teacher export will still show open sessions.
+      }
+    }, []);
+
     const leaveClassroom = useCallback(() => {
       if (leftClassroomRef.current) return;
       leftClassroomRef.current = true;
@@ -339,6 +355,7 @@ function ClassroomContent() {
       launchKeyRef.current = null;
       launchingRef.current = false;
 
+      syncAttendanceLeave();
       resetDocumentAfterClassroom();
 
       const target = courseIdRef.current
@@ -347,7 +364,15 @@ function ClassroomContent() {
 
       // Full navigation reloads CSS — avoids Agora global styles breaking layout
       window.location.replace(target);
-    }, []);
+    }, [syncAttendanceLeave]);
+
+    useEffect(() => {
+      const onPageHide = () => {
+        syncAttendanceLeave();
+      };
+      window.addEventListener("pagehide", onPageHide);
+      return () => window.removeEventListener("pagehide", onPageHide);
+    }, [syncAttendanceLeave]);
 
     useEffect(() => {
       markClassroomDocumentActive();
@@ -694,10 +719,11 @@ function ClassroomContent() {
         }
         unmountRef.current = null;
       }
+      syncAttendanceLeave();
       launchKeyRef.current = null;
       launchingRef.current = false;
     };
-  }, [authLoading, userId, leaveClassroom, locale, syncClassStateToServer]);
+  }, [authLoading, userId, leaveClassroom, locale, syncAttendanceLeave, syncClassStateToServer]);
 
   if (status === "error") {
     return (

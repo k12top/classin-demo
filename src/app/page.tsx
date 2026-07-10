@@ -30,7 +30,14 @@ interface Course {
   createdAt: string;
   updatedAt: string;
   students?: { studentId: string; studentName: string; studentAvatar?: string }[];
-  groupLinks?: { group: { id: string; name: string } }[];
+  groupLinks?: {
+    id: string;
+    group: {
+      id: string;
+      name: string;
+      members?: { userId: string; userName?: string; userAvatar?: string }[];
+    };
+  }[];
   activeJoinLinks?: { id: string; label: string; joinUrl: string; useCount: number }[];
   activeCourseShareLinks?: { id: string; label: string; courseShareUrl: string; useCount: number }[];
 }

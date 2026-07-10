@@ -16,6 +16,7 @@ import {
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { userCanTeachCourse } from "@/lib/course-teacher";
 import { canEnterClassroom } from "@/lib/course-status";
+import { ensureStudentEnrolledInCourse } from "@/lib/course-enrollment";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
 import { prisma } from "@/lib/db";
 import { getServerTranslation } from "@/lib/i18n/server";
@@ -270,22 +271,8 @@ export default async function CourseSharePage({
     )
   );
 
-  if (
-    !isTeacher &&
-    !isDirectStudent &&
-    !isGroupStudent
-  ) {
-    await prisma.courseStudent.createMany({
-      data: [
-        {
-          courseId: course.id,
-          studentId: session.userId,
-          studentName: session.displayName || session.name,
-          studentAvatar: session.avatar || "",
-        },
-      ],
-      skipDuplicates: true,
-    });
+  if (!isTeacher && !isDirectStudent && !isGroupStudent) {
+    await ensureStudentEnrolledInCourse(course.id, session);
   }
 
   await recordJoinLinkUse(resolved.linkId);

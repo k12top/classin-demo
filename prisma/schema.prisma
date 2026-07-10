@@ -51,6 +51,7 @@ model Course {
   joinLinks    CourseJoinLink[]
   courseware   Courseware[]
   teachers     CourseTeacher[]
+  attendances  CourseAttendance[]
 
   @@index([ownerId])
   @@index([teacherId])
@@ -129,6 +130,27 @@ model CourseStudent {
 
   @@unique([courseId, studentId])
   @@index([studentId])
+}
+
+// ── Student classroom attendance sessions ──
+model CourseAttendance {
+  id            String    @id @default(uuid())
+  courseId      String
+  studentId     String
+  studentName   String    @default("")
+  studentAvatar String    @default("")
+  enteredAt     DateTime  @default(now())
+  leftAt        DateTime?
+  durationSec   Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+  @@index([studentId])
+  @@index([courseId, studentId])
+  @@index([courseId, enteredAt])
 }
 
 // ── Course ↔ StudentGroup (group assignment) ──

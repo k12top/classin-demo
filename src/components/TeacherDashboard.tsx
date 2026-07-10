@@ -43,6 +43,14 @@ interface Course {
   createdAt: string;
   updatedAt: string;
   students?: { studentId: string; studentName: string; studentAvatar?: string }[];
+  groupLinks?: {
+    id: string;
+    group: {
+      id: string;
+      name: string;
+      members?: { userId: string; userName?: string; userAvatar?: string }[];
+    };
+  }[];
   activeJoinLinks?: { id: string; label: string; joinUrl: string; useCount: number }[];
   activeCourseShareLinks?: { id: string; label: string; courseShareUrl: string; useCount: number }[];
 }
@@ -394,6 +402,31 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       }
     }
     return uniqueTeachers;
+  };
+
+  const getCourseStudentPreview = (course: Course) => {
+    const students = new Map<string, string>();
+    for (const student of course.students ?? []) {
+      const id = student.studentId;
+      if (id) students.set(id, student.studentName || id);
+    }
+    for (const link of course.groupLinks ?? []) {
+      for (const member of link.group.members ?? []) {
+        const id = member.userId;
+        if (id && !students.has(id)) {
+          students.set(id, member.userName || id);
+        }
+      }
+    }
+    const names = [...students.values()];
+    const directCount = course.students?.length ?? 0;
+    const groupCount = Math.max(0, students.size - directCount);
+    return {
+      total: students.size,
+      directCount,
+      groupCount,
+      preview: names.slice(0, 4),
+    };
   };
 
   const addCreateTeacher = (teacher: CourseTeacherSummary, makePrimary = false) => {
@@ -847,6 +880,9 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 ) : (
                   <div className="space-y-4">
                     {selectedCourses.map((course) => (
+                      (() => {
+                        const studentPreview = getCourseStudentPreview(course);
+                        return (
                       <Card key={course.id} className="border border-border/60 bg-card overflow-hidden rounded-2xl hover:border-primary/30 hover:shadow-md transition-all duration-300 flex flex-col md:flex-row">
                         {/* Left date block */}
                         <div className="md:w-64 bg-muted/40 p-6 flex flex-col justify-center items-center text-center border-b md:border-b-0 md:border-r border-border/50">
@@ -900,6 +936,25 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                 <div className="flex items-center gap-1.5 text-muted-foreground text-xs font-medium">
                                   <Info className="h-3.5 w-3.5" />
                                   <span>{course.description || t("courseDetail.noDescription")}</span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                  <span className="inline-flex items-center gap-1.5 rounded-lg border border-border/50 bg-muted/30 px-2.5 py-1 font-medium text-foreground/80">
+                                    <Users className="h-3.5 w-3.5 text-primary" />
+                                    {locale === "zh-CN" ? "学生" : "Students"}: {studentPreview.total}
+                                  </span>
+                                  {studentPreview.preview.length > 0 ? (
+                                    <span className="truncate">
+                                      {studentPreview.preview.join(", ")}
+                                      {studentPreview.total > studentPreview.preview.length ? ` +${studentPreview.total - studentPreview.preview.length}` : ""}
+                                    </span>
+                                  ) : (
+                                    <span>{t("courseDetail.noAssignedStudents")}</span>
+                                  )}
+                                  {studentPreview.groupCount > 0 && (
+                                    <Badge variant="outline" className="h-5 border-primary/15 bg-primary/5 text-[10px] text-primary">
+                                      {locale === "zh-CN" ? `含学生组 ${studentPreview.groupCount} 人` : `${studentPreview.groupCount} from groups`}
+                                    </Badge>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1024,6 +1079,8 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                           </div>
                         </div>
                       </Card>
+                        );
+                      })()
                     ))}
                   </div>
                 )}

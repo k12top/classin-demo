@@ -72,6 +72,12 @@ export async function POST(request: NextRequest) {
 
     const token = buildRoomUserToken(roomUuid, session.userId, role);
 
+    if (access.role === "student") {
+      const { ensureStudentEnrolledInCourse } = await import("@/lib/course-enrollment");
+      await ensureStudentEnrolledInCourse(String(courseId), session);
+      await prismaCourseAttendanceCreate(String(courseId), session);
+    }
+
     const qs = new URLSearchParams({
       roomUuid: String(roomUuid),
       roomType: String(access.roomType),
@@ -97,4 +103,22 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+async function prismaCourseAttendanceCreate(
+  courseId: string,
+  session: NonNullable<Awaited<ReturnType<typeof getSessionFromRequest>>>
+) {
+  const { prisma } = await import("@/lib/db");
+  const { closeOpenAttendanceSessions } = await import("@/lib/course-attendance");
+  await closeOpenAttendanceSessions(courseId, session.userId);
+  await prisma.courseAttendance.create({
+    data: {
+      courseId,
+      studentId: session.userId,
+      studentName: session.displayName || session.name || session.userId,
+      studentAvatar: session.avatar || "",
+      enteredAt: new Date(),
+    },
+  });
 }

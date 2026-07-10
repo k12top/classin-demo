@@ -10,6 +10,7 @@ import {
   resolveCourseAccess,
 } from "@/lib/course-access";
 import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
+import { ensureStudentEnrolledInCourse } from "@/lib/course-enrollment";
 import {
   createShareAccessToken,
   recordJoinLinkUse,
@@ -119,6 +120,7 @@ export default async function JoinPage({
   const access = await resolveCourseAccess(resolved.courseId, session.userId);
   if (!access.ok) {
     if (access.code === "not_enrolled") {
+      await ensureStudentEnrolledInCourse(course.id, session);
       await recordJoinLinkUse(resolved.linkId);
       const shareAccess = createShareAccessToken({
         userId: session.userId,

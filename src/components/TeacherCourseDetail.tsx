@@ -67,6 +67,17 @@ interface CoursewareItem {
   taskStatus: string;
 }
 
+interface AttendanceRecord {
+  id: string;
+  studentId: string;
+  studentName: string;
+  studentAvatar?: string;
+  enteredAt: string;
+  leftAt: string | null;
+  durationSec: number;
+  online: boolean;
+}
+
 interface CourseJoinLinkSummary {
   id: string;
   purpose: "course" | "live";
@@ -129,6 +140,23 @@ function createClientPasscode(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+function toDateTimeLocalValue(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offsetMs = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function formatAttendanceDuration(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds]
+    .map((part) => String(part).padStart(2, "0"))
+    .join(":");
+}
+
 export default function TeacherCourseDetail({ 
   course, 
   onEnterClassroom,
@@ -149,6 +177,11 @@ export default function TeacherCourseDetail({
   const [courseNameDraft, setCourseNameDraft] = useState("");
   const [courseNameSaving, setCourseNameSaving] = useState(false);
   const [courseNameError, setCourseNameError] = useState("");
+  const [isEditingSchedule, setIsEditingSchedule] = useState(false);
+  const [scheduleStartDraft, setScheduleStartDraft] = useState("");
+  const [scheduleEndDraft, setScheduleEndDraft] = useState("");
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [scheduleError, setScheduleError] = useState("");
 
   // Teaching teachers
   const [teacherResults, setTeacherResults] = useState<UserSearchResult[]>([]);
@@ -198,6 +231,10 @@ export default function TeacherCourseDetail({
   const [cwAdding, setCwAdding] = useState(false);
   const [cwError, setCwError] = useState("");
 
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceError, setAttendanceError] = useState("");
+
   const sameTeacherId = (a: string, b: string) => {
     if (a === b) return true;
     const strip = (value: string) => (value.includes("/") ? value.split("/").pop() || value : value);
@@ -236,6 +273,15 @@ export default function TeacherCourseDetail({
       setTeacherError("");
     });
   }, [baseCourseTeachers, course.teacherId]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setScheduleStartDraft(toDateTimeLocalValue(course.startTime));
+      setScheduleEndDraft(toDateTimeLocalValue(course.endTime));
+      setScheduleError("");
+      setIsEditingSchedule(false);
+    });
+  }, [course.endTime, course.startTime]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -604,6 +650,85 @@ export default function TeacherCourseDetail({
     }
   };
 
+  const handleSaveSchedule = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!scheduleStartDraft) {
+      setScheduleError(locale === "zh-CN" ? "请选择开始时间" : "Select a start time");
+      return;
+    }
+    if (!scheduleEndDraft) {
+      setScheduleError(locale === "zh-CN" ? "请选择结束时间" : "Select an end time");
+      return;
+    }
+    const start = new Date(scheduleStartDraft);
+    const end = new Date(scheduleEndDraft);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      setScheduleError(locale === "zh-CN" ? "课程时间格式无效" : "Invalid course time");
+      return;
+    }
+    if (end <= start) {
+      setScheduleError(locale === "zh-CN" ? "结束时间必须晚于开始时间" : "End time must be after start time");
+      return;
+    }
+
+    setScheduleSaving(true);
+    setScheduleError("");
+    try {
+      const res = await fetch(`/api/courses/${course.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          startTime: start.toISOString(),
+          endTime: end.toISOString(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          data.error ||
+            (locale === "zh-CN" ? "课程时间保存失败" : "Failed to save course time")
+        );
+      }
+      setIsEditingSchedule(false);
+      await fetchCourse();
+    } catch (error) {
+      setScheduleError(
+        error instanceof Error
+          ? error.message
+          : locale === "zh-CN"
+            ? "课程时间保存失败"
+            : "Failed to save course time"
+      );
+    } finally {
+      setScheduleSaving(false);
+    }
+  };
+
+  const fetchAttendance = useCallback(async () => {
+    setAttendanceLoading(true);
+    setAttendanceError("");
+    try {
+      const res = await fetch(`/api/courses/${course.id}/attendance`, {
+        credentials: "same-origin",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || t("common.failed"));
+      }
+      setAttendance(data.attendance ?? []);
+    } catch (error) {
+      setAttendance([]);
+      setAttendanceError(error instanceof Error ? error.message : t("common.failed"));
+    } finally {
+      setAttendanceLoading(false);
+    }
+  }, [course.id, t]);
+
+  const exportAttendanceCsv = () => {
+    window.location.href = `/api/courses/${course.id}/attendance?format=csv`;
+  };
+
   const handleAddStudent = async (student: UserSearchResult) => {
     try {
       const res = await fetch(`/api/courses/${course.id}/students`, {
@@ -965,8 +1090,82 @@ export default function TeacherCourseDetail({
                     <TimeDisplay isoString={course.startTime} options={{ month: "long", day: "numeric", weekday: "long", hour: "2-digit", minute: "2-digit" }} />
                   </span>
                 </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-xl border-border/60 bg-muted/20 text-xs"
+                  onClick={() => {
+                    setScheduleStartDraft(toDateTimeLocalValue(course.startTime));
+                    setScheduleEndDraft(toDateTimeLocalValue(course.endTime));
+                    setScheduleError("");
+                    setIsEditingSchedule(true);
+                  }}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  {locale === "zh-CN" ? "修改时间" : "Edit time"}
+                </Button>
                 <CourseStatusBadge status={course.status} />
               </div>
+              {isEditingSchedule && (
+                <form
+                  onSubmit={handleSaveSchedule}
+                  className="mt-4 max-w-2xl rounded-xl border border-border/60 bg-muted/20 p-4"
+                >
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="space-y-1.5 text-xs font-semibold text-muted-foreground">
+                      <span>{t("teacherDashboard.fieldStartTime")}</span>
+                      <Input
+                        type="datetime-local"
+                        value={scheduleStartDraft}
+                        onChange={(e) => {
+                          setScheduleStartDraft(e.target.value);
+                          setScheduleError("");
+                        }}
+                        className="rounded-xl border-border/80 bg-background text-sm"
+                      />
+                    </label>
+                    <label className="space-y-1.5 text-xs font-semibold text-muted-foreground">
+                      <span>{t("teacherDashboard.fieldEndTime")}</span>
+                      <Input
+                        type="datetime-local"
+                        value={scheduleEndDraft}
+                        onChange={(e) => {
+                          setScheduleEndDraft(e.target.value);
+                          setScheduleError("");
+                        }}
+                        className="rounded-xl border-border/80 bg-background text-sm"
+                      />
+                    </label>
+                  </div>
+                  {scheduleError && (
+                    <p className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 p-2 text-xs text-red-500">
+                      {scheduleError}
+                    </p>
+                  )}
+                  <div className="mt-4 flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 rounded-xl text-xs"
+                      disabled={scheduleSaving}
+                      onClick={() => {
+                        setScheduleError("");
+                        setIsEditingSchedule(false);
+                      }}
+                    >
+                      {t("common.cancel")}
+                    </Button>
+                    <Button
+                      type="submit"
+                      className="h-9 rounded-xl bg-primary text-xs text-white hover:bg-primary/95"
+                      disabled={scheduleSaving}
+                    >
+                      {scheduleSaving ? t("common.saving") : t("common.save")}
+                    </Button>
+                  </div>
+                </form>
+              )}
             </div>
             
             <div className="flex flex-col gap-3 w-full md:w-auto shrink-0">
@@ -1024,6 +1223,13 @@ export default function TeacherCourseDetail({
           </TabsTrigger>
           <TabsTrigger value="courseware" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
             <BookOpen className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.coursewareManage")}
+          </TabsTrigger>
+          <TabsTrigger
+            value="attendance"
+            className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap"
+            onClick={() => void fetchAttendance()}
+          >
+            <Clock className="mr-2 h-4 w-4" /> {locale === "zh-CN" ? "考勤" : "Attendance"}
           </TabsTrigger>
           {isCourseOwner && (
             <TabsTrigger value="sharing" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
@@ -1389,12 +1595,35 @@ export default function TeacherCourseDetail({
                       ) : (
                         <div className="space-y-2">
                           {course.groupLinks.map((link) => (
-                            <div key={link.id} className="flex justify-between items-center p-3 rounded-xl bg-primary/5 border border-primary/10">
-                              <div className="flex items-center gap-2">
-                                <strong className="text-sm font-semibold text-primary">{link.group.name}</strong>
-                                <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-primary/10 text-primary border-primary/10">{countNestedMembers(link.group)} {t("teacherDashboard.memberCount")}</Badge>
+                            <div key={link.id} className="rounded-xl bg-primary/5 border border-primary/10 p-3">
+                              <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-2">
+                                  <strong className="text-sm font-semibold text-primary">{link.group.name}</strong>
+                                  <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-primary/10 text-primary border-primary/10">{countNestedMembers(link.group)} {t("teacherDashboard.memberCount")}</Badge>
+                                </div>
+                                <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary text-[10px]">{t("courseDetail.isLinked")}</Badge>
                               </div>
-                              <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary text-[10px]">{t("courseDetail.isLinked")}</Badge>
+                              {link.group.members?.length ? (
+                                <div className="mt-3 grid gap-2">
+                                  {link.group.members.map((member) => (
+                                    <div
+                                      key={member.userId}
+                                      className="flex items-center justify-between rounded-lg border border-primary/10 bg-background/70 px-3 py-2 text-xs"
+                                    >
+                                      <span className="font-semibold text-foreground">
+                                        {member.userName || member.userId}
+                                      </span>
+                                      <span className="max-w-[220px] truncate text-muted-foreground">
+                                        {member.userId}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="mt-3 rounded-lg border border-dashed border-primary/15 bg-background/50 p-3 text-xs text-muted-foreground">
+                                  {t("teacherDashboard.groupMemberEmpty")}
+                                </p>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -1731,6 +1960,135 @@ export default function TeacherCourseDetail({
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="attendance" className="mt-0">
+          <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
+            <CardHeader className="border-b border-border/40">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <CardTitle className="text-lg font-bold">
+                    {locale === "zh-CN" ? "课堂考勤" : "Class Attendance"}
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    {locale === "zh-CN"
+                      ? "记录学生进入课堂、离开课堂和在线时长。"
+                      : "Student join, leave, and online duration records."}
+                  </CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 rounded-xl text-xs"
+                    disabled={attendanceLoading}
+                    onClick={() => void fetchAttendance()}
+                  >
+                    {attendanceLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    {locale === "zh-CN" ? "刷新" : "Refresh"}
+                  </Button>
+                  <Button
+                    type="button"
+                    className="h-9 rounded-xl bg-primary text-xs text-white hover:bg-primary/95"
+                    onClick={exportAttendanceCsv}
+                  >
+                    <FileText className="h-4 w-4" />
+                    {locale === "zh-CN" ? "导出 CSV" : "Export CSV"}
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-6">
+              {attendanceError && (
+                <p className="mb-4 rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-500">
+                  {attendanceError}
+                </p>
+              )}
+
+              {attendance.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border/60 bg-muted/10 p-10 text-center">
+                  <Clock className="mx-auto mb-3 h-10 w-10 text-muted-foreground/40" />
+                  <p className="text-sm font-medium text-muted-foreground">
+                    {attendanceLoading
+                      ? t("common.loading")
+                      : locale === "zh-CN"
+                        ? "暂无考勤记录"
+                        : "No attendance records yet"}
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <div className="min-w-[780px] divide-y divide-border/50 rounded-xl border border-border/60">
+                    <div className="grid grid-cols-[1.4fr_1.2fr_1.2fr_0.8fr_0.7fr] gap-3 bg-muted/30 px-4 py-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      <span>{locale === "zh-CN" ? "学生" : "Student"}</span>
+                      <span>{locale === "zh-CN" ? "进入时间" : "Entered"}</span>
+                      <span>{locale === "zh-CN" ? "离开时间" : "Left"}</span>
+                      <span>{locale === "zh-CN" ? "在线时长" : "Duration"}</span>
+                      <span>{locale === "zh-CN" ? "状态" : "Status"}</span>
+                    </div>
+                    {attendance.map((record) => (
+                      <div
+                        key={record.id}
+                        className="grid grid-cols-[1.4fr_1.2fr_1.2fr_0.8fr_0.7fr] items-center gap-3 px-4 py-3 text-xs"
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Avatar className="h-7 w-7 border border-border/70">
+                            <AvatarImage src={record.studentAvatar || ""} />
+                            <AvatarFallback className="bg-primary/10 text-[10px] font-bold text-primary">
+                              {(record.studentName || record.studentId || "S").slice(0, 1).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-foreground">
+                              {record.studentName || record.studentId}
+                            </p>
+                            <p className="truncate text-[11px] text-muted-foreground">
+                              {record.studentId}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-muted-foreground">
+                          {new Date(record.enteredAt).toLocaleString(locale)}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {record.leftAt
+                            ? new Date(record.leftAt).toLocaleString(locale)
+                            : locale === "zh-CN"
+                              ? "未离开"
+                              : "Not left"}
+                        </span>
+                        <span className="font-mono font-semibold">
+                          {formatAttendanceDuration(record.durationSec)}
+                        </span>
+                        <span>
+                          <Badge
+                            variant="outline"
+                            className={
+                              record.online
+                                ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
+                                : "border-border/60 bg-muted/20 text-muted-foreground"
+                            }
+                          >
+                            {record.online
+                              ? locale === "zh-CN"
+                                ? "在线"
+                                : "Online"
+                              : locale === "zh-CN"
+                                ? "已离开"
+                                : "Left"}
+                          </Badge>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="requirements" className="mt-0">

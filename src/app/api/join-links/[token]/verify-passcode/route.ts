@@ -4,6 +4,7 @@ import {
   courseIdToRoomUuid,
   resolveCourseAccess,
 } from "@/lib/course-access";
+import { ensureStudentEnrolledInCourse } from "@/lib/course-enrollment";
 import { canEnterClassroom } from "@/lib/course-status";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
 import { userCanTeachCourse } from "@/lib/course-teacher";
@@ -128,6 +129,10 @@ export async function POST(
       { error: access.reason, code: access.code },
       { status: access.httpStatus === 404 ? 404 : 403 }
     );
+  }
+
+  if (!access.ok && access.code === "not_enrolled") {
+    await ensureStudentEnrolledInCourse(course.id, session);
   }
 
   const shareAccess = createShareAccessToken({

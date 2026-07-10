@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
+import { ensureStudentEnrolledInCourse } from "@/lib/course-enrollment";
 
 export const dynamic = "force-dynamic";
 
@@ -65,15 +66,7 @@ export async function POST(
     }
 
     if (!isDirectStudent && !isGroupStudent) {
-      // Add the student to the CourseStudent table
-      await prisma.courseStudent.create({
-        data: {
-          courseId: course.id,
-          studentId: session.userId,
-          studentName: session.displayName || session.name,
-          studentAvatar: session.avatar || "",
-        },
-      });
+      await ensureStudentEnrolledInCourse(course.id, session);
     }
 
     return NextResponse.json({ success: true });
