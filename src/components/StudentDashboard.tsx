@@ -373,15 +373,6 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
         
         {activePage === "learning" && (
           <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in duration-500">
-            {/* Elegant banner */}
-            <div className="relative rounded-2xl overflow-hidden bg-gradient-to-r from-primary to-indigo-600 p-8 text-white shadow-md">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_120%,rgba(255,255,255,0.15),transparent_60%)] pointer-events-none" />
-              <div className="relative z-10 max-w-xl">
-                <h2 className="text-3xl font-extrabold tracking-tight mb-2">{t("studentDashboard.bannerTitle")}</h2>
-                <p className="text-white/80 font-medium leading-relaxed">{t("studentDashboard.bannerDesc")}</p>
-              </div>
-            </div>
-
             {/* Breathable Join Public Course Card */}
             <Card className="border border-border/80 bg-card/60 p-6 flex flex-col sm:flex-row gap-4 items-center justify-between shadow-sm rounded-2xl">
               <div className="space-y-1 text-center sm:text-left">
