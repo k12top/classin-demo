@@ -78,9 +78,10 @@ interface AttendanceRecord {
   sessionCount: number;
   firstEnteredAt: string;
   latestEnteredAt: string;
-  lastLeftAt: string | null;
+  lastActivityAt: string | null;
   totalDurationSec: number;
   online: boolean;
+  closedByCourseEnd: boolean;
 }
 
 interface CourseJoinLinkSummary {
@@ -2078,11 +2079,11 @@ export default function TeacherCourseDetail({
                             ? locale === "zh-CN"
                               ? "在线中"
                               : "Online now"
-                            : record.lastLeftAt
-                            ? new Date(record.lastLeftAt).toLocaleString(locale)
+                            : record.lastActivityAt
+                            ? new Date(record.lastActivityAt).toLocaleString(locale)
                             : locale === "zh-CN"
-                              ? "无离开记录"
-                              : "No leave record"}
+                              ? "无活动记录"
+                              : "No activity record"}
                         </span>
                         <span className="font-mono font-semibold">
                           {formatAttendanceDuration(record.totalDurationSec)}
@@ -2100,6 +2101,10 @@ export default function TeacherCourseDetail({
                               ? locale === "zh-CN"
                                 ? "在线"
                                 : "Online"
+                              : record.closedByCourseEnd
+                                ? locale === "zh-CN"
+                                  ? "课程结束"
+                                  : "Class ended"
                               : locale === "zh-CN"
                                 ? "已离开"
                                 : "Left"}

@@ -24,9 +24,10 @@ type AttendanceSummary = {
   sessionCount: number;
   firstEnteredAt: Date;
   latestEnteredAt: Date;
-  lastLeftAt: Date | null;
+  lastActivityAt: Date | null;
   totalDurationSec: number;
   online: boolean;
+  closedByCourseEnd: boolean;
 };
 
 function csvEscape(value: string | number | null | undefined): string {
@@ -34,8 +35,28 @@ function csvEscape(value: string | number | null | undefined): string {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
-function effectiveDurationSec(row: AttendanceRow, now = new Date()): number {
-  if (row.leftAt) return row.durationSec;
+function attendanceEndTime(
+  row: AttendanceRow,
+  courseEndTime: Date | null | undefined,
+  now = new Date()
+): Date | null {
+  if (row.leftAt) return row.leftAt;
+  if (courseEndTime && courseEndTime <= now) return courseEndTime;
+  return null;
+}
+
+function effectiveDurationSec(
+  row: AttendanceRow,
+  courseEndTime: Date | null | undefined,
+  now = new Date()
+): number {
+  const endTime = attendanceEndTime(row, courseEndTime, now);
+  if (endTime) {
+    return Math.max(
+      row.durationSec,
+      Math.floor((endTime.getTime() - row.enteredAt.getTime()) / 1000)
+    );
+  }
   return Math.max(
     row.durationSec,
     Math.floor((now.getTime() - row.enteredAt.getTime()) / 1000)
@@ -53,12 +74,15 @@ function formatDuration(totalSeconds: number): string {
 
 function summarizeAttendanceRows(
   rows: AttendanceRow[],
+  courseEndTime: Date | null | undefined,
   now = new Date()
 ): AttendanceSummary[] {
   const byStudent = new Map<string, AttendanceSummary>();
 
   for (const row of rows) {
-    const durationSec = effectiveDurationSec(row, now);
+    const rowEndTime = attendanceEndTime(row, courseEndTime, now);
+    const closedByCourseEnd = row.leftAt === null && rowEndTime !== null;
+    const durationSec = effectiveDurationSec(row, courseEndTime, now);
     const existing = byStudent.get(row.studentId);
     if (!existing) {
       byStudent.set(row.studentId, {
@@ -68,16 +92,18 @@ function summarizeAttendanceRows(
         sessionCount: 1,
         firstEnteredAt: row.enteredAt,
         latestEnteredAt: row.enteredAt,
-        lastLeftAt: row.leftAt,
+        lastActivityAt: rowEndTime,
         totalDurationSec: durationSec,
-        online: row.leftAt === null,
+        online: row.leftAt === null && rowEndTime === null,
+        closedByCourseEnd,
       });
       continue;
     }
 
     existing.sessionCount += 1;
     existing.totalDurationSec += durationSec;
-    existing.online = existing.online || row.leftAt === null;
+    existing.online = existing.online || (row.leftAt === null && rowEndTime === null);
+    existing.closedByCourseEnd = existing.closedByCourseEnd || closedByCourseEnd;
     if (!existing.studentName && row.studentName) {
       existing.studentName = row.studentName;
     }
@@ -91,10 +117,10 @@ function summarizeAttendanceRows(
       existing.latestEnteredAt = row.enteredAt;
     }
     if (
-      row.leftAt &&
-      (!existing.lastLeftAt || row.leftAt > existing.lastLeftAt)
+      rowEndTime &&
+      (!existing.lastActivityAt || rowEndTime > existing.lastActivityAt)
     ) {
-      existing.lastLeftAt = row.leftAt;
+      existing.lastActivityAt = rowEndTime;
     }
   }
 
@@ -123,6 +149,7 @@ export async function GET(
       name: true,
       ownerId: true,
       teacherId: true,
+      endTime: true,
       teachers: { select: { teacherId: true } },
     },
   });
@@ -140,7 +167,7 @@ export async function GET(
   });
 
   const now = new Date();
-  const attendance = summarizeAttendanceRows(rows, now);
+  const attendance = summarizeAttendanceRows(rows, course.endTime, now);
 
   if (request.nextUrl.searchParams.get("format") === "csv") {
     const header = [
@@ -149,10 +176,11 @@ export async function GET(
       "sessionCount",
       "firstEnteredAt",
       "latestEnteredAt",
-      "lastLeftAt",
+      "lastActivityAt",
       "totalDurationSec",
       "totalDuration",
       "online",
+      "closedByCourseEnd",
     ];
     const lines = [
       header.map(csvEscape).join(","),
@@ -163,10 +191,11 @@ export async function GET(
           row.sessionCount,
           row.firstEnteredAt.toISOString(),
           row.latestEnteredAt.toISOString(),
-          row.lastLeftAt?.toISOString() ?? "",
+          row.lastActivityAt?.toISOString() ?? "",
           row.totalDurationSec,
           formatDuration(row.totalDurationSec),
           row.online ? "true" : "false",
+          row.closedByCourseEnd ? "true" : "false",
         ]
           .map(csvEscape)
           .join(",")
@@ -187,7 +216,7 @@ export async function GET(
         ...row,
         firstEnteredAt: row.firstEnteredAt.toISOString(),
         latestEnteredAt: row.latestEnteredAt.toISOString(),
-        lastLeftAt: row.lastLeftAt?.toISOString() ?? null,
+        lastActivityAt: row.lastActivityAt?.toISOString() ?? null,
       })),
     },
     {

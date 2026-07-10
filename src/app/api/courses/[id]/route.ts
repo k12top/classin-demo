@@ -11,6 +11,7 @@ import {
   CourseStatus,
   isValidCourseStatus,
 } from "@/lib/course-status";
+import { closeOpenAttendanceSessionsForCourse } from "@/lib/course-attendance";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
@@ -21,6 +22,13 @@ import {
 } from "@/lib/course-teacher";
 
 export const dynamic = "force-dynamic";
+
+function courseAttendanceCloseTime(
+  endTime: Date | null | undefined,
+  now = new Date()
+): Date {
+  return endTime && endTime <= now ? endTime : now;
+}
 
 export async function GET(
   request: NextRequest,
@@ -371,6 +379,13 @@ export async function PATCH(
       where: { id },
       data: dataToUpdate,
     });
+
+    if (dataToUpdate.status === CourseStatus.FINISHED) {
+      await closeOpenAttendanceSessionsForCourse(
+        id,
+        courseAttendanceCloseTime(course.endTime)
+      );
+    }
 
     const promoted = await promoteCourseIfDueById(id);
 

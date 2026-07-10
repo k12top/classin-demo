@@ -1,25 +1,47 @@
 import { CourseStatus, getFinishedDelayMinutes } from "@/lib/course-status";
+import { closeOpenAttendanceSessionsForCourse } from "@/lib/course-attendance";
 import { prisma } from "@/lib/db";
+
+function courseAttendanceCloseTime(
+  endTime: Date | null | undefined,
+  now = new Date()
+): Date {
+  return endTime && endTime <= now ? endTime : now;
+}
 
 /** Promote courses to finished only when their scheduled end time is due. */
 export async function promoteCoursesIfDue(
   courseIds?: string[]
 ): Promise<number> {
   const delayMinutes = getFinishedDelayMinutes();
-  const threshold = new Date(Date.now() - delayMinutes * 60 * 1000);
+  const now = new Date();
+  const threshold = new Date(now.getTime() - delayMinutes * 60 * 1000);
+  const finishWhere = {
+    status: {
+      in: [CourseStatus.SCHEDULED, CourseStatus.LIVE, CourseStatus.AFTER_CLASS],
+    },
+    endTime: { not: null, lte: threshold },
+    ...(courseIds?.length ? { id: { in: courseIds } } : {}),
+  };
+
+  const coursesToFinish = await prisma.course.findMany({
+    where: finishWhere,
+    select: { id: true, endTime: true },
+  });
 
   // Auto-close scheduled, live, or afterClass courses whose scheduled endTime + delay has passed.
   // Agora afterClass/exit time is intentionally not a fallback close time.
   const resultScheduledEnd = await prisma.course.updateMany({
-    where: {
-      status: {
-        in: [CourseStatus.SCHEDULED, CourseStatus.LIVE, CourseStatus.AFTER_CLASS],
-      },
-      endTime: { not: null, lte: threshold },
-      ...(courseIds?.length ? { id: { in: courseIds } } : {}),
-    },
+    where: finishWhere,
     data: { status: CourseStatus.FINISHED },
   });
+
+  for (const course of coursesToFinish) {
+    await closeOpenAttendanceSessionsForCourse(
+      course.id,
+      courseAttendanceCloseTime(course.endTime, now)
+    );
+  }
 
   // Auto-start scheduled courses whose startTime has passed.
   const resultScheduledStart = await prisma.course.updateMany({
