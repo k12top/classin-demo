@@ -196,6 +196,7 @@ export const ru: typeof zhCN = {
     courseClassroomStatus: "Статус класса",
     classroomStatusNotStarted: "Не начат",
     classroomStatusActive: "Идет урок",
+    classroomStatusAfterClass: "После урока",
     classroomStatusFinished: "Завершен",
     classroomStatusCancelled: "Отменен",
     classroomStatusUnknown: "Неизвестно",

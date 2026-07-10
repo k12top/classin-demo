@@ -194,6 +194,7 @@ export const zhCN = {
     courseClassroomStatus: "教室状态",
     classroomStatusNotStarted: "未开始",
     classroomStatusActive: "进行中",
+    classroomStatusAfterClass: "已下课",
     classroomStatusFinished: "已结束",
     classroomStatusCancelled: "已取消",
     classroomStatusUnknown: "未知",

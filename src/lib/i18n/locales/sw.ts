@@ -196,6 +196,7 @@ export const sw: typeof zhCN = {
     courseClassroomStatus: "Hali ya Darasa",
     classroomStatusNotStarted: "Haijaanza",
     classroomStatusActive: "Inaendelea",
+    classroomStatusAfterClass: "Baada ya darasa",
     classroomStatusFinished: "Mwisho",
     classroomStatusCancelled: "Imefutwa",
     classroomStatusUnknown: "Haijulikani",

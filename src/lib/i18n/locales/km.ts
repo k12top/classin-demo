@@ -196,6 +196,7 @@ export const km: typeof zhCN = {
     courseClassroomStatus: "ស្ថានភាពថ្នាក់រៀន",
     classroomStatusNotStarted: "មិនទាន់ចាប់ផ្តើម",
     classroomStatusActive: "កំពុងដំណើរការ",
+    classroomStatusAfterClass: "បន្ទាប់ពីថ្នាក់",
     classroomStatusFinished: "បានបញ្ចប់",
     classroomStatusCancelled: "បានបោះបង់",
     classroomStatusUnknown: "មិនស្គាល់",

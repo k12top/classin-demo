@@ -196,6 +196,7 @@ export const ja: typeof zhCN = {
     courseClassroomStatus: "教室ステータス",
     classroomStatusNotStarted: "未開始",
     classroomStatusActive: "授業中",
+    classroomStatusAfterClass: "授業後",
     classroomStatusFinished: "終了済み",
     classroomStatusCancelled: "キャンセル済み",
     classroomStatusUnknown: "未知",

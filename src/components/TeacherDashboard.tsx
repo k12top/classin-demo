@@ -13,7 +13,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar as CalendarIcon, Users, Settings, LogOut, ChevronLeft, ChevronRight, PlayCircle, Plus, Search, Trash2, Link as LinkIcon, UserPlus, Info, Clock, Globe, Key, Loader2, User, BookOpen, RefreshCw } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
-import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
+import {
+  CourseStatusSelect,
+  getCourseStatusLabel,
+} from "@/components/CourseStatusSelect";
+import { canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { SiteLogo } from "@/components/SiteLogo";
@@ -140,6 +144,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     return d;
   });
   const [enteringCourseId, setEnteringCourseId] = useState<string | null>(null);
+  const [statusUpdatingCourseId, setStatusUpdatingCourseId] = useState<string | null>(null);
   const { t, locale } = useTranslation();
 
   // Create course dialog state
@@ -281,19 +286,26 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   }, [activePage, fetchMyGroups]);
 
   const handleStatusChange = async (courseId: string, status: string) => {
-    const statusLabel = status === 'finished' ? t("teacherDashboard.statusFinished") : t("teacherDashboard.statusCancelled");
+    const statusLabel = getCourseStatusLabel(t, status);
     if (!confirm(t("teacherDashboard.confirmFinishCancel", { status: statusLabel }))) return;
+    setStatusUpdatingCourseId(courseId);
     try {
       const res = await fetch(`/api/courses/${courseId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status })
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         fetchCourses();
+      } else {
+        alert(data.error || t("common.failed"));
       }
     } catch (err) {
       console.error(err);
+      alert(t("common.failed"));
+    } finally {
+      setStatusUpdatingCourseId(null);
     }
   };
 
@@ -1021,27 +1033,13 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                               <span>{t("teacherDashboard.btnDetails")}</span>
                             </Button>
 
-                            <div className="flex items-center gap-2">
-                              {canEnterClassroom(course.status) && (
-                                <div className="flex items-center gap-1 mr-2">
-                                  <Button 
-                                    variant="outline" 
-                                    size="sm" 
-                                    className="h-8 text-xs text-emerald-600 border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 rounded-lg" 
-                                    onClick={() => handleStatusChange(course.id, CourseStatus.FINISHED)}
-                                  >
-                                    {t("teacherDashboard.btnFinish")}
-                                  </Button>
-                                  <Button 
-                                    variant="outline" 
-                                    size="sm" 
-                                    className="h-8 text-xs text-red-500 border-red-500/20 bg-red-500/5 hover:bg-red-500/10 rounded-lg" 
-                                    onClick={() => handleStatusChange(course.id, CourseStatus.CANCELLED)}
-                                  >
-                                    {t("common.cancel")}
-                                  </Button>
-                                </div>
-                              )}
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              <CourseStatusSelect
+                                value={course.status}
+                                onValueChange={(status) => handleStatusChange(course.id, status)}
+                                disabled={statusUpdatingCourseId === course.id}
+                                className="mr-1"
+                              />
 
                               <Button 
                                 disabled={enteringCourseId === course.id || (course.status === "finished" ? !course.recordUrl : !canEnterClassroom(course.status))}

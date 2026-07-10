@@ -11,7 +11,11 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
-import { canEnterClassroom, CourseStatus } from "@/lib/course-status";
+import {
+  CourseStatusSelect,
+  getCourseStatusLabel,
+} from "@/components/CourseStatusSelect";
+import { canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
 import TimeDisplay from "@/components/TimeDisplay";
 
@@ -68,13 +72,14 @@ interface CoursewareItem {
 }
 
 interface AttendanceRecord {
-  id: string;
   studentId: string;
   studentName: string;
   studentAvatar?: string;
-  enteredAt: string;
-  leftAt: string | null;
-  durationSec: number;
+  sessionCount: number;
+  firstEnteredAt: string;
+  latestEnteredAt: string;
+  lastLeftAt: string | null;
+  totalDurationSec: number;
   online: boolean;
 }
 
@@ -182,6 +187,7 @@ export default function TeacherCourseDetail({
   const [scheduleEndDraft, setScheduleEndDraft] = useState("");
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleError, setScheduleError] = useState("");
+  const [statusSaving, setStatusSaving] = useState(false);
 
   // Teaching teachers
   const [teacherResults, setTeacherResults] = useState<UserSearchResult[]>([]);
@@ -843,19 +849,26 @@ export default function TeacherCourseDetail({
   };
 
   const handleStatusChange = async (status: string) => {
-    const statusText = status === 'finished' ? t("teacherDashboard.statusFinished") : t("teacherDashboard.statusCancelled");
+    const statusText = getCourseStatusLabel(t, status);
     if (!confirm(t("teacherDashboard.confirmFinishCancel", { status: statusText }))) return;
+    setStatusSaving(true);
     try {
       const res = await fetch(`/api/courses/${course.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status })
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        fetchCourse();
+        await fetchCourse();
+      } else {
+        alert(data.error || t("common.failed"));
       }
     } catch (err) {
       console.error(err);
+      alert(t("common.failed"));
+    } finally {
+      setStatusSaving(false);
     }
   };
 
@@ -1197,16 +1210,18 @@ export default function TeacherCourseDetail({
                   <span className="flex items-center gap-2"><PlayCircle className="h-5 w-5" /> {t("teacherDashboard.btnEnterClass")}</span>
                 )}
               </Button>
-              {canEnterClassroom(course.status) && (
-                <div className="grid grid-cols-2 gap-2">
-                  <Button variant="outline" className="border-border/60 bg-muted/20 hover:bg-muted/40 text-foreground rounded-xl h-9 text-xs" onClick={() => handleStatusChange(CourseStatus.FINISHED)}>
-                    {t("courseDetail.btnFinishCourse")}
-                  </Button>
-                  <Button variant="outline" className="border-red-500/20 text-red-500 bg-red-500/5 hover:bg-red-500/10 rounded-xl h-9 text-xs" onClick={() => handleStatusChange(CourseStatus.CANCELLED)}>
-                    {t("courseDetail.btnCancelCourse")}
-                  </Button>
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                  {t("courseDetail.courseClassroomStatus")}
+                </span>
+                <CourseStatusSelect
+                  value={course.status}
+                  onValueChange={handleStatusChange}
+                  disabled={statusSaving}
+                  className="flex-1"
+                  triggerClassName="h-9 rounded-xl"
+                />
+              </div>
             </div>
           </div>
         </CardContent>
@@ -1972,8 +1987,8 @@ export default function TeacherCourseDetail({
                   </CardTitle>
                   <CardDescription className="text-xs">
                     {locale === "zh-CN"
-                      ? "记录学生进入课堂、离开课堂和在线时长。"
-                      : "Student join, leave, and online duration records."}
+                      ? "按学生汇总进入次数、首次进入、最后活动和累计在线时长。"
+                      : "Per-student totals for sessions, first entry, latest activity, and online duration."}
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
@@ -2022,18 +2037,19 @@ export default function TeacherCourseDetail({
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <div className="min-w-[780px] divide-y divide-border/50 rounded-xl border border-border/60">
-                    <div className="grid grid-cols-[1.4fr_1.2fr_1.2fr_0.8fr_0.7fr] gap-3 bg-muted/30 px-4 py-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  <div className="min-w-[880px] divide-y divide-border/50 rounded-xl border border-border/60">
+                    <div className="grid grid-cols-[1.5fr_0.7fr_1.2fr_1.2fr_0.9fr_0.7fr] gap-3 bg-muted/30 px-4 py-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
                       <span>{locale === "zh-CN" ? "学生" : "Student"}</span>
-                      <span>{locale === "zh-CN" ? "进入时间" : "Entered"}</span>
-                      <span>{locale === "zh-CN" ? "离开时间" : "Left"}</span>
-                      <span>{locale === "zh-CN" ? "在线时长" : "Duration"}</span>
+                      <span>{locale === "zh-CN" ? "进入次数" : "Sessions"}</span>
+                      <span>{locale === "zh-CN" ? "首次进入" : "First Entered"}</span>
+                      <span>{locale === "zh-CN" ? "最后活动" : "Latest Activity"}</span>
+                      <span>{locale === "zh-CN" ? "累计时长" : "Total Duration"}</span>
                       <span>{locale === "zh-CN" ? "状态" : "Status"}</span>
                     </div>
                     {attendance.map((record) => (
                       <div
-                        key={record.id}
-                        className="grid grid-cols-[1.4fr_1.2fr_1.2fr_0.8fr_0.7fr] items-center gap-3 px-4 py-3 text-xs"
+                        key={record.studentId}
+                        className="grid grid-cols-[1.5fr_0.7fr_1.2fr_1.2fr_0.9fr_0.7fr] items-center gap-3 px-4 py-3 text-xs"
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <Avatar className="h-7 w-7 border border-border/70">
@@ -2051,18 +2067,25 @@ export default function TeacherCourseDetail({
                             </p>
                           </div>
                         </div>
-                        <span className="text-muted-foreground">
-                          {new Date(record.enteredAt).toLocaleString(locale)}
+                        <span className="font-semibold text-foreground">
+                          {record.sessionCount}
                         </span>
                         <span className="text-muted-foreground">
-                          {record.leftAt
-                            ? new Date(record.leftAt).toLocaleString(locale)
+                          {new Date(record.firstEnteredAt).toLocaleString(locale)}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {record.online
+                            ? locale === "zh-CN"
+                              ? "在线中"
+                              : "Online now"
+                            : record.lastLeftAt
+                            ? new Date(record.lastLeftAt).toLocaleString(locale)
                             : locale === "zh-CN"
-                              ? "未离开"
-                              : "Not left"}
+                              ? "无离开记录"
+                              : "No leave record"}
                         </span>
                         <span className="font-mono font-semibold">
-                          {formatAttendanceDuration(record.durationSec)}
+                          {formatAttendanceDuration(record.totalDurationSec)}
                         </span>
                         <span>
                           <Badge

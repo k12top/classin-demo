@@ -196,6 +196,7 @@ export const id: typeof zhCN = {
     courseClassroomStatus: "Status Kelas",
     classroomStatusNotStarted: "Belum Mulai",
     classroomStatusActive: "Sedang Berlangsung",
+    classroomStatusAfterClass: "Setelah Kelas",
     classroomStatusFinished: "Selesai",
     classroomStatusCancelled: "Dibatalkan",
     classroomStatusUnknown: "Tidak Diketahui",

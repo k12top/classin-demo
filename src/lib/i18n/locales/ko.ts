@@ -196,6 +196,7 @@ export const ko: typeof zhCN = {
     courseClassroomStatus: "교실 상태",
     classroomStatusNotStarted: "시작 전",
     classroomStatusActive: "진행 중",
+    classroomStatusAfterClass: "수업 후",
     classroomStatusFinished: "종료됨",
     classroomStatusCancelled: "취소됨",
     classroomStatusUnknown: "알 수 없음",

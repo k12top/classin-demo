@@ -196,6 +196,7 @@ export const lo: typeof zhCN = {
     courseClassroomStatus: "ສະຖານະຫ້ອງຮຽນ",
     classroomStatusNotStarted: "ຍັງບໍ່ເລີ່ມ",
     classroomStatusActive: "ກຳລັງດຳເນີນການ",
+    classroomStatusAfterClass: "ຫຼັງຈາກຫ້ອງຮຽນ",
     classroomStatusFinished: "ຈົບແລ້ວ",
     classroomStatusCancelled: "ຍົກເລີກແລ້ວ",
     classroomStatusUnknown: "ບໍ່ຮູ້ຈັກ",

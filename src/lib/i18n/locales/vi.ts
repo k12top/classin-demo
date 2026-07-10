@@ -196,6 +196,7 @@ export const vi: typeof zhCN = {
     courseClassroomStatus: "Trạng thái lớp học",
     classroomStatusNotStarted: "Chưa bắt đầu",
     classroomStatusActive: "Đang diễn ra",
+    classroomStatusAfterClass: "Sau giờ học",
     classroomStatusFinished: "Đã kết thúc",
     classroomStatusCancelled: "Đã hủy",
     classroomStatusUnknown: "Không xác định",

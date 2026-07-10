@@ -196,6 +196,7 @@ export const ta: typeof zhCN = {
     courseClassroomStatus: "வகுப்பறை நிலை",
     classroomStatusNotStarted: "தொடங்கவில்லை",
     classroomStatusActive: "செயலில் உள்ளது",
+    classroomStatusAfterClass: "வகுப்பிற்குப் பிறகு",
     classroomStatusFinished: "முடிவடைந்தது",
     classroomStatusCancelled: "ரத்து செய்யப்பட்டது",
     classroomStatusUnknown: "தெரியவில்லை",

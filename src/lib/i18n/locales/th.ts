@@ -196,6 +196,7 @@ export const th: typeof zhCN = {
     courseClassroomStatus: "สถานะห้องเรียน",
     classroomStatusNotStarted: "ยังไม่เริ่ม",
     classroomStatusActive: "กำลังดำเนินการ",
+    classroomStatusAfterClass: "หลังเลิกเรียน",
     classroomStatusFinished: "เสร็จสิ้นแล้ว",
     classroomStatusCancelled: "ยกเลิกแล้ว",
     classroomStatusUnknown: "ไม่ระบุ",

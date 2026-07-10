@@ -10,7 +10,6 @@ import { serializeCourse } from "@/lib/course-serialize";
 import {
   CourseStatus,
   isValidCourseStatus,
-  resolveManualFinishedStatus,
 } from "@/lib/course-status";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
 import { getSessionFromRequest } from "@/lib/session";
@@ -336,36 +335,30 @@ export async function PATCH(
 
   try {
     const body = await request.json();
-    const { status, studentRemarks, force } = body;
+    const { status, studentRemarks } = body;
 
     const dataToUpdate: Record<string, unknown> = {};
 
     if (status !== undefined) {
-      if (status === CourseStatus.CANCELLED) {
+      if (typeof status !== "string" || !isValidCourseStatus(status)) {
+        return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+      }
+
+      if (isTeacher) {
         dataToUpdate.status = status;
-      } else if (isTeacher && status === CourseStatus.FINISHED) {
-        const resolved = resolveManualFinishedStatus(
-          existing.status,
-          existing.endTime,
-          force === true
-        );
-        if (!resolved) {
-          return NextResponse.json({ error: "Invalid status transition" }, { status: 400 });
-        }
-        dataToUpdate.status = resolved;
-        if (resolved === CourseStatus.AFTER_CLASS && !existing.endedAt) {
+        if (status === CourseStatus.AFTER_CLASS && !existing.endedAt) {
           dataToUpdate.endedAt = new Date();
         }
-      } else if (
-        isTeacher &&
-        (status === CourseStatus.SCHEDULED || status === CourseStatus.LIVE)
-      ) {
+        if (status === CourseStatus.SCHEDULED || status === CourseStatus.LIVE) {
+          dataToUpdate.endedAt = null;
+        }
+      } else if (status === CourseStatus.CANCELLED) {
+        dataToUpdate.status = status;
+      } else {
         return NextResponse.json(
-          { error: "scheduled/live status is synced from classroom state" },
-          { status: 400 }
+          { error: "Only teachers can correct course status" },
+          { status: 403 }
         );
-      } else if (!isValidCourseStatus(status)) {
-        return NextResponse.json({ error: "Invalid status" }, { status: 400 });
       }
     }
     

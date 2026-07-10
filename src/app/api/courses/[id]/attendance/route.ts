@@ -17,6 +17,18 @@ type AttendanceRow = {
   durationSec: number;
 };
 
+type AttendanceSummary = {
+  studentId: string;
+  studentName: string;
+  studentAvatar: string;
+  sessionCount: number;
+  firstEnteredAt: Date;
+  latestEnteredAt: Date;
+  lastLeftAt: Date | null;
+  totalDurationSec: number;
+  online: boolean;
+};
+
 function csvEscape(value: string | number | null | undefined): string {
   const text = value === null || value === undefined ? "" : String(value);
   return `"${text.replace(/"/g, '""')}"`;
@@ -37,6 +49,61 @@ function formatDuration(totalSeconds: number): string {
   return [hours, minutes, seconds]
     .map((part) => String(part).padStart(2, "0"))
     .join(":");
+}
+
+function summarizeAttendanceRows(
+  rows: AttendanceRow[],
+  now = new Date()
+): AttendanceSummary[] {
+  const byStudent = new Map<string, AttendanceSummary>();
+
+  for (const row of rows) {
+    const durationSec = effectiveDurationSec(row, now);
+    const existing = byStudent.get(row.studentId);
+    if (!existing) {
+      byStudent.set(row.studentId, {
+        studentId: row.studentId,
+        studentName: row.studentName,
+        studentAvatar: row.studentAvatar,
+        sessionCount: 1,
+        firstEnteredAt: row.enteredAt,
+        latestEnteredAt: row.enteredAt,
+        lastLeftAt: row.leftAt,
+        totalDurationSec: durationSec,
+        online: row.leftAt === null,
+      });
+      continue;
+    }
+
+    existing.sessionCount += 1;
+    existing.totalDurationSec += durationSec;
+    existing.online = existing.online || row.leftAt === null;
+    if (!existing.studentName && row.studentName) {
+      existing.studentName = row.studentName;
+    }
+    if (!existing.studentAvatar && row.studentAvatar) {
+      existing.studentAvatar = row.studentAvatar;
+    }
+    if (row.enteredAt < existing.firstEnteredAt) {
+      existing.firstEnteredAt = row.enteredAt;
+    }
+    if (row.enteredAt > existing.latestEnteredAt) {
+      existing.latestEnteredAt = row.enteredAt;
+    }
+    if (
+      row.leftAt &&
+      (!existing.lastLeftAt || row.leftAt > existing.lastLeftAt)
+    ) {
+      existing.lastLeftAt = row.leftAt;
+    }
+  }
+
+  return Array.from(byStudent.values()).sort((a, b) => {
+    if (a.online !== b.online) return a.online ? -1 : 1;
+    const nameA = a.studentName || a.studentId;
+    const nameB = b.studentName || b.studentId;
+    return nameA.localeCompare(nameB);
+  });
 }
 
 export async function GET(
@@ -72,26 +139,34 @@ export async function GET(
     orderBy: [{ enteredAt: "asc" }],
   });
 
+  const now = new Date();
+  const attendance = summarizeAttendanceRows(rows, now);
+
   if (request.nextUrl.searchParams.get("format") === "csv") {
     const header = [
       "studentId",
       "studentName",
-      "enteredAt",
-      "leftAt",
-      "durationSec",
-      "duration",
+      "sessionCount",
+      "firstEnteredAt",
+      "latestEnteredAt",
+      "lastLeftAt",
+      "totalDurationSec",
+      "totalDuration",
+      "online",
     ];
-    const now = new Date();
     const lines = [
       header.map(csvEscape).join(","),
-      ...rows.map((row) =>
+      ...attendance.map((row) =>
         [
           row.studentId,
           row.studentName,
-          row.enteredAt.toISOString(),
-          row.leftAt?.toISOString() ?? "",
-          effectiveDurationSec(row, now),
-          formatDuration(effectiveDurationSec(row, now)),
+          row.sessionCount,
+          row.firstEnteredAt.toISOString(),
+          row.latestEnteredAt.toISOString(),
+          row.lastLeftAt?.toISOString() ?? "",
+          row.totalDurationSec,
+          formatDuration(row.totalDurationSec),
+          row.online ? "true" : "false",
         ]
           .map(csvEscape)
           .join(",")
@@ -106,15 +181,13 @@ export async function GET(
     });
   }
 
-  const now = new Date();
   return NextResponse.json(
     {
-      attendance: rows.map((row) => ({
+      attendance: attendance.map((row) => ({
         ...row,
-        enteredAt: row.enteredAt.toISOString(),
-        leftAt: row.leftAt?.toISOString() ?? null,
-        durationSec: effectiveDurationSec(row, now),
-        online: row.leftAt === null,
+        firstEnteredAt: row.firstEnteredAt.toISOString(),
+        latestEnteredAt: row.latestEnteredAt.toISOString(),
+        lastLeftAt: row.lastLeftAt?.toISOString() ?? null,
       })),
     },
     {

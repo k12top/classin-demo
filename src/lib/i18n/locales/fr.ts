@@ -196,6 +196,7 @@ export const fr: typeof zhCN = {
     courseClassroomStatus: "Statut de la classe",
     classroomStatusNotStarted: "Non commencée",
     classroomStatusActive: "En cours",
+    classroomStatusAfterClass: "Après le cours",
     classroomStatusFinished: "Terminée",
     classroomStatusCancelled: "Annulée",
     classroomStatusUnknown: "Inconnu",

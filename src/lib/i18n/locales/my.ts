@@ -196,6 +196,7 @@ export const my: typeof zhCN = {
     courseClassroomStatus: "စာသင်ခန်းအခြေအနေ",
     classroomStatusNotStarted: "မစတင်ရသေးပါ",
     classroomStatusActive: "လုပ်ဆောင်နေသည်",
+    classroomStatusAfterClass: "အတန်းပြီးနောက်",
     classroomStatusFinished: "ပြီးဆုံးပြီ",
     classroomStatusCancelled: "ပယ်ဖျက်ပြီး",
     classroomStatusUnknown: "မသိရှိရပါ",

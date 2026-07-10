@@ -196,6 +196,7 @@ export const fil: typeof zhCN = {
     courseClassroomStatus: "Status ng Classroom",
     classroomStatusNotStarted: "Hindi pa Nagsisimula",
     classroomStatusActive: "Kasalukuyang Nagaganap",
+    classroomStatusAfterClass: "Pagkatapos ng Klase",
     classroomStatusFinished: "Tapos na",
     classroomStatusCancelled: "Kanselado",
     classroomStatusUnknown: "Hindi Alam",
