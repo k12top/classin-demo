@@ -24,6 +24,7 @@ import { SiteLogo } from "@/components/SiteLogo";
 import ThemeToggle from "@/components/ThemeToggle";
 import { CourseTimeRangeDisplay } from "@/components/TimeDisplay";
 import { CourseTeacherAvatarGroup, type CourseTeacherAvatarItem } from "@/components/CourseTeacherAvatarGroup";
+import { getPlaybackTarget } from "@/lib/playback-url";
 
 interface Course {
   id: string;
@@ -1050,7 +1051,12 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                 }`}
                                 onClick={() => {
                                   if (course.status === "finished") {
-                                    if (course.recordUrl) window.open(course.recordUrl, "_blank");
+                                    const target = getPlaybackTarget(course.id, course.recordUrl);
+                                    if (target?.kind === "internal") {
+                                      router.push(target.href);
+                                    } else if (target) {
+                                      window.open(target.href, "_blank", "noopener,noreferrer");
+                                    }
                                   } else {
                                     void handleEnterClassroomFromList(course);
                                   }
