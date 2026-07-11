@@ -68,6 +68,18 @@ export const ms: typeof zhCN = {
     expired: "Pautan kongsi telah tamat tempoh",
     courseNotExist: "Kelas tidak wujud",
   },
+  playback: {
+    loading: "Memuatkan rakaman...",
+    backToCourse: "Kembali ke kursus",
+    title: "Rakaman kursus",
+    playableOnly: "Pautan rakaman ini bukan video MP4 atau M3U8, jadi ia tidak boleh dimainkan di halaman ini.",
+    notFinished: "Rakaman boleh ditonton selepas kursus tamat.",
+    noUrl: "Video rakaman belum ditetapkan untuk kursus ini.",
+    loadFailed: "Gagal memuatkan rakaman.",
+    hlsUnsupported: "Pelayar ini tidak menyokong main balik HLS/M3U8. Cuba pelayar lain.",
+    browserHint: "Jika video tidak dimainkan, pastikan pautan boleh diakses dan pelayan menyokong main balik dalam pelayar.",
+    teacher: "Guru pengajar",
+  },
   studentDashboard: {
     learningCenter: "Pusat Pembelajaran",
     settings: "Tetapan Peribadi",

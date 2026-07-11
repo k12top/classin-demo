@@ -20,6 +20,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import TimeDisplay, { CourseTimeRangeDisplay } from "@/components/TimeDisplay";
 import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
 import { CourseTeacherAvatarGroup, type CourseTeacherAvatarItem } from "@/components/CourseTeacherAvatarGroup";
+import { getPlaybackTarget } from "@/lib/playback-url";
 
 interface Course {
   id: string;
@@ -520,13 +521,18 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                               <Button 
                                 disabled={isEntering || (course.status === "finished" ? !course.recordUrl : !joinable)}
                                 className={`rounded-xl px-5 py-2.5 font-medium shadow-sm text-sm active:scale-[0.98] transition-all flex items-center gap-1.5 ${
-                                  course.status === "finished"
+                                  course.status === "finished" && !course.recordUrl
                                     ? "bg-muted text-foreground border border-border/80 hover:bg-muted/80"
                                     : "bg-primary hover:bg-primary/95 text-white"
                                 }`}
                                 onClick={() => {
                                   if (course.status === "finished") {
-                                    if (course.recordUrl) window.open(course.recordUrl, "_blank");
+                                    const target = getPlaybackTarget(course.id, course.recordUrl);
+                                    if (target?.kind === "internal") {
+                                      router.push(target.href);
+                                    } else if (target) {
+                                      window.open(target.href, "_blank", "noopener,noreferrer");
+                                    }
                                   } else {
                                     handleEnterClassroomDirect(course);
                                   }
@@ -687,7 +693,12 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                       const course = selectedDetailCourse;
                       setSelectedDetailCourse(null);
                       if (course.status === "finished") {
-                        if (course.recordUrl) window.open(course.recordUrl, "_blank");
+                        const target = getPlaybackTarget(course.id, course.recordUrl);
+                        if (target?.kind === "internal") {
+                          router.push(target.href);
+                        } else if (target) {
+                          window.open(target.href, "_blank", "noopener,noreferrer");
+                        }
                       } else {
                         handleEnterClassroomDirect(course);
                       }

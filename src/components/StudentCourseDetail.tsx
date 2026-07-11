@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +11,7 @@ import { PlayCircle, Clock, User, BookOpen, MessageSquare, FileText, Loader2 } f
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
+import { getPlaybackTarget } from "@/lib/playback-url";
 import TimeDisplay from "@/components/TimeDisplay";
 
 const ROOM_TYPE_KEYS: Record<number, string> = {
@@ -19,23 +21,51 @@ const ROOM_TYPE_KEYS: Record<number, string> = {
   10: "common.roomTypePublic",
 };
 
+interface StudentCourse {
+  id: string;
+  name: string;
+  description: string;
+  roomType: number;
+  teacherName: string;
+  status: string;
+  startTime: string | null;
+  recordUrl?: string | null;
+  studentRemarks: string;
+}
+
+interface StudentCourseUser {
+  userId: string;
+  name?: string;
+  displayName?: string;
+}
+
+interface CoursewareItem {
+  id: string;
+  name: string;
+  ext: string;
+  url: string;
+  size?: number;
+  taskStatus?: string;
+}
+
 export default function StudentCourseDetail({ 
   course, 
   onEnterClassroom,
   enterLoading,
   fetchCourse
 }: { 
-  course: any; 
-  user: any; 
+  course: StudentCourse;
+  user: StudentCourseUser | null;
   onEnterClassroom: () => void;
   enterLoading: boolean;
-  fetchCourse: () => void;
+  fetchCourse: () => void | Promise<void>;
 }) {
+  const router = useRouter();
   const [remarksValue, setRemarksValue] = useState(course.studentRemarks || "");
   const [savingRemarks, setSavingRemarks] = useState(false);
   const { t } = useTranslation();
 
-  const [courseware, setCourseware] = useState<any[]>([]);
+  const [courseware, setCourseware] = useState<CoursewareItem[]>([]);
 
   const fetchCourseware = useCallback(async () => {
     try {
@@ -50,7 +80,9 @@ export default function StudentCourseDetail({
   }, [course.id]);
 
   useEffect(() => {
-    fetchCourseware();
+    queueMicrotask(() => {
+      void fetchCourseware();
+    });
   }, [fetchCourseware]);
 
   const handleSaveRemarks = async () => {
@@ -114,8 +146,11 @@ export default function StudentCourseDetail({
                 className="w-full md:w-auto bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all"
                 onClick={() => {
                   if (course.status === "finished") {
-                    if (course.recordUrl) {
-                      window.open(course.recordUrl, "_blank");
+                    const target = getPlaybackTarget(course.id, course.recordUrl);
+                    if (target?.kind === "internal") {
+                      router.push(target.href);
+                    } else if (target) {
+                      window.open(target.href, "_blank", "noopener,noreferrer");
                     }
                   } else {
                     onEnterClassroom();

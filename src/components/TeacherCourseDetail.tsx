@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -17,6 +18,7 @@ import {
 } from "@/components/CourseStatusSelect";
 import { canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
+import { getPlaybackTarget } from "@/lib/playback-url";
 import TimeDisplay from "@/components/TimeDisplay";
 
 const ROOM_TYPE_KEYS: Record<number, string> = {
@@ -175,6 +177,7 @@ export default function TeacherCourseDetail({
   enterLoading: boolean;
   fetchCourse: () => void | Promise<void>;
 }) {
+  const router = useRouter();
   const { t, locale } = useTranslation();
   const isCourseOwner = Boolean(course.isCourseOwner);
   const defaultJoinLinkPasscode =
@@ -1188,8 +1191,11 @@ export default function TeacherCourseDetail({
                 className="w-full bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all"
                 onClick={() => {
                   if (course.status === "finished") {
-                    if (course.recordUrl) {
-                      window.open(course.recordUrl, "_blank");
+                    const target = getPlaybackTarget(course.id, course.recordUrl);
+                    if (target?.kind === "internal") {
+                      router.push(target.href);
+                    } else if (target) {
+                      window.open(target.href, "_blank", "noopener,noreferrer");
                     }
                   } else {
                     onEnterClassroom();

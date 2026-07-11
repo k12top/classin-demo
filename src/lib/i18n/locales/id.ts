@@ -68,6 +68,18 @@ export const id: typeof zhCN = {
     expired: "Tautan bagikan telah kedaluwarsa",
     courseNotExist: "Kelas tidak ada",
   },
+  playback: {
+    loading: "Memuat rekaman...",
+    backToCourse: "Kembali ke kelas",
+    title: "Rekaman kelas",
+    playableOnly: "Tautan rekaman ini bukan video MP4 atau M3U8, sehingga tidak dapat diputar di halaman ini.",
+    notFinished: "Rekaman dapat ditonton setelah kelas selesai.",
+    noUrl: "Video rekaman belum diatur untuk kelas ini.",
+    loadFailed: "Gagal memuat rekaman.",
+    hlsUnsupported: "Browser ini tidak mendukung pemutaran HLS/M3U8. Coba gunakan browser lain.",
+    browserHint: "Jika video tidak dapat diputar, pastikan tautan dapat diakses dan server mendukung pemutaran di browser.",
+    teacher: "Guru pengajar",
+  },
   studentDashboard: {
     learningCenter: "Pusat Pembelajaran",
     settings: "Pengaturan Pribadi",

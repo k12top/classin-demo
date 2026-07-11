@@ -68,6 +68,18 @@ export const vi: typeof zhCN = {
     expired: "Liên kết chia sẻ đã hết hạn",
     courseNotExist: "Khóa học không tồn tại",
   },
+  playback: {
+    loading: "Đang tải video phát lại...",
+    backToCourse: "Quay lại khóa học",
+    title: "Video phát lại khóa học",
+    playableOnly: "Liên kết phát lại hiện tại không phải video MP4 hoặc M3U8 nên không thể phát trên trang này.",
+    notFinished: "Bạn có thể xem phát lại sau khi khóa học kết thúc.",
+    noUrl: "Khóa học này chưa được thiết lập video phát lại.",
+    loadFailed: "Tải video phát lại thất bại.",
+    hlsUnsupported: "Trình duyệt hiện tại không hỗ trợ phát HLS/M3U8. Vui lòng thử trình duyệt khác.",
+    browserHint: "Nếu video không phát được, hãy kiểm tra liên kết có thể truy cập và máy chủ hỗ trợ phát trên trình duyệt.",
+    teacher: "Giáo viên giảng dạy",
+  },
   studentDashboard: {
     learningCenter: "Trung tâm học tập",
     settings: "Cài đặt cá nhân",

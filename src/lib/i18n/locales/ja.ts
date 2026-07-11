@@ -68,6 +68,18 @@ export const ja: typeof zhCN = {
     expired: "共有リンクは期限切れです",
     courseNotExist: "授業が存在しません",
   },
+  playback: {
+    loading: "録画を読み込み中...",
+    backToCourse: "授業に戻る",
+    title: "授業録画",
+    playableOnly: "この録画リンクは MP4 または M3U8 動画ではないため、このページでは再生できません。",
+    notFinished: "授業終了後に録画を視聴できます。",
+    noUrl: "この授業にはまだ録画動画が設定されていません。",
+    loadFailed: "録画の読み込みに失敗しました。",
+    hlsUnsupported: "現在のブラウザは HLS/M3U8 再生に対応していません。別のブラウザをお試しください。",
+    browserHint: "動画が再生されない場合は、リンクにアクセスでき、サーバーがブラウザ再生に対応しているか確認してください。",
+    teacher: "担当教師",
+  },
   studentDashboard: {
     learningCenter: "学習センター",
     settings: "設定",

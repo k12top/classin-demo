@@ -68,6 +68,18 @@ export const ko: typeof zhCN = {
     expired: "공유 링크가 만료되었습니다",
     courseNotExist: "코스가 존재하지 않습니다",
   },
+  playback: {
+    loading: "다시보기를 불러오는 중...",
+    backToCourse: "코스로 돌아가기",
+    title: "코스 다시보기",
+    playableOnly: "현재 다시보기 링크는 MP4 또는 M3U8 동영상이 아니므로 이 페이지에서 재생할 수 없습니다.",
+    notFinished: "코스가 종료된 후 다시보기를 시청할 수 있습니다.",
+    noUrl: "이 코스에는 아직 다시보기 영상이 설정되지 않았습니다.",
+    loadFailed: "다시보기를 불러오지 못했습니다.",
+    hlsUnsupported: "현재 브라우저는 HLS/M3U8 재생을 지원하지 않습니다. 다른 브라우저를 사용해 주세요.",
+    browserHint: "영상이 재생되지 않으면 링크에 접근 가능하고 서버가 브라우저 재생을 지원하는지 확인해 주세요.",
+    teacher: "담당 교사",
+  },
   studentDashboard: {
     learningCenter: "학습 센터",
     settings: "개인 설정",

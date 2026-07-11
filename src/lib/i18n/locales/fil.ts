@@ -68,6 +68,18 @@ export const fil: typeof zhCN = {
     expired: "Ang link ng pagbabahagi ay lipas na sa panahon",
     courseNotExist: "Hindi umiiral ang kurso",
   },
+  playback: {
+    loading: "Nilo-load ang playback...",
+    backToCourse: "Bumalik sa kurso",
+    title: "Playback ng kurso",
+    playableOnly: "Ang playback link na ito ay hindi MP4 o M3U8 video kaya hindi ito maaaring i-play sa pahinang ito.",
+    notFinished: "Mapapanood ang playback pagkatapos matapos ang kurso.",
+    noUrl: "Wala pang naka-set na playback video para sa kursong ito.",
+    loadFailed: "Nabigong i-load ang playback.",
+    hlsUnsupported: "Hindi sinusuportahan ng browser na ito ang HLS/M3U8 playback. Subukan ang ibang browser.",
+    browserHint: "Kung hindi nagpe-play ang video, tiyaking maa-access ang link at sinusuportahan ng server ang browser playback.",
+    teacher: "Guro",
+  },
   studentDashboard: {
     learningCenter: "Sentro ng Pag-aaral",
     settings: "Personal na Settings",

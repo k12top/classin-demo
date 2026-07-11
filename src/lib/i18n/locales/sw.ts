@@ -68,6 +68,18 @@ export const sw: typeof zhCN = {
     expired: "Kiungo cha kushiriki kimeisha muda wake",
     courseNotExist: "Kozi haipo",
   },
+  playback: {
+    loading: "Inapakia video ya marudio...",
+    backToCourse: "Rudi kwenye kozi",
+    title: "Video ya marudio ya kozi",
+    playableOnly: "Kiungo hiki cha marudio si video ya MP4 au M3U8, kwa hivyo hakiwezi kuchezwa kwenye ukurasa huu.",
+    notFinished: "Video ya marudio inapatikana baada ya kozi kumalizika.",
+    noUrl: "Hakuna video ya marudio iliyowekwa kwa kozi hii.",
+    loadFailed: "Imeshindwa kupakia video ya marudio.",
+    hlsUnsupported: "Kivinjari hiki hakiungi mkono uchezaji wa HLS/M3U8. Jaribu kivinjari kingine.",
+    browserHint: "Ikiwa video haichezi, hakikisha kiungo kinafikika na seva inaunga mkono uchezaji kwenye kivinjari.",
+    teacher: "Mwalimu anayefundisha",
+  },
   studentDashboard: {
     learningCenter: "Kituo cha Kujifunzia",
     settings: "Mipangilio ya Kibinafsi",
