@@ -26,9 +26,9 @@ export function getFinishedDelayMinutes(): number {
 
 export function getEarlyClassroomEntryMinutes(): number {
   const raw = process.env.COURSE_EARLY_ENTRY_MINUTES;
-  if (raw === undefined || raw === "") return 20;
+  if (raw === undefined || raw === "") return 60;
   const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n >= 0 ? n : 20;
+  return Number.isFinite(n) && n >= 0 ? n : 60;
 }
 
 export function isValidCourseStatus(value: string): value is CourseStatusValue {
