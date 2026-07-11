@@ -48,7 +48,7 @@ const LOCALIZED_DENIED_TEXT: Record<string, Record<string, string>> = {
     courseFinishedDesc: "本节课已结束，无法进入课堂",
     courseFinishedHint: "如需复习或回放，请稍后在「已结束」列表中查看。",
     notStartedTitle: "课程还未开启",
-    notStartedDesc: "课程还未开启，可以在课前20分钟进入",
+    notStartedDesc: "课程还未开启，可以在课前1小时进入",
     notStartedHint: "请稍后再进入课堂。",
     courseCancelledTitle: "课程已取消",
     courseCancelledDesc: "本节课已取消",
@@ -71,7 +71,7 @@ const LOCALIZED_DENIED_TEXT: Record<string, Record<string, string>> = {
     courseFinishedDesc: "This class has finished, unable to enter",
     courseFinishedHint: "If you need to review, please check under 'Finished' tab later.",
     notStartedTitle: "Course Not Open Yet",
-    notStartedDesc: "This course is not open yet. You can enter 20 minutes before class.",
+    notStartedDesc: "This course is not open yet. You can enter 1 hour before class.",
     notStartedHint: "Please come back closer to the scheduled start time.",
     courseCancelledTitle: "Course Cancelled",
     courseCancelledDesc: "This class has been cancelled",
@@ -421,7 +421,7 @@ export function AccessDeniedView({
     tone = "amber";
     title = texts.notStartedTitle || "课程还未开启";
     description =
-      reason || texts.notStartedDesc || "课程还未开启，可以在课前20分钟进入";
+      reason || texts.notStartedDesc || "课程还未开启，可以在课前1小时进入";
     hint = texts.notStartedHint || "请稍后再进入课堂。";
   } else if (resolvedCode === "course_finished") {
     icon = "clock";

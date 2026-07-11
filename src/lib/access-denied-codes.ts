@@ -30,7 +30,7 @@ export function accessDeniedContentForCode(
     case "course_not_started":
       return {
         title: "课程还未开启",
-        description: reason || "课程还未开启，可以在课前20分钟进入",
+        description: reason || "课程还未开启，可以在课前1小时进入",
         hint: "请稍后再进入课堂。",
         icon: "clock",
         tone: "amber",
