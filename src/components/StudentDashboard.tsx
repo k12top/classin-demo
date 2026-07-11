@@ -521,7 +521,7 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                               <Button 
                                 disabled={isEntering || (course.status === "finished" ? !course.recordUrl : !joinable)}
                                 className={`rounded-xl px-5 py-2.5 font-medium shadow-sm text-sm active:scale-[0.98] transition-all flex items-center gap-1.5 ${
-                                  course.status === "finished"
+                                  course.status === "finished" && !course.recordUrl
                                     ? "bg-muted text-foreground border border-border/80 hover:bg-muted/80"
                                     : "bg-primary hover:bg-primary/95 text-white"
                                 }`}
