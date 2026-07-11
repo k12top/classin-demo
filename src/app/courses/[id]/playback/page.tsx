@@ -3,12 +3,11 @@
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Hls from "hls.js";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ChevronLeft, ExternalLink, Loader2, PlayCircle } from "lucide-react";
+import { AlertTriangle, ChevronLeft, Loader2, PlayCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageLoadingState } from "@/components/ui/page-loading-state";
-import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { useAuth } from "@/lib/auth-context";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
@@ -46,8 +45,7 @@ export default function CoursePlaybackPage({
       notFinished: zh ? "课程结束后才能观看回放。" : "Playback is available after the course has finished.",
       noUrl: zh ? "这节课还没有设置回放视频。" : "No playback video has been set for this course.",
       loadFailed: zh ? "回放加载失败。" : "Failed to load playback.",
-      hlsUnsupported: zh ? "当前浏览器不支持 HLS/M3U8 播放，请打开原链接或更换浏览器。" : "This browser cannot play HLS/M3U8 here. Open the original link or try another browser.",
-      openOriginal: zh ? "打开原链接" : "Open original link",
+      hlsUnsupported: zh ? "当前浏览器不支持 HLS/M3U8 播放，请更换浏览器。" : "This browser cannot play HLS/M3U8 here. Try another browser.",
       browserHint: zh ? "如果视频无法播放，请确认链接可公开访问且服务器支持浏览器播放。" : "If the video does not play, check that the link is accessible and browser playback is supported.",
       teacher: zh ? "授课老师" : "Teacher",
     };
@@ -130,31 +128,17 @@ export default function CoursePlaybackPage({
       <main className="mx-auto max-w-6xl px-6 py-8">
         <Card className="overflow-hidden border border-border/70 bg-card shadow-sm">
           <CardContent className="p-0">
-            <div className="flex flex-col gap-3 border-b border-border/60 p-5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <div className="mb-2 flex flex-wrap items-center gap-2">
-                  {course?.status && <CourseStatusBadge status={course.status} />}
-                  {course?.teacherName && (
-                    <Badge variant="outline" className="text-xs">
-                      {copy.teacher}: {course.teacherName}
-                    </Badge>
-                  )}
-                </div>
-                <h1 className="truncate text-xl font-bold text-foreground">
-                  {course?.name || copy.title}
-                </h1>
+            <div className="flex items-center justify-between gap-4 border-b border-border/60 p-5">
+              <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-foreground">
+                {course?.name || copy.title}
+              </h1>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                {course?.teacherName && (
+                  <Badge variant="outline" className="text-xs">
+                    {copy.teacher}: {course.teacherName}
+                  </Badge>
+                )}
               </div>
-              {recordUrl && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 rounded-lg"
-                  onClick={() => window.open(recordUrl, "_blank", "noopener,noreferrer")}
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  {copy.openOriginal}
-                </Button>
-              )}
             </div>
 
             {canPlayInApp ? (
