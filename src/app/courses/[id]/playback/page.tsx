@@ -3,11 +3,12 @@
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Hls from "hls.js";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ChevronLeft, Loader2, PlayCircle } from "lucide-react";
+import { AlertTriangle, ChevronLeft, Loader2, PlayCircle, User, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageLoadingState } from "@/components/ui/page-loading-state";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useAuth } from "@/lib/auth-context";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
@@ -19,6 +20,7 @@ interface PlaybackCourse {
   name: string;
   teacherName: string;
   status: string;
+  canTeach?: boolean;
   recordUrl?: string | null;
 }
 
@@ -30,26 +32,25 @@ export default function CoursePlaybackPage({
   const { id } = use(params);
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { locale } = useTranslation();
+  const { t } = useTranslation();
   const [course, setCourse] = useState<PlaybackCourse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const copy = useMemo(() => {
-    const zh = locale === "zh-CN";
     return {
-      loading: zh ? "正在加载回放..." : "Loading playback...",
-      back: zh ? "返回课程" : "Back to course",
-      title: zh ? "课程回放" : "Course playback",
-      playableOnly: zh ? "当前回放链接不是 MP4 或 M3U8 视频，无法在此页播放。" : "This playback link is not an MP4 or M3U8 video and cannot be played here.",
-      notFinished: zh ? "课程结束后才能观看回放。" : "Playback is available after the course has finished.",
-      noUrl: zh ? "这节课还没有设置回放视频。" : "No playback video has been set for this course.",
-      loadFailed: zh ? "回放加载失败。" : "Failed to load playback.",
-      hlsUnsupported: zh ? "当前浏览器不支持 HLS/M3U8 播放，请更换浏览器。" : "This browser cannot play HLS/M3U8 here. Try another browser.",
-      browserHint: zh ? "如果视频无法播放，请确认链接可公开访问且服务器支持浏览器播放。" : "If the video does not play, check that the link is accessible and browser playback is supported.",
-      teacher: zh ? "授课老师" : "Teacher",
+      loading: t("playback.loading"),
+      back: t("playback.backToCourse"),
+      title: t("playback.title"),
+      playableOnly: t("playback.playableOnly"),
+      notFinished: t("playback.notFinished"),
+      noUrl: t("playback.noUrl"),
+      loadFailed: t("playback.loadFailed"),
+      hlsUnsupported: t("playback.hlsUnsupported"),
+      browserHint: t("playback.browserHint"),
+      teacher: t("playback.teacher"),
     };
-  }, [locale]);
+  }, [t]);
 
   const fetchCourse = useCallback(async () => {
     setLoading(true);
@@ -91,6 +92,7 @@ export default function CoursePlaybackPage({
   const canPlayMp4 = course?.status === "finished" && isMp4PlaybackUrl(recordUrl);
   const canPlayHls = course?.status === "finished" && isHlsPlaybackUrl(recordUrl);
   const canPlayInApp = canPlayMp4 || canPlayHls;
+  const isTeacher = Boolean(course?.canTeach);
 
   if (authLoading || loading) {
     return <PageLoadingState message={copy.loading} variant="course" />;
@@ -119,9 +121,23 @@ export default function CoursePlaybackPage({
             <ChevronLeft className="h-4 w-4" />
             {copy.back}
           </Button>
-          <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/15">
-            {copy.title}
-          </Badge>
+          <div className="flex items-center gap-3">
+            <LanguageSwitcher />
+            <Badge
+              variant="secondary"
+              className={`flex items-center gap-1.5 px-3 py-1 ${
+                isTeacher
+                  ? "bg-primary/10 text-primary border-primary/20"
+                  : "bg-muted text-muted-foreground border-border"
+              }`}
+            >
+              {isTeacher ? <User className="h-3 w-3" /> : <Users className="h-3 w-3" />}
+              {isTeacher ? t("common.roleTeacher") : t("common.roleStudent")}
+            </Badge>
+            <span className="text-sm font-medium text-foreground">
+              {user?.displayName || user?.name}
+            </span>
+          </div>
         </div>
       </div>
 

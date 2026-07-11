@@ -68,6 +68,18 @@ export const en: typeof zhCN = {
     expired: "Share link has expired",
     courseNotExist: "Course does not exist",
   },
+  playback: {
+    loading: "Loading playback...",
+    backToCourse: "Back to course",
+    title: "Course playback",
+    playableOnly: "This playback link is not an MP4 or M3U8 video and cannot be played here.",
+    notFinished: "Playback is available after the course has finished.",
+    noUrl: "No playback video has been set for this course.",
+    loadFailed: "Failed to load playback.",
+    hlsUnsupported: "This browser cannot play HLS/M3U8 here. Try another browser.",
+    browserHint: "If the video does not play, check that the link is accessible and browser playback is supported.",
+    teacher: "Teacher",
+  },
   studentDashboard: {
     learningCenter: "Learning Center",
     settings: "Settings",

@@ -68,6 +68,18 @@ export const fr: typeof zhCN = {
     expired: "Ce lien de partage a expiré",
     courseNotExist: "Le cours n'existe pas",
   },
+  playback: {
+    loading: "Chargement du replay...",
+    backToCourse: "Retour au cours",
+    title: "Replay du cours",
+    playableOnly: "Ce lien de replay n'est pas une vidéo MP4 ou M3U8 et ne peut pas être lu sur cette page.",
+    notFinished: "Le replay sera disponible après la fin du cours.",
+    noUrl: "Aucune vidéo de replay n'a encore été configurée pour ce cours.",
+    loadFailed: "Échec du chargement du replay.",
+    hlsUnsupported: "Ce navigateur ne prend pas en charge la lecture HLS/M3U8. Essayez un autre navigateur.",
+    browserHint: "Si la vidéo ne se lance pas, vérifiez que le lien est accessible et que le serveur prend en charge la lecture dans le navigateur.",
+    teacher: "Enseignant",
+  },
   studentDashboard: {
     learningCenter: "Espace d'apprentissage",
     settings: "Paramètres",

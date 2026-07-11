@@ -66,6 +66,18 @@ export const zhCN = {
     expired: "分享链接已过期",
     courseNotExist: "课程不存在",
   },
+  playback: {
+    loading: "正在加载回放...",
+    backToCourse: "返回课程",
+    title: "课程回放",
+    playableOnly: "当前回放链接不是 MP4 或 M3U8 视频，无法在此页播放。",
+    notFinished: "课程结束后才能观看回放。",
+    noUrl: "这节课还没有设置回放视频。",
+    loadFailed: "回放加载失败。",
+    hlsUnsupported: "当前浏览器不支持 HLS/M3U8 播放，请更换浏览器。",
+    browserHint: "如果视频无法播放，请确认链接可公开访问且服务器支持浏览器播放。",
+    teacher: "授课老师",
+  },
   studentDashboard: {
     learningCenter: "学习中心",
     settings: "个人设置",
