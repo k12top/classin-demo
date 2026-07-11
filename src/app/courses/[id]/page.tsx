@@ -50,22 +50,26 @@ interface CourseDetail {
 
 export default function CourseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { t } = useTranslation();
   const router = useRouter();
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [redirecting, setRedirecting] = useState(false);
   const [enterLoading, setEnterLoading] = useState(false);
   const [error, setError] = useState("");
 
   const fetchCourse = useCallback(async () => {
+    let keepLoadingForRedirect = false;
     try {
       let res = await fetch(`/api/courses/${id}`, { credentials: "same-origin" });
       if (res.status === 401 && (await tryOAuthRefresh())) {
         res = await fetch(`/api/courses/${id}`, { credentials: "same-origin" });
       }
       if (res.status === 401) {
-        redirectToSsoLogin();
+        keepLoadingForRedirect = true;
+        setRedirecting(true);
+        redirectToSsoLogin(`/courses/${id}`);
         return;
       }
       if (res.ok) {
@@ -77,17 +81,27 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
     } catch {
       setError("load_failed");
     } finally {
-      setLoading(false);
+      if (!keepLoadingForRedirect) {
+        setLoading(false);
+      }
     }
   }, [id]);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      queueMicrotask(() => {
+        redirectToSsoLogin(`/courses/${id}`);
+      });
+      return;
+    }
     queueMicrotask(() => {
       void fetchCourse();
     });
-  }, [fetchCourse]);
+  }, [authLoading, fetchCourse, id, user]);
 
   const isTeacher = Boolean(user && course?.canTeach);
+  const redirectingToLogin = redirecting || (!authLoading && !user);
 
   const handleEnterClassroom = async () => {
     if (!course || !user) return;
@@ -129,8 +143,13 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
     }
   };
 
-  if (loading) {
-    return <PageLoadingState message={t("common.loading")} variant="course" />;
+  if (authLoading || loading || redirectingToLogin) {
+    return (
+      <PageLoadingState
+        message={redirectingToLogin ? t("login.redirecting") : t("common.loading")}
+        variant="course"
+      />
+    );
   }
 
   if (error || !course) {
