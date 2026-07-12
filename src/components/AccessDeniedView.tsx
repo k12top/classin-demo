@@ -12,7 +12,17 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Clock, Home, Lock, Search, XCircle } from "lucide-react";
+import {
+  ArrowRight,
+  CalendarCheck,
+  Check,
+  Clock,
+  Home,
+  Lock,
+  Search,
+  ShieldCheck,
+  XCircle,
+} from "lucide-react";
 import { SiteLogo } from "@/components/SiteLogo";
 import { useTranslation } from "@/lib/i18n/context";
 
@@ -379,6 +389,126 @@ function IconForType({ type }: { type: "lock" | "clock" | "x-circle" | "search" 
   }
 }
 
+function CourseNotStartedView({
+  courseName,
+  courseId,
+  locale,
+}: {
+  courseName?: string;
+  courseId?: string;
+  locale: string;
+}) {
+  const isZh = locale === "zh-CN";
+  const copy = isZh
+    ? {
+        confirmed: "预约成功",
+        title: "课程已为你保留",
+        description: "现在还没到入场时间。开课前 1 小时，课堂入口会自动开放。",
+        status: "已预约",
+        next: "接下来",
+        nextText: "临近上课时，从课程列表或原分享链接再次进入即可。",
+        secure: "你的课程名额与访问权限已确认，无需重复预约。",
+        detail: "查看课程详情",
+        list: "返回我的课程",
+        tip: "建议提前 5–10 分钟进入，检查摄像头、麦克风和网络。",
+      }
+    : {
+        confirmed: "Booking confirmed",
+        title: "Your place is reserved",
+        description: "It is a little early to enter. The classroom opens one hour before the scheduled start.",
+        status: "Reserved",
+        next: "What happens next",
+        nextText: "Come back from your course list or use the original share link when class is closer.",
+        secure: "Your place and access are confirmed. There is no need to book again.",
+        detail: "View course details",
+        list: "Back to my courses",
+        tip: "Join 5–10 minutes early to check your camera, microphone, and connection.",
+      };
+
+  return (
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-5 py-10 sm:px-8">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-primary" />
+      <div className="pointer-events-none absolute left-1/2 top-[-18rem] h-[34rem] w-[34rem] -translate-x-1/2 rounded-full bg-primary/[0.07] blur-3xl" />
+
+      <section className="relative w-full max-w-3xl overflow-hidden rounded-2xl bg-card shadow-[0_18px_60px_-32px_hsl(var(--foreground)/0.32)]">
+        <div className="grid md:grid-cols-[1fr_0.82fr]">
+          <div className="flex flex-col p-7 sm:p-10 md:p-12">
+            <div className="mb-10 flex items-center gap-3">
+              <SiteLogo decorative className="h-10 w-10 rounded-xl bg-primary/10 p-2 text-primary" />
+              <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                </span>
+                {copy.confirmed}
+              </div>
+            </div>
+
+            <div className="max-w-md">
+              <h1 className="text-balance text-3xl font-bold tracking-[-0.03em] text-foreground sm:text-4xl">
+                {copy.title}
+              </h1>
+              {courseName ? (
+                <p className="mt-5 text-lg font-semibold text-foreground">{courseName}</p>
+              ) : null}
+              <p className="mt-3 text-pretty text-base leading-7 text-muted-foreground">
+                {copy.description}
+              </p>
+            </div>
+
+            <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+              {courseId ? (
+                <Button asChild size="lg" className="h-12 rounded-xl px-5 active:scale-[0.98]">
+                  <Link href={`/courses/${courseId}`}>
+                    {copy.detail}
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+              ) : null}
+              <Button asChild variant={courseId ? "outline" : "default"} size="lg" className="h-12 rounded-xl px-5 active:scale-[0.98]">
+                <Link href="/">
+                  <Home className="h-4 w-4" />
+                  {copy.list}
+                </Link>
+              </Button>
+            </div>
+          </div>
+
+          <aside className="flex flex-col justify-between bg-muted/70 p-7 sm:p-10 md:p-12">
+            <div>
+              <div className="flex items-center justify-between gap-3 border-b border-border pb-5">
+                <span className="text-sm font-medium text-muted-foreground">{copy.status}</span>
+                <span className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary">
+                  <span className="h-2 w-2 rounded-full bg-primary" />
+                  {copy.confirmed}
+                </span>
+              </div>
+
+              <div className="mt-7 space-y-6">
+                <div className="flex gap-4">
+                  <CalendarCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                  <div>
+                    <h2 className="text-sm font-semibold text-foreground">{copy.next}</h2>
+                    <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{copy.nextText}</p>
+                  </div>
+                </div>
+                <div className="flex gap-4">
+                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                  <p className="text-sm leading-6 text-muted-foreground">{copy.secure}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-10 flex gap-3 rounded-xl bg-background p-4">
+              <Clock className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <p className="text-xs leading-5 text-muted-foreground">{copy.tip}</p>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 export function AccessDeniedView({
   code,
   reason,
@@ -403,6 +533,16 @@ export function AccessDeniedView({
       ? code
       : "default";
 
+  if (resolvedCode === "course_not_started") {
+    return (
+      <CourseNotStartedView
+        courseName={courseName}
+        courseId={courseId}
+        locale={locale}
+      />
+    );
+  }
+
   // Resolve metadata style configs
   let icon: "lock" | "clock" | "x-circle" | "search" = "lock";
   let tone: "blue" | "gray" | "red" | "amber" = "blue";
@@ -416,13 +556,6 @@ export function AccessDeniedView({
     title = texts.notEnrolledTitle;
     description = reason || texts.notEnrolledDesc;
     hint = texts.notEnrolledHint;
-  } else if (resolvedCode === "course_not_started") {
-    icon = "clock";
-    tone = "amber";
-    title = texts.notStartedTitle || "课程还未开启";
-    description =
-      reason || texts.notStartedDesc || "课程还未开启，可以在课前1小时进入";
-    hint = texts.notStartedHint || "请稍后再进入课堂。";
   } else if (resolvedCode === "course_finished") {
     icon = "clock";
     tone = "gray";

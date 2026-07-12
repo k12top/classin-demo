@@ -48,6 +48,19 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
+### Automatic database migrations
+
+Vercel uses `npm run build:deploy`, which runs `prisma migrate deploy` before the
+application build. Committed migrations in `prisma/migrations` are therefore
+applied automatically on every deployment; already-applied migrations are
+skipped safely.
+
+Set `DATABASE_URL` in the Vercel environment for every deployment environment
+that should build this application. If a migration fails, the build stops and
+the new application version is not deployed. Create schema changes locally with
+`npm run db:migrate:dev`, review and commit the generated migration directory,
+then deploy normally. Do not use `prisma db push` for production deployments.
+
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
 https://doc.shengwang.cn/doc/flexible-classroom/android/best-practices/courseware
