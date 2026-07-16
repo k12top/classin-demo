@@ -41,6 +41,8 @@ declare global {
 const CLASSROOM_EVT_DESTROYED = 2;
 const CLASSROOM_EVT_KICK_OUT = 101;
 const CLASSROOM_EVT_CLASS_STATE_CHANGED = 202;
+const AGORA_EDU_SDK_SRC =
+  "/vendor/edu_sdk-2.9.40-hand-up-10s.bundle.js";
 
 function parseClassroomEvent(
   evt: unknown,
@@ -799,7 +801,7 @@ export default function ClassroomPage() {
         }}
       />
       <Script
-        src="https://download.agora.io/edu-apaas/release/edu_sdk@2.9.40.bundle.js"
+        src={AGORA_EDU_SDK_SRC}
         strategy="afterInteractive"
       />
       <Script

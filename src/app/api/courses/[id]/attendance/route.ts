@@ -30,6 +30,75 @@ type AttendanceSummary = {
   closedByCourseEnd: boolean;
 };
 
+const TRANSIENT_DATABASE_ERROR_CODES = new Set([
+  "P1001",
+  "P1002",
+  "P1008",
+  "P1017",
+  "P2024",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "53300",
+  "57P01",
+  "57P02",
+  "57P03",
+]);
+const DATABASE_RETRY_DELAYS_MS = [250, 750];
+
+function isTransientDatabaseError(error: unknown): boolean {
+  let current: unknown = error;
+
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!current || typeof current !== "object") return false;
+    const candidate = current as {
+      code?: unknown;
+      message?: unknown;
+      cause?: unknown;
+    };
+    const code = typeof candidate.code === "string" ? candidate.code : "";
+    if (
+      TRANSIENT_DATABASE_ERROR_CODES.has(code) ||
+      (code.length === 5 && code.startsWith("08"))
+    ) {
+      return true;
+    }
+
+    const message =
+      typeof candidate.message === "string" ? candidate.message : "";
+    if (
+      /can't reach database|connection (?:refused|reset|terminated|closed)|timed?\s*out|server closed the connection|too many clients/i.test(
+        message
+      )
+    ) {
+      return true;
+    }
+    current = candidate.cause;
+  }
+
+  return false;
+}
+
+async function withDatabaseRetry<T>(operation: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= DATABASE_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      const retryDelay = DATABASE_RETRY_DELAYS_MS[attempt];
+      if (!isTransientDatabaseError(error) || retryDelay === undefined) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+    }
+  }
+
+  throw lastError;
+}
+
 function csvEscape(value: string | number | null | undefined): string {
   const text = value === null || value === undefined ? "" : String(value);
   return `"${text.replace(/"/g, '""')}"`;
@@ -136,95 +205,137 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSessionFromRequest(request);
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  let courseId = "unknown";
 
-  const { id } = await params;
-  const course = await prisma.course.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      name: true,
-      ownerId: true,
-      teacherId: true,
-      endTime: true,
-      teachers: { select: { teacherId: true } },
-    },
-  });
-
-  if (!course) {
-    return NextResponse.json({ error: "Course not found" }, { status: 404 });
-  }
-  if (!userCanTeachCourse(course, session.userId)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const rows = await prisma.courseAttendance.findMany({
-    where: { courseId: id },
-    orderBy: [{ enteredAt: "asc" }],
-  });
-
-  const now = new Date();
-  const attendance = summarizeAttendanceRows(rows, course.endTime, now);
-
-  if (request.nextUrl.searchParams.get("format") === "csv") {
-    const header = [
-      "studentId",
-      "studentName",
-      "sessionCount",
-      "firstEnteredAt",
-      "latestEnteredAt",
-      "lastActivityAt",
-      "totalDurationSec",
-      "totalDuration",
-      "online",
-      "closedByCourseEnd",
-    ];
-    const lines = [
-      header.map(csvEscape).join(","),
-      ...attendance.map((row) =>
-        [
-          row.studentId,
-          row.studentName,
-          row.sessionCount,
-          row.firstEnteredAt.toISOString(),
-          row.latestEnteredAt.toISOString(),
-          row.lastActivityAt?.toISOString() ?? "",
-          row.totalDurationSec,
-          formatDuration(row.totalDurationSec),
-          row.online ? "true" : "false",
-          row.closedByCourseEnd ? "true" : "false",
-        ]
-          .map(csvEscape)
-          .join(",")
-      ),
-    ];
-    return new NextResponse(lines.join("\n"), {
-      headers: {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="attendance-${id}.csv"`,
-        "Cache-Control": "no-store, max-age=0, must-revalidate",
-      },
-    });
-  }
-
-  return NextResponse.json(
-    {
-      attendance: attendance.map((row) => ({
-        ...row,
-        firstEnteredAt: row.firstEnteredAt.toISOString(),
-        latestEnteredAt: row.latestEnteredAt.toISOString(),
-        lastActivityAt: row.lastActivityAt?.toISOString() ?? null,
-      })),
-    },
-    {
-      headers: {
-        "Cache-Control": "no-store, max-age=0, must-revalidate",
-      },
+  try {
+    const { id } = await params;
+    courseId = id;
+    const session = await getSessionFromRequest(request);
+    if (!session) {
+      return NextResponse.json(
+        { error: "Unauthorized", code: "UNAUTHORIZED" },
+        {
+          status: 401,
+          headers: { "Cache-Control": "no-store" },
+        }
+      );
     }
-  );
+
+    const course = await withDatabaseRetry(() =>
+      prisma.course.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          name: true,
+          ownerId: true,
+          teacherId: true,
+          endTime: true,
+          teachers: { select: { teacherId: true } },
+        },
+      })
+    );
+
+    if (!course) {
+      return NextResponse.json(
+        { error: "Course not found", code: "COURSE_NOT_FOUND" },
+        {
+          status: 404,
+          headers: { "Cache-Control": "no-store" },
+        }
+      );
+    }
+    if (!userCanTeachCourse(course, session.userId)) {
+      return NextResponse.json(
+        { error: "Forbidden", code: "FORBIDDEN" },
+        {
+          status: 403,
+          headers: { "Cache-Control": "no-store" },
+        }
+      );
+    }
+
+    const rows = await withDatabaseRetry(() =>
+      prisma.courseAttendance.findMany({
+        where: { courseId: id },
+        orderBy: [{ enteredAt: "asc" }],
+      })
+    );
+
+    const now = new Date();
+    const attendance = summarizeAttendanceRows(rows, course.endTime, now);
+
+    if (request.nextUrl.searchParams.get("format") === "csv") {
+      const header = [
+        "studentId",
+        "studentName",
+        "sessionCount",
+        "firstEnteredAt",
+        "latestEnteredAt",
+        "lastActivityAt",
+        "totalDurationSec",
+        "totalDuration",
+        "online",
+        "closedByCourseEnd",
+      ];
+      const lines = [
+        header.map(csvEscape).join(","),
+        ...attendance.map((row) =>
+          [
+            row.studentId,
+            row.studentName,
+            row.sessionCount,
+            row.firstEnteredAt.toISOString(),
+            row.latestEnteredAt.toISOString(),
+            row.lastActivityAt?.toISOString() ?? "",
+            row.totalDurationSec,
+            formatDuration(row.totalDurationSec),
+            row.online ? "true" : "false",
+            row.closedByCourseEnd ? "true" : "false",
+          ]
+            .map(csvEscape)
+            .join(",")
+        ),
+      ];
+      return new NextResponse(lines.join("\n"), {
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="attendance-${id}.csv"`,
+          "Cache-Control": "no-store, max-age=0, must-revalidate",
+        },
+      });
+    }
+
+    return NextResponse.json(
+      {
+        attendance: attendance.map((row) => ({
+          ...row,
+          firstEnteredAt: row.firstEnteredAt.toISOString(),
+          latestEnteredAt: row.latestEnteredAt.toISOString(),
+          lastActivityAt: row.lastActivityAt?.toISOString() ?? null,
+        })),
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, max-age=0, must-revalidate",
+        },
+      }
+    );
+  } catch (error) {
+    console.error("Failed to fetch course attendance", { courseId, error });
+    return NextResponse.json(
+      {
+        error: "Attendance service temporarily unavailable",
+        code: "ATTENDANCE_UNAVAILABLE",
+      },
+      {
+        status: 503,
+        headers: {
+          "Cache-Control": "no-store",
+          "Retry-After": "1",
+        },
+      }
+    );
+  }
 }
 
 export async function PATCH(

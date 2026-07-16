@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
+import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
+import { redirectToSsoLogin } from "@/lib/auth-login";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -10,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw } from "lucide-react";
+import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw, AlertCircle } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import {
   CourseStatusSelect,
@@ -84,6 +86,47 @@ interface AttendanceRecord {
   totalDurationSec: number;
   online: boolean;
   closedByCourseEnd: boolean;
+}
+
+type AttendanceApiResponse = {
+  attendance?: AttendanceRecord[];
+  error?: string;
+  code?: string;
+};
+
+const ATTENDANCE_REQUEST_TIMEOUT_MS = 12_000;
+const ATTENDANCE_RETRY_DELAYS_MS = [350, 900];
+
+function isRetryableAttendanceStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+async function fetchAttendanceWithTimeout(
+  url: string,
+  parentSignal: AbortSignal
+): Promise<Response> {
+  const controller = new AbortController();
+  const abortFromParent = () => controller.abort();
+  parentSignal.addEventListener("abort", abortFromParent, { once: true });
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    ATTENDANCE_REQUEST_TIMEOUT_MS
+  );
+
+  try {
+    return await fetch(url, {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+    parentSignal.removeEventListener("abort", abortFromParent);
+  }
+}
+
+function waitForAttendanceRetry(delayMs: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, delayMs));
 }
 
 interface CourseJoinLinkSummary {
@@ -244,6 +287,8 @@ export default function TeacherCourseDetail({
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceError, setAttendanceError] = useState("");
+  const attendanceRequestIdRef = useRef(0);
+  const attendanceAbortRef = useRef<AbortController | null>(null);
 
   const sameTeacherId = (a: string, b: string) => {
     if (a === b) return true;
@@ -715,25 +760,110 @@ export default function TeacherCourseDetail({
     }
   };
 
+  useEffect(() => {
+    return () => {
+      attendanceRequestIdRef.current += 1;
+      attendanceAbortRef.current?.abort();
+    };
+  }, []);
+
   const fetchAttendance = useCallback(async () => {
+    attendanceAbortRef.current?.abort();
+    const requestController = new AbortController();
+    attendanceAbortRef.current = requestController;
+    const requestId = ++attendanceRequestIdRef.current;
+    const requestUrl = `/api/courses/${course.id}/attendance`;
+    const unavailableMessage =
+      locale === "zh-CN"
+        ? "考勤记录暂时加载失败，请稍后重试。"
+        : "Attendance records could not be loaded. Please try again.";
+
     setAttendanceLoading(true);
     setAttendanceError("");
+
     try {
-      const res = await fetch(`/api/courses/${course.id}/attendance`, {
-        credentials: "same-origin",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || t("common.failed"));
+      let lastError = new Error(unavailableMessage);
+
+      for (let attempt = 0; attempt <= ATTENDANCE_RETRY_DELAYS_MS.length; attempt += 1) {
+        if (requestController.signal.aborted) return;
+        let shouldRetry = true;
+
+        try {
+          let res = await fetchAttendanceWithTimeout(
+            requestUrl,
+            requestController.signal
+          );
+
+          if (res.status === 401) {
+            const refreshed = await tryOAuthRefresh();
+            if (!refreshed) {
+              redirectToSsoLogin();
+              return;
+            }
+            res = await fetchAttendanceWithTimeout(
+              requestUrl,
+              requestController.signal
+            );
+          }
+
+          const data = (await res.json().catch(() => ({}))) as AttendanceApiResponse;
+          if (res.ok) {
+            if (!Array.isArray(data.attendance)) {
+              throw new Error(unavailableMessage);
+            }
+            if (requestId === attendanceRequestIdRef.current) {
+              setAttendance(data.attendance);
+            }
+            return;
+          }
+
+          if (res.status === 401) {
+            redirectToSsoLogin();
+            return;
+          }
+
+          const responseMessage =
+            res.status === 403
+              ? locale === "zh-CN"
+                ? "您没有查看该课程考勤的权限。"
+                : "You do not have permission to view this attendance."
+              : isRetryableAttendanceStatus(res.status)
+                ? unavailableMessage
+                : data.error || unavailableMessage;
+          lastError = new Error(responseMessage);
+
+          if (!isRetryableAttendanceStatus(res.status)) {
+            shouldRetry = false;
+            throw lastError;
+          }
+        } catch (error) {
+          if (requestController.signal.aborted) return;
+          lastError =
+            error instanceof Error ? error : new Error(unavailableMessage);
+          if (!shouldRetry) {
+            throw lastError;
+          }
+        }
+
+        const retryDelay = ATTENDANCE_RETRY_DELAYS_MS[attempt];
+        if (retryDelay === undefined) {
+          throw lastError;
+        }
+        await waitForAttendanceRetry(retryDelay);
       }
-      setAttendance(data.attendance ?? []);
     } catch (error) {
-      setAttendance([]);
-      setAttendanceError(error instanceof Error ? error.message : t("common.failed"));
+      if (requestId === attendanceRequestIdRef.current) {
+        setAttendanceError(
+          error instanceof Error ? error.message : unavailableMessage
+        );
+      }
     } finally {
-      setAttendanceLoading(false);
+      if (requestId === attendanceRequestIdRef.current) {
+        setAttendanceLoading(false);
+        attendanceAbortRef.current = null;
+      }
     }
-  }, [course.id, t]);
+  }, [course.id, locale]);
 
   const exportAttendanceCsv = () => {
     window.location.href = `/api/courses/${course.id}/attendance?format=csv`;
@@ -2026,12 +2156,29 @@ export default function TeacherCourseDetail({
             </CardHeader>
             <CardContent className="pt-6">
               {attendanceError && (
-                <p className="mb-4 rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-500">
-                  {attendanceError}
-                </p>
+                <div
+                  role="alert"
+                  className="mb-4 flex flex-col gap-3 rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-destructive sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    <p className="text-xs font-medium">{attendanceError}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 shrink-0 rounded-lg border-destructive/25 bg-background text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    disabled={attendanceLoading}
+                    onClick={() => void fetchAttendance()}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    {locale === "zh-CN" ? "重试" : "Try again"}
+                  </Button>
+                </div>
               )}
 
-              {attendance.length === 0 ? (
+              {attendance.length === 0 && !attendanceError ? (
                 <div className="rounded-xl border border-dashed border-border/60 bg-muted/10 p-10 text-center">
                   <Clock className="mx-auto mb-3 h-10 w-10 text-muted-foreground/40" />
                   <p className="text-sm font-medium text-muted-foreground">
@@ -2042,7 +2189,7 @@ export default function TeacherCourseDetail({
                         : "No attendance records yet"}
                   </p>
                 </div>
-              ) : (
+              ) : attendance.length > 0 ? (
                 <div className="overflow-x-auto">
                   <div className="min-w-[880px] divide-y divide-border/50 rounded-xl border border-border/60">
                     <div className="grid grid-cols-[1.5fr_0.7fr_1.2fr_1.2fr_0.9fr_0.7fr] gap-3 bg-muted/30 px-4 py-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
@@ -2120,7 +2267,7 @@ export default function TeacherCourseDetail({
                     ))}
                   </div>
                 </div>
-              )}
+              ) : null}
             </CardContent>
           </Card>
         </TabsContent>
