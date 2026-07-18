@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "npm run prepare:agora-sdk && next dev",
     "build": "npm run prepare:agora-sdk && next build",
+    "build:deploy": "npm run db:migrate && npm run build",
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",

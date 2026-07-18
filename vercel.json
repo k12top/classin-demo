@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run db:migrate && npm run build",
+  "buildCommand": "npm run build:deploy",
   "crons": [
     {
       "path": "/api/cron/promote-course-status",
