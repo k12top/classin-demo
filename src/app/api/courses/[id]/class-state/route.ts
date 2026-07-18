@@ -35,7 +35,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Course not found" }, { status: 404 });
   }
 
-  if (!userCanTeachCourse(existing, session.userId)) {
+  if (!userCanTeachCourse(existing, [session.userId, session.name])) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

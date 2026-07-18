@@ -36,9 +36,19 @@ export type CourseAccessResult = CourseAccessOk | CourseAccessDenied;
 export async function resolveCourseAccess(
   courseId: string,
   userId: string,
-  options: { shareAccessToken?: string | null } = {}
+  options: {
+    shareAccessToken?: string | null;
+    userIdAliases?: readonly string[];
+  } = {}
 ): Promise<CourseAccessResult> {
   try {
+    const userIdCandidates = Array.from(
+      new Set(
+        [userId, ...(options.userIdAliases ?? [])]
+          .map((candidate) => candidate.trim())
+          .filter(Boolean)
+      )
+    );
     let course = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
@@ -113,10 +123,12 @@ export async function resolveCourseAccess(
       };
     }
 
-    if (userCanTeachCourse(course, userId)) {
+    if (userCanTeachCourse(course, userIdCandidates)) {
       return {
         ok: true,
-        role: casdoorUserIdsMatch(course.teacherId, userId)
+        role: userIdCandidates.some((candidate) =>
+          casdoorUserIdsMatch(course.teacherId, candidate)
+        )
           ? "teacher"
           : "assistant",
         roomType: course.roomType,
@@ -126,7 +138,9 @@ export async function resolveCourseAccess(
     }
 
     const isDirectStudent = course.students.some((s) =>
-      casdoorUserIdsMatch(s.studentId, userId)
+      userIdCandidates.some((candidate) =>
+        casdoorUserIdsMatch(s.studentId, candidate)
+      )
     );
     if (isDirectStudent) {
       return {
@@ -146,7 +160,9 @@ export async function resolveCourseAccess(
     }
 
     const inGroup = [...allGroupMemberIds].some((mid) =>
-      casdoorUserIdsMatch(mid, userId)
+      userIdCandidates.some((candidate) =>
+        casdoorUserIdsMatch(mid, candidate)
+      )
     );
     if (inGroup) {
       return {

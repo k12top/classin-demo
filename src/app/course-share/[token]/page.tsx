@@ -13,10 +13,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
-import { userCanTeachCourse } from "@/lib/course-teacher";
 import { canEnterClassroom } from "@/lib/course-status";
-import { ensureStudentEnrolledInCourse } from "@/lib/course-enrollment";
+import { ensureShareLinkCourseAccess } from "@/lib/course-enrollment";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
 import { prisma } from "@/lib/db";
 import { getServerTranslation } from "@/lib/i18n/server";
@@ -261,19 +259,7 @@ export default async function CourseSharePage({
     );
   }
 
-  const isTeacher = userCanTeachCourse(course, session.userId);
-  const isDirectStudent = course.students.some((student) =>
-    casdoorUserIdsMatch(student.studentId, session.userId)
-  );
-  const isGroupStudent = course.groupLinks.some((link) =>
-    link.group.members.some((member) =>
-      casdoorUserIdsMatch(member.userId, session.userId)
-    )
-  );
-
-  if (!isTeacher && !isDirectStudent && !isGroupStudent) {
-    await ensureStudentEnrolledInCourse(course.id, session);
-  }
+  await ensureShareLinkCourseAccess(course, session);
 
   await recordJoinLinkUse(resolved.linkId);
   redirect(`/courses/${course.id}`);

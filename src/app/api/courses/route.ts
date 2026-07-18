@@ -12,6 +12,7 @@ import { promoteCoursesIfDue } from "@/lib/course-promote";
 import {
   casdoorUserIdCandidates,
   normalizeCourseTeachers,
+  userCanTeachCourse,
   userOwnsCourse,
 } from "@/lib/course-teacher";
 import {
@@ -58,14 +59,35 @@ export async function GET(request: NextRequest) {
     await promoteCoursesIfDue();
 
     if (session.role === "teacher") {
-      // Teacher sees courses they own or teach (all statuses)
-      const userIdCandidates = casdoorUserIdCandidates(session.userId);
+      // A platform teacher can also join another teacher's course as a student.
+      // Keep both teaching courses and student-enrolled courses visible here.
+      const userIdCandidates = Array.from(
+        new Set(
+          [session.userId, session.name || ""].flatMap((candidate) =>
+            casdoorUserIdCandidates(candidate)
+          )
+        )
+      );
+      const studentIdCandidates = sessionStudentIdCandidates(session);
+      const groupMemberships = await prisma.groupMember.findMany({
+        where: { userId: { in: studentIdCandidates } },
+        select: { groupId: true },
+      });
+      const groupIds = groupMemberships.map((membership) => membership.groupId);
       const coursesRaw = await prisma.course.findMany({
         where: {
           OR: [
             { ownerId: { in: userIdCandidates } },
             { teacherId: { in: userIdCandidates } },
             { teachers: { some: { teacherId: { in: userIdCandidates } } } },
+            {
+              students: {
+                some: { studentId: { in: studentIdCandidates } },
+              },
+            },
+            ...(groupIds.length > 0
+              ? [{ groupLinks: { some: { groupId: { in: groupIds } } } }]
+              : []),
           ],
           ...statusWhere,
         },
@@ -107,31 +129,54 @@ export async function GET(request: NextRequest) {
       });
       const origin = request.nextUrl.origin.replace(/\/$/, "");
       const courses = applyCourseListSort(
-        coursesRaw.map(({ joinLinks, ...course }) => ({
-          ...course,
-          isCourseOwner: userOwnsCourse(course, session.userId),
-          canTeach: true,
-          activeJoinLinks: joinLinks
-            .filter((l) => joinLinkStatus(l) === "active" && l.purpose !== "course")
-            .map((l) => ({
-              id: l.id,
-              label: l.label,
-              requiresPasscode: Boolean(l.passcode),
-              passcode: l.passcode,
-              joinUrl: buildJoinUrl(origin, l.token),
-              useCount: l.useCount,
-            })),
-          activeCourseShareLinks: joinLinks
-            .filter((l) => joinLinkStatus(l) === "active" && l.purpose === "course")
-            .map((l) => ({
-              id: l.id,
-              label: l.label,
-              requiresPasscode: Boolean(l.passcode),
-              passcode: l.passcode,
-              courseShareUrl: buildCourseShareUrl(origin, l.token),
-              useCount: l.useCount,
-            })),
-        })),
+        coursesRaw.map(({ joinLinks, ...course }) => {
+          const canTeach = userCanTeachCourse(course, userIdCandidates);
+          return {
+            ...course,
+            passcode: canTeach ? course.passcode : undefined,
+            students: canTeach ? course.students : [],
+            groupLinks: canTeach ? course.groupLinks : [],
+            isCourseOwner:
+              canTeach &&
+              userIdCandidates.some((candidate) =>
+                userOwnsCourse(course, candidate)
+              ),
+            canTeach,
+            joinedAs: canTeach ? "teacher" : "student",
+            activeJoinLinks: canTeach
+              ? joinLinks
+                  .filter(
+                    (link) =>
+                      joinLinkStatus(link) === "active" &&
+                      link.purpose !== "course"
+                  )
+                  .map((link) => ({
+                    id: link.id,
+                    label: link.label,
+                    requiresPasscode: Boolean(link.passcode),
+                    passcode: link.passcode,
+                    joinUrl: buildJoinUrl(origin, link.token),
+                    useCount: link.useCount,
+                  }))
+              : [],
+            activeCourseShareLinks: canTeach
+              ? joinLinks
+                  .filter(
+                    (link) =>
+                      joinLinkStatus(link) === "active" &&
+                      link.purpose === "course"
+                  )
+                  .map((link) => ({
+                    id: link.id,
+                    label: link.label,
+                    requiresPasscode: Boolean(link.passcode),
+                    passcode: link.passcode,
+                    courseShareUrl: buildCourseShareUrl(origin, link.token),
+                    useCount: link.useCount,
+                  }))
+              : [],
+          };
+        }),
         sortParsed
       );
       return NextResponse.json(

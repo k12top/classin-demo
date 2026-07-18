@@ -40,6 +40,7 @@ interface Course {
   teachers?: CourseTeacherSummary[];
   isCourseOwner?: boolean;
   canTeach?: boolean;
+  joinedAs?: "teacher" | "student";
   status: string;
   startTime: string | null;
   endTime: string | null;
@@ -895,6 +896,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                     {selectedCourses.map((course) => (
                       (() => {
                         const studentPreview = getCourseStudentPreview(course);
+                        const canTeachCourse = course.canTeach !== false;
                         return (
                       <Card key={course.id} className="border border-border/60 bg-card overflow-hidden rounded-2xl hover:border-primary/30 hover:shadow-md transition-all duration-300 flex flex-col md:flex-row">
                         {/* Left date block */}
@@ -921,6 +923,15 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                     {course.name}
                                   </h3>
                                   <CourseStatusBadge status={course.status} />
+                                  {!canTeachCourse && (
+                                    <Badge
+                                      variant="outline"
+                                      className="border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300"
+                                    >
+                                      <Users className="mr-1 h-3 w-3" />
+                                      {t("common.roleStudent")}
+                                    </Badge>
+                                  )}
                                   {course.roomType === 10 && course.passcode && (
                                     <Badge 
                                       variant="outline" 
@@ -950,70 +961,74 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                   <Info className="h-3.5 w-3.5" />
                                   <span>{course.description || t("courseDetail.noDescription")}</span>
                                 </div>
-                                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                  <span className="inline-flex items-center gap-1.5 rounded-lg border border-border/50 bg-muted/30 px-2.5 py-1 font-medium text-foreground/80">
-                                    <Users className="h-3.5 w-3.5 text-primary" />
-                                    {locale === "zh-CN" ? "学生" : "Students"}: {studentPreview.total}
-                                  </span>
-                                  {studentPreview.preview.length > 0 ? (
-                                    <span className="truncate">
-                                      {studentPreview.preview.join(", ")}
-                                      {studentPreview.total > studentPreview.preview.length ? ` +${studentPreview.total - studentPreview.preview.length}` : ""}
+                                {canTeachCourse && (
+                                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-border/50 bg-muted/30 px-2.5 py-1 font-medium text-foreground/80">
+                                      <Users className="h-3.5 w-3.5 text-primary" />
+                                      {locale === "zh-CN" ? "学生" : "Students"}: {studentPreview.total}
                                     </span>
-                                  ) : (
-                                    <span>{t("courseDetail.noAssignedStudents")}</span>
-                                  )}
-                                  {studentPreview.groupCount > 0 && (
-                                    <Badge variant="outline" className="h-5 border-primary/15 bg-primary/5 text-[10px] text-primary">
-                                      {locale === "zh-CN" ? `含学生组 ${studentPreview.groupCount} 人` : `${studentPreview.groupCount} from groups`}
-                                    </Badge>
-                                  )}
-                                </div>
+                                    {studentPreview.preview.length > 0 ? (
+                                      <span className="truncate">
+                                        {studentPreview.preview.join(", ")}
+                                        {studentPreview.total > studentPreview.preview.length ? ` +${studentPreview.total - studentPreview.preview.length}` : ""}
+                                      </span>
+                                    ) : (
+                                      <span>{t("courseDetail.noAssignedStudents")}</span>
+                                    )}
+                                    {studentPreview.groupCount > 0 && (
+                                      <Badge variant="outline" className="h-5 border-primary/15 bg-primary/5 text-[10px] text-primary">
+                                        {locale === "zh-CN" ? `含学生组 ${studentPreview.groupCount} 人` : `${studentPreview.groupCount} from groups`}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             </div>
 
                             {/* Quick Invite Links */}
-                            <div className="mt-3 bg-muted/20 border border-border/40 rounded-xl p-3 text-xs space-y-2">
-                              <div className="flex items-center gap-1.5 font-medium text-primary">
-                                <LinkIcon className="h-3.5 w-3.5" />
-                                <span>{t("teacherDashboard.quickInvite")}</span>
-                              </div>
-                              {Boolean(
-                                course.activeCourseShareLinks?.length ||
-                                  course.activeJoinLinks?.length
-                              ) ? (
-                                <div className="flex flex-wrap gap-1.5">
-                                  {course.activeCourseShareLinks?.map((link) => (
-                                    <Button
-                                      key={link.id}
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-7 text-xs border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 rounded-lg"
-                                      onClick={() => void copyShareUrl(link.courseShareUrl)}
-                                    >
-                                      <BookOpen className="h-3 w-3 mr-1" />
-                                      <span>{link.label.trim() ? link.label.slice(0, 14) : t("common.unknown")}</span>
-                                      {link.useCount ? <span className="ml-1 opacity-70">· {link.useCount}</span> : ""}
-                                    </Button>
-                                  ))}
-                                  {course.activeJoinLinks?.map((link) => (
-                                    <Button
-                                      key={link.id}
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-7 text-xs border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 rounded-lg"
-                                      onClick={() => void copyShareUrl(link.joinUrl)}
-                                    >
-                                      <PlayCircle className="h-3 w-3 mr-1" />
-                                      <span>{link.label.trim() ? link.label.slice(0, 14) : t("common.unknown")}</span>
-                                      {link.useCount ? <span className="ml-1 opacity-70">· {link.useCount}</span> : ""}
-                                    </Button>
-                                  ))}
+                            {canTeachCourse && (
+                              <div className="mt-3 bg-muted/20 border border-border/40 rounded-xl p-3 text-xs space-y-2">
+                                <div className="flex items-center gap-1.5 font-medium text-primary">
+                                  <LinkIcon className="h-3.5 w-3.5" />
+                                  <span>{t("teacherDashboard.quickInvite")}</span>
                                 </div>
-                              ) : (
-                                <p className="text-xs text-muted-foreground italic">{t("teacherDashboard.inviteLinkEmpty")}</p>
-                              )}
-                            </div>
+                                {Boolean(
+                                  course.activeCourseShareLinks?.length ||
+                                    course.activeJoinLinks?.length
+                                ) ? (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {course.activeCourseShareLinks?.map((link) => (
+                                      <Button
+                                        key={link.id}
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 text-xs border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 rounded-lg"
+                                        onClick={() => void copyShareUrl(link.courseShareUrl)}
+                                      >
+                                        <BookOpen className="h-3 w-3 mr-1" />
+                                        <span>{link.label.trim() ? link.label.slice(0, 14) : t("common.unknown")}</span>
+                                        {link.useCount ? <span className="ml-1 opacity-70">· {link.useCount}</span> : ""}
+                                      </Button>
+                                    ))}
+                                    {course.activeJoinLinks?.map((link) => (
+                                      <Button
+                                        key={link.id}
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 text-xs border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 rounded-lg"
+                                        onClick={() => void copyShareUrl(link.joinUrl)}
+                                      >
+                                        <PlayCircle className="h-3 w-3 mr-1" />
+                                        <span>{link.label.trim() ? link.label.slice(0, 14) : t("common.unknown")}</span>
+                                        {link.useCount ? <span className="ml-1 opacity-70">· {link.useCount}</span> : ""}
+                                      </Button>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground italic">{t("teacherDashboard.inviteLinkEmpty")}</p>
+                                )}
+                              </div>
+                            )}
 
                             {course.studentRemarks && (
                               <div className="text-xs bg-blue-500/5 border border-blue-500/20 p-3 rounded-xl text-blue-800 dark:text-blue-200 mt-2">
@@ -1035,12 +1050,14 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                             </Button>
 
                             <div className="flex flex-wrap items-center justify-end gap-2">
-                              <CourseStatusSelect
-                                value={course.status}
-                                onValueChange={(status) => handleStatusChange(course.id, status)}
-                                disabled={statusUpdatingCourseId === course.id}
-                                className="mr-1"
-                              />
+                              {canTeachCourse && (
+                                <CourseStatusSelect
+                                  value={course.status}
+                                  onValueChange={(status) => handleStatusChange(course.id, status)}
+                                  disabled={statusUpdatingCourseId === course.id}
+                                  className="mr-1"
+                                />
+                              )}
 
                               <Button 
                                 disabled={enteringCourseId === course.id || (course.status === "finished" ? !course.recordUrl : !canEnterClassroom(course.status))}

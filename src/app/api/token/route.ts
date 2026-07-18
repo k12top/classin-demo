@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
     const access = await resolveCourseAccess(String(courseId), session.userId, {
       shareAccessToken:
         typeof shareAccess === "string" ? shareAccess : undefined,
+      userIdAliases: [session.name],
     });
     if (!access.ok) {
       return NextResponse.json(

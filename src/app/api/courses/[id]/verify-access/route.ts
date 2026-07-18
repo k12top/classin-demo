@@ -25,6 +25,7 @@ export async function GET(
   const shareAccess = request.nextUrl.searchParams.get("shareAccess");
   const access = await resolveCourseAccess(courseId, session.userId, {
     shareAccessToken: shareAccess,
+    userIdAliases: [session.name],
   });
 
   if (!access.ok) {

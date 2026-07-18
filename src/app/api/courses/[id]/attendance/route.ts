@@ -244,7 +244,7 @@ export async function GET(
         }
       );
     }
-    if (!userCanTeachCourse(course, session.userId)) {
+    if (!userCanTeachCourse(course, [session.userId, session.name])) {
       return NextResponse.json(
         { error: "Forbidden", code: "FORBIDDEN" },
         {
@@ -370,7 +370,10 @@ export async function PATCH(
     return NextResponse.json({ error: "Course not found" }, { status: 404 });
   }
 
-  const isTeacher = userCanTeachCourse(course, session.userId);
+  const isTeacher = userCanTeachCourse(course, [
+    session.userId,
+    session.name,
+  ]);
   const isDirectStudent = course.students.some((student) =>
     casdoorUserIdsMatch(student.studentId, session.userId)
   );

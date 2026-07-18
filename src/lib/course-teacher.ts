@@ -45,14 +45,19 @@ export function userOwnsCourse(
 
 export function userCanTeachCourse(
   course: CoursePermissionLike,
-  userId: string
+  userIds: string | readonly string[]
 ): boolean {
-  if (userOwnsCourse(course, userId)) return true;
-  if (casdoorUserIdsMatch(course.teacherId, userId)) return true;
-  return Boolean(
-    course.teachers?.some((teacher) =>
-      casdoorUserIdsMatch(teacher.teacherId, userId)
-    )
+  const candidates =
+    typeof userIds === "string" ? [userIds] : Array.from(userIds);
+  return candidates.some(
+    (userId) =>
+      userOwnsCourse(course, userId) ||
+      casdoorUserIdsMatch(course.teacherId, userId) ||
+      Boolean(
+        course.teachers?.some((teacher) =>
+          casdoorUserIdsMatch(teacher.teacherId, userId)
+        )
+      )
   );
 }
 

@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import {
   courseIdToRoomUuid,
   resolveCourseAccess,
 } from "@/lib/course-access";
-import { ensureStudentEnrolledInCourse } from "@/lib/course-enrollment";
+import {
+  ensureShareLinkCourseAccess,
+  ensureStudentEnrolledInCourse,
+} from "@/lib/course-enrollment";
 import { canEnterClassroom } from "@/lib/course-status";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
-import { userCanTeachCourse } from "@/lib/course-teacher";
 import { prisma } from "@/lib/db";
 import { getServerTranslation } from "@/lib/i18n/server";
 import {
@@ -95,35 +96,19 @@ export async function POST(
   }
 
   if (purpose === "course") {
-    const isTeacher = userCanTeachCourse(course, session.userId);
-    const isDirectStudent = course.students.some((student) =>
-      casdoorUserIdsMatch(student.studentId, session.userId)
-    );
-    const isGroupStudent = course.groupLinks.some((link) =>
-      link.group.members.some((member) =>
-        casdoorUserIdsMatch(member.userId, session.userId)
-      )
-    );
-
-    if (!isTeacher && !isDirectStudent && !isGroupStudent) {
-      await prisma.courseStudent.createMany({
-        data: [
-          {
-            courseId: course.id,
-            studentId: session.userId,
-            studentName: session.displayName || session.name,
-            studentAvatar: session.avatar || "",
-          },
-        ],
-        skipDuplicates: true,
-      });
-    }
+    const access = await ensureShareLinkCourseAccess(course, session);
 
     await recordJoinLinkUse(link.id);
-    return NextResponse.json({ success: true, redirectTo: `/courses/${course.id}` });
+    return NextResponse.json({
+      success: true,
+      role: access.role,
+      redirectTo: `/courses/${course.id}`,
+    });
   }
 
-  const access = await resolveCourseAccess(course.id, session.userId);
+  const access = await resolveCourseAccess(course.id, session.userId, {
+    userIdAliases: [session.name],
+  });
   if (!access.ok && access.code !== "not_enrolled") {
     return NextResponse.json(
       { error: access.reason, code: access.code },

@@ -117,7 +117,9 @@ export default async function JoinPage({
     );
   }
 
-  const access = await resolveCourseAccess(resolved.courseId, session.userId);
+  const access = await resolveCourseAccess(resolved.courseId, session.userId, {
+    userIdAliases: [session.name],
+  });
   if (!access.ok) {
     if (access.code === "not_enrolled") {
       await ensureStudentEnrolledInCourse(course.id, session);

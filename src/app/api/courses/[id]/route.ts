@@ -63,7 +63,10 @@ export async function GET(
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
     }
 
-    const isTeacher = userCanTeachCourse(course, session.userId);
+    const isTeacher = userCanTeachCourse(course, [
+      session.userId,
+      session.name,
+    ]);
     type SerializedCourse = Omit<typeof course, "passcode"> & {
       statusLabel: string;
       isCourseOwner: boolean;
@@ -111,7 +114,10 @@ export async function PUT(
     where: { id },
     include: { teachers: { orderBy: { createdAt: "asc" } } },
   });
-  if (!existing || !userCanTeachCourse(existing, session.userId)) {
+  if (
+    !existing ||
+    !userCanTeachCourse(existing, [session.userId, session.name])
+  ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -319,7 +325,10 @@ export async function PATCH(
     return NextResponse.json({ error: "Course not found" }, { status: 404 });
   }
 
-  const isTeacher = userCanTeachCourse(existing, session.userId);
+  const isTeacher = userCanTeachCourse(existing, [
+    session.userId,
+    session.name,
+  ]);
   const isDirectStudent = existing.students.some(s => casdoorUserIdsMatch(s.studentId, session.userId));
   
   // Also check if user is a member of any group linked to this course
