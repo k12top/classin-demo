@@ -44,6 +44,15 @@ const CLASSROOM_EVT_CLASS_STATE_CHANGED = 202;
 const AGORA_EDU_SDK_SRC =
   "/vendor/edu_sdk-2.9.40-hand-up-10s.bundle.js";
 
+// Keep every default video track at the lowest Agora-recommended profile for
+// one-to-many classrooms. The SDK copies these values when it launches.
+const LOWEST_VIDEO_ENCODER_CONFIGURATION = {
+  width: 160,
+  height: 120,
+  frameRate: 15,
+  bitrate: 65,
+} as const;
+
 function parseClassroomEvent(
   evt: unknown,
   args: unknown[],
@@ -635,6 +644,17 @@ function ClassroomContent() {
             language: locale === "zh-CN" ? "zh" : "en",
             duration: 60 * 30, // 30 minutes
             courseWareList: sdkCoursewareList,
+            mediaOptions: {
+              lowStreamCameraEncoderConfiguration: {
+                ...LOWEST_VIDEO_ENCODER_CONFIGURATION,
+              },
+              cameraEncoderConfiguration: {
+                ...LOWEST_VIDEO_ENCODER_CONFIGURATION,
+              },
+              screenShareEncoderConfiguration: {
+                ...LOWEST_VIDEO_ENCODER_CONFIGURATION,
+              },
+            },
             recordUrl: "https://solutions-apaas.agora.io/static/record_page_prod.html",
             virtualBackgroundImages: [],
             webrtcExtensionBaseUrl: "https://solutions-apaas.agora.io/static",
