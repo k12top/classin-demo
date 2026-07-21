@@ -9,10 +9,10 @@ export const classroomMediaOptions = {
   // Grid / thumbnail video. Keep this low so multi-user classrooms use less
   // downstream bandwidth.
   lowStreamCameraEncoderConfiguration: {
-    width: 160,
-    height: 120,
+    width: 320,
+    height: 180,
     frameRate: 15,
-    bitrate: 65,
+    bitrate: 140,
   },
 
   // Used when the classroom focuses a participant and switches that stream to
@@ -26,9 +26,9 @@ export const classroomMediaOptions = {
 
   // Kept low by default to match the requested bandwidth-saving policy.
   screenShareEncoderConfiguration: {
-    width: 160,
-    height: 120,
+    width: 320,
+    height: 180,
     frameRate: 15,
-    bitrate: 65,
+    bitrate: 140,
   },
 } as const;
