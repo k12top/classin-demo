@@ -10,6 +10,10 @@ const AGORA_BODY_PORTAL_RE =
   /(^|\s)(fcr-|agora-|rtc-|flexible-classroom|edu-sdk)/i;
 
 export function markClassroomDocumentActive(): void {
+  // The regular application shell enforces document sizing and scrolling that
+  // conflicts with the SDK's full-viewport pretest and classroom layouts.
+  document.documentElement.classList.remove("app-shell");
+  document.body.classList.remove("app-shell");
   document.documentElement.classList.add("agora-classroom-active");
   document.body.classList.add("agora-classroom-active");
 }

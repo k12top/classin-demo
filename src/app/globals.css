@@ -84,12 +84,33 @@
 
 /* ── Classroom page ── */
 .classroom-container {
+  position: fixed;
+  inset: 0;
+  z-index: 9990;
   width: 100vw;
+  width: 100dvw;
   height: 100vh;
-  position: relative;
+  height: 100dvh;
+  min-width: 100vw;
+  min-height: 100vh;
+  max-width: none;
+  flex: none;
   overflow: hidden;
-  margin: 0;
-  padding: 0;
+  margin: 0 !important;
+  padding: 0 !important;
+  isolation: isolate;
+  background: #262626;
+}
+
+#agora-classroom-root {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  overflow: hidden;
 }
 
 .classroom-back-btn {
@@ -289,10 +310,16 @@ body.app-shell {
 
 html.agora-classroom-active,
 body.agora-classroom-active {
+  position: fixed !important;
+  inset: 0 !important;
   overflow: hidden !important;
   width: 100% !important;
   height: 100% !important;
-  margin: 0;
+  min-width: 100% !important;
+  min-height: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 .glass-panel {

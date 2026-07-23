@@ -34,9 +34,26 @@ declare global {
     FcrWatermarkWidget: any;
     FcrWebviewWidget: any;
     FcrBoardWidget: any;
+    globalStore?: AgoraClassroomGlobalStore;
   }
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
+type AgoraClassroomGlobalStore = {
+  classroomStore?: {
+    mediaStore?: {
+      localScreenShareTrackState?: number;
+      stopScreenShareCapture?: () => void;
+    };
+    roomStore?: {
+      isScreenSharing?: boolean;
+      screenShareUserUuid?: string;
+    };
+    streamStore?: {
+      unpublishScreenShare?: () => Promise<void> | void;
+    };
+  };
+};
 
 /** External classroom events. */
 const CLASSROOM_EVT_DESTROYED = 2;
@@ -100,6 +117,33 @@ function buildLaunchKey(
   shareAccess: string,
 ): string {
   return `${courseId}|${roomUuid}|${userId}|${shareAccess}`;
+}
+
+function stopScreenShareBeforeTeardown(userId: string): void {
+  const classroomStore = window.globalStore?.classroomStore;
+  if (!classroomStore) return;
+
+  const isOwnScreenShare =
+    classroomStore.roomStore?.isScreenSharing === true &&
+    classroomStore.roomStore.screenShareUserUuid === userId;
+
+  // Stop the server-side share before the SDK store is destroyed. This call is
+  // intentionally started without awaiting it so it can also run in pagehide.
+  if (isOwnScreenShare) {
+    try {
+      void Promise.resolve(
+        classroomStore.streamStore?.unpublishScreenShare?.(),
+      ).catch(() => undefined);
+    } catch {
+      // The normal SDK teardown below remains the fallback.
+    }
+  }
+
+  try {
+    classroomStore.mediaStore?.stopScreenShareCapture?.();
+  } catch {
+    // The track may already have been released by the browser.
+  }
 }
 
 function ClassroomWelcomeLoader({
@@ -324,22 +368,29 @@ function ClassroomContent() {
       }
     }, []);
 
+    const teardownClassroomRuntime = useCallback(() => {
+      stopScreenShareBeforeTeardown(userRef.current?.userId ?? "");
+
+      if (unmountRef.current) {
+        try {
+          unmountRef.current();
+        } catch {
+          // Ignore SDK cleanup errors while the page is navigating away.
+        }
+        unmountRef.current = null;
+      }
+
+      launchKeyRef.current = null;
+      launchingRef.current = false;
+    }, []);
+
     const leaveClassroom = useCallback(() => {
       if (leftClassroomRef.current) return;
       leftClassroomRef.current = true;
 
       logClassroomDebug("leaveClassroom");
 
-      if (unmountRef.current) {
-        try {
-          unmountRef.current();
-        } catch {
-          // ignore cleanup errors
-        }
-        unmountRef.current = null;
-      }
-      launchKeyRef.current = null;
-      launchingRef.current = false;
+      teardownClassroomRuntime();
 
       syncAttendanceLeave();
       resetDocumentAfterClassroom();
@@ -350,15 +401,16 @@ function ClassroomContent() {
 
       // Full navigation reloads CSS — avoids Agora global styles breaking layout
       window.location.replace(target);
-    }, [syncAttendanceLeave]);
+    }, [syncAttendanceLeave, teardownClassroomRuntime]);
 
     useEffect(() => {
       const onPageHide = () => {
+        teardownClassroomRuntime();
         syncAttendanceLeave();
       };
       window.addEventListener("pagehide", onPageHide);
       return () => window.removeEventListener("pagehide", onPageHide);
-    }, [syncAttendanceLeave]);
+    }, [syncAttendanceLeave, teardownClassroomRuntime]);
 
     useEffect(() => {
       markClassroomDocumentActive();
@@ -368,19 +420,70 @@ function ClassroomContent() {
     }, []);
 
     useEffect(() => {
-      if (!classroomDebugRef.current) return;
-
       const onPageShow = (event: PageTransitionEvent) => {
         logClassroomDebug("pageshow", {
           persisted: event.persisted,
           visibility: document.visibilityState,
           launchKey: launchKeyRef.current,
         });
+
+        // pagehide tears the SDK down. If the browser restores this page from
+        // bfcache, reload it so the classroom runtime is initialized again.
+        if (event.persisted) {
+          window.location.reload();
+        }
       };
 
       window.addEventListener("pageshow", onPageShow);
       return () => window.removeEventListener("pageshow", onPageShow);
-    }, [classroomDebug]);
+    }, []);
+
+    useEffect(() => {
+      if (status !== "ready" || !userId) return;
+
+      let recoveryInFlight = false;
+
+      const recoverStaleOwnScreenShare = async () => {
+        const classroomStore = window.globalStore?.classroomStore;
+        const roomStore = classroomStore?.roomStore;
+        const mediaStore = classroomStore?.mediaStore;
+        const streamStore = classroomStore?.streamStore;
+
+        // The SDK toolbar uses the room-wide screen state. After a hard refresh,
+        // that state can briefly remain active although this browser no longer
+        // owns a screen track, causing the first click to become a no-op.
+        const hasStaleOwnShare =
+          roomStore?.isScreenSharing === true &&
+          roomStore.screenShareUserUuid === userId &&
+          mediaStore?.localScreenShareTrackState === 0;
+
+        if (
+          !hasStaleOwnShare ||
+          recoveryInFlight ||
+          !streamStore?.unpublishScreenShare
+        ) {
+          return;
+        }
+
+        recoveryInFlight = true;
+        try {
+          await streamStore.unpublishScreenShare();
+          logClassroomDebug("cleared stale local screen share");
+        } catch (error) {
+          logClassroomDebug("failed to clear stale local screen share", error);
+        } finally {
+          recoveryInFlight = false;
+        }
+      };
+
+      void recoverStaleOwnScreenShare();
+      const intervalId = window.setInterval(
+        () => void recoverStaleOwnScreenShare(),
+        1000,
+      );
+
+      return () => window.clearInterval(intervalId);
+    }, [status, userId]);
 
     useEffect(() => {
       if (authLoading || leftClassroomRef.current || !userId) {
@@ -658,19 +761,10 @@ function ClassroomContent() {
         visibility: document.visibilityState,
       });
 
-      if (unmountRef.current) {
-        try {
-          unmountRef.current();
-        } catch {
-          // ignore cleanup errors
-        }
-        unmountRef.current = null;
-      }
+      teardownClassroomRuntime();
       syncAttendanceLeave();
-      launchKeyRef.current = null;
-      launchingRef.current = false;
     };
-  }, [authLoading, userId, leaveClassroom, locale, syncAttendanceLeave, syncClassStateToServer]);
+  }, [authLoading, userId, leaveClassroom, locale, syncAttendanceLeave, syncClassStateToServer, teardownClassroomRuntime]);
 
   if (status === "error") {
     return (
