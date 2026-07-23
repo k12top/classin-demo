@@ -27,9 +27,9 @@ export const classroomMediaOptions = {
   // Screen sharing is normally the focused classroom content, so publish it
   // at a large profile to keep text and slides readable.
   screenShareEncoderConfiguration: {
-    width: 1280,
-    height: 720,
+    width: 1920,
+    height: 1080,
     frameRate: 15,
-    bitrate: 1200,
+    bitrate: 2000,
   },
 } as const;

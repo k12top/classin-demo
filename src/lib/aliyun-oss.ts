@@ -1,21 +1,42 @@
 import OSS from "ali-oss";
 
 const DEFAULT_PREFIX = "courseware";
+const REQUIRED_ENV_NAMES = [
+  "ALIYUN_OSS_REGION",
+  "ALIYUN_OSS_BUCKET",
+  "ALIYUN_OSS_ACCESS_KEY_ID",
+  "ALIYUN_OSS_ACCESS_KEY_SECRET",
+] as const;
 
-function requiredEnv(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`OSS is not configured: missing ${name}`);
+type RequiredEnvName = (typeof REQUIRED_ENV_NAMES)[number];
+
+export class CoursewareStorageConfigurationError extends Error {
+  constructor(public readonly missingVariables: readonly RequiredEnvName[]) {
+    super(`OSS is not configured: missing ${missingVariables.join(", ")}`);
+    this.name = "CoursewareStorageConfigurationError";
   }
-  return value;
+}
+
+function coursewareOssConfig() {
+  const missingVariables = REQUIRED_ENV_NAMES.filter(
+    (name) => !process.env[name]?.trim(),
+  );
+  if (missingVariables.length > 0) {
+    throw new CoursewareStorageConfigurationError(missingVariables);
+  }
+
+  return {
+    region: process.env.ALIYUN_OSS_REGION!.trim(),
+    bucket: process.env.ALIYUN_OSS_BUCKET!.trim(),
+    accessKeyId: process.env.ALIYUN_OSS_ACCESS_KEY_ID!.trim(),
+    accessKeySecret: process.env.ALIYUN_OSS_ACCESS_KEY_SECRET!.trim(),
+  };
 }
 
 export function getCoursewareOssClient(): OSS {
+  const config = coursewareOssConfig();
   return new OSS({
-    region: requiredEnv("ALIYUN_OSS_REGION"),
-    bucket: requiredEnv("ALIYUN_OSS_BUCKET"),
-    accessKeyId: requiredEnv("ALIYUN_OSS_ACCESS_KEY_ID"),
-    accessKeySecret: requiredEnv("ALIYUN_OSS_ACCESS_KEY_SECRET"),
+    ...config,
     secure: true,
   });
 }

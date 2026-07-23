@@ -270,7 +270,7 @@ export const en: typeof zhCN = {
     expiresAtLabel: "Expires: {date}",
     confirmRevokeLink: "Are you sure you want to revoke this share link? It will no longer be accessible.",
     addCourseware: "Add Courseware",
-    addCoursewareDesc: "Upload or add courseware; the system will automatically handle document conversion.",
+    addCoursewareDesc: "Upload courseware directly to OSS for enrolled students to download; it is not sent to the classroom whiteboard.",
     coursewareName: "Name",
     coursewareNamePlaceholder: "e.g., Chapter 1: Quadratic Functions.pptx",
     fileUrl: "File URL",

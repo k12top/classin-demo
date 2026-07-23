@@ -268,7 +268,7 @@ export const zhCN = {
     expiresAtLabel: "到期: {date}",
     confirmRevokeLink: "确定撤销该分享链接？撤销后无法再通过此链接进入。",
     addCourseware: "添加教学课件",
-    addCoursewareDesc: "上传或录入教学课件，系统会自动处理文档转换。",
+    addCoursewareDesc: "课件将直接上传至 OSS，供课程学生下载，不会传入课堂白板。",
     coursewareName: "课件名称",
     coursewareNamePlaceholder: "例如：第一章：认识二次函数.pptx",
     fileUrl: "文件 URL",

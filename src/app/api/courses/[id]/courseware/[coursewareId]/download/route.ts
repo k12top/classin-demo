@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  CoursewareStorageConfigurationError,
   getCoursewareObjectKey,
   getCoursewareOssClient,
 } from "@/lib/aliyun-oss";
@@ -41,6 +42,17 @@ export async function GET(
     return NextResponse.redirect(downloadUrl);
   } catch (error) {
     console.error("Failed to create OSS courseware download URL:", error);
-    return NextResponse.json({ error: "Courseware storage is not configured" }, { status: 503 });
+    if (error instanceof CoursewareStorageConfigurationError) {
+      return NextResponse.json(
+        {
+          error: `课件存储配置未生效：缺少 ${error.missingVariables.join(", ")}`,
+        },
+        { status: 503 },
+      );
+    }
+    return NextResponse.json(
+      { error: "无法生成课件下载地址，请检查 OSS 区域、Bucket 和访问权限" },
+      { status: 500 },
+    );
   }
 }
