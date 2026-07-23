@@ -14,6 +14,7 @@ loadEnvConfig(packageDir);
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
+  serverExternalPackages: ["ali-oss"],
 
   async headers() {
     return [
