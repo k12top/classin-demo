@@ -61,6 +61,28 @@ the new application version is not deployed. Create schema changes locally with
 `npm run db:migrate:dev`, review and commit the generated migration directory,
 then deploy normally. Do not use `prisma db push` for production deployments.
 
+### Courseware storage (Alibaba Cloud OSS)
+
+Courseware files are uploaded directly from the teacher's browser to a private
+Alibaba Cloud OSS bucket. The application only issues short-lived upload and
+download signatures, and courseware is not sent to the classroom whiteboard.
+Configure these server-only environment variables in each deployment
+environment:
+
+```bash
+ALIYUN_OSS_REGION=oss-cn-hangzhou
+ALIYUN_OSS_BUCKET=your-private-bucket
+ALIYUN_OSS_ACCESS_KEY_ID=your-ram-access-key-id
+ALIYUN_OSS_ACCESS_KEY_SECRET=your-ram-access-key-secret
+# Optional. Defaults to courseware.
+ALIYUN_OSS_COURSEWARE_PREFIX=courseware
+```
+
+The RAM credentials need permission to read and write only the configured
+prefix. Configure the OSS bucket CORS rule to allow your web domains to use
+the `PUT` method and the `Content-Type` request header; students download via
+the application's authenticated download URL.
+
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
 https://doc.shengwang.cn/doc/flexible-classroom/android/best-practices/courseware

@@ -102,23 +102,6 @@ function buildLaunchKey(
   return `${courseId}|${roomUuid}|${userId}|${shareAccess}`;
 }
 
-interface ClassroomCourseware {
-  id: string;
-  name: string;
-  ext: string;
-  url: string;
-  size?: number | null;
-  updatedAt: string;
-  taskStatus?: string | null;
-  taskUuid?: string | null;
-  type: string;
-  conversion?: unknown;
-}
-
-interface ClassroomCoursewareResponse {
-  courseware?: ClassroomCourseware[];
-}
-
 function ClassroomWelcomeLoader({
   status,
   roomName,
@@ -555,46 +538,6 @@ function ClassroomContent() {
 
           const { token, appId } = await tokenRes.json();
 
-          // Fetch and map courseware for classroom whiteboard public slides
-          let sdkCoursewareList: Array<Record<string, unknown>> = [];
-          try {
-            const cwRes = await fetch(`/api/courses/${cid}/courseware`);
-            if (cwRes.ok) {
-              const cwData = (await cwRes.json()) as ClassroomCoursewareResponse;
-              sdkCoursewareList = (cwData.courseware || [])
-                .filter((cw) => cw.taskStatus === "Finished")
-                .map((cw) => {
-                  const scenes = Array.isArray(cw.conversion) ? cw.conversion : [];
-                  return {
-                    resourceName: cw.name,
-                    resourceUuid: cw.id,
-                    ext: cw.ext,
-                    url: cw.url,
-                    size: cw.size || 0,
-                    updateTime: new Date(cw.updatedAt).getTime(),
-                    taskUuid: cw.taskUuid || undefined,
-                    taskProgress: {
-                      status: "Finished",
-                      totalPageSize: scenes.length,
-                      convertedPageSize: scenes.length,
-                      convertedPercentage: 100,
-                      currentStep: "Finished",
-                    },
-                    conversion: {
-                      outputFormat: cw.type,
-                      canvasVersion: true,
-                      preview: true,
-                      scale: 1.2,
-                      type: cw.type,
-                      scenes: scenes,
-                    },
-                  };
-                });
-            }
-          } catch (e) {
-            console.error("Failed to load courseware into classroom:", e);
-          }
-
           window.AgoraEduSDK.config({
             appId,
             region: "CN",
@@ -635,7 +578,7 @@ function ClassroomContent() {
             rtmToken: token,
             language: locale === "zh-CN" ? "zh" : "en",
             duration: 60 * 30, // 30 minutes
-            courseWareList: sdkCoursewareList,
+            courseWareList: [],
             mediaOptions: classroomMediaOptions,
             recordUrl: "https://solutions-apaas.agora.io/static/record_page_prod.html",
             virtualBackgroundImages: [],

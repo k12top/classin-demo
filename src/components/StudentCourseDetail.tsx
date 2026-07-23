@@ -43,9 +43,8 @@ interface CoursewareItem {
   id: string;
   name: string;
   ext: string;
-  url: string;
   size?: number;
-  taskStatus?: string;
+  downloadUrl: string;
 }
 
 export default function StudentCourseDetail({ 
@@ -200,13 +199,6 @@ export default function StudentCourseDetail({
               <p className="text-muted-foreground text-sm leading-relaxed">
                 {course.description || t("courseDetail.noDescription")}
               </p>
-              
-              <div className="mt-8 pt-6 border-t border-border/40">
-                 <h4 className="font-semibold text-sm mb-2 flex items-center gap-2"><BookOpen className="h-4 w-4 text-primary"/> {t("courseDetail.tabs.courseware")}</h4>
-                 <p className="text-xs text-primary bg-primary/5 border border-primary/10 p-3.5 rounded-xl leading-relaxed">
-                   {t("courseDetail.coursewareAlert")}
-                 </p>
-              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -244,22 +236,12 @@ export default function StudentCourseDetail({
                       </div>
 
                       <div className="flex items-center gap-3">
-                        {item.taskStatus === "Finished" ? (
-                          <Badge className="bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 text-[10px]">
-                            {t("courseDetail.ready")}
-                          </Badge>
-                        ) : (
-                          <Badge className="bg-amber-500/10 text-amber-600 border border-amber-500/20 text-[10px]">
-                            {t("courseDetail.preparing")}
-                          </Badge>
-                        )}
+                        <Badge className="bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 text-[10px]">{t("courseDetail.ready")}</Badge>
                         <a
-                          href={item.url}
-                          target="_blank"
-                          rel="noreferrer"
+                          href={item.downloadUrl}
                           className="bg-primary hover:bg-primary/95 text-white text-xs px-3.5 py-2 rounded-xl font-medium shadow-sm transition-all"
                         >
-                          {t("courseDetail.openFile")}
+                          下载课件
                         </a>
                       </div>
                     </div>

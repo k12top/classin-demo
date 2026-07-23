@@ -24,11 +24,12 @@ export const classroomMediaOptions = {
     bitrate: 600,
   },
 
-  // Kept low by default to match the requested bandwidth-saving policy.
+  // Screen sharing is normally the focused classroom content, so publish it
+  // at a large profile to keep text and slides readable.
   screenShareEncoderConfiguration: {
-    width: 320,
-    height: 180,
+    width: 1280,
+    height: 720,
     frameRate: 15,
-    bitrate: 140,
+    bitrate: 1200,
   },
 } as const;

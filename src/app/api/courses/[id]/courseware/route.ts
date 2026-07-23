@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { Courseware } from "@prisma/client";
-import { assertCanTeachCourse } from "@/lib/course-teacher";
 import {
-  startWhiteboardConversion,
-  getWhiteboardConversionStatus,
-} from "@/lib/whiteboard-convert";
+  getCoursewareOssClient,
+  isCoursewareObjectKey,
+  toCoursewareStorageUrl,
+} from "@/lib/aliyun-oss";
+import { canAccessCourseware } from "@/lib/courseware-access";
+import { assertCanTeachCourse } from "@/lib/course-teacher";
 
 export const dynamic = "force-dynamic";
 
@@ -22,56 +23,23 @@ export async function GET(
   const { id: courseId } = await params;
 
   try {
-    const course = await prisma.course.findUnique({
-      where: { id: courseId },
-      select: { id: true, teacherId: true },
-    });
-
-    if (!course) {
-      return NextResponse.json({ error: "Course not found" }, { status: 404 });
+    if (!(await canAccessCourseware(session, courseId))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Fetch all courseware items
     const items = await prisma.courseware.findMany({
       where: { courseId },
       orderBy: { createdAt: "desc" },
     });
 
-    // Proactively refresh conversion status for items that are not fully finished or failed yet
-    const refreshedItems = await Promise.all(
-      items.map(async (item: Courseware) => {
-        if (
-          item.taskUuid &&
-          (item.taskStatus === "Pending" || item.taskStatus === "Converting")
-        ) {
-          try {
-            const statusResult = await getWhiteboardConversionStatus(
-              item.taskUuid,
-              item.type as "static" | "dynamic",
-              item.name,
-              item.url
-            );
-
-            if (statusResult.status !== item.taskStatus) {
-              const updated = await prisma.courseware.update({
-                where: { id: item.id },
-                data: {
-                  taskStatus: statusResult.status,
-                  conversion: statusResult.scenes as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-                },
-              });
-              return updated;
-            }
-          } catch (e) {
-            console.error(`Failed to refresh status for task ${item.taskUuid}:`, e);
-          }
-        }
-        return item;
-      })
-    );
-
     return NextResponse.json(
-      { courseware: refreshedItems },
+      {
+        courseware: items.map((item) => ({
+          ...item,
+          url: undefined,
+          downloadUrl: `/api/courses/${courseId}/courseware/${item.id}/download`,
+        })),
+      },
       {
         headers: {
           "Cache-Control": "no-store, max-age=0, must-revalidate",
@@ -96,15 +64,6 @@ export async function POST(
   const { id: courseId } = await params;
 
   try {
-    const course = await prisma.course.findUnique({
-      where: { id: courseId },
-      select: { id: true, teacherId: true },
-    });
-
-    if (!course) {
-      return NextResponse.json({ error: "Course not found" }, { status: 404 });
-    }
-
     if (
       session.role !== "teacher" ||
       !(await assertCanTeachCourse(session.userId, courseId))
@@ -113,27 +72,26 @@ export async function POST(
     }
 
     const body = await request.json();
-    const { name, url, ext, size } = body;
+    const { name, objectKey, ext, size } = body;
 
-    if (!name?.trim() || !url?.trim() || !ext?.trim()) {
+    if (!name?.trim() || !objectKey?.trim() || !ext?.trim()) {
       return NextResponse.json(
-        { error: "Missing required fields: name, url, ext" },
+        { error: "Missing required fields: name, objectKey, ext" },
         { status: 400 }
       );
     }
 
     const cleanExt = ext.toLowerCase().replace(/^\./, "");
-    
-    // Start whiteboard document conversion.
-    const conversion = await startWhiteboardConversion(url.trim(), cleanExt);
+    const cleanObjectKey = objectKey.trim();
+    if (!isCoursewareObjectKey(courseId, cleanObjectKey)) {
+      return NextResponse.json({ error: "Invalid courseware storage key" }, { status: 400 });
+    }
 
-    // Initial status polling
-    const finalStatus = await getWhiteboardConversionStatus(
-      conversion.taskUuid,
-      conversion.type,
-      name.trim(),
-      url.trim()
-    );
+    try {
+      await getCoursewareOssClient().head(cleanObjectKey);
+    } catch {
+      return NextResponse.json({ error: "The uploaded courseware was not found" }, { status: 400 });
+    }
 
     const item = await prisma.courseware.create({
       data: {
@@ -141,15 +99,22 @@ export async function POST(
         name: name.trim(),
         ext: cleanExt,
         size: size || 0,
-        url: url.trim(),
-        taskUuid: conversion.taskUuid,
-        type: conversion.type,
-        taskStatus: finalStatus.status,
-        conversion: finalStatus.scenes as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+        url: toCoursewareStorageUrl(cleanObjectKey),
+        type: "file",
+        taskStatus: "Finished",
       },
     });
 
-    return NextResponse.json({ courseware: item }, { status: 201 });
+    return NextResponse.json(
+      {
+        courseware: {
+          ...item,
+          url: undefined,
+          downloadUrl: `/api/courses/${courseId}/courseware/${item.id}/download`,
+        },
+      },
+      { status: 201 },
+    );
   } catch (error) {
     console.error("Failed to create courseware:", error);
     return NextResponse.json({ error: "Failed to create courseware" }, { status: 500 });

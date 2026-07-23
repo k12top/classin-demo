@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw, AlertCircle } from "lucide-react";
+import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw, AlertCircle, Upload } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import {
   CourseStatusSelect,
@@ -71,8 +71,8 @@ interface CoursewareItem {
   name: string;
   ext: string;
   size?: number;
-  url: string;
   taskStatus: string;
+  downloadUrl: string;
 }
 
 interface AttendanceRecord {
@@ -279,10 +279,10 @@ export default function TeacherCourseDetail({
   // Courseware Tab State
   const [courseware, setCourseware] = useState<CoursewareItem[]>([]);
   const [cwName, setCwName] = useState("");
-  const [cwUrl, setCwUrl] = useState("");
-  const [cwExt, setCwExt] = useState("pptx");
+  const [cwFile, setCwFile] = useState<File | null>(null);
   const [cwAdding, setCwAdding] = useState(false);
   const [cwError, setCwError] = useState("");
+  const cwFileInputRef = useRef<HTMLInputElement>(null);
 
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
@@ -472,38 +472,53 @@ export default function TeacherCourseDetail({
     }
   }, [course.canTeach, fetchCourseware]);
 
-  // Poll for conversions every 4 seconds if there are items converting
-  useEffect(() => {
-    const hasConverting = courseware.some(
-      (item) => item.taskStatus === "Pending" || item.taskStatus === "Converting"
-    );
-    if (!hasConverting) return;
-
-    const timer = setInterval(() => {
-      fetchCourseware();
-    }, 4000);
-
-    return () => clearInterval(timer);
-  }, [courseware, fetchCourseware]);
-
   const handleAddCourseware = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!cwName.trim()) { setCwError(t("courseDetail.errCwNameEmpty")); return; }
-    
-    // Provide a beautiful default sample URL if left empty
-    const fileUrl = cwUrl.trim() || "https://solutions-apaas.agora.io/static/courseware.pptx";
+    if (!cwFile) {
+      setCwError("请选择要上传的课件文件");
+      return;
+    }
+    const fileName = cwName.trim() || cwFile.name;
+    const extension = cwFile.name.split(".").pop()?.toLowerCase() || "";
+    if (!extension) {
+      setCwError("文件必须包含扩展名");
+      return;
+    }
     
     setCwAdding(true);
     setCwError("");
     try {
+      const uploadUrlRes = await fetch(`/api/courses/${course.id}/courseware/upload-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: cwFile.name,
+          contentType: cwFile.type || "application/octet-stream",
+          size: cwFile.size,
+        }),
+      });
+      const uploadUrlData = await uploadUrlRes.json();
+      if (!uploadUrlRes.ok) {
+        throw new Error(uploadUrlData.error || t("courseDetail.errCwAddFailed"));
+      }
+
+      const uploadRes = await fetch(uploadUrlData.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": uploadUrlData.contentType },
+        body: cwFile,
+      });
+      if (!uploadRes.ok) {
+        throw new Error("课件上传到 OSS 失败");
+      }
+
       const res = await fetch(`/api/courses/${course.id}/courseware`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: cwName.trim(),
-          url: fileUrl,
-          ext: cwExt,
-          size: 1024 * 1024 * 5, // mock 5MB
+          name: fileName,
+          objectKey: uploadUrlData.objectKey,
+          ext: extension,
+          size: cwFile.size,
         }),
       });
       
@@ -513,9 +528,10 @@ export default function TeacherCourseDetail({
       }
       
       setCwName("");
-      setCwUrl("");
+      setCwFile(null);
+      if (cwFileInputRef.current) cwFileInputRef.current.value = "";
       setCwError("");
-      fetchCourseware();
+      await fetchCourseware();
     } catch (err) {
       setCwError(err instanceof Error ? err.message : t("courseDetail.errCwAddFailed"));
     } finally {
@@ -1994,32 +2010,21 @@ export default function TeacherCourseDetail({
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("courseDetail.fileUrl")}</label>
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">选择课件文件</label>
                     <Input
-                      placeholder={t("courseDetail.fileUrlPlaceholder")}
-                      value={cwUrl}
-                      onChange={(e) => setCwUrl(e.target.value)}
-                      className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
+                      ref={cwFileInputRef}
+                      type="file"
+                      accept=".ppt,.pptx,.pdf,.doc,.docx,.png,.jpg,.jpeg,.gif,.mp3,.mp4"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0] || null;
+                        setCwFile(file);
+                        if (file && !cwName.trim()) setCwName(file.name);
+                      }}
+                      className="cursor-pointer bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary hover:file:bg-primary/15"
                     />
-                    <p className="text-[10px] text-muted-foreground/60 leading-relaxed mt-1">
-                      {t("courseDetail.fileUrlDesc")}
+                    <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
+                      支持 PPT、PDF、Word、图片和音视频文件，单个文件最大 200 MB。文件会直接上传至 OSS，不会同步到课堂白板。
                     </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("courseDetail.fileType")}</label>
-                    <Select value={cwExt} onValueChange={setCwExt}>
-                      <SelectTrigger className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl">
-                        <SelectValue placeholder={t("courseDetail.fileType")} />
-                      </SelectTrigger>
-                      <SelectContent className="bg-popover border-border/85">
-                        <SelectItem value="pptx">{t("courseDetail.fileTypePptx")}</SelectItem>
-                        <SelectItem value="ppt">{t("courseDetail.fileTypePpt")}</SelectItem>
-                        <SelectItem value="pdf">{t("courseDetail.fileTypePdf")}</SelectItem>
-                        <SelectItem value="docx">{t("courseDetail.fileTypeDocx")}</SelectItem>
-                        <SelectItem value="png">{t("courseDetail.fileTypeImage")}</SelectItem>
-                      </SelectContent>
-                    </Select>
                   </div>
 
                   {cwError && (
@@ -2030,16 +2035,16 @@ export default function TeacherCourseDetail({
 
                   <Button
                     type="submit"
-                    disabled={cwAdding || !cwName.trim()}
+                    disabled={cwAdding || !cwFile}
                     className="w-full bg-primary hover:bg-primary/95 text-white rounded-xl text-xs font-semibold shadow-sm active:scale-[0.98]"
                   >
                     {cwAdding ? (
                       <span className="flex items-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin text-current" />
-                        {t("courseDetail.cwAdding")}
+                        正在上传到 OSS…
                       </span>
                     ) : (
-                      t("courseDetail.btnCwAdd")
+                      <span className="flex items-center gap-2"><Upload className="h-4 w-4" />上传课件</span>
                     )}
                   </Button>
                 </form>
@@ -2050,7 +2055,7 @@ export default function TeacherCourseDetail({
             <Card className="border border-border/60 bg-card rounded-2xl shadow-sm lg:col-span-2">
               <CardHeader>
                 <CardTitle className="text-lg font-bold">{t("courseDetail.coursewareLibrary")}</CardTitle>
-                <CardDescription className="text-xs">本节课程已绑定的课件。转换成功的课件将在{t("teacherDashboard.btnEnterClass")}后自动显示在“公共资源”云盘中。</CardDescription>
+                <CardDescription className="text-xs">本节课程已上传的学习资料。学生可在课程详情页下载或查看，课件不会传入课堂白板。</CardDescription>
               </CardHeader>
               <CardContent>
                 {courseware.length === 0 ? (
@@ -2079,30 +2084,13 @@ export default function TeacherCourseDetail({
                         </div>
 
                         <div className="flex items-center gap-3 font-semibold text-xs">
-                          {item.taskStatus === "Finished" && (
-                            <Badge className="bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 text-[10px]">
-                              {t("courseDetail.convertSuccess")}
-                            </Badge>
-                          )}
-                          {(item.taskStatus === "Converting" || item.taskStatus === "Pending") && (
-                            <Badge className="bg-amber-500/10 text-amber-600 border border-amber-500/20 flex items-center gap-1 text-[10px]">
-                              <Loader2 className="h-3 w-3 animate-spin text-current" />
-                              {t("courseDetail.converting")}
-                            </Badge>
-                          )}
-                          {item.taskStatus === "Failed" && (
-                            <Badge className="bg-red-500/10 text-red-600 border border-red-500/20 text-[10px]">
-                              {t("courseDetail.convertFailed")}
-                            </Badge>
-                          )}
+                          <Badge className="bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 text-[10px]">已上传</Badge>
 
                           <a
-                            href={item.url}
-                            target="_blank"
-                            rel="noreferrer"
+                            href={item.downloadUrl}
                             className="text-xs text-primary hover:underline font-semibold ml-2"
                           >
-                            {t("courseDetail.originalFile")}
+                            下载课件
                           </a>
                         </div>
                       </div>
