@@ -12,6 +12,9 @@ import {
 import { prisma } from "@/lib/db";
 import { userCanTeachCourse } from "@/lib/course-teacher";
 import { verifyShareAccessToken } from "@/lib/join-link";
+import { courseIdToRoomUuid } from "@/lib/course-room";
+
+export { courseIdToRoomUuid } from "@/lib/course-room";
 
 export type CourseAccessDenied = {
   ok: false;
@@ -24,6 +27,7 @@ export type CourseAccessOk = {
   ok: true;
   role: ClassroomAccessRole;
   roomType: number;
+  roomUuid: string;
   roomName: string;
   teacherName: string;
   startTime: Date | null;
@@ -134,6 +138,7 @@ export async function resolveCourseAccess(
           ? "teacher"
           : "assistant",
         roomType: course.roomType,
+        roomUuid: courseIdToRoomUuid(course.id, course.roomUuid),
         roomName: course.name,
         teacherName: course.teacherName,
         startTime: course.startTime,
@@ -151,6 +156,7 @@ export async function resolveCourseAccess(
         ok: true,
         role: "student",
         roomType: course.roomType,
+        roomUuid: courseIdToRoomUuid(course.id, course.roomUuid),
         roomName: course.name,
         teacherName: course.teacherName,
         startTime: course.startTime,
@@ -175,6 +181,7 @@ export async function resolveCourseAccess(
         ok: true,
         role: "student",
         roomType: course.roomType,
+        roomUuid: courseIdToRoomUuid(course.id, course.roomUuid),
         roomName: course.name,
         teacherName: course.teacherName,
         startTime: course.startTime,
@@ -191,6 +198,7 @@ export async function resolveCourseAccess(
         ok: true,
         role: "student",
         roomType: course.roomType,
+        roomUuid: courseIdToRoomUuid(course.id, course.roomUuid),
         roomName: course.name,
         teacherName: course.teacherName,
         startTime: course.startTime,
@@ -203,6 +211,7 @@ export async function resolveCourseAccess(
         ok: true,
         role: "student",
         roomType: course.roomType,
+        roomUuid: courseIdToRoomUuid(course.id, course.roomUuid),
         roomName: course.name,
         teacherName: course.teacherName,
         startTime: course.startTime,
@@ -225,9 +234,4 @@ export async function resolveCourseAccess(
       code: "default",
     };
   }
-}
-
-/** Room id passed to Agora — must match this or token/launch is rejected. */
-export function courseIdToRoomUuid(courseId: string): string {
-  return courseId.replace(/-/g, "").slice(0, 16);
 }

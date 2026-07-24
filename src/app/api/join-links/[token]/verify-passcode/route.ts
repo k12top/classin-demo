@@ -125,7 +125,7 @@ export async function POST(
     courseId: course.id,
     linkId: link.id,
   });
-  const roomUuid = courseIdToRoomUuid(course.id);
+  const roomUuid = courseIdToRoomUuid(course.id, course.roomUuid);
   const qs = new URLSearchParams({
     roomUuid,
     roomType: String(course.roomType),

@@ -235,6 +235,7 @@ export default function TeacherCourseDetail({
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleError, setScheduleError] = useState("");
   const [statusSaving, setStatusSaving] = useState(false);
+  const [roomReopening, setRoomReopening] = useState(false);
 
   // Teaching teachers
   const [teacherResults, setTeacherResults] = useState<UserSearchResult[]>([]);
@@ -1022,6 +1023,41 @@ export default function TeacherCourseDetail({
     }
   };
 
+  const handleReopenClassroom = async () => {
+    const confirmed = confirm(
+      locale === "zh-CN"
+        ? "重新开启会创建新的声网房间，当前房间内的用户需要重新进入。是否继续？"
+        : "Reopening creates a new Agora room. Everyone in the current room must re-enter. Continue?",
+    );
+    if (!confirmed) return;
+
+    setRoomReopening(true);
+    try {
+      const res = await fetch(`/api/courses/${course.id}/reopen-room`, {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || t("common.failed"));
+        return;
+      }
+
+      await fetchCourse();
+      alert(
+        locale === "zh-CN"
+          ? "课堂已重新开启，即将进入新房间。"
+          : "The classroom has reopened. Entering the new room now.",
+      );
+      onEnterClassroom();
+    } catch (error) {
+      console.error(error);
+      alert(t("common.failed"));
+    } finally {
+      setRoomReopening(false);
+    }
+  };
+
   const courseShareLinks = joinLinks.filter((link) => link.purpose === "course");
   const liveJoinLinks = joinLinks.filter((link) => link.purpose !== "course");
   const sharingText =
@@ -1362,6 +1398,26 @@ export default function TeacherCourseDetail({
                 ) : (
                   <span className="flex items-center gap-2"><PlayCircle className="h-5 w-5" /> {t("teacherDashboard.btnEnterClass")}</span>
                 )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full rounded-xl border-primary/30 text-primary hover:bg-primary/5"
+                onClick={() => void handleReopenClassroom()}
+                disabled={
+                  roomReopening ||
+                  enterLoading ||
+                  course.status === "cancelled"
+                }
+              >
+                {roomReopening ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                {locale === "zh-CN"
+                  ? "重新开启课堂"
+                  : "Reopen classroom"}
               </Button>
               <div className="flex items-center gap-2">
                 <span className="shrink-0 text-xs font-medium text-muted-foreground">

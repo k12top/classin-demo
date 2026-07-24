@@ -26,6 +26,7 @@ model UserProfile {
 // ── Course ──
 model Course {
   id             String    @id @default(uuid())
+  roomUuid       String?   @unique // Rotatable Agora room ID; null keeps the legacy course-ID fallback
   name           String
   description    String    @default("")
   roomType       Int       @default(0) // 0=一对一, 4=小班, 2=大班, 10=公开课

@@ -84,7 +84,13 @@ export default async function JoinPage({
 
   const course = await prisma.course.findUnique({
     where: { id: resolved.courseId },
-    select: { id: true, name: true, roomType: true, teacherName: true },
+    select: {
+      id: true,
+      roomUuid: true,
+      name: true,
+      roomType: true,
+      teacherName: true,
+    },
   });
   if (!course) {
     redirect(
@@ -129,7 +135,7 @@ export default async function JoinPage({
         courseId: course.id,
         linkId: resolved.linkId,
       });
-      const roomUuid = courseIdToRoomUuid(course.id);
+      const roomUuid = courseIdToRoomUuid(course.id, course.roomUuid);
       const qs = new URLSearchParams({
         roomUuid,
         roomType: String(course.roomType),
@@ -153,9 +159,8 @@ export default async function JoinPage({
 
   await recordJoinLinkUse(resolved.linkId);
 
-  const roomUuid = courseIdToRoomUuid(course.id);
   const qs = new URLSearchParams({
-    roomUuid,
+    roomUuid: access.roomUuid,
     roomType: String(course.roomType),
     roomName: course.name,
     courseId: course.id,

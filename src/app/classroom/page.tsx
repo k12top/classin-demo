@@ -340,10 +340,11 @@ function ClassroomContent() {
       logClassroomDebug("sync class-state", { classState, courseId: cid });
 
       try {
+        const sourceRoomUuid = launchParamsRef.current.roomUuid;
         const res = await fetch(`/api/courses/${cid}/class-state`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ classState }),
+          body: JSON.stringify({ classState, roomUuid: sourceRoomUuid }),
         });
         if (!res.ok) {
           lastSyncedClassStateRef.current = null;

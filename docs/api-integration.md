@@ -304,6 +304,17 @@ Content-Type: application/json
 
 **响应**：同课程详情结构，`status` / `statusLabel` 字段已更新。
 
+### 5.1 重新开启声网课堂
+
+当声网房间已经进入 `afterClass` 或 `close`、但课程仍需继续时，教师可以轮换到一个全新的 `roomUuid`。课程 ID、成员关系及分享链接保持不变，用户重新进入后会自动使用新房间。
+
+```http
+POST /api/courses/{courseId}/reopen-room
+Authorization: Bearer <casdoor_access_token>
+```
+
+该操作会把课程状态更新为 `live`、清空 `endedAt` 和旧房间的 `recordUrl`。如果课程结束时间已经到达，需要先将 `endTime` 修改到未来。
+
 ---
 
 ### 6. 学生留言给老师

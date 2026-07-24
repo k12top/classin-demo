@@ -5,10 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { agoraRoleTypeForClassroomRole } from "@/lib/agora-classroom-role";
 import { buildRoomUserToken } from "@/lib/agora-token";
 import { getSessionFromRequest } from "@/lib/session";
-import {
-  courseIdToRoomUuid,
-  resolveCourseAccess,
-} from "@/lib/course-access";
+import { resolveCourseAccess } from "@/lib/course-access";
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,14 +38,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const expectedRoom = courseIdToRoomUuid(String(courseId));
-    if (String(roomUuid) !== expectedRoom) {
-      return NextResponse.json(
-        { error: "roomUuid does not match this course" },
-        { status: 403 }
-      );
-    }
-
     const access = await resolveCourseAccess(String(courseId), session.userId, {
       shareAccessToken:
         typeof shareAccess === "string" ? shareAccess : undefined,
@@ -58,6 +47,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: access.reason || "Not allowed for this course" },
         { status: access.httpStatus === 404 ? 404 : 403 }
+      );
+    }
+
+    if (String(roomUuid) !== access.roomUuid) {
+      return NextResponse.json(
+        { error: "roomUuid does not match this course" },
+        { status: 403 }
       );
     }
 

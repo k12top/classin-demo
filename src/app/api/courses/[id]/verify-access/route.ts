@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
-import { resolveCourseAccess, courseIdToRoomUuid } from "@/lib/course-access";
+import { resolveCourseAccess } from "@/lib/course-access";
 
 export const dynamic = "force-dynamic";
 
@@ -41,9 +41,8 @@ export async function GET(
     );
   }
 
-  const roomUuid = courseIdToRoomUuid(courseId);
   const qs = new URLSearchParams({
-    roomUuid,
+    roomUuid: access.roomUuid,
     roomType: String(access.roomType),
     roomName: access.roomName,
     courseId,
@@ -58,6 +57,7 @@ export async function GET(
       allowed: true,
       role: access.role,
       courseInfo: {
+        roomUuid: access.roomUuid,
         name: access.roomName,
         roomType: access.roomType,
         teacherName: access.teacherName,

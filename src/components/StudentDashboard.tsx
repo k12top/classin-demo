@@ -238,14 +238,12 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
         return;
       }
 
-      const roomUuid = course.id.replace(/-/g, "").slice(0, 16);
-      const params = new URLSearchParams({
-        roomUuid,
-        roomType: String(course.roomType),
-        roomName: course.name,
-        courseId: course.id,
-      });
-      router.push(`/classroom?${params.toString()}`);
+      if (typeof data.classroomUrl !== "string" || !data.classroomUrl) {
+        alert(t("classroom.verifyFailed"));
+        setEnteringCourseId(null);
+        return;
+      }
+      router.push(data.classroomUrl);
     } catch (err) {
       console.error(err);
       alert(t("classroom.verifyFailed"));

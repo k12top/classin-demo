@@ -129,14 +129,12 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
         return;
       }
 
-      const roomUuid = course.id.replace(/-/g, "").slice(0, 16);
-      const params = new URLSearchParams({
-        roomUuid,
-        roomType: String(course.roomType),
-        roomName: course.name,
-        courseId: course.id,
-      });
-      router.push(`/classroom?${params.toString()}`);
+      if (typeof data.classroomUrl !== "string" || !data.classroomUrl) {
+        setError("verify_failed");
+        setEnterLoading(false);
+        return;
+      }
+      router.push(data.classroomUrl);
     } catch {
       setError("verify_failed");
       setEnterLoading(false);

@@ -1,6 +1,7 @@
 import { CourseStatus, getFinishedDelayMinutes } from "@/lib/course-status";
 import { closeOpenAttendanceSessionsForCourse } from "@/lib/course-attendance";
 import { prisma } from "@/lib/db";
+import { courseIdToRoomUuid } from "@/lib/course-room";
 
 function courseAttendanceCloseTime(
   endTime: Date | null | undefined,
@@ -94,11 +95,11 @@ export async function promoteCoursesIfDue(
         recordUrl: null,
         ...(courseIds?.length ? { id: { in: courseIds } } : {}),
       },
-      select: { id: true, roomType: true },
+      select: { id: true, roomUuid: true, roomType: true },
     });
 
     for (const course of finishedWithoutUrl) {
-      const roomUuid = course.id.replace(/-/g, "").slice(0, 16);
+      const roomUuid = courseIdToRoomUuid(course.id, course.roomUuid);
       const recordUrl = `https://solutions-apaas.agora.io/static/record_page_prod.html?roomUuid=${roomUuid}&roomType=${course.roomType}`;
       await prisma.course.update({
         where: { id: course.id },

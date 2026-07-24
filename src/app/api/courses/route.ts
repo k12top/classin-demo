@@ -15,6 +15,7 @@ import {
   userCanTeachCourse,
   userOwnsCourse,
 } from "@/lib/course-teacher";
+import { generateCourseRoomUuid } from "@/lib/course-room";
 import {
   applyCourseListSort,
   courseListOrderBy,
@@ -396,6 +397,7 @@ export async function POST(request: NextRequest) {
 
     const course = await prisma.course.create({
       data: {
+        roomUuid: generateCourseRoomUuid(),
         name: name.trim(),
         description: description?.trim() || "",
         roomType: roomType ?? 0,

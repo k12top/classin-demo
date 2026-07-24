@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { serializeCourse } from "@/lib/course-serialize";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
 import { canSyncAgoraAfterClass } from "@/lib/classroom-lifecycle";
+import { courseIdToRoomUuid } from "@/lib/course-room";
 import {
   canApplyStatusFromAgora,
   CourseStatus,
@@ -43,6 +44,8 @@ export async function PATCH(
   try {
     const body = await request.json();
     const classState = body?.classState;
+    const sourceRoomUuid =
+      typeof body?.roomUuid === "string" ? body.roomUuid.trim() : "";
 
     if (
       typeof classState !== "number" ||
@@ -54,6 +57,30 @@ export async function PATCH(
         { error: "classState must be an integer 0–3" },
         { status: 400 }
       );
+    }
+
+    const currentRoomUuid = courseIdToRoomUuid(id, existing.roomUuid);
+    const isStaleRoomEvent =
+      (sourceRoomUuid && sourceRoomUuid !== currentRoomUuid) ||
+      (Boolean(existing.roomUuid) && !sourceRoomUuid);
+    if (isStaleRoomEvent) {
+      console.info(
+        "[course-status]",
+        JSON.stringify({
+          action: "ignored",
+          source: "agora-class-state",
+          reason: "stale-room-uuid",
+          courseId: id,
+          classState,
+          sourceRoomUuid: sourceRoomUuid || null,
+          currentRoomUuid,
+          occurredAt: new Date().toISOString(),
+        }),
+      );
+      const promoted = await promoteCourseIfDueById(id);
+      return NextResponse.json({
+        course: serializeCourse(promoted ?? existing),
+      });
     }
 
     const nextStatus = mapAgoraClassStateToCourseStatus(classState);

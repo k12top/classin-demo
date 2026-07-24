@@ -356,15 +356,11 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         alert(data.reason || t("classroom.launchError"));
         return;
       }
-      const roomUuid = course.id.replace(/-/g, "").slice(0, 16);
-      router.push(
-        `/classroom?${new URLSearchParams({
-          roomUuid,
-          roomType: String(course.roomType),
-          roomName: course.name,
-          courseId: course.id,
-        }).toString()}`
-      );
+      if (typeof data.classroomUrl !== "string" || !data.classroomUrl) {
+        alert(t("classroom.launchError"));
+        return;
+      }
+      router.push(data.classroomUrl);
     } catch {
       alert(t("classroom.launchError"));
     } finally {
