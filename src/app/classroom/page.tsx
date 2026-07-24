@@ -835,21 +835,6 @@ export default function ClassroomPage() {
   const { t } = useTranslation();
   return (
     <>
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `
-            if (typeof window !== 'undefined' && !window.require) {
-              window.require = function(moduleName) {
-                if (moduleName === 'agora-electron-sdk' ||
-                     moduleName.indexOf('agora_node_ext') !== -1) {
-                  return {};
-                }
-                return {};
-              };
-            }
-          `,
-        }}
-      />
       <Script
         src={AGORA_EDU_SDK_SRC}
         strategy="afterInteractive"
