@@ -22,9 +22,13 @@ const outputPath = path.join(
 const expectedSourceSha256 =
   "f74dd0b223862a56b91bcbf124c14dd25e7dfaef021b1f68d8f0ef4ab205b5e9";
 const expectedOutputSha256 =
-  "249f6308bc6b72ec29ed780f3fd24743cef833f3d2c4b280dcdf12fe2d339346";
+  "c82a6727ded743b6a948940102e2f74641294d2e582b4cb116cc9d1cd0efc7ca";
 const defaultDurationCode = "get waveArmDurationTime(){return 3}";
 const extendedDurationCode = `get waveArmDurationTime(){return ${handUpDurationSeconds}}`;
+const staleScreenShareCode =
+  "case Hd.ScreenShare:if(this.isScreenSharing)return void this.classroomStore.mediaStore.stopScreenShareCapture();this.startLocalScreenShare();break;";
+const recoveredScreenShareCode =
+  "case Hd.ScreenShare:if(this.isScreenSharing){if(this.classroomStore.roomStore.screenShareUserUuid===r.EduClassroomConfig.shared.sessionInfo.userUuid&&0===this.classroomStore.mediaStore.localScreenShareTrackState)return this._activeCabinetItems.delete(Hd.ScreenShare),this.classroomStore.streamStore.unpublishScreenShare(),void this.startLocalScreenShare();return void this.classroomStore.mediaStore.stopScreenShareCapture()}this.startLocalScreenShare();break;";
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -39,14 +43,23 @@ if (sourceSha256 !== expectedSourceSha256) {
   );
 }
 
-const matches = source.split(defaultDurationCode).length - 1;
-if (matches !== 1) {
+const durationMatches = source.split(defaultDurationCode).length - 1;
+if (durationMatches !== 1) {
   throw new Error(
-    `Expected one hand-up duration default in the Agora SDK, found ${matches}.`
+    `Expected one hand-up duration default in the Agora SDK, found ${durationMatches}.`
   );
 }
 
-const output = source.replace(defaultDurationCode, extendedDurationCode);
+const screenShareMatches = source.split(staleScreenShareCode).length - 1;
+if (screenShareMatches !== 1) {
+  throw new Error(
+    `Expected one screen-share toolbar handler in the Agora SDK, found ${screenShareMatches}.`
+  );
+}
+
+const output = source
+  .replace(defaultDurationCode, extendedDurationCode)
+  .replace(staleScreenShareCode, recoveredScreenShareCode);
 const outputSha256 = sha256(output);
 if (outputSha256 !== expectedOutputSha256) {
   throw new Error(`Unexpected patched Agora SDK bundle (${outputSha256}).`);
@@ -55,5 +68,5 @@ if (outputSha256 !== expectedOutputSha256) {
 await mkdir(path.dirname(outputPath), { recursive: true });
 await writeFile(outputPath, output);
 console.log(
-  `Prepared Agora Classroom SDK ${sdkVersion} with a ${handUpDurationSeconds}s hand-up duration.`
+  `Prepared Agora Classroom SDK ${sdkVersion} with a ${handUpDurationSeconds}s hand-up duration and stale screen-share recovery.`
 );

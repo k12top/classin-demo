@@ -20,7 +20,7 @@ import {
   markClassroomDocumentActive,
   resetDocumentAfterClassroom,
 } from "@/lib/classroom-document";
-import { classroomDurationSeconds } from "@/lib/classroom-lifecycle";
+import { classroomLaunchSchedule } from "@/lib/classroom-lifecycle";
 
 // Type declarations for the CDN-loaded globals
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -672,7 +672,8 @@ function ClassroomContent() {
 
           setStatus("ready");
 
-          const launchDurationSeconds = classroomDurationSeconds(
+          const launchSchedule = classroomLaunchSchedule(
+            verifyData.courseInfo?.startTime,
             verifyData.courseInfo?.endTime,
           );
 
@@ -686,7 +687,8 @@ function ClassroomContent() {
             pretest: true,
             rtmToken: token,
             language: locale === "zh-CN" ? "zh" : "en",
-            duration: launchDurationSeconds,
+            startTime: launchSchedule.startTimeMs,
+            duration: launchSchedule.durationSeconds,
             courseWareList: [],
             mediaOptions: classroomMediaOptions,
             recordUrl: "https://solutions-apaas.agora.io/static/record_page_prod.html",
@@ -736,7 +738,8 @@ function ClassroomContent() {
 
           logClassroomDebug("launch complete", {
             launchKey: effectLaunchKey,
-            durationSeconds: launchDurationSeconds,
+            startTime: new Date(launchSchedule.startTimeMs).toISOString(),
+            durationSeconds: launchSchedule.durationSeconds,
             scheduledEndTime: verifyData.courseInfo?.endTime ?? null,
             visibility: document.visibilityState,
           });
