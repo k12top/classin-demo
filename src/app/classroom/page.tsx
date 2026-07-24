@@ -676,8 +676,34 @@ function ClassroomContent() {
             verifyData.courseInfo?.startTime,
             verifyData.courseInfo?.endTime,
           );
+          const launchEndTimeMs =
+            launchSchedule.startTimeMs +
+            launchSchedule.durationSeconds * 1000;
+          const launchListener = (evt: unknown, ...args: unknown[]) => {
+            try {
+              const { code, classState } = parseClassroomEvent(evt, args);
 
-          const unmount = window.AgoraEduSDK.launch(containerRef.current, {
+              if (
+                code === CLASSROOM_EVT_CLASS_STATE_CHANGED &&
+                classState !== null
+              ) {
+                void syncClassStateToServer(classState);
+                return;
+              }
+
+              if (
+                code === CLASSROOM_EVT_DESTROYED ||
+                code === CLASSROOM_EVT_KICK_OUT
+              ) {
+                leaveClassroom();
+              }
+            } catch {
+              // Swallow errors from classroom event callback — unhandled errors
+              // here crash the React tree and cause Next.js to reload the
+              // entire page (especially when DevTools is closed).
+            }
+          };
+          const launchOptions = {
             userUuid: currentUser.userId,
             userName: currentUser.displayName || currentUser.name,
             roomUuid: ru,
@@ -691,36 +717,55 @@ function ClassroomContent() {
             duration: launchSchedule.durationSeconds,
             courseWareList: [],
             mediaOptions: classroomMediaOptions,
-            recordUrl: "https://solutions-apaas.agora.io/static/record_page_prod.html",
+            recordUrl:
+              "https://solutions-apaas.agora.io/static/record_page_prod.html",
             virtualBackgroundImages: [],
             webrtcExtensionBaseUrl: "https://solutions-apaas.agora.io/static",
             uiMode: "dark",
             widgets,
-            listener: (evt: unknown, ...args: unknown[]) => {
-              try {
-                const { code, classState } = parseClassroomEvent(evt, args);
+            listener: launchListener,
+          };
 
-                if (
-                  code === CLASSROOM_EVT_CLASS_STATE_CHANGED &&
-                  classState !== null
-                ) {
-                  void syncClassStateToServer(classState);
-                  return;
-                }
-
-                if (
-                  code === CLASSROOM_EVT_DESTROYED ||
-                  code === CLASSROOM_EVT_KICK_OUT
-                ) {
-                  leaveClassroom();
-                }
-              } catch {
-                // Swallow errors from classroom event callback — unhandled errors
-                // here crash the React tree and cause Next.js to reload the
-                // entire page (especially when DevTools is closed).
-              }
+          // Snapshot the exact launch payload before Agora receives it. Keep
+          // authentication material redacted so production console logs can be
+          // shared safely when diagnosing room schedule issues.
+          console.info("[classroom:agora-launch]", {
+            loggedAt: new Date().toISOString(),
+            course: {
+              courseId: cid,
+              sourceStartTime: verifyData.courseInfo?.startTime ?? null,
+              sourceEndTime: verifyData.courseInfo?.endTime ?? null,
+            },
+            computedSchedule: {
+              startTimeMs: launchSchedule.startTimeMs,
+              startTimeIso: new Date(
+                launchSchedule.startTimeMs,
+              ).toISOString(),
+              durationSeconds: launchSchedule.durationSeconds,
+              durationMinutes: launchSchedule.durationSeconds / 60,
+              endTimeMs: launchEndTimeMs,
+              endTimeIso: new Date(launchEndTimeMs).toISOString(),
+            },
+            launchOptions: {
+              ...launchOptions,
+              rtmToken: {
+                redacted: true,
+                present: Boolean(token),
+                length: token.length,
+              },
+              widgets: Object.keys(widgets),
+              listener: "[function]",
+            },
+            sdkConfig: {
+              appId,
+              region: "CN",
             },
           });
+
+          const unmount = window.AgoraEduSDK.launch(
+            containerRef.current,
+            launchOptions,
+          );
 
           if (cancelled) {
             try {
