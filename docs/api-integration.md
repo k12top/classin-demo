@@ -39,7 +39,7 @@ Authorization: Bearer <casdoor_access_token>
 - `scheduled` + `live` + `afterClass`：按 `startTime` **升序**；同时间时 `live` > `afterClass` > `scheduled`
 - `finished` / `cancelled`：按 `endTime` **降序**（从近到远）；无 `endTime` 时回退按 `startTime` 降序
 
-**课后延时结束**：课堂下课信号（`afterClass`/`close`）后，课程先进入 `afterClass`（已下课），写入 `endedAt`；默认 **20 分钟** 内仍可进课堂，之后自动变为 `finished`（已结束）。延时可通过环境变量 `COURSE_FINISHED_DELAY_MINUTES` 配置。列表/详情 API 读取时会自动晋升到期课程；可选后台定时任务作兜底。
+**课后延时结束**：课程只会在计划结束时间 `endTime` 加默认 **20 分钟** 后自动变为 `finished`（已结束），延时可通过环境变量 `COURSE_FINISHED_DELAY_MINUTES` 配置。声网的 `afterClass`/`close` 不能提前触发自动结束；计划结束时间前收到的 `afterClass` 会被忽略。列表/详情 API 读取和后台定时任务都会推进已到期课程。
 
 示例：
 
@@ -298,11 +298,9 @@ Content-Type: application/json
 { "status": "cancelled" }
 ```
 
-教师结束课程（兜底，通常由课堂自动同步）：`{ "status": "finished" }`
+教师手动结束课程：`{ "status": "finished" }`。该操作会立即结束课程；自动结束仍以计划结束时间 `endTime` 加延时时间为准。
 
-若仍在课后延时期内，上述请求会将课程设为 `afterClass` 并写入 `endedAt`，到期后自动变为 `finished`。教师可强制立即结束：`{ "status": "finished", "force": true }`
-
-`scheduled` / `live` / `afterClass` 由课堂状态同步，请勿通过 PATCH 手动写入。
+`scheduled` / `live` / `afterClass` 通常由计划时间和课堂状态同步，教师可通过管理页面手动纠正。
 
 **响应**：同课程详情结构，`status` / `statusLabel` 字段已更新。
 
@@ -351,8 +349,8 @@ curl https://your-domain.com/api/courses/{courseId}/verify-access \
 
 项目已配置定时任务，每 **1 分钟** 后台自动触发一次 `/api/cron/promote-course-status`：
 
-1. **自动状态更新**：所有的课程状态流转（`scheduled` -> `live`, `afterClass` -> `finished`）已改为完全通过后台定时任务进行更新。
-2. **读性能优化**：读取课程列表 (`GET /api/courses`) 及详情 (`GET /api/courses/{id}`) 接口中已**移除了同步更新机制**，不再做同步数据库写操作。这极大地加快了查询响应速度，彻底避免了由于大批量数据同步导致接口 504 发生。
+1. **自动状态更新**：定时任务负责将到达开始时间的课程推进为 `live`，并在 `endTime + COURSE_FINISHED_DELAY_MINUTES` 后推进为 `finished`。
+2. **请求时兜底**：读取课程列表、详情或校验课堂访问权限时也会推进当前涉及的到期课程，避免定时任务延迟造成状态滞后。
 3. **本地开发测试**：开发环境可直接访问 `http://localhost:3000/api/cron/promote-course-status`（本地开发已跳过 `CRON_SECRET` 校验）来手动触发状态更新。
 
 

@@ -26,6 +26,8 @@ export type CourseAccessOk = {
   roomType: number;
   roomName: string;
   teacherName: string;
+  startTime: Date | null;
+  endTime: Date | null;
 };
 
 export type CourseAccessResult = CourseAccessOk | CourseAccessDenied;
@@ -134,6 +136,8 @@ export async function resolveCourseAccess(
         roomType: course.roomType,
         roomName: course.name,
         teacherName: course.teacherName,
+        startTime: course.startTime,
+        endTime: course.endTime,
       };
     }
 
@@ -149,6 +153,8 @@ export async function resolveCourseAccess(
         roomType: course.roomType,
         roomName: course.name,
         teacherName: course.teacherName,
+        startTime: course.startTime,
+        endTime: course.endTime,
       };
     }
 
@@ -171,6 +177,8 @@ export async function resolveCourseAccess(
         roomType: course.roomType,
         roomName: course.name,
         teacherName: course.teacherName,
+        startTime: course.startTime,
+        endTime: course.endTime,
       };
     }
 
@@ -185,6 +193,8 @@ export async function resolveCourseAccess(
         roomType: course.roomType,
         roomName: course.name,
         teacherName: course.teacherName,
+        startTime: course.startTime,
+        endTime: course.endTime,
       };
     }
 
@@ -195,6 +205,8 @@ export async function resolveCourseAccess(
         roomType: course.roomType,
         roomName: course.name,
         teacherName: course.teacherName,
+        startTime: course.startTime,
+        endTime: course.endTime,
       };
     }
 

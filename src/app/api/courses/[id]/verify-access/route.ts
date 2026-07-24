@@ -61,6 +61,8 @@ export async function GET(
         name: access.roomName,
         roomType: access.roomType,
         teacherName: access.teacherName,
+        startTime: access.startTime?.toISOString() ?? null,
+        endTime: access.endTime?.toISOString() ?? null,
       },
       classroomUrl,
     },

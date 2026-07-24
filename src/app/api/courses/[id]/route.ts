@@ -283,6 +283,20 @@ export async function PUT(
         });
       }
 
+      if (finalStatus !== undefined && finalStatus !== existing.status) {
+        console.info(
+          "[course-status]",
+          JSON.stringify({
+            action: "applied",
+            source: "manual-course-put",
+            courseId: id,
+            previousStatus: existing.status,
+            nextStatus: finalStatus,
+            occurredAt: new Date().toISOString(),
+          }),
+        );
+      }
+
     const promoted = await promoteCourseIfDueById(id);
     const course =
       (await prisma.course.findUnique({
@@ -388,6 +402,23 @@ export async function PATCH(
       where: { id },
       data: dataToUpdate,
     });
+
+    if (
+      typeof dataToUpdate.status === "string" &&
+      dataToUpdate.status !== existing.status
+    ) {
+      console.info(
+        "[course-status]",
+        JSON.stringify({
+          action: "applied",
+          source: "manual-course-patch",
+          courseId: id,
+          previousStatus: existing.status,
+          nextStatus: dataToUpdate.status,
+          occurredAt: new Date().toISOString(),
+        }),
+      );
+    }
 
     if (dataToUpdate.status === CourseStatus.FINISHED) {
       await closeOpenAttendanceSessionsForCourse(

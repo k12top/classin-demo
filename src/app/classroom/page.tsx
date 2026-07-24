@@ -20,6 +20,7 @@ import {
   markClassroomDocumentActive,
   resetDocumentAfterClassroom,
 } from "@/lib/classroom-document";
+import { classroomDurationSeconds } from "@/lib/classroom-lifecycle";
 
 // Type declarations for the CDN-loaded globals
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -670,6 +671,10 @@ function ClassroomContent() {
 
           setStatus("ready");
 
+          const launchDurationSeconds = classroomDurationSeconds(
+            verifyData.courseInfo?.endTime,
+          );
+
           const unmount = window.AgoraEduSDK.launch(containerRef.current, {
             userUuid: currentUser.userId,
             userName: currentUser.displayName || currentUser.name,
@@ -680,7 +685,7 @@ function ClassroomContent() {
             pretest: true,
             rtmToken: token,
             language: locale === "zh-CN" ? "zh" : "en",
-            duration: 60 * 30, // 30 minutes
+            duration: launchDurationSeconds,
             courseWareList: [],
             mediaOptions: classroomMediaOptions,
             recordUrl: "https://solutions-apaas.agora.io/static/record_page_prod.html",
@@ -730,6 +735,8 @@ function ClassroomContent() {
 
           logClassroomDebug("launch complete", {
             launchKey: effectLaunchKey,
+            durationSeconds: launchDurationSeconds,
+            scheduledEndTime: verifyData.courseInfo?.endTime ?? null,
             visibility: document.visibilityState,
           });
         } catch (err) {

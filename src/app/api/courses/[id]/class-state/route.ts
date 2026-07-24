@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serializeCourse } from "@/lib/course-serialize";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
+import { canSyncAgoraAfterClass } from "@/lib/classroom-lifecycle";
 import {
   canApplyStatusFromAgora,
   CourseStatus,
@@ -84,6 +85,28 @@ export async function PATCH(
         });
       }
 
+      const statusEventTime = new Date();
+      if (!canSyncAgoraAfterClass(existing.endTime, statusEventTime)) {
+        console.info(
+          "[course-status]",
+          JSON.stringify({
+            action: "ignored",
+            source: "agora-class-state",
+            reason: "before-scheduled-end",
+            courseId: id,
+            classState,
+            previousStatus: existing.status,
+            requestedStatus: nextStatus,
+            scheduledEndTime: existing.endTime?.toISOString() ?? null,
+            occurredAt: statusEventTime.toISOString(),
+          }),
+        );
+        const promoted = await promoteCourseIfDueById(id);
+        return NextResponse.json({
+          course: serializeCourse(promoted ?? existing),
+        });
+      }
+
       if (canApplyStatusFromAgora(existing.status, nextStatus)) {
         await prisma.course.update({
           where: { id },
@@ -92,6 +115,19 @@ export async function PATCH(
             endedAt: existing.endedAt ?? new Date(),
           },
         });
+        console.info(
+          "[course-status]",
+          JSON.stringify({
+            action: "applied",
+            source: "agora-class-state",
+            courseId: id,
+            classState,
+            previousStatus: existing.status,
+            nextStatus,
+            scheduledEndTime: existing.endTime?.toISOString() ?? null,
+            occurredAt: statusEventTime.toISOString(),
+          }),
+        );
       }
 
       const promoted = await promoteCourseIfDueById(id);
@@ -114,6 +150,18 @@ export async function PATCH(
       where: { id },
       data: { status: nextStatus },
     });
+    console.info(
+      "[course-status]",
+      JSON.stringify({
+        action: "applied",
+        source: "agora-class-state",
+        courseId: id,
+        classState,
+        previousStatus: existing.status,
+        nextStatus,
+        occurredAt: new Date().toISOString(),
+      }),
+    );
 
     const promoted = await promoteCourseIfDueById(id);
     return NextResponse.json({

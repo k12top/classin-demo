@@ -36,6 +36,24 @@ export async function promoteCoursesIfDue(
     data: { status: CourseStatus.FINISHED },
   });
 
+  if (resultScheduledEnd.count > 0) {
+    console.info(
+      "[course-status]",
+      JSON.stringify({
+        action: "applied",
+        source: "scheduled-end-promotion",
+        nextStatus: CourseStatus.FINISHED,
+        delayMinutes,
+        threshold: threshold.toISOString(),
+        courses: coursesToFinish.map((course) => ({
+          courseId: course.id,
+          scheduledEndTime: course.endTime?.toISOString() ?? null,
+        })),
+        occurredAt: now.toISOString(),
+      }),
+    );
+  }
+
   for (const course of coursesToFinish) {
     await closeOpenAttendanceSessionsForCourse(
       course.id,
@@ -52,6 +70,20 @@ export async function promoteCoursesIfDue(
     },
     data: { status: CourseStatus.LIVE },
   });
+
+  if (resultScheduledStart.count > 0) {
+    console.info(
+      "[course-status]",
+      JSON.stringify({
+        action: "applied",
+        source: "scheduled-start-promotion",
+        nextStatus: CourseStatus.LIVE,
+        affectedCount: resultScheduledStart.count,
+        requestedCourseIds: courseIds ?? null,
+        occurredAt: now.toISOString(),
+      }),
+    );
+  }
 
   // 4. Auto-generate recordUrl for finished courses if recording is enabled
   const isRecordingEnabled = process.env.NEXT_PUBLIC_AGORA_RECORDING_ENABLED === "true";

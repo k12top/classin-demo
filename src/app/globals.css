@@ -86,7 +86,6 @@
 .classroom-container {
   position: fixed;
   inset: 0;
-  z-index: 9990;
   width: 100vw;
   width: 100dvw;
   height: 100vh;
@@ -98,7 +97,6 @@
   overflow: hidden;
   margin: 0 !important;
   padding: 0 !important;
-  isolation: isolate;
   background: #262626;
 }
 
