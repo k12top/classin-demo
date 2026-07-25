@@ -8,6 +8,7 @@ type CourseTime = Date | string | null | undefined;
 export type ClassroomLaunchSchedule = {
   startTimeMs: number;
   durationSeconds: number;
+  closeDelaySeconds: number;
 };
 
 function toValidDate(value: CourseTime): Date | null {
@@ -40,10 +41,9 @@ export function classroomDurationSeconds(
 }
 
 /**
- * Build the immutable schedule Agora stores when the first user creates a
- * room. When both course times are valid, duration must be the full interval
- * from the configured start through end time plus the 20-minute overtime
- * allowance — not the remaining time when a user happens to enter.
+ * Build the immutable schedule Agora stores for a room. `duration` represents
+ * the configured teaching interval; Agora's separate `closeDelay` represents
+ * the 20-minute overtime allowance.
  */
 export function classroomLaunchSchedule(
   startTime: CourseTime,
@@ -56,10 +56,7 @@ export function classroomLaunchSchedule(
 
   const configuredDurationSeconds =
     end && end.getTime() > start.getTime()
-      ? Math.ceil(
-          (end.getTime() - start.getTime()) / 1000 +
-            CLASSROOM_OVERTIME_ALLOWANCE_SECONDS,
-        )
+      ? Math.ceil((end.getTime() - start.getTime()) / 1000)
       : DEFAULT_CLASSROOM_DURATION_SECONDS;
 
   return {
@@ -68,6 +65,7 @@ export function classroomLaunchSchedule(
       MAX_CLASSROOM_DURATION_SECONDS,
       Math.max(MIN_CLASSROOM_DURATION_SECONDS, configuredDurationSeconds),
     ),
+    closeDelaySeconds: CLASSROOM_OVERTIME_ALLOWANCE_SECONDS,
   };
 }
 
@@ -89,4 +87,5 @@ export const classroomLifecycleDefaults = {
   minimumDurationSeconds: MIN_CLASSROOM_DURATION_SECONDS,
   maximumDurationSeconds: MAX_CLASSROOM_DURATION_SECONDS,
   overtimeAllowanceSeconds: CLASSROOM_OVERTIME_ALLOWANCE_SECONDS,
+  closeDelaySeconds: CLASSROOM_OVERTIME_ALLOWANCE_SECONDS,
 } as const;

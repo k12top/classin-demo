@@ -14,7 +14,7 @@ loadEnvConfig(packageDir);
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
-  serverExternalPackages: ["ali-oss"],
+  serverExternalPackages: ["agora-token", "ali-oss"],
 
   async headers() {
     return [

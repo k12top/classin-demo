@@ -25,3 +25,13 @@ declare module "agora-token/src/ApaasTokenBuilder" {
     ): string;
   }
 }
+
+declare module "agora-token/src/EducationTokenBuilder" {
+  export class EducationTokenBuilder {
+    static buildAppToken(
+      appId: string,
+      appCertificate: string,
+      expire: number
+    ): string;
+  }
+}

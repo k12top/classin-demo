@@ -641,7 +641,8 @@ function ClassroomContent() {
             throw new Error(err.error || "Token 获取失败");
           }
 
-          const { token, appId } = await tokenRes.json();
+          const { token, appId, roomSchedule: serverRoomSchedule } =
+            await tokenRes.json();
 
           window.AgoraEduSDK.config({
             appId,
@@ -679,6 +680,8 @@ function ClassroomContent() {
           const launchEndTimeMs =
             launchSchedule.startTimeMs +
             launchSchedule.durationSeconds * 1000;
+          const launchCloseTimeMs =
+            launchEndTimeMs + launchSchedule.closeDelaySeconds * 1000;
           const launchListener = (evt: unknown, ...args: unknown[]) => {
             try {
               const { code, classState } = parseClassroomEvent(evt, args);
@@ -743,9 +746,14 @@ function ClassroomContent() {
               ).toISOString(),
               durationSeconds: launchSchedule.durationSeconds,
               durationMinutes: launchSchedule.durationSeconds / 60,
+              closeDelaySeconds: launchSchedule.closeDelaySeconds,
+              closeDelayMinutes: launchSchedule.closeDelaySeconds / 60,
               endTimeMs: launchEndTimeMs,
               endTimeIso: new Date(launchEndTimeMs).toISOString(),
+              closeTimeMs: launchCloseTimeMs,
+              closeTimeIso: new Date(launchCloseTimeMs).toISOString(),
             },
+            serverRoomSchedule: serverRoomSchedule ?? null,
             launchOptions: {
               ...launchOptions,
               rtmToken: {

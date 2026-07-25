@@ -3,6 +3,11 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { agoraRoleTypeForClassroomRole } from "@/lib/agora-classroom-role";
+import {
+  AgoraClassroomRestError,
+  AgoraClassroomScheduleConflictError,
+  ensureAgoraClassroom,
+} from "@/lib/agora-classroom-rest";
 import { buildRoomUserToken } from "@/lib/agora-token";
 import { getSessionFromRequest } from "@/lib/session";
 import { resolveCourseAccess } from "@/lib/course-access";
@@ -57,6 +62,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const roomSchedule = await ensureAgoraClassroom({
+      roomUuid: access.roomUuid,
+      roomName: access.roomName,
+      roomType: access.roomType,
+      startTime: access.startTime,
+      endTime: access.endTime,
+    });
+
     const role = agoraRoleTypeForClassroomRole(access.role);
 
     const appId = process.env.AGORA_APP_ID;
@@ -92,8 +105,40 @@ export async function POST(request: NextRequest) {
       classroomUrl,
       role: access.role,
       roleType: role,
+      roomSchedule,
     });
   } catch (error) {
+    if (error instanceof AgoraClassroomScheduleConflictError) {
+      console.error("[classroom:agora-room] schedule conflict", {
+        roomUuid: error.roomUuid,
+        expected: error.expected,
+        actual: error.actual,
+      });
+      return NextResponse.json(
+        {
+          error:
+            "声网课堂已使用错误的课程时长创建，请由老师重新开启课堂后再进入",
+          code: "agora_room_schedule_conflict",
+        },
+        { status: 409 },
+      );
+    }
+
+    if (error instanceof AgoraClassroomRestError) {
+      console.error("[classroom:agora-room] REST failure", {
+        message: error.message,
+        status: error.status,
+        agoraCode: error.agoraCode,
+      });
+      return NextResponse.json(
+        {
+          error: "暂时无法准备声网课堂，请稍后重试",
+          code: "agora_room_prepare_failed",
+        },
+        { status: 503 },
+      );
+    }
+
     console.error("Token generation error:", error);
     return NextResponse.json(
       { error: "Failed to generate token" },

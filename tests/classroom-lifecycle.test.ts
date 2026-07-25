@@ -36,7 +36,8 @@ const configuredSchedule = classroomLaunchSchedule(
 );
 assert.deepEqual(configuredSchedule, {
   startTimeMs: now.getTime(),
-  durationSeconds: 110 * 60,
+  durationSeconds: 90 * 60,
+  closeDelaySeconds: 20 * 60,
 });
 
 const scheduleWithoutStart = classroomLaunchSchedule(
@@ -46,7 +47,8 @@ const scheduleWithoutStart = classroomLaunchSchedule(
 );
 assert.deepEqual(scheduleWithoutStart, {
   startTimeMs: now.getTime(),
-  durationSeconds: 110 * 60,
+  durationSeconds: 90 * 60,
+  closeDelaySeconds: 20 * 60,
 });
 
 const scheduleWithoutEnd = classroomLaunchSchedule(
@@ -57,6 +59,7 @@ const scheduleWithoutEnd = classroomLaunchSchedule(
 assert.deepEqual(scheduleWithoutEnd, {
   startTimeMs: now.getTime(),
   durationSeconds: classroomLifecycleDefaults.durationSeconds,
+  closeDelaySeconds: 20 * 60,
 });
 
 const scheduleOverAgoraLimit = classroomLaunchSchedule(
@@ -67,6 +70,7 @@ const scheduleOverAgoraLimit = classroomLaunchSchedule(
 assert.deepEqual(scheduleOverAgoraLimit, {
   startTimeMs: now.getTime(),
   durationSeconds: classroomLifecycleDefaults.maximumDurationSeconds,
+  closeDelaySeconds: 20 * 60,
 });
 
 assert.equal(
