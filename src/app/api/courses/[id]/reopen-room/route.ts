@@ -1,5 +1,5 @@
 /**
- * Rotate a course to a fresh Agora room while keeping the course and share
+ * Rotate a course to a fresh classroom session while keeping the course and share
  * links stable.
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -81,7 +81,7 @@ export async function POST(
       course: serializeCourse(course),
     });
   } catch (error) {
-    console.error("Failed to reopen Agora room:", error);
+    console.error("Failed to reopen classroom session:", error);
     return NextResponse.json(
       { error: "Failed to reopen classroom" },
       { status: 500 },

@@ -11,6 +11,15 @@ export type ClassroomLaunchSchedule = {
   closeDelaySeconds: number;
 };
 
+export type ExistingClassroomSchedule = {
+  state?: number;
+  startTime?: number;
+  duration?: number;
+  closeDelay?: number;
+  endTime?: number;
+  closeTime?: number;
+};
+
 function toValidDate(value: CourseTime): Date | null {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
@@ -67,6 +76,53 @@ export function classroomLaunchSchedule(
     ),
     closeDelaySeconds: CLASSROOM_OVERTIME_ALLOWANCE_SECONDS,
   };
+}
+
+/**
+ * Compare an existing room schedule with the course schedule after normalizing
+ * both supported response shapes. Existing rooms commonly return
+ * `startTime`, `duration`, and `closeDelay`; some responses may instead expose
+ * the derived `endTime` and `closeTime` values.
+ */
+export function classroomSchedulesMatch(
+  expected: ClassroomLaunchSchedule,
+  actual: ExistingClassroomSchedule | null | undefined,
+  toleranceMs = 2_000,
+): boolean {
+  if (typeof actual?.startTime !== "number") {
+    return false;
+  }
+
+  const actualEndTime =
+    typeof actual.endTime === "number"
+      ? actual.endTime
+      : typeof actual.duration === "number"
+        ? actual.startTime + actual.duration * 1000
+        : null;
+  if (actualEndTime === null) {
+    return false;
+  }
+
+  const actualCloseTime =
+    typeof actual.closeTime === "number"
+      ? actual.closeTime
+      : typeof actual.closeDelay === "number"
+        ? actualEndTime + actual.closeDelay * 1000
+        : null;
+  if (actualCloseTime === null) {
+    return false;
+  }
+
+  const expectedEndTime =
+    expected.startTimeMs + expected.durationSeconds * 1000;
+  const expectedCloseTime =
+    expectedEndTime + expected.closeDelaySeconds * 1000;
+
+  return (
+    Math.abs(actual.startTime - expected.startTimeMs) <= toleranceMs &&
+    Math.abs(actualEndTime - expectedEndTime) <= toleranceMs &&
+    Math.abs(actualCloseTime - expectedCloseTime) <= toleranceMs
+  );
 }
 
 /**

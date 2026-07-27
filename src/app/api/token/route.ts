@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     if (error instanceof AgoraClassroomScheduleConflictError) {
-      console.error("[classroom:agora-room] schedule conflict", {
+      console.error("[classroom:room] schedule conflict", {
         roomUuid: error.roomUuid,
         expected: error.expected,
         actual: error.actual,
@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "声网课堂已使用错误的课程时长创建，请由老师重新开启课堂后再进入",
+            "课堂配置与课程时间不一致，请由老师重新开启课堂后再进入",
           code: "agora_room_schedule_conflict",
         },
         { status: 409 },
@@ -125,14 +125,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (error instanceof AgoraClassroomRestError) {
-      console.error("[classroom:agora-room] REST failure", {
+      console.error("[classroom:room] service failure", {
         message: error.message,
         status: error.status,
         agoraCode: error.agoraCode,
       });
       return NextResponse.json(
         {
-          error: "暂时无法准备声网课堂，请稍后重试",
+          error: "暂时无法准备课堂，请稍后重试",
           code: "agora_room_prepare_failed",
         },
         { status: 503 },

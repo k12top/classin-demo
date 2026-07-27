@@ -4,6 +4,7 @@ import {
   classroomDurationSeconds,
   classroomLaunchSchedule,
   classroomLifecycleDefaults,
+  classroomSchedulesMatch,
 } from "../src/lib/classroom-lifecycle";
 
 const now = new Date("2026-07-24T08:00:00.000Z");
@@ -39,6 +40,40 @@ assert.deepEqual(configuredSchedule, {
   durationSeconds: 90 * 60,
   closeDelaySeconds: 20 * 60,
 });
+
+assert.equal(
+  classroomSchedulesMatch(configuredSchedule, {
+    state: 1,
+    startTime: configuredSchedule.startTimeMs,
+    duration: configuredSchedule.durationSeconds,
+    closeDelay: configuredSchedule.closeDelaySeconds,
+  }),
+  true,
+);
+
+assert.equal(
+  classroomSchedulesMatch(configuredSchedule, {
+    startTime: configuredSchedule.startTimeMs,
+    endTime:
+      configuredSchedule.startTimeMs +
+      configuredSchedule.durationSeconds * 1000,
+    closeTime:
+      configuredSchedule.startTimeMs +
+      (configuredSchedule.durationSeconds +
+        configuredSchedule.closeDelaySeconds) *
+        1000,
+  }),
+  true,
+);
+
+assert.equal(
+  classroomSchedulesMatch(configuredSchedule, {
+    startTime: configuredSchedule.startTimeMs,
+    duration: configuredSchedule.durationSeconds + 60,
+    closeDelay: configuredSchedule.closeDelaySeconds,
+  }),
+  false,
+);
 
 const scheduleWithoutStart = classroomLaunchSchedule(
   null,

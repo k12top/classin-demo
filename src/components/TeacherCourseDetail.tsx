@@ -1026,8 +1026,8 @@ export default function TeacherCourseDetail({
   const handleReopenClassroom = async () => {
     const confirmed = confirm(
       locale === "zh-CN"
-        ? "重新开启会创建新的声网房间，当前房间内的用户需要重新进入。是否继续？"
-        : "Reopening creates a new Agora room. Everyone in the current room must re-enter. Continue?",
+        ? "重新开启会创建新的课堂房间，当前房间内的用户需要重新进入。是否继续？"
+        : "Reopening creates a fresh classroom session. Everyone in the current room must re-enter. Continue?",
     );
     if (!confirmed) return;
 

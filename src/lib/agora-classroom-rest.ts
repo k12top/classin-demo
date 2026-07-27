@@ -3,22 +3,17 @@ import "server-only";
 import { EducationTokenBuilder } from "agora-token/src/EducationTokenBuilder";
 import {
   classroomLaunchSchedule,
+  classroomSchedulesMatch,
+  type ExistingClassroomSchedule,
   type ClassroomLaunchSchedule,
 } from "@/lib/classroom-lifecycle";
 
 const AGORA_CLASSROOM_REGION = "cn";
 const AGORA_REST_TOKEN_TTL_SECONDS = 5 * 60;
 const AGORA_REST_TIMEOUT_MS = 10_000;
-const SCHEDULE_TOLERANCE_MS = 2_000;
-
 type CourseTime = Date | string | null | undefined;
 
-type AgoraRoomSchedule = {
-  state?: number;
-  startTime?: number;
-  endTime?: number;
-  closeTime?: number;
-};
+type AgoraRoomSchedule = ExistingClassroomSchedule;
 
 type AgoraRoomData = {
   roomName?: string;
@@ -81,7 +76,7 @@ export class AgoraClassroomScheduleConflictError extends Error {
     readonly actual: AgoraRoomSchedule | null,
   ) {
     super(
-      "Agora classroom already exists with a different schedule; reopen the course to create a new room",
+      "The existing classroom schedule does not match the configured course schedule",
     );
     this.name = "AgoraClassroomScheduleConflictError";
   }
@@ -91,7 +86,7 @@ function requiredAgoraEnv(name: "AGORA_APP_ID" | "AGORA_APP_CERTIFICATE") {
   const value = process.env[name]?.trim();
   if (!value) {
     throw new AgoraClassroomRestError(
-      `Agora classroom REST is not configured: missing ${name}`,
+      `Classroom service is not configured: missing ${name}`,
     );
   }
   return value;
@@ -118,26 +113,6 @@ function buildExpectedSchedule(
   };
 }
 
-function scheduleMatches(
-  expected: AgoraClassroomSchedule,
-  actual: AgoraRoomSchedule | null | undefined,
-): boolean {
-  if (
-    typeof actual?.startTime !== "number" ||
-    typeof actual.endTime !== "number" ||
-    typeof actual.closeTime !== "number"
-  ) {
-    return false;
-  }
-
-  return (
-    Math.abs(actual.startTime - expected.startTimeMs) <=
-      SCHEDULE_TOLERANCE_MS &&
-    Math.abs(actual.endTime - expected.endTimeMs) <= SCHEDULE_TOLERANCE_MS &&
-    Math.abs(actual.closeTime - expected.closeTimeMs) <= SCHEDULE_TOLERANCE_MS
-  );
-}
-
 async function requestAgoraRoom(
   method: "GET" | "POST",
   url: string,
@@ -158,7 +133,7 @@ async function requestAgoraRoom(
     });
   } catch (error) {
     throw new AgoraClassroomRestError(
-      `Failed to reach Agora classroom REST: ${
+      `Failed to reach classroom service: ${
         error instanceof Error ? error.message : "unknown network error"
       }`,
     );
@@ -171,7 +146,7 @@ async function requestAgoraRoom(
       responseBody = JSON.parse(responseText) as AgoraRestResponse;
     } catch {
       throw new AgoraClassroomRestError(
-        "Agora classroom REST returned an invalid response",
+        "Classroom service returned an invalid response",
         response.status,
       );
     }
@@ -190,7 +165,7 @@ function assertMatchingRoom(
   result: AgoraRestResult,
 ): EnsureAgoraClassroomResult {
   const actualSchedule = result.body.data?.roomProperties?.schedule ?? null;
-  if (!result.ok || !scheduleMatches(expected, actualSchedule)) {
+  if (!result.ok || !classroomSchedulesMatch(expected, actualSchedule)) {
     if (result.ok) {
       throw new AgoraClassroomScheduleConflictError(
         roomUuid,
@@ -199,7 +174,7 @@ function assertMatchingRoom(
       );
     }
     throw new AgoraClassroomRestError(
-      result.body.msg || "Failed to query Agora classroom",
+      result.body.msg || "Failed to query classroom",
       result.status,
       result.body.code,
     );
@@ -245,7 +220,7 @@ export async function ensureAgoraClassroom(
     existing.status === 404 || existing.body.code === 20404100;
   if (!roomMissing) {
     throw new AgoraClassroomRestError(
-      existing.body.msg || "Failed to query Agora classroom",
+      existing.body.msg || "Failed to query classroom",
       existing.status,
       existing.body.code,
     );
@@ -287,7 +262,7 @@ export async function ensureAgoraClassroom(
   }
 
   throw new AgoraClassroomRestError(
-    created.body.msg || "Failed to create Agora classroom",
+    created.body.msg || "Failed to create classroom",
     created.status,
     created.body.code,
   );
