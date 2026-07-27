@@ -1,911 +1,656 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
-import { classroomMediaOptions } from "@/lib/classroom-media";
-import Link from "next/link";
-import Script from "next/script";
-import { ShieldCheck, BookOpen, Video, AlertCircle } from "lucide-react";
 import {
-  agoraRoleTypeForClassroomRole,
-  isClassroomAccessRole,
-} from "@/lib/agora-classroom-role";
-import { useAuth } from "@/lib/auth-context";
-import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
-import { redirectToSsoLogin } from "@/lib/auth-login";
-import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
-import { useTranslation } from "@/lib/i18n/context";
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  Suspense,
+} from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  AlertCircle,
+  CircleStop,
+  LogOut,
+  Maximize2,
+  Mic,
+  MicOff,
+  MonitorUp,
+  Presentation,
+  Radio,
+  ScreenShareOff,
+  Users,
+  Video,
+  VideoOff,
+  Wifi,
+} from "lucide-react";
 import { PageLoadingState } from "@/components/ui/page-loading-state";
-import {
-  markClassroomDocumentActive,
-  resetDocumentAfterClassroom,
-} from "@/lib/classroom-document";
-import { classroomLaunchSchedule } from "@/lib/classroom-lifecycle";
+import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
+import { redirectToSsoLogin } from "@/lib/auth-login";
+import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
+import { useAuth } from "@/lib/auth-context";
+import { createClassroomMediaProvider } from "@/lib/classroom/client/provider-factory";
+import type {
+  ClassroomMediaProvider,
+  ClassroomMediaSnapshot,
+  ClassroomParticipant,
+  ClassroomSessionResponse,
+} from "@/lib/classroom/types";
+import { useTranslation } from "@/lib/i18n/context";
 
-// Type declarations for the CDN-loaded globals
-/* eslint-disable @typescript-eslint/no-explicit-any */
-declare global {
-  interface Window {
-    AgoraEduSDK: any;
-    AgoraSelector: any;
-    AgoraCountdown: any;
-    AgoraHXChatWidget: any;
-    FcrStreamMediaPlayerWidget: any;
-    AgoraPolling: any;
-    FcrWatermarkWidget: any;
-    FcrWebviewWidget: any;
-    FcrBoardWidget: any;
-    globalStore?: AgoraClassroomGlobalStore;
-  }
-}
-/* eslint-enable @typescript-eslint/no-explicit-any */
+type LoadingState = "loading" | "ready" | "error";
 
-type AgoraClassroomGlobalStore = {
-  classroomStore?: {
-    mediaStore?: {
-      localScreenShareTrackState?: number;
-      stopScreenShareCapture?: () => void;
-    };
-    roomStore?: {
-      isScreenSharing?: boolean;
-      screenShareUserUuid?: string;
-    };
-    streamStore?: {
-      unpublishScreenShare?: () => Promise<void> | void;
-    };
-  };
+const EMPTY_MEDIA_SNAPSHOT: ClassroomMediaSnapshot = {
+  connectionState: "idle",
+  participants: [],
+  local: {
+    microphoneOn: false,
+    cameraOn: false,
+    screenSharing: false,
+  },
+  focusedParticipantId: null,
 };
 
-/** External classroom events. */
-const CLASSROOM_EVT_DESTROYED = 2;
-const CLASSROOM_EVT_KICK_OUT = 101;
-const CLASSROOM_EVT_CLASS_STATE_CHANGED = 202;
-const AGORA_EDU_SDK_SRC =
-  "/vendor/edu_sdk-2.9.40-hand-up-10s.bundle.js";
-
-function parseClassroomEvent(
-  evt: unknown,
-  args: unknown[],
-): { code: number | null; classState: number | null } {
-  let code: number | null = null;
-  let classState: number | null = null;
-
-  if (typeof evt === "number") {
-    code = evt;
-  } else if (typeof evt === "object" && evt !== null) {
-    const o = evt as Record<string, unknown>;
-    if (typeof o.type === "number") code = o.type;
-    if (typeof o.classState === "number") classState = o.classState;
-    if (typeof o.state === "number") classState = o.state;
-  }
-
-  if (code === CLASSROOM_EVT_CLASS_STATE_CHANGED && classState === null) {
-    const first = args[0];
-    if (typeof first === "number") {
-      classState = first;
-    } else if (typeof first === "object" && first !== null) {
-      const a = first as Record<string, unknown>;
-      if (typeof a.classState === "number") classState = a.classState;
-      if (typeof a.state === "number") classState = a.state;
-    }
-  }
-
-  return { code, classState };
-}
-
-function waitForSDK(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let attempts = 0;
-    const maxAttempts = 50; // 10 seconds max
-    const check = () => {
-      if (window.AgoraEduSDK) {
-        resolve();
-      } else if (attempts >= maxAttempts) {
-        reject(new Error("classroom.sdkTimeout"));
-      } else {
-        attempts++;
-        setTimeout(check, 200);
-      }
-    };
-    check();
-  });
-}
-
-function buildLaunchKey(
-  courseId: string,
-  roomUuid: string,
-  userId: string,
-  shareAccess: string,
-): string {
-  return `${courseId}|${roomUuid}|${userId}|${shareAccess}`;
-}
-
-function stopScreenShareBeforeTeardown(userId: string): void {
-  const classroomStore = window.globalStore?.classroomStore;
-  if (!classroomStore) return;
-
-  const isOwnScreenShare =
-    classroomStore.roomStore?.isScreenSharing === true &&
-    classroomStore.roomStore.screenShareUserUuid === userId;
-
-  // Stop the server-side share before the SDK store is destroyed. This call is
-  // intentionally started without awaiting it so it can also run in pagehide.
-  if (isOwnScreenShare) {
-    try {
-      void Promise.resolve(
-        classroomStore.streamStore?.unpublishScreenShare?.(),
-      ).catch(() => undefined);
-    } catch {
-      // The normal SDK teardown below remains the fallback.
-    }
-  }
-
-  try {
-    classroomStore.mediaStore?.stopScreenShareCapture?.();
-  } catch {
-    // The track may already have been released by the browser.
-  }
-}
-
-function ClassroomWelcomeLoader({
-  status,
-  roomName,
-  t,
+function VideoSurface({
+  participant,
+  provider,
+  selected,
+  onSelect,
+  compact = false,
 }: {
-  status: "verifying" | "loading";
-  roomName: string;
-  t: (key: string) => string;
+  participant: ClassroomParticipant;
+  provider: ClassroomMediaProvider;
+  selected: boolean;
+  onSelect: () => void;
+  compact?: boolean;
 }) {
-  const [progress, setProgress] = useState(status === "verifying" ? 18 : 48);
-  const isZh = typeof window !== "undefined" && navigator.language.startsWith("zh");
-  const activeIndex = status === "verifying" ? 0 : 2;
-  const steps = [
-    {
-      label: isZh ? "身份校验" : "Access check",
-      detail: t("classroom.verifyingAccess") || (isZh ? "正在校验课堂权限" : "Checking classroom access"),
-      icon: ShieldCheck,
-    },
-    {
-      label: isZh ? "课堂资源" : "Class assets",
-      detail: isZh ? "正在准备白板和课件" : "Preparing whiteboard and courseware",
-      icon: BookOpen,
-    },
-    {
-      label: isZh ? "音视频通道" : "Media channel",
-      detail: isZh ? "正在建立音视频连接" : "Opening audio/video channel",
-      icon: Video,
-    },
-  ];
-  const ActiveIcon = steps[activeIndex].icon;
-  const targetProgress = status === "verifying" ? 48 : 92;
+  const videoRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      const floor = status === "verifying" ? 18 : 48;
-      setProgress((prev) => Math.min(Math.max(prev, floor) + 4, targetProgress));
-    }, 300);
+    const element = videoRef.current;
+    if (!element || !participant.hasVideo) return;
+    provider.attachVideo(participant.id, element);
+    return () => provider.detachVideo(participant.id);
+  }, [participant.hasVideo, participant.id, provider]);
 
-    return () => clearInterval(interval);
-  }, [status, targetProgress]);
+  const initial = participant.displayName.trim().slice(0, 1).toUpperCase() || "?";
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-background/95 px-5 py-8"
-      role="status"
-      aria-busy="true"
-      aria-live="polite"
+    <button
+      type="button"
+      onClick={onSelect}
+      className={[
+        "group relative w-full overflow-hidden text-left outline-none transition",
+        compact
+          ? "aspect-video rounded-xl bg-slate-900"
+          : "h-full min-h-[280px] rounded-[22px] bg-slate-950",
+        selected
+          ? "ring-2 ring-violet-400 ring-offset-2 ring-offset-[#11182a]"
+          : "ring-1 ring-white/10 hover:ring-white/30",
+      ].join(" ")}
+      aria-label={`放大 ${participant.displayName}`}
     >
-      <div className="app-loading-progress" aria-hidden="true" />
-      <div className="w-full max-w-xl rounded-2xl border border-border/70 bg-card/90 p-5 shadow-sm backdrop-blur sm:p-6">
-        <div className="flex items-start gap-4">
-          <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <span className="app-loading-sheen absolute inset-0 rounded-xl" aria-hidden="true" />
-            <ActiveIcon className="relative h-5 w-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-foreground">
-              {status === "verifying"
-                ? t("classroom.verifyingAccess") || (isZh ? "正在校验课堂权限" : "Checking classroom access")
-                : t("classroom.initializing") || (isZh ? "正在进入课堂" : "Entering classroom")}
-            </p>
-            {roomName && (
-              <h2 className="mt-1 truncate text-xl font-semibold tracking-tight text-foreground">
-                {roomName}
-              </h2>
-            )}
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {steps[activeIndex].detail}
-            </p>
+      <div ref={videoRef} className="absolute inset-0" />
+      {!participant.hasVideo && (
+        <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_50%_35%,rgba(124,92,255,0.25),transparent_55%)]">
+          <div
+            className={[
+              "grid place-items-center rounded-full border border-white/15 bg-white/10 font-semibold text-white shadow-2xl",
+              compact ? "h-12 w-12 text-lg" : "h-24 w-24 text-4xl",
+            ].join(" ")}
+          >
+            {initial}
           </div>
         </div>
-
-        <div className="mt-6 space-y-3">
-          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out motion-reduce:transition-none"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {steps.map((step, index) => {
-              const StepIcon = step.icon;
-              const isActive = index === activeIndex;
-              const isDone = index < activeIndex;
-
-              return (
-                <div
-                  key={step.label}
-                  className={`rounded-xl border px-3 py-2 transition-colors duration-200 ${
-                    isActive || isDone
-                      ? "border-primary/30 bg-primary/10 text-primary"
-                      : "border-border/60 bg-background/70 text-muted-foreground"
-                  }`}
-                >
-                  <div className="flex items-center gap-2 text-xs font-medium">
-                    <StepIcon className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">{step.label}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      )}
+      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between bg-gradient-to-t from-black/80 via-black/25 to-transparent px-3 pb-3 pt-10">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-white">
+            {participant.displayName}
+          </p>
+          <p className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-white/55">
+            {participant.kind === "screen"
+              ? "Screen"
+              : participant.isLocal
+                ? "You"
+                : "Participant"}
+          </p>
         </div>
-
-        <p className="mt-5 text-xs leading-5 text-muted-foreground">
-          {isZh
-            ? "首次进入会加载课堂和课件资源，完成后会自动切换到课堂。"
-            : "First entry loads classroom and course assets, then switches into the classroom automatically."}
-        </p>
-        <span className="sr-only">{steps[activeIndex].detail}</span>
+        {!compact && participant.kind !== "screen" && (
+          <Maximize2 className="h-4 w-4 text-white/60 opacity-0 transition group-hover:opacity-100" />
+        )}
       </div>
-    </div>
+    </button>
   );
 }
 
 function ClassroomContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { locale } = useTranslation();
   const { user, loading: authLoading } = useAuth();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const unmountRef = useRef<(() => void) | null>(null);
-  const leftClassroomRef = useRef(false);
-  const launchKeyRef = useRef<string | null>(null);
-  const launchingRef = useRef(false);
-  const userRef = useRef(user);
-  const routerRef = useRef(router);
-  const courseIdRef = useRef("");
+  const isZh = locale === "zh-CN";
+  const courseId = searchParams.get("courseId") || "";
+  const shareAccess = searchParams.get("shareAccess") || "";
+  const [loadingState, setLoadingState] = useState<LoadingState>("loading");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [sessionData, setSessionData] =
+    useState<ClassroomSessionResponse | null>(null);
+  const [media, setMedia] =
+    useState<ClassroomMediaSnapshot>(EMPTY_MEDIA_SNAPSHOT);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [actionError, setActionError] = useState("");
+  const [recordingStatus, setRecordingStatus] = useState<string | null>(null);
+  const providerRef = useRef<ClassroomMediaProvider | null>(null);
+  const courseIdRef = useRef(courseId);
   const isTeacherRef = useRef(false);
-  const lastSyncedClassStateRef = useRef<number | null>(null);
-  const launchParamsRef = useRef({
-    roomUuid: "",
-    courseId: "",
-    roomName: "",
-    roomTypeParam: 0,
-    shareAccess: "",
-  });
 
-    const { t, locale } = useTranslation();
-    const [status, setStatus] = useState<
-      "verifying" | "loading" | "ready" | "error"
-    >("verifying");
-    const [errorMsg, setErrorMsg] = useState("");
+  useEffect(() => {
+    courseIdRef.current = courseId;
+  }, [courseId]);
 
-    const roomUuid = searchParams.get("roomUuid") || "";
-    const roomTypeParam = Number(searchParams.get("roomType") || "0");
-    const roomName = searchParams.get("roomName") || roomUuid;
-    const courseId = searchParams.get("courseId") || "";
-    const shareAccess = searchParams.get("shareAccess") || "";
-    const isEmbed =
-      searchParams.get("embed") === "1" || searchParams.get("embed") === "true";
-    const classroomDebug = searchParams.get("debug") === "1";
-    const classroomDebugRef = useRef(classroomDebug);
+  const reportAttendanceLeave = useCallback(() => {
+    if (!courseIdRef.current || isTeacherRef.current) return;
+    void fetch(`/api/courses/${encodeURIComponent(courseIdRef.current)}/attendance`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event: "leave" }),
+      keepalive: true,
+    }).catch(() => undefined);
+  }, []);
 
-    const userId = user?.userId ?? "";
-
-    useEffect(() => {
-      classroomDebugRef.current = classroomDebug;
-      userRef.current = user;
-      routerRef.current = router;
-      courseIdRef.current = courseId;
-      launchParamsRef.current = {
-        roomUuid,
-        courseId,
-        roomName,
-        roomTypeParam,
-        shareAccess,
-      };
-    }, [
-      classroomDebug,
-      courseId,
-      roomName,
-      roomTypeParam,
-      roomUuid,
-      router,
-      shareAccess,
-      user,
-    ]);
-
-    const logClassroomDebug = (...args: unknown[]) => {
-      if (classroomDebugRef.current) {
-        console.debug("[classroom]", ...args);
-      }
-    };
-
-    const syncClassStateToServer = useCallback(async (classState: number) => {
-      const cid = courseIdRef.current;
-      if (!cid || !isTeacherRef.current) return;
-      if (lastSyncedClassStateRef.current === classState) return;
-      lastSyncedClassStateRef.current = classState;
-
-      logClassroomDebug("sync class-state", { classState, courseId: cid });
-
-      try {
-        const sourceRoomUuid = launchParamsRef.current.roomUuid;
-        const res = await fetch(`/api/courses/${cid}/class-state`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ classState, roomUuid: sourceRoomUuid }),
-        });
-        if (!res.ok) {
-          lastSyncedClassStateRef.current = null;
-        }
-      } catch {
-        lastSyncedClassStateRef.current = null;
-      }
-    }, []);
-
-    const syncAttendanceLeave = useCallback(() => {
-      const cid = courseIdRef.current;
-      if (!cid || isTeacherRef.current) return;
-
-      try {
-        void fetch(`/api/courses/${cid}/attendance`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ event: "leave" }),
-          keepalive: true,
-        });
-      } catch {
-        // Best-effort attendance close; the teacher export will still show open sessions.
-      }
-    }, []);
-
-    const teardownClassroomRuntime = useCallback(() => {
-      stopScreenShareBeforeTeardown(userRef.current?.userId ?? "");
-
-      if (unmountRef.current) {
-        try {
-          unmountRef.current();
-        } catch {
-          // Ignore SDK cleanup errors while the page is navigating away.
-        }
-        unmountRef.current = null;
-      }
-
-      launchKeyRef.current = null;
-      launchingRef.current = false;
-    }, []);
-
-    const leaveClassroom = useCallback(() => {
-      if (leftClassroomRef.current) return;
-      leftClassroomRef.current = true;
-
-      logClassroomDebug("leaveClassroom");
-
-      teardownClassroomRuntime();
-
-      syncAttendanceLeave();
-      resetDocumentAfterClassroom();
-
-      const target = courseIdRef.current
-        ? `/courses/${encodeURIComponent(courseIdRef.current)}`
-        : "/";
-
-      // Full navigation reloads CSS — avoids Agora global styles breaking layout
-      window.location.replace(target);
-    }, [syncAttendanceLeave, teardownClassroomRuntime]);
-
-    useEffect(() => {
-      const onPageHide = () => {
-        teardownClassroomRuntime();
-        syncAttendanceLeave();
-      };
-      window.addEventListener("pagehide", onPageHide);
-      return () => window.removeEventListener("pagehide", onPageHide);
-    }, [syncAttendanceLeave, teardownClassroomRuntime]);
-
-    useEffect(() => {
-      markClassroomDocumentActive();
-      return () => {
-        resetDocumentAfterClassroom();
-      };
-    }, []);
-
-    useEffect(() => {
-      const onPageShow = (event: PageTransitionEvent) => {
-        logClassroomDebug("pageshow", {
-          persisted: event.persisted,
-          visibility: document.visibilityState,
-          launchKey: launchKeyRef.current,
-        });
-
-        // pagehide tears the SDK down. If the browser restores this page from
-        // bfcache, reload it so the classroom runtime is initialized again.
-        if (event.persisted) {
-          window.location.reload();
-        }
-      };
-
-      window.addEventListener("pageshow", onPageShow);
-      return () => window.removeEventListener("pageshow", onPageShow);
-    }, []);
-
-    useEffect(() => {
-      if (status !== "ready" || !userId) return;
-
-      let recoveryInFlight = false;
-
-      const recoverStaleOwnScreenShare = async () => {
-        const classroomStore = window.globalStore?.classroomStore;
-        const roomStore = classroomStore?.roomStore;
-        const mediaStore = classroomStore?.mediaStore;
-        const streamStore = classroomStore?.streamStore;
-
-        // The SDK toolbar uses the room-wide screen state. After a hard refresh,
-        // that state can briefly remain active although this browser no longer
-        // owns a screen track, causing the first click to become a no-op.
-        const hasStaleOwnShare =
-          roomStore?.isScreenSharing === true &&
-          roomStore.screenShareUserUuid === userId &&
-          mediaStore?.localScreenShareTrackState === 0;
-
-        if (
-          !hasStaleOwnShare ||
-          recoveryInFlight ||
-          !streamStore?.unpublishScreenShare
-        ) {
-          return;
-        }
-
-        recoveryInFlight = true;
-        try {
-          await streamStore.unpublishScreenShare();
-          logClassroomDebug("cleared stale local screen share");
-        } catch (error) {
-          logClassroomDebug("failed to clear stale local screen share", error);
-        } finally {
-          recoveryInFlight = false;
-        }
-      };
-
-      void recoverStaleOwnScreenShare();
-      const intervalId = window.setInterval(
-        () => void recoverStaleOwnScreenShare(),
-        1000,
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      redirectToSsoLogin();
+      return;
+    }
+    if (!courseId) {
+      setErrorMessage(
+        isZh ? "缺少课程 ID，请从课程详情进入课堂。" : "Missing course ID.",
       );
+      setLoadingState("error");
+      return;
+    }
 
-      return () => window.clearInterval(intervalId);
-    }, [status, userId]);
+    let cancelled = false;
+    let provider: ClassroomMediaProvider | null = null;
 
-    useEffect(() => {
-      if (authLoading || leftClassroomRef.current || !userId) {
-        return;
-      }
-
-      const {
-        roomUuid: ru,
-        courseId: cid,
-        roomName: rn,
-        roomTypeParam: rtp,
-        shareAccess: grant,
-      } = launchParamsRef.current;
-      const launchKey = buildLaunchKey(cid, ru, userId, grant);
-
-      if (launchKeyRef.current === launchKey && unmountRef.current) {
-        logClassroomDebug("launch skipped — already active", { launchKey });
-        return;
-      }
-
-      if (launchingRef.current && launchKeyRef.current === launchKey) {
-        logClassroomDebug("launch skipped — in progress", { launchKey });
-        return;
-      }
-
-      let cancelled = false;
-      const effectLaunchKey = launchKey;
-      launchingRef.current = true;
-
-      logClassroomDebug("launch effect start", {
-        launchKey: effectLaunchKey,
-        visibility: document.visibilityState,
-      });
-
-      queueMicrotask(() => {
-        const currentUser = userRef.current;
-        if (!currentUser) {
-          launchingRef.current = false;
+    async function launch() {
+      try {
+        let response = await fetch("/api/classroom/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            courseId,
+            ...(shareAccess && { shareAccess }),
+          }),
+        });
+        if (response.status === 401 && (await tryOAuthRefresh())) {
+          response = await fetch("/api/classroom/session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              courseId,
+              ...(shareAccess && { shareAccess }),
+            }),
+          });
+        }
+        if (response.status === 401) {
           redirectToSsoLogin();
           return;
         }
 
-        if (!ru || !cid) {
-          launchingRef.current = false;
-          setStatus("error");
-          setErrorMsg("classroom.missingParams");
-          return;
-        }
-
-        void (async () => {
-          let verifyRoomLabel = rn;
-
-          try {
-            const verifyPath = grant
-              ? `/api/courses/${cid}/verify-access?${new URLSearchParams({
-                  shareAccess: grant,
-                }).toString()}`
-              : `/api/courses/${cid}/verify-access`;
-            let verifyRes = await fetch(verifyPath);
-            if (cancelled) return;
-
-            if (verifyRes.status === 401 && (await tryOAuthRefresh())) {
-              verifyRes = await fetch(verifyPath);
-            }
-            if (verifyRes.status === 401) {
-              launchingRef.current = false;
-              redirectToSsoLogin();
-              return;
-            }
-
-            if (!verifyRes.ok) {
-              launchingRef.current = false;
-              setStatus("error");
-              setErrorMsg("classroom.verifyFailed");
-              return;
-            }
-
-            const verifyData = await verifyRes.json();
-
-          if (!verifyData.allowed) {
-            launchingRef.current = false;
-            routerRef.current.replace(
+        const payload = (await response.json()) as
+          | ClassroomSessionResponse
+          | { error?: string; code?: string };
+        if (!response.ok || !("credential" in payload)) {
+          if (response.status === 403 && "code" in payload) {
+            router.replace(
               buildAccessDeniedUrl({
-                code: verifyData.code,
-                reason: verifyData.reason || "无权访问",
-                course: verifyRoomLabel,
-                courseId: cid,
+                code: payload.code || "default",
+                reason: payload.error || "无权进入课堂",
+                courseId,
               }),
             );
             return;
           }
-
-          if (!isClassroomAccessRole(verifyData.role)) {
-            throw new Error("classroom.verifyFailed");
-          }
-
-          const resolvedRole = agoraRoleTypeForClassroomRole(verifyData.role);
-          isTeacherRef.current = verifyData.role === "teacher";
-          lastSyncedClassStateRef.current = null;
-          let resolvedRoomType =
-            typeof verifyData.courseInfo?.roomType === "number"
-              ? verifyData.courseInfo.roomType
-              : rtp;
-          if (resolvedRoomType === 10) {
-            resolvedRoomType = 2; // Map public class to Large Class (2) in Agora
-          }
-          if (verifyData.courseInfo?.name) {
-            verifyRoomLabel = verifyData.courseInfo.name;
-          }
-
-          setStatus("loading");
-
-          await waitForSDK();
-          if (cancelled) return;
-
-          let tokenRes = await fetch("/api/token", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              roomUuid: ru,
-              courseId: cid,
-              userUuid: currentUser.userId,
-              ...(grant && { shareAccess: grant }),
-            }),
-          });
-
-          if (cancelled) return;
-
-          if (
-            !tokenRes.ok &&
-            tokenRes.status === 401 &&
-            (await tryOAuthRefresh())
-          ) {
-            tokenRes = await fetch("/api/token", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                roomUuid: ru,
-                courseId: cid,
-                userUuid: currentUser.userId,
-                ...(grant && { shareAccess: grant }),
-              }),
-            });
-          }
-
-          if (!tokenRes.ok) {
-            launchingRef.current = false;
-            if (tokenRes.status === 401) {
-              redirectToSsoLogin();
-              return;
-            }
-            const err = await tokenRes.json();
-            throw new Error(err.error || "Token 获取失败");
-          }
-
-          const { token, appId, roomSchedule: serverRoomSchedule } =
-            await tokenRes.json();
-
-          window.AgoraEduSDK.config({
-            appId,
-            region: "CN",
-          });
-
-          const widgets: Record<string, unknown> = {};
-          if (window.AgoraSelector) widgets.popupQuiz = window.AgoraSelector;
-          if (window.AgoraCountdown)
-            widgets.countdownTimer = window.AgoraCountdown;
-          if (window.AgoraHXChatWidget)
-            widgets.easemobIM = window.AgoraHXChatWidget;
-          if (window.FcrStreamMediaPlayerWidget)
-            widgets.mediaPlayer = window.FcrStreamMediaPlayerWidget;
-          if (window.AgoraPolling) widgets.poll = window.AgoraPolling;
-          if (window.FcrWatermarkWidget)
-            widgets.watermark = window.FcrWatermarkWidget;
-          if (window.FcrWebviewWidget)
-            widgets.webView = window.FcrWebviewWidget;
-          if (window.FcrBoardWidget)
-            widgets.netlessBoard = window.FcrBoardWidget;
-
-          if (!containerRef.current) {
-            throw new Error("课堂容器未就绪");
-          }
-
-          if (cancelled) return;
-
-          setStatus("ready");
-
-          const launchSchedule = classroomLaunchSchedule(
-            verifyData.courseInfo?.startTime,
-            verifyData.courseInfo?.endTime,
-          );
-          const launchEndTimeMs =
-            launchSchedule.startTimeMs +
-            launchSchedule.durationSeconds * 1000;
-          const launchCloseTimeMs =
-            launchEndTimeMs + launchSchedule.closeDelaySeconds * 1000;
-          const launchListener = (evt: unknown, ...args: unknown[]) => {
-            try {
-              const { code, classState } = parseClassroomEvent(evt, args);
-
-              if (
-                code === CLASSROOM_EVT_CLASS_STATE_CHANGED &&
-                classState !== null
-              ) {
-                void syncClassStateToServer(classState);
-                return;
-              }
-
-              if (
-                code === CLASSROOM_EVT_DESTROYED ||
-                code === CLASSROOM_EVT_KICK_OUT
-              ) {
-                leaveClassroom();
-              }
-            } catch {
-              // Swallow errors from classroom event callback — unhandled errors
-              // here crash the React tree and cause Next.js to reload the
-              // entire page (especially when DevTools is closed).
-            }
-          };
-          const launchOptions = {
-            userUuid: currentUser.userId,
-            userName: currentUser.displayName || currentUser.name,
-            roomUuid: ru,
-            roleType: resolvedRole,
-            roomType: resolvedRoomType,
-            roomName: verifyRoomLabel,
-            pretest: true,
-            rtmToken: token,
-            language: locale === "zh-CN" ? "zh" : "en",
-            startTime: launchSchedule.startTimeMs,
-            duration: launchSchedule.durationSeconds,
-            courseWareList: [],
-            mediaOptions: classroomMediaOptions,
-            recordUrl:
-              "https://solutions-apaas.agora.io/static/record_page_prod.html",
-            virtualBackgroundImages: [],
-            webrtcExtensionBaseUrl: "https://solutions-apaas.agora.io/static",
-            uiMode: "dark",
-            widgets,
-            listener: launchListener,
-          };
-
-          // Snapshot the exact launch payload before Agora receives it. Keep
-          // authentication material redacted so production console logs can be
-          // shared safely when diagnosing room schedule issues.
-          console.info("[classroom:agora-launch]", {
-            loggedAt: new Date().toISOString(),
-            course: {
-              courseId: cid,
-              sourceStartTime: verifyData.courseInfo?.startTime ?? null,
-              sourceEndTime: verifyData.courseInfo?.endTime ?? null,
-            },
-            computedSchedule: {
-              startTimeMs: launchSchedule.startTimeMs,
-              startTimeIso: new Date(
-                launchSchedule.startTimeMs,
-              ).toISOString(),
-              durationSeconds: launchSchedule.durationSeconds,
-              durationMinutes: launchSchedule.durationSeconds / 60,
-              closeDelaySeconds: launchSchedule.closeDelaySeconds,
-              closeDelayMinutes: launchSchedule.closeDelaySeconds / 60,
-              endTimeMs: launchEndTimeMs,
-              endTimeIso: new Date(launchEndTimeMs).toISOString(),
-              closeTimeMs: launchCloseTimeMs,
-              closeTimeIso: new Date(launchCloseTimeMs).toISOString(),
-            },
-            serverRoomSchedule: serverRoomSchedule ?? null,
-            launchOptions: {
-              ...launchOptions,
-              rtmToken: {
-                redacted: true,
-                present: Boolean(token),
-                length: token.length,
-              },
-              widgets: Object.keys(widgets),
-              listener: "[function]",
-            },
-            sdkConfig: {
-              appId,
-              region: "CN",
-            },
-          });
-
-          const unmount = window.AgoraEduSDK.launch(
-            containerRef.current,
-            launchOptions,
-          );
-
-          if (cancelled) {
-            try {
-              unmount();
-            } catch {
-              // ignore
-            }
-            launchingRef.current = false;
-            return;
-          }
-
-          unmountRef.current = unmount;
-          launchKeyRef.current = effectLaunchKey;
-          launchingRef.current = false;
-
-          logClassroomDebug("launch complete", {
-            launchKey: effectLaunchKey,
-            startTime: new Date(launchSchedule.startTimeMs).toISOString(),
-            durationSeconds: launchSchedule.durationSeconds,
-            scheduledEndTime: verifyData.courseInfo?.endTime ?? null,
-            visibility: document.visibilityState,
-          });
-        } catch (err) {
-          launchingRef.current = false;
-          if (cancelled) return;
-          console.error("启动课堂失败:", err);
-          setStatus("error");
-          setErrorMsg(
-            err instanceof Error ? err.message : "classroom.launchError",
+          throw new Error(
+            ("error" in payload && payload.error) || "无法创建课堂会话",
           );
         }
-      })();
-    });
+        if (cancelled) return;
 
+        setSessionData(payload);
+        setRecordingStatus(payload.recording.status);
+        isTeacherRef.current =
+          payload.credential.role === "teacher" ||
+          payload.credential.role === "assistant";
+        provider = createClassroomMediaProvider(payload.credential.provider);
+        providerRef.current = provider;
+        const unsubscribe = provider.subscribe((snapshot) => {
+          if (!cancelled) setMedia(snapshot);
+        });
+
+        try {
+          await provider.connect(
+            payload.credential,
+            user.displayName || user.name || user.userId,
+          );
+        } catch (error) {
+          unsubscribe();
+          throw error;
+        }
+        if (cancelled) {
+          unsubscribe();
+          await provider.disconnect();
+          return;
+        }
+        setLoadingState("ready");
+      } catch (error) {
+        if (cancelled) return;
+        console.error("[classroom] launch failed", error);
+        setErrorMessage(
+          error instanceof Error ? error.message : "无法启动课堂",
+        );
+        setLoadingState("error");
+      }
+    }
+
+    void launch();
     return () => {
       cancelled = true;
-
-      if (launchKeyRef.current !== effectLaunchKey) {
-        logClassroomDebug("effect cleanup skipped — key mismatch", {
-          effectLaunchKey,
-          activeKey: launchKeyRef.current,
-        });
-        launchingRef.current = false;
-        return;
-      }
-
-      logClassroomDebug("effect cleanup teardown", {
-        launchKey: effectLaunchKey,
-        visibility: document.visibilityState,
-      });
-
-      teardownClassroomRuntime();
-      syncAttendanceLeave();
+      reportAttendanceLeave();
+      if (provider) void provider.disconnect();
+      if (providerRef.current === provider) providerRef.current = null;
     };
-  }, [authLoading, userId, leaveClassroom, locale, syncAttendanceLeave, syncClassStateToServer, teardownClassroomRuntime]);
+  }, [
+    authLoading,
+    courseId,
+    isZh,
+    reportAttendanceLeave,
+    router,
+    shareAccess,
+    user,
+  ]);
 
-  if (status === "error") {
+  useEffect(() => {
+    const onPageHide = () => reportAttendanceLeave();
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
+  }, [reportAttendanceLeave]);
+
+  const selectedParticipant = useMemo(() => {
+    const focused = media.participants.find(
+      (participant) => participant.id === media.focusedParticipantId,
+    );
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
-        <div className="max-w-md w-full space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="mx-auto w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center">
-            <AlertCircle className="h-8 w-8 text-destructive" />
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold text-foreground">{t("classroom.launchError")}</h2>
-            <p className="text-sm text-muted-foreground">
-              {errorMsg.includes(".") ? t(errorMsg) : errorMsg}
-            </p>
-          </div>
-          <Link
-            href="/"
-            className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-sm font-semibold rounded-xl text-primary-foreground bg-primary hover:bg-primary/90 transition-all duration-200 shadow-sm"
-          >
-            {t("common.backToHome")}
-          </Link>
-        </div>
-      </div>
+      focused ||
+      media.participants.find(
+        (participant) =>
+          participant.kind === "screen" && participant.hasVideo,
+      ) ||
+      media.participants.find((participant) => participant.hasVideo) ||
+      media.participants[0] ||
+      null
+    );
+  }, [media.focusedParticipantId, media.participants]);
+
+  const filmstripParticipants = useMemo(
+    () =>
+      media.participants.filter(
+        (participant) => participant.id !== selectedParticipant?.id,
+      ),
+    [media.participants, selectedParticipant?.id],
+  );
+
+  const runMediaAction = useCallback(
+    async (name: string, action: (provider: ClassroomMediaProvider) => Promise<unknown>) => {
+      const provider = providerRef.current;
+      if (!provider || actionBusy) return;
+      setActionBusy(name);
+      setActionError("");
+      try {
+        await action(provider);
+      } catch (error) {
+        setActionError(
+          error instanceof Error ? error.message : "课堂操作失败",
+        );
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [actionBusy],
+  );
+
+  const toggleRecording = useCallback(async () => {
+    if (!courseId || actionBusy) return;
+    const active =
+      recordingStatus === "recording" ||
+      recordingStatus === "starting" ||
+      recordingStatus === "stopping";
+    setActionBusy("recording");
+    setActionError("");
+    try {
+      const response = await fetch(
+        `/api/courses/${encodeURIComponent(courseId)}/recording`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: active ? "stop" : "start" }),
+        },
+      );
+      const payload = (await response.json()) as {
+        error?: string;
+        recording?: { status?: string } | null;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || "录制操作失败");
+      }
+      setRecordingStatus(payload.recording?.status ?? null);
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "录制操作失败",
+      );
+    } finally {
+      setActionBusy(null);
+    }
+  }, [actionBusy, courseId, recordingStatus]);
+
+  const leaveClassroom = useCallback(async () => {
+    reportAttendanceLeave();
+    await providerRef.current?.disconnect();
+    providerRef.current = null;
+    window.location.replace(
+      courseId
+        ? `/courses/${encodeURIComponent(courseId)}`
+        : "/",
+    );
+  }, [courseId, reportAttendanceLeave]);
+
+  if (loadingState === "loading") {
+    return (
+      <PageLoadingState
+        message={isZh ? "正在建立课堂连接…" : "Connecting to classroom…"}
+        variant="classroom"
+      />
     );
   }
 
+  if (loadingState === "error" || !sessionData) {
+    return (
+      <main className="classroom-v2-shell grid place-items-center p-6">
+        <section className="w-full max-w-md rounded-3xl border border-rose-400/20 bg-slate-950/80 p-8 text-center shadow-2xl backdrop-blur">
+          <AlertCircle className="mx-auto h-12 w-12 text-rose-400" />
+          <h1 className="mt-5 text-2xl font-semibold text-white">
+            {isZh ? "无法进入课堂" : "Unable to enter classroom"}
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-slate-300">
+            {errorMessage}
+          </p>
+          <button
+            type="button"
+            onClick={() => router.push(courseId ? `/courses/${courseId}` : "/")}
+            className="mt-7 rounded-xl bg-violet-500 px-5 py-3 text-sm font-semibold text-white outline-none transition hover:bg-violet-400 focus-visible:ring-2 focus-visible:ring-violet-300"
+          >
+            {isZh ? "返回课程" : "Back to course"}
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  const isTeacher =
+    sessionData.credential.role === "teacher" ||
+    sessionData.credential.role === "assistant";
+  const recordingActive =
+    recordingStatus === "recording" ||
+    recordingStatus === "starting" ||
+    recordingStatus === "stopping";
+
   return (
-    <div className="classroom-container">
-      {(status === "verifying" || status === "loading") && (
-        <ClassroomWelcomeLoader
-          status={status}
-          roomName={roomName}
-          t={t}
-        />
-      )}
-
-      {status === "ready" && isEmbed && courseId && (
-        <button
-          type="button"
-          className="classroom-back-btn classroom-back-btn-embed"
-          onClick={leaveClassroom}
-          title={t("classroom.exit")}
-        >
-          {t("classroom.exit")}
-        </button>
-      )}
-
+    <main className="classroom-v2-shell">
       <div
-        ref={containerRef}
-        id="agora-classroom-root"
-        style={{ width: "100%", height: "100%" }}
+        className={[
+          "classroom-v2-pulse",
+          media.connectionState === "connected"
+            ? recordingActive
+              ? "is-recording"
+              : "is-connected"
+            : "",
+        ].join(" ")}
       />
-    </div>
+
+      <header className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 px-4 md:px-6">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Presentation className="h-4 w-4 text-violet-300" />
+            <h1 className="truncate text-sm font-semibold text-white md:text-base">
+              {sessionData.course.name}
+            </h1>
+          </div>
+          <p className="mt-1 truncate text-[11px] text-slate-400">
+            {sessionData.course.teacherName} · {sessionData.credential.role}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 sm:flex">
+            <Wifi
+              className={[
+                "h-3.5 w-3.5",
+                media.connectionState === "connected"
+                  ? "text-emerald-400"
+                  : "text-amber-400",
+              ].join(" ")}
+            />
+            {media.connectionState === "connected"
+              ? isZh
+                ? "连接正常"
+                : "Connected"
+              : media.connectionState}
+          </div>
+          {recordingActive && (
+            <div className="flex items-center gap-2 rounded-full border border-rose-400/25 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-200">
+              <Radio className="h-3.5 w-3.5 animate-pulse" />
+              REC
+            </div>
+          )}
+          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300">
+            <Users className="h-3.5 w-3.5" />
+            {media.participants.length}
+          </div>
+        </div>
+      </header>
+
+      <section className="flex min-h-0 flex-1 flex-col gap-3 p-3 md:flex-row md:p-4">
+        <div className="relative min-h-0 flex-1">
+          {selectedParticipant ? (
+            <VideoSurface
+              participant={selectedParticipant}
+              provider={providerRef.current!}
+              selected
+              onSelect={() => undefined}
+            />
+          ) : (
+            <div className="grid h-full min-h-[280px] place-items-center rounded-[22px] border border-dashed border-white/15 bg-slate-950/60 text-center">
+              <div>
+                <Presentation className="mx-auto h-10 w-10 text-violet-300/70" />
+                <p className="mt-4 text-sm font-medium text-white">
+                  {isZh ? "课堂已连接" : "Classroom connected"}
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  {isTeacher
+                    ? isZh
+                      ? "开启摄像头或共享屏幕开始授课"
+                      : "Turn on camera or share your screen"
+                    : isZh
+                      ? "等待老师开始授课"
+                      : "Waiting for the teacher"}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <aside className="flex shrink-0 gap-2 overflow-x-auto pb-1 md:w-56 md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pb-0">
+          {filmstripParticipants.map((participant) => (
+            <div key={participant.id} className="w-44 shrink-0 md:w-full">
+              <VideoSurface
+                participant={participant}
+                provider={providerRef.current!}
+                selected={false}
+                compact
+                onSelect={() =>
+                  void providerRef.current?.focusParticipant(participant.id)
+                }
+              />
+            </div>
+          ))}
+          {filmstripParticipants.length === 0 && selectedParticipant && (
+            <div className="hidden rounded-2xl border border-dashed border-white/10 px-4 py-6 text-center text-xs text-slate-500 md:block">
+              {isZh ? "其他成员将显示在这里" : "Other participants appear here"}
+            </div>
+          )}
+        </aside>
+      </section>
+
+      {actionError && (
+        <div className="mx-4 mb-2 rounded-xl border border-rose-400/20 bg-rose-500/10 px-4 py-2 text-center text-xs text-rose-200">
+          {actionError}
+        </div>
+      )}
+
+      <footer className="shrink-0 border-t border-white/10 bg-[#0b1020]/95 px-3 py-3 backdrop-blur md:px-6">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
+            {isTeacher && (
+              <>
+                <button
+                  type="button"
+                  disabled={Boolean(actionBusy)}
+                  onClick={() =>
+                    void runMediaAction("microphone", (provider) =>
+                      provider.toggleMicrophone(),
+                    )
+                  }
+                  className="classroom-v2-control"
+                >
+                  {media.local.microphoneOn ? (
+                    <Mic className="h-5 w-5" />
+                  ) : (
+                    <MicOff className="h-5 w-5" />
+                  )}
+                  <span>{isZh ? "麦克风" : "Mic"}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={Boolean(actionBusy)}
+                  onClick={() =>
+                    void runMediaAction("camera", (provider) =>
+                      provider.toggleCamera(),
+                    )
+                  }
+                  className="classroom-v2-control"
+                >
+                  {media.local.cameraOn ? (
+                    <Video className="h-5 w-5" />
+                  ) : (
+                    <VideoOff className="h-5 w-5" />
+                  )}
+                  <span>{isZh ? "摄像头" : "Camera"}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={Boolean(actionBusy)}
+                  onClick={() =>
+                    void runMediaAction("screen", (provider) =>
+                      media.local.screenSharing
+                        ? provider.stopScreenShare()
+                        : provider.startScreenShare(),
+                    )
+                  }
+                  className="classroom-v2-control"
+                >
+                  {media.local.screenSharing ? (
+                    <ScreenShareOff className="h-5 w-5" />
+                  ) : (
+                    <MonitorUp className="h-5 w-5" />
+                  )}
+                  <span>{isZh ? "共享屏幕" : "Share"}</span>
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            {isTeacher && (
+              <button
+                type="button"
+                disabled={
+                  Boolean(actionBusy) || !sessionData.recording.enabled
+                }
+                onClick={() => void toggleRecording()}
+                className={[
+                  "classroom-v2-control",
+                  recordingActive ? "is-danger" : "is-primary",
+                ].join(" ")}
+                title={
+                  sessionData.recording.enabled
+                    ? undefined
+                    : isZh
+                      ? "云端录制尚未配置"
+                      : "Cloud recording is not configured"
+                }
+              >
+                {recordingActive ? (
+                  <CircleStop className="h-5 w-5" />
+                ) : (
+                  <Radio className="h-5 w-5" />
+                )}
+                <span>
+                  {recordingActive
+                    ? isZh
+                      ? "结束并保存"
+                      : "Stop & save"
+                    : isZh
+                      ? "开始上课"
+                      : "Start class"}
+                </span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void leaveClassroom()}
+              className="classroom-v2-control"
+            >
+              <LogOut className="h-5 w-5" />
+              <span>{isZh ? "离开" : "Leave"}</span>
+            </button>
+          </div>
+        </div>
+      </footer>
+    </main>
   );
 }
 
 export default function ClassroomPage() {
-  const { t } = useTranslation();
+  const { locale } = useTranslation();
   return (
-    <>
-      <Script
-        src={AGORA_EDU_SDK_SRC}
-        strategy="afterInteractive"
-      />
-      <Script
-        src="https://download.agora.io/edu-apaas/release/edu_widget@2.9.40.bundle.js"
-        strategy="afterInteractive"
-      />
-      <Suspense
-        fallback={
-          <PageLoadingState
-            message={t("classroom.initializing") || t("common.loading") || "Loading..."}
-            variant="classroom"
-          />
-        }
-      >
-        <ClassroomContent />
-      </Suspense>
-    </>
+    <Suspense
+      fallback={
+        <PageLoadingState
+          message={
+            locale === "zh-CN"
+              ? "正在准备在线课堂…"
+              : "Preparing classroom…"
+          }
+          variant="classroom"
+        />
+      }
+    >
+      <ClassroomContent />
+    </Suspense>
   );
 }
+

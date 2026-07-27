@@ -100,6 +100,127 @@
   background: #262626;
 }
 
+.classroom-v2-shell {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100dvw;
+  height: 100dvh;
+  overflow: hidden;
+  color: #f8fafc;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(108, 82, 238, 0.18), transparent 28rem),
+    radial-gradient(circle at 100% 100%, rgba(33, 97, 155, 0.14), transparent 32rem),
+    #0b1020;
+}
+
+.classroom-v2-pulse {
+  position: absolute;
+  z-index: 30;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.classroom-v2-pulse::after {
+  content: "";
+  display: block;
+  width: 28%;
+  height: 100%;
+  opacity: 0;
+  transform: translateX(-110%);
+  background: linear-gradient(90deg, transparent, #8b7cff, transparent);
+}
+
+.classroom-v2-pulse.is-connected::after,
+.classroom-v2-pulse.is-recording::after {
+  opacity: 1;
+  animation: classroom-pulse-scan 3.4s ease-in-out infinite;
+}
+
+.classroom-v2-pulse.is-recording::after {
+  background: linear-gradient(90deg, transparent, #fb7185, transparent);
+  animation-duration: 1.8s;
+}
+
+.classroom-v2-control {
+  display: inline-flex;
+  min-width: 66px;
+  min-height: 46px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  color: #dbe4f0;
+  background: rgba(255, 255, 255, 0.055);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.classroom-v2-control:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.classroom-v2-control:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: 2px;
+}
+
+.classroom-v2-control:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.classroom-v2-control.is-primary {
+  border-color: rgba(139, 124, 255, 0.5);
+  color: #fff;
+  background: #7259e8;
+}
+
+.classroom-v2-control.is-danger {
+  border-color: rgba(251, 113, 133, 0.45);
+  color: #ffe4e6;
+  background: rgba(190, 24, 93, 0.42);
+}
+
+@keyframes classroom-pulse-scan {
+  0% {
+    transform: translateX(-110%);
+  }
+  58%,
+  100% {
+    transform: translateX(460%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .classroom-v2-pulse::after {
+    animation: none !important;
+    transform: none;
+    width: 100%;
+    opacity: 0.65;
+  }
+
+  .classroom-v2-control {
+    transition: none;
+  }
+}
+
 #agora-classroom-root {
   position: absolute;
   inset: 0;

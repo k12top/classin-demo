@@ -26,7 +26,9 @@ model UserProfile {
 // ── Course ──
 model Course {
   id             String    @id @default(uuid())
-  roomUuid       String?   @unique // Rotatable Agora room ID; null keeps the legacy course-ID fallback
+  roomUuid       String?   @unique // Provider channel ID; name retained for backward-compatible migration
+  classroomProvider String @default("agora")
+  recordingProvider String @default("agora")
   name           String
   description    String    @default("")
   roomType       Int       @default(0) // 0=一对一, 4=小班, 2=大班, 10=公开课
@@ -53,10 +55,37 @@ model Course {
   courseware   Courseware[]
   teachers     CourseTeacher[]
   attendances  CourseAttendance[]
+  recordings   ClassroomRecording[]
 
   @@index([ownerId])
   @@index([teacherId])
   @@index([status])
+}
+
+// ── Provider-neutral classroom recording attempts ──
+model ClassroomRecording {
+  id                String    @id @default(uuid())
+  courseId          String
+  provider          String
+  channelName       String
+  recorderUserId    String
+  status            String    @default("starting") // starting | recording | stopping | completed | failed
+  resourceId        String?
+  providerSessionId String?   // Agora sid or another provider's recording session ID
+  playbackObjectKey String?
+  files             Json?
+  providerState     Json?
+  errorMessage      String?
+  startedAt         DateTime?
+  stoppedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+  @@index([courseId, status])
+  @@index([providerSessionId])
 }
 
 // ── Course ↔ Teacher (lecturers; includes the lead teacher) ──
