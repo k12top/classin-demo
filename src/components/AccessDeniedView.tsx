@@ -392,38 +392,23 @@ function IconForType({ type }: { type: "lock" | "clock" | "x-circle" | "search" 
 function CourseNotStartedView({
   courseName,
   courseId,
-  locale,
 }: {
   courseName?: string;
   courseId?: string;
-  locale: string;
 }) {
-  const isZh = locale === "zh-CN";
-  const copy = isZh
-    ? {
-        confirmed: "预约成功",
-        title: "课程已为你保留",
-        description: "现在还没到入场时间。开课前 1 小时，课堂入口会自动开放。",
-        status: "已预约",
-        next: "接下来",
-        nextText: "临近上课时，从课程列表或原分享链接再次进入即可。",
-        secure: "你的课程名额与访问权限已确认，无需重复预约。",
-        detail: "查看课程详情",
-        list: "返回我的课程",
-        tip: "建议提前 5–10 分钟进入，检查摄像头、麦克风和网络。",
-      }
-    : {
-        confirmed: "Booking confirmed",
-        title: "Your place is reserved",
-        description: "It is a little early to enter. The classroom opens one hour before the scheduled start.",
-        status: "Reserved",
-        next: "What happens next",
-        nextText: "Come back from your course list or use the original share link when class is closer.",
-        secure: "Your place and access are confirmed. There is no need to book again.",
-        detail: "View course details",
-        list: "Back to my courses",
-        tip: "Join 5–10 minutes early to check your camera, microphone, and connection.",
-      };
+  const { t } = useTranslation();
+  const copy = {
+    confirmed: t("accessDenied.bookingConfirmed"),
+    title: t("accessDenied.placeReserved"),
+    description: t("accessDenied.earlyEntryDescription"),
+    status: t("accessDenied.reserved"),
+    next: t("accessDenied.whatNext"),
+    nextText: t("accessDenied.whatNextDescription"),
+    secure: t("accessDenied.accessConfirmed"),
+    detail: t("accessDenied.viewDetail"),
+    list: t("accessDenied.backToCourses"),
+    tip: t("accessDenied.joinEarlyTip"),
+  };
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-5 py-10 sm:px-8">
@@ -521,7 +506,7 @@ export function AccessDeniedView({
   courseId?: string;
 }) {
   const { locale, t } = useTranslation();
-  const activeLang = locale in LOCALIZED_DENIED_TEXT ? locale : "zh-CN";
+  const activeLang = locale in LOCALIZED_DENIED_TEXT ? locale : "en";
   const texts = LOCALIZED_DENIED_TEXT[activeLang];
 
   const resolvedCode: CourseAccessDeniedCode =
@@ -538,7 +523,6 @@ export function AccessDeniedView({
       <CourseNotStartedView
         courseName={courseName}
         courseId={courseId}
-        locale={locale}
       />
     );
   }

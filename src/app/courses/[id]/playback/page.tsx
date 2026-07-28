@@ -3,17 +3,20 @@
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Hls from "hls.js";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ChevronLeft, Loader2, PlayCircle, User, Users } from "lucide-react";
+import { AlertTriangle, ChevronLeft, Loader2, PlayCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageLoadingState } from "@/components/ui/page-loading-state";
-import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useAuth } from "@/lib/auth-context";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { useTranslation } from "@/lib/i18n/context";
 import { isHlsPlaybackUrl, isMp4PlaybackUrl } from "@/lib/playback-url";
+import {
+  PortalShell,
+  type PortalPage,
+} from "@/components/portal/portal-shell";
 
 interface PlaybackCourse {
   id: string;
@@ -31,7 +34,7 @@ export default function CoursePlaybackPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, logout } = useAuth();
   const { t } = useTranslation();
   const [course, setCourse] = useState<PlaybackCourse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,40 +112,26 @@ export default function CoursePlaybackPage({
           : "");
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="sticky top-0 z-30 border-b border-border/60 bg-card/70 backdrop-blur-xl">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground hover:text-foreground"
-            onClick={() => router.push(`/courses/${id}`)}
-          >
-            <ChevronLeft className="h-4 w-4" />
-            {copy.back}
-          </Button>
-          <div className="flex items-center gap-3">
-            <LanguageSwitcher />
-            <Badge
-              variant="secondary"
-              className={`flex items-center gap-1.5 px-3 py-1 ${
-                isTeacher
-                  ? "bg-primary/10 text-primary border-primary/20"
-                  : "bg-muted text-muted-foreground border-border"
-              }`}
-            >
-              {isTeacher ? <User className="h-3 w-3" /> : <Users className="h-3 w-3" />}
-              {isTeacher ? t("common.roleTeacher") : t("common.roleStudent")}
-            </Badge>
-            <span className="text-sm font-medium text-foreground">
-              {user?.displayName || user?.name}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <main className="mx-auto max-w-6xl px-6 py-8">
-        <Card className="overflow-hidden border border-border/70 bg-card shadow-sm">
+    <PortalShell
+      role={isTeacher ? "teacher" : "student"}
+      user={user!}
+      activePage="courses"
+      onPageChange={(page: PortalPage) =>
+        router.push(`/?view=${encodeURIComponent(page)}`)
+      }
+      onLogout={logout}
+    >
+      <main className="mx-auto max-w-6xl">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mb-4 rounded-xl text-muted-foreground hover:text-foreground"
+          onClick={() => router.push(`/courses/${id}`)}
+        >
+          <ChevronLeft className="h-4 w-4" />
+          {copy.back}
+        </Button>
+        <Card className="overflow-hidden rounded-[22px] border border-border/70 bg-card shadow-[0_24px_70px_rgba(21,23,28,0.08)]">
           <CardContent className="p-0">
             <div className="flex items-center justify-between gap-4 border-b border-border/60 p-5">
               <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-foreground">
@@ -192,7 +181,7 @@ export default function CoursePlaybackPage({
           </CardContent>
         </Card>
       </main>
-    </div>
+    </PortalShell>
   );
 }
 

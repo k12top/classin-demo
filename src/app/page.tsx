@@ -42,32 +42,44 @@ interface Course {
   activeCourseShareLinks?: { id: string; label: string; courseShareUrl: string; useCount: number }[];
 }
 
+let dashboardCourseCache: Course[] | null = null;
+let dashboardCourseRequest: Promise<Course[]> | null = null;
+
 function LoadingView({ message }: { message: string }) {
   return <PageLoadingState message={message} variant="dashboard" />;
 }
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [courses, setCourses] = useState<Course[]>(
+    () => dashboardCourseCache ?? [],
+  );
+  const [loading, setLoading] = useState(() => !dashboardCourseCache);
 
   const fetchCourses = useCallback(async () => {
     try {
-      let res = await fetch("/api/courses", { credentials: "same-origin" });
-      if (res.status === 401 && (await tryOAuthRefresh())) {
-        res = await fetch("/api/courses", { credentials: "same-origin" });
-      }
-      if (res.status === 401) {
-        redirectToSsoLogin();
-        return;
-      }
-      if (res.ok) {
-        const data = await res.json();
-        setCourses(data.courses);
-      }
+      dashboardCourseRequest ??= (async () => {
+        let res = await fetch("/api/courses", {
+          credentials: "same-origin",
+        });
+        if (res.status === 401 && (await tryOAuthRefresh())) {
+          res = await fetch("/api/courses", { credentials: "same-origin" });
+        }
+        if (res.status === 401) {
+          redirectToSsoLogin();
+          return [];
+        }
+        if (!res.ok) throw new Error(`Course request failed: ${res.status}`);
+        const data = (await res.json()) as { courses?: Course[] };
+        return data.courses ?? [];
+      })();
+      const nextCourses = await dashboardCourseRequest;
+      dashboardCourseCache = nextCourses;
+      setCourses(nextCourses);
     } catch (err) {
       console.error("Failed to fetch courses:", err);
     } finally {
+      dashboardCourseRequest = null;
       setLoading(false);
     }
   }, []);

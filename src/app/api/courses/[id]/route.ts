@@ -13,6 +13,7 @@ import {
 } from "@/lib/course-status";
 import { closeOpenAttendanceSessionsForCourse } from "@/lib/course-attendance";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
+import { stopActiveRecordingsForCourse } from "@/lib/classroom/server/recording-orchestrator";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import {
@@ -41,7 +42,7 @@ export async function GET(
 
   const { id } = await params;
   try {
-    await promoteCourseIfDueById(id);
+    await promoteCourseIfDueById(id, { reconcileRecordings: false });
     const course = await prisma.course.findUnique({
       where: { id },
       include: {
@@ -456,6 +457,7 @@ export async function DELETE(
   }
 
   try {
+    await stopActiveRecordingsForCourse(id);
     await prisma.course.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error) {

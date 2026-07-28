@@ -83,6 +83,84 @@ prefix. Configure the OSS bucket CORS rule to allow your web domains to use
 the `PUT` method and the `Content-Type` request header; students download via
 the application's authenticated download URL.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Self-managed classroom and cloud recording
 
-https://doc.shengwang.cn/doc/flexible-classroom/android/best-practices/courseware
+The classroom UI and lifecycle are owned by this application. Agora is the
+default RTC and cloud-recording provider behind provider-neutral interfaces;
+the removed Flexible Classroom bundle is no longer loaded. Configure the
+following server-only variables:
+
+```bash
+CLASSROOM_MEDIA_PROVIDER=agora
+CLASSROOM_RECORDING_PROVIDER=agora
+# v3 (default), v2, or rollout.
+CLASSROOM_UI_VERSION=v3
+# Used only when CLASSROOM_UI_VERSION=rollout.
+CLASSROOM_V3_ROLLOUT_PERCENT=0
+
+AGORA_APP_ID=your-agora-app-id
+AGORA_APP_CERTIFICATE=your-agora-app-certificate
+AGORA_REST_CUSTOMER_ID=your-agora-rest-customer-id
+AGORA_REST_CUSTOMER_SECRET=your-agora-rest-customer-secret
+
+# Numeric Agora Cloud Recording storage-region ID for Alibaba Cloud OSS.
+# This is not the OSS endpoint string such as oss-ap-southeast-1.
+AGORA_RECORDING_STORAGE_REGION=your-numeric-region-id
+# Optional defaults:
+AGORA_RECORDING_MAX_IDLE_SECONDS=300
+AGORA_RECORDING_PREFIX=recordings
+
+# Live captions. Shengwang ASR is used for speech recognition in both modes.
+AGORA_STT_ENABLED=true
+AGORA_STT_REGION=cn
+AGORA_API_BASE_URL=https://api.sd-rtn.com
+AGORA_STT_MAX_IDLE_SECONDS=300
+
+# Optional Wordly translation bridge. Leave these unset to use Shengwang
+# translation only. This token must match the bridge service configuration.
+WORDLY_API_URL=https://wordly-bridge.example.com
+WORDLY_INTERNAL_TOKEN=use-the-same-value-as-bridge-internal-token
+
+# Enables 1280x720 full-page classroom recording. If these are absent or web
+# recording fails, the provider automatically falls back to RTC mix recording.
+CLASSROOM_PUBLIC_BASE_URL=https://live.example.com
+CLASSROOM_RECORDER_SECRET=use-a-long-random-server-only-secret
+AGORA_PAGE_RECORDING_MAX_HOURS=8
+
+# Netless Fastboard. Without these variables the classroom remains usable and
+# displays a clear "whiteboard not configured" state.
+WHITEBOARD_APP_IDENTIFIER=team-id/app-id
+WHITEBOARD_SDK_TOKEN=your-netless-sdk-token
+WHITEBOARD_REGION=sg
+
+# Classroom lifecycle and camera preset.
+COURSE_EARLY_ENTRY_MINUTES=60
+COURSE_FINISHED_DELAY_MINUTES=20
+NEXT_PUBLIC_CLASSROOM_VIDEO_PRESET=hd
+```
+
+Cloud recording reuses the private Alibaba Cloud OSS bucket and credentials
+from the courseware section. The RAM policy must also allow read/write access
+to `recordings/*`. Agora's REST customer credentials are different from the
+App ID/App Certificate and are created in the Agora console.
+
+`WORDLY_INTERNAL_TOKEN` must exactly match the Wordly service's
+`BRIDGE_INTERNAL_TOKEN`. `AGORA_STT_ENABLED=false` disables live captions
+without blocking classroom entry. Shengwang translation accepts at most 10
+target languages per class; Wordly mode still uses Shengwang ASR and sends
+only final transcripts to the configured bridge.
+
+Apply the committed Prisma migration before starting the updated application:
+
+```bash
+npm run db:migrate
+```
+
+Deployment builds already run this step through `npm run build:deploy`.
+Media and recording profiles are centralized in
+`src/lib/classroom/config.ts`; the current defaults use a 160x120 low camera
+stream, 720p focused camera stream, 1080p detail-optimized screen sharing, and
+720p full-page MP4/HLS recording. Set the public video preset to `economy`,
+`hd`, or `fullHd`; invalid values safely fall back to `hd`.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

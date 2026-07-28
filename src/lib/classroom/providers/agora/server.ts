@@ -4,6 +4,10 @@ import { createHash } from "node:crypto";
 import { RtcRole, RtcTokenBuilder } from "agora-token";
 import { classroomRuntimeDefaults } from "@/lib/classroom/config";
 import { buildScreenShareUserId } from "@/lib/classroom/screen-share";
+import {
+  ClassroomProviderConfigurationError,
+  ClassroomProviderRequestError,
+} from "@/lib/classroom/server/errors";
 import type {
   ClassroomServerProvider,
   IssueClassroomCredentialInput,
@@ -17,7 +21,6 @@ import type {
 import type { ClassroomJoinCredential } from "@/lib/classroom/types";
 
 const AGORA_RECORDING_API_BASE = "https://api.sd-rtn.com/v1/apps";
-const AGORA_RECORDING_MODE = "mix";
 const AGORA_ALIYUN_VENDOR_ID = 2;
 const AGORA_REQUEST_TIMEOUT_MS = 15_000;
 
@@ -40,27 +43,6 @@ type AgoraRecordingFile = {
   filename?: string;
   isPlayable?: boolean;
 };
-
-export class ClassroomProviderConfigurationError extends Error {
-  constructor(
-    message: string,
-    readonly missingVariables: readonly string[] = [],
-  ) {
-    super(message);
-    this.name = "ClassroomProviderConfigurationError";
-  }
-}
-
-export class ClassroomProviderRequestError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly response: unknown,
-  ) {
-    super(message);
-    this.name = "ClassroomProviderRequestError";
-  }
-}
 
 function requiredEnv(names: readonly string[]): Record<string, string> {
   const missing = names.filter((name) => !process.env[name]?.trim());
@@ -109,14 +91,18 @@ export class AgoraClassroomServerProvider implements ClassroomServerProvider {
     input: IssueClassroomCredentialInput,
   ): ClassroomJoinCredential {
     const { appId } = agoraAppCredentials();
-    const publisher = input.role !== "student";
+    const publisher = input.publisher ?? input.role !== "student";
+    const allowScreenShare =
+      input.allowScreenShare ?? input.role !== "student";
     const expiresInSeconds = classroomRuntimeDefaults.rtcTokenTtlSeconds;
     const credential: ClassroomJoinCredential = {
       provider: this.name,
+      scenario: input.scenario ?? "liveBroadcasting",
       appId,
       channelName: input.channelName,
       userId: input.userId,
       role: input.role,
+      publishAllowed: publisher,
       token: buildRtcToken(
         input.channelName,
         input.userId,
@@ -126,7 +112,7 @@ export class AgoraClassroomServerProvider implements ClassroomServerProvider {
       expiresInSeconds,
     };
 
-    if (publisher) {
+    if (publisher && allowScreenShare) {
       const screenUserId = buildScreenShareUserId(input.userId);
       credential.screenShare = {
         userId: screenUserId,
@@ -279,10 +265,6 @@ function selectPlaybackObjectKey(
     candidates.find(
       (candidate) =>
         candidate.playable && candidate.name.toLowerCase().endsWith(".mp4"),
-    ) ||
-    candidates.find(
-      (candidate) =>
-        candidate.playable && candidate.name.toLowerCase().endsWith(".m3u8"),
     );
   if (!selected) return null;
 
@@ -290,6 +272,21 @@ function selectPlaybackObjectKey(
   return selected.name.startsWith(`${prefix}/`)
     ? selected.name
     : `${prefix}/${selected.name}`;
+}
+
+function responseFiles(payload: AgoraRecordingResponse): unknown[] {
+  if (Array.isArray(payload.serverResponse?.fileList)) {
+    return payload.serverResponse.fileList;
+  }
+  const states = payload.serverResponse?.extensionServiceState;
+  if (!Array.isArray(states)) return [];
+  return states.flatMap((state) => {
+    if (!state || typeof state !== "object") return [];
+    const payloadValue = (state as { payload?: unknown }).payload;
+    if (!payloadValue || typeof payloadValue !== "object") return [];
+    const files = (payloadValue as { fileList?: unknown }).fileList;
+    return Array.isArray(files) ? files : [];
+  });
 }
 
 export class AgoraCloudRecordingProvider implements RecordingProvider {
@@ -312,6 +309,42 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
       input.courseId,
       input.recordingId,
     ].filter(Boolean);
+    if (input.pageUrl) {
+      try {
+        return await this.startWebRecording(
+          input,
+          config,
+          recorderUid,
+          fileNamePrefix,
+        );
+      } catch (error) {
+        console.error("[classroom:recording] web mode failed; using mix", {
+          courseId: input.courseId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        const mixed = await this.startMixedRecording(
+          input,
+          config,
+          recorderUid,
+          fileNamePrefix,
+        );
+        return { ...mixed, fallbackFrom: "web" };
+      }
+    }
+    return this.startMixedRecording(
+      input,
+      config,
+      recorderUid,
+      fileNamePrefix,
+    );
+  }
+
+  private async acquire(
+    input: RecordingStartInput,
+    config: ReturnType<typeof recordingConfiguration>,
+    recorderUid: string,
+    web: boolean,
+  ): Promise<AgoraRecordingResponse & { resourceId: string }> {
     const acquire = await agoraRecordingRequest(
       "/cloud_recording/acquire",
       {
@@ -319,6 +352,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
         uid: recorderUid,
         clientRequest: {
           resourceExpiredHour: 1,
+          ...(web ? { scene: 1 } : {}),
         },
       },
       config,
@@ -330,21 +364,38 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
         acquire,
       );
     }
+    return acquire as AgoraRecordingResponse & { resourceId: string };
+  }
 
-    const recorderToken = RtcTokenBuilder.buildTokenWithUserAccount(
+  private recorderToken(
+    input: RecordingStartInput,
+    config: ReturnType<typeof recordingConfiguration>,
+    recorderUid: string,
+  ) {
+    return RtcTokenBuilder.buildTokenWithUid(
       config.appId,
       config.appCertificate,
       input.channelName,
-      recorderUid,
+      Number(recorderUid),
       RtcRole.SUBSCRIBER,
       classroomRuntimeDefaults.recordingTokenTtlSeconds,
       classroomRuntimeDefaults.recordingTokenTtlSeconds,
     );
+  }
+
+  private async startMixedRecording(
+    input: RecordingStartInput,
+    config: ReturnType<typeof recordingConfiguration>,
+    recorderUid: string,
+    fileNamePrefix: string[],
+  ): Promise<RecordingStartResult> {
+    const acquire = await this.acquire(input, config, recorderUid, false);
+    const recorderToken = this.recorderToken(input, config, recorderUid);
     const recording = input.mediaProfile.recording;
     const started = await agoraRecordingRequest(
       `/cloud_recording/resourceid/${encodeURIComponent(
         acquire.resourceId,
-      )}/mode/${AGORA_RECORDING_MODE}/start`,
+      )}/mode/mix/start`,
       {
         cname: input.channelName,
         uid: recorderUid,
@@ -394,10 +445,91 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
       resourceId: acquire.resourceId,
       providerSessionId: started.sid,
       providerState: {
+        mode: "mix",
         fileNamePrefix,
         acquire,
         started,
       },
+      mode: "mix",
+    };
+  }
+
+  private async startWebRecording(
+    input: RecordingStartInput,
+    config: ReturnType<typeof recordingConfiguration>,
+    recorderUid: string,
+    fileNamePrefix: string[],
+  ): Promise<RecordingStartResult> {
+    if (!input.pageUrl) throw new Error("Recorder page URL is missing");
+    const acquire = await this.acquire(input, config, recorderUid, true);
+    const recorderToken = this.recorderToken(input, config, recorderUid);
+    const recording = input.mediaProfile.recording;
+    const maxRecordingHour = Math.min(
+      24,
+      Math.max(
+        1,
+        positiveIntegerEnv("AGORA_PAGE_RECORDING_MAX_HOURS", 8),
+      ),
+    );
+    const started = await agoraRecordingRequest(
+      `/cloud_recording/resourceid/${encodeURIComponent(
+        acquire.resourceId,
+      )}/mode/web/start`,
+      {
+        cname: input.channelName,
+        uid: recorderUid,
+        clientRequest: {
+          token: recorderToken,
+          extensionServiceConfig: {
+            errorHandlePolicy: "error_abort",
+            extensionServices: [
+              {
+                serviceName: "web_recorder_service",
+                errorHandlePolicy: "error_abort",
+                serviceParam: {
+                  url: input.pageUrl,
+                  audioProfile: 0,
+                  videoWidth: recording.width,
+                  videoHeight: recording.height,
+                  maxRecordingHour,
+                  maxVideoDuration: 3600,
+                },
+              },
+            ],
+          },
+          recordingFileConfig: {
+            avFileType: ["hls", "mp4"],
+          },
+          storageConfig: {
+            vendor: AGORA_ALIYUN_VENDOR_ID,
+            region: config.storageRegion,
+            bucket: config.bucket,
+            accessKey: config.accessKey,
+            secretKey: config.secretKey,
+            fileNamePrefix,
+          },
+        },
+      },
+      config,
+    );
+    if (!started.sid) {
+      throw new ClassroomProviderRequestError(
+        "Agora web recording start response is missing sid",
+        502,
+        started,
+      );
+    }
+    return {
+      recorderUserId: recorderUid,
+      resourceId: acquire.resourceId,
+      providerSessionId: started.sid,
+      providerState: {
+        mode: "web",
+        fileNamePrefix,
+        acquire,
+        started,
+      },
+      mode: "web",
     };
   }
 
@@ -410,7 +542,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
         input.resourceId,
       )}/sid/${encodeURIComponent(
         input.providerSessionId,
-      )}/mode/${AGORA_RECORDING_MODE}/query`,
+      )}/mode/${input.providerState?.mode === "web" ? "web" : "mix"}/query`,
       {
         headers: {
           Accept: "application/json",
@@ -449,7 +581,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
         input.resourceId,
       )}/sid/${encodeURIComponent(
         input.providerSessionId,
-      )}/mode/${AGORA_RECORDING_MODE}/stop`,
+      )}/mode/${input.providerState?.mode === "web" ? "web" : "mix"}/stop`,
       {
         cname: input.channelName,
         uid: input.recorderUserId,
@@ -459,9 +591,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
       },
       config,
     );
-    const files = Array.isArray(stopped.serverResponse?.fileList)
-      ? stopped.serverResponse.fileList
-      : [];
+    const files = responseFiles(stopped);
     const prefixSegments = Array.isArray(
       input.providerState?.fileNamePrefix,
     )
@@ -477,4 +607,3 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
     };
   }
 }
-

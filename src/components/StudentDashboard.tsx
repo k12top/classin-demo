@@ -10,17 +10,24 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { BookOpen, Settings, LogOut, Calendar, Clock, User, Pencil, PlayCircle, Loader2, Info, FileText, MessageSquare, ExternalLink, Key } from "lucide-react";
+import { LogOut, Calendar, Clock, User, Pencil, PlayCircle, Loader2, Info, FileText, MessageSquare, ExternalLink, Key } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { CourseStatus, isUpcomingStatus, canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
-import LanguageSwitcher from "@/components/LanguageSwitcher";
-import { SiteLogo } from "@/components/SiteLogo";
-import ThemeToggle from "@/components/ThemeToggle";
 import TimeDisplay, { CourseTimeRangeDisplay } from "@/components/TimeDisplay";
 import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
 import { CourseTeacherAvatarGroup, type CourseTeacherAvatarItem } from "@/components/CourseTeacherAvatarGroup";
 import { getPlaybackTarget } from "@/lib/playback-url";
+import {
+  PortalShell,
+  type PortalPage,
+} from "@/components/portal/portal-shell";
+import {
+  PortalCourseLibrary,
+  PortalDashboardHero,
+  PortalSectionHeader,
+} from "@/components/portal/portal-dashboard";
+import { usePortalFeedback } from "@/components/portal/portal-feedback";
 
 interface Course {
   id: string;
@@ -65,7 +72,7 @@ const ROOM_TYPE_KEYS: Record<number, string> = {
   10: "common.roomTypePublic",
 };
 
-type SidebarPage = "learning" | "settings";
+type SidebarPage = "learning" | "courses" | "settings";
 type CourseTab = "upcoming" | "finished" | "cancelled";
 
 interface CoursewareItem {
@@ -100,6 +107,18 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
   const [savingDialogRemarks, setSavingDialogRemarks] = useState(false);
 
   const { t } = useTranslation();
+  const { notify, confirmAction } = usePortalFeedback();
+
+  useEffect(() => {
+    const requestedPage = new URLSearchParams(window.location.search).get("view");
+    if (
+      requestedPage === "learning" ||
+      requestedPage === "courses" ||
+      requestedPage === "settings"
+    ) {
+      queueMicrotask(() => setActivePage(requestedPage));
+    }
+  }, []);
 
   const getCourseTeacherItems = (course: Course): CourseTeacherAvatarItem[] => {
     const teachers =
@@ -138,18 +157,18 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
           const err = data.error === "errPasscodeNotFound"
             ? t("studentDashboard.errPasscodeNotFound")
             : t("common.failed");
-          alert(err);
+          notify(err, "error");
         }
       } catch (err) {
         console.error(err);
-        alert(t("common.failed"));
+        notify(t("common.failed"), "error");
       } finally {
         setJoining(false);
       }
     } else {
       const isUuid = cid.length === 36 || cid.length === 32;
       if (!isUuid) {
-        alert(t("studentDashboard.errInvalidCourseId"));
+        notify(t("studentDashboard.errInvalidCourseId"), "error");
         return;
       }
       router.push(`/courses/${cid}`);
@@ -166,7 +185,12 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
   }, [courses, activeTab]);
 
   const handleStatusChange = async (courseId: string, status: string) => {
-    if (!confirm(t("studentDashboard.confirmCancelCourse"))) return;
+    if (
+      !(await confirmAction({
+        description: t("studentDashboard.confirmCancelCourse"),
+        tone: "danger",
+      }))
+    ) return;
     try {
       const res = await fetch(`/api/courses/${courseId}`, {
         method: "PATCH",
@@ -197,7 +221,7 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
         fetchCourses();
         if (isFromDialog && selectedDetailCourse) {
           setSelectedDetailCourse({ ...selectedDetailCourse, studentRemarks: remarksVal });
-          alert(t("courseDetail.updateRemarksSuccess"));
+          notify(t("courseDetail.updateRemarksSuccess"), "success");
         }
       }
     } catch (err) {
@@ -219,7 +243,7 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
     try {
       const res = await fetch(`/api/courses/${course.id}/verify-access`);
       if (!res.ok) {
-        alert(t("classroom.verifyFailed"));
+        notify(t("classroom.verifyFailed"), "error");
         setEnteringCourseId(null);
         return;
       }
@@ -239,14 +263,14 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
       }
 
       if (typeof data.classroomUrl !== "string" || !data.classroomUrl) {
-        alert(t("classroom.verifyFailed"));
+        notify(t("classroom.verifyFailed"), "error");
         setEnteringCourseId(null);
         return;
       }
       router.push(data.classroomUrl);
     } catch (err) {
       console.error(err);
-      alert(t("classroom.verifyFailed"));
+      notify(t("classroom.verifyFailed"), "error");
       setEnteringCourseId(null);
     }
   };
@@ -284,94 +308,26 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
   }, [selectedDetailCourse]);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col transition-colors duration-300">
-      {/* Top Header Navigation */}
-      <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-card/60 backdrop-blur-md px-6 py-4 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <SiteLogo decorative className="h-6 w-6 text-primary animate-pulse" />
-            <span className="font-extrabold text-lg bg-gradient-to-r from-primary to-purple-600 bg-clip-text text-transparent">
-              {t("common.appName") || "在线课堂"}
-            </span>
-          </div>
-          <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20 flex items-center gap-1 text-[10px] font-semibold">
-            <User className="h-3 w-3" />
-            <span>{t("common.roleStudent")}</span>
-          </Badge>
-        </div>
-
-        {/* Center: Apple-style segment controller buttons */}
-        <div className="hidden md:flex bg-muted/60 border border-border/40 p-1 rounded-xl">
-          <Button 
-            variant="ghost" 
-            size="sm"
-            className={`rounded-lg font-medium px-4 py-1 text-xs transition-all ${activePage === 'learning' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-            onClick={() => setActivePage('learning')}
-          >
-            <BookOpen className="mr-1.5 h-3.5 w-3.5" /> {t("studentDashboard.learningCenter")}
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            className={`rounded-lg font-medium px-4 py-1 text-xs transition-all ${activePage === 'settings' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-            onClick={() => setActivePage('settings')}
-          >
-            <Settings className="mr-1.5 h-3.5 w-3.5" /> {t("studentDashboard.settings")}
-          </Button>
-        </div>
-
-        {/* Right side: Global settings & user profile */}
-        <div className="flex items-center gap-4">
-          <div className="hidden sm:flex items-center gap-2">
-            <LanguageSwitcher />
-            <ThemeToggle />
-          </div>
-
-          <div className="flex items-center gap-3 border-l border-border/40 pl-4">
-            <Avatar className="h-8 w-8 border border-primary/20 shadow-sm">
-              <AvatarImage src={user.avatar} />
-              <AvatarFallback className="bg-primary/20 text-primary text-xs font-bold">{user.displayName?.[0] || 'S'}</AvatarFallback>
-            </Avatar>
-            <div className="hidden lg:flex flex-col text-left">
-              <span className="text-xs font-semibold text-foreground truncate max-w-[100px]">{user.displayName || user.name}</span>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground hover:text-destructive h-8 w-8 hover:bg-destructive/10 rounded-lg transition-colors"
-              onClick={logout}
-              title={t("common.logout")}
-            >
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="flex-1 p-6 md:p-10 max-w-7xl mx-auto w-full relative">
-        {/* Mobile Page Selector */}
-        <div className="flex md:hidden bg-muted/60 border border-border/40 p-1 rounded-xl mb-6">
-          <Button 
-            variant="ghost" 
-            size="sm"
-            className={`flex-1 rounded-lg font-medium py-2 text-xs transition-all ${activePage === 'learning' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground'}`}
-            onClick={() => setActivePage('learning')}
-          >
-            <BookOpen className="mr-1 h-3.5 w-3.5" /> {t("studentDashboard.learningCenter")}
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            className={`flex-1 rounded-lg font-medium py-2 text-xs transition-all ${activePage === 'settings' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground'}`}
-            onClick={() => setActivePage('settings')}
-          >
-            <Settings className="mr-1 h-3.5 w-3.5" /> {t("studentDashboard.settings")}
-          </Button>
-        </div>
+    <PortalShell
+      role="student"
+      user={user}
+      activePage={activePage}
+      onPageChange={(page: PortalPage) => setActivePage(page as SidebarPage)}
+      onLogout={logout}
+    >
+      <main className="w-full">
         
         {activePage === "learning" && (
-          <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in duration-500">
+          <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500">
+            <PortalDashboardHero
+              role="student"
+              courses={courses}
+              enteringCourseId={enteringCourseId}
+              onEnter={(course) =>
+                void handleEnterClassroomDirect(course as Course)
+              }
+              onOpen={(course) => router.push(`/courses/${course.id}`)}
+            />
             {/* Breathable Join Public Course Card */}
             <Card className="border border-border/80 bg-card/60 p-6 flex flex-col sm:flex-row gap-4 items-center justify-between shadow-sm rounded-2xl">
               <div className="space-y-1 text-center sm:text-left">
@@ -564,6 +520,19 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
           </div>
         )}
 
+        {activePage === "courses" && (
+          <div className="max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-300">
+            <PortalCourseLibrary
+              courses={courses}
+              enteringCourseId={enteringCourseId}
+              onEnter={(course) =>
+                void handleEnterClassroomDirect(course as Course)
+              }
+              onOpen={(course) => router.push(`/courses/${course.id}`)}
+            />
+          </div>
+        )}
+
         {activePage === "settings" && (
           <SettingsPanel user={user} onLogout={logout} />
         )}
@@ -717,7 +686,7 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </PortalShell>
   );
 }
 
@@ -769,10 +738,11 @@ function SettingsPanel({ user, onLogout }: { user: DashboardUser; onLogout: () =
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500">
-      <div className="mb-6">
-        <h2 className="text-3xl font-extrabold tracking-tight">{t("settingsPanel.title")}</h2>
-        <p className="text-muted-foreground mt-1 text-sm font-medium">{t("settingsPanel.desc")}</p>
-      </div>
+      <PortalSectionHeader
+        eyebrow="Account"
+        title={t("settingsPanel.title")}
+        description={t("settingsPanel.desc")}
+      />
 
       <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
         <CardHeader>

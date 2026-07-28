@@ -1,6 +1,7 @@
 import { zhCN } from "./zh-CN";
+import type { DeepPartial } from "../types";
 
-export const lo: typeof zhCN = {
+export const lo = {
   common: {
     loading: "ກຳລັງໂຫລດ…",
     submitting: "ກຳລັງສົ່ງ…",
@@ -326,4 +327,4 @@ export const lo: typeof zhCN = {
     errInvalidPasscode: "Incorrect passcode, please try again",
     successJoin: "Verification successful! Joining classroom...",
   },
-};
+} satisfies DeepPartial<typeof zhCN>;

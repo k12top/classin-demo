@@ -1,6 +1,7 @@
 import { zhCN } from "./zh-CN";
+import type { DeepPartial } from "../types";
 
-export const ms: typeof zhCN = {
+export const ms = {
   common: {
     loading: "Memuatkan...",
     submitting: "Menghantar...",
@@ -326,4 +327,4 @@ export const ms: typeof zhCN = {
     errInvalidPasscode: "Incorrect passcode, please try again",
     successJoin: "Verification successful! Joining classroom...",
   },
-};
+} satisfies DeepPartial<typeof zhCN>;

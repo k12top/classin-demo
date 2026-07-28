@@ -1,7 +1,8 @@
 import { CourseStatus, getFinishedDelayMinutes } from "@/lib/course-status";
 import { closeOpenAttendanceSessionsForCourse } from "@/lib/course-attendance";
+import { stopRecordingAttempt } from "@/lib/classroom/server/recording-orchestrator";
+import { retryFailedLiveRecordings } from "@/lib/classroom/server/recording-orchestrator";
 import { prisma } from "@/lib/db";
-import { courseIdToRoomUuid } from "@/lib/course-room";
 
 function courseAttendanceCloseTime(
   endTime: Date | null | undefined,
@@ -12,8 +13,10 @@ function courseAttendanceCloseTime(
 
 /** Promote courses to finished only when their scheduled end time is due. */
 export async function promoteCoursesIfDue(
-  courseIds?: string[]
+  courseIds?: string[],
+  options: { reconcileRecordings?: boolean } = {},
 ): Promise<number> {
+  const reconcileRecordings = options.reconcileRecordings ?? true;
   const delayMinutes = getFinishedDelayMinutes();
   const now = new Date();
   const threshold = new Date(now.getTime() - delayMinutes * 60 * 1000);
@@ -36,6 +39,12 @@ export async function promoteCoursesIfDue(
     where: finishWhere,
     data: { status: CourseStatus.FINISHED },
   });
+  if (coursesToFinish.length > 0) {
+    await prisma.classroomRuntime.updateMany({
+      where: { courseId: { in: coursesToFinish.map((course) => course.id) } },
+      data: { status: "ended", revision: { increment: 1 } },
+    });
+  }
 
   if (resultScheduledEnd.count > 0) {
     console.info(
@@ -62,6 +71,38 @@ export async function promoteCoursesIfDue(
     );
   }
 
+  // Any non-live classroom state must also stop its cloud recorder. Retry
+  // previously failed stops on later cron runs because an orphan recorder can
+  // keep billing even after the platform course has ended.
+  if (reconcileRecordings) {
+    const recordingsToStop = await prisma.classroomRecording.findMany({
+      where: {
+        status: { in: ["recording", "stopping"] },
+        course: {
+          status: {
+            in: [
+              CourseStatus.AFTER_CLASS,
+              CourseStatus.FINISHED,
+              CourseStatus.CANCELLED,
+            ],
+          },
+          ...(courseIds?.length ? { id: { in: courseIds } } : {}),
+        },
+      },
+    });
+    for (const recording of recordingsToStop) {
+      try {
+        await stopRecordingAttempt(recording);
+      } catch (error) {
+        console.error("[classroom:recording] lifecycle stop failed", {
+          courseId: recording.courseId,
+          recordingId: recording.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
   // Auto-start scheduled courses whose startTime has passed.
   const resultScheduledStart = await prisma.course.updateMany({
     where: {
@@ -86,32 +127,20 @@ export async function promoteCoursesIfDue(
     );
   }
 
-  // 4. Auto-generate recordUrl for finished courses if recording is enabled
-  const isRecordingEnabled = process.env.NEXT_PUBLIC_AGORA_RECORDING_ENABLED === "true";
-  if (isRecordingEnabled) {
-    const finishedWithoutUrl = await prisma.course.findMany({
-      where: {
-        status: CourseStatus.FINISHED,
-        recordUrl: null,
-        ...(courseIds?.length ? { id: { in: courseIds } } : {}),
-      },
-      select: { id: true, roomUuid: true, roomType: true },
-    });
-
-    for (const course of finishedWithoutUrl) {
-      const roomUuid = courseIdToRoomUuid(course.id, course.roomUuid);
-      const recordUrl = `https://solutions-apaas.agora.io/static/record_page_prod.html?roomUuid=${roomUuid}&roomType=${course.roomType}`;
-      await prisma.course.update({
-        where: { id: course.id },
-        data: { recordUrl },
-      });
-    }
+  // Per-course reads call this function as a deadline fallback. Recording
+  // retries belong to the minute-level global reconciliation only, otherwise
+  // a 5-second client poll would repeatedly attempt provider startup.
+  if (reconcileRecordings && !courseIds?.length) {
+    await retryFailedLiveRecordings();
   }
 
   return resultScheduledEnd.count + resultScheduledStart.count;
 }
 
-export async function promoteCourseIfDueById(courseId: string) {
-  await promoteCoursesIfDue([courseId]);
+export async function promoteCourseIfDueById(
+  courseId: string,
+  options: { reconcileRecordings?: boolean } = {},
+) {
+  await promoteCoursesIfDue([courseId], options);
   return prisma.course.findUnique({ where: { id: courseId } });
 }

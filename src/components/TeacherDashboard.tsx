@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Calendar as CalendarIcon, Users, Settings, LogOut, ChevronLeft, ChevronRight, PlayCircle, Plus, Search, Trash2, Link as LinkIcon, UserPlus, Info, Clock, Globe, Key, Loader2, User, BookOpen, RefreshCw } from "lucide-react";
+import { ArrowRight, Calendar as CalendarIcon, CheckCircle2, Users, LogOut, ChevronLeft, ChevronRight, PlayCircle, Search, Trash2, UserPlus, Info, Clock, Globe, Key, Loader2, User, BookOpen, RefreshCw, Sparkles } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import {
   CourseStatusSelect,
@@ -19,12 +19,31 @@ import {
 } from "@/components/CourseStatusSelect";
 import { canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
-import LanguageSwitcher from "@/components/LanguageSwitcher";
-import { SiteLogo } from "@/components/SiteLogo";
-import ThemeToggle from "@/components/ThemeToggle";
-import { CourseTimeRangeDisplay } from "@/components/TimeDisplay";
-import { CourseTeacherAvatarGroup, type CourseTeacherAvatarItem } from "@/components/CourseTeacherAvatarGroup";
 import { getPlaybackTarget } from "@/lib/playback-url";
+import {
+  addMinutesToLocalValue,
+  COURSE_DURATION_PRESETS,
+  DEFAULT_COURSE_DURATION_MINUTES,
+  durationBetweenLocalValues,
+  formatCourseDuration,
+  normalizeCourseDuration,
+} from "@/lib/course-schedule";
+import {
+  getTeacherDirectory,
+  type TeacherDirectoryEntry,
+} from "@/lib/teacher-directory-client";
+import {
+  PortalShell,
+  type PortalPage,
+} from "@/components/portal/portal-shell";
+import {
+  PortalCourseLibrary,
+  PortalDashboardHero,
+  PortalSectionHeader,
+} from "@/components/portal/portal-dashboard";
+import { usePortalFeedback } from "@/components/portal/portal-feedback";
+import createCourseStyles from "@/components/portal/create-course-dialog.module.css";
+import scheduleStyles from "@/components/portal/teacher-schedule.module.css";
 
 interface Course {
   id: string;
@@ -68,15 +87,7 @@ interface CourseTeacherSummary {
   teacherAvatar?: string;
 }
 
-interface UserSearchResult {
-  id: string;
-  casdoorUuid?: string | null;
-  name: string;
-  displayName: string;
-  email: string;
-  avatar?: string;
-  role?: string;
-}
+type UserSearchResult = TeacherDirectoryEntry;
 
 interface TeacherUser {
   userId: string;
@@ -101,11 +112,10 @@ const ROOM_TYPE_KEYS: Record<number, string> = {
   10: "common.roomTypePublic",
 };
 
-type SidebarPage = "schedule" | "students" | "settings";
+type SidebarPage = "schedule" | "courses" | "students" | "settings";
 
 interface TimezoneConfig {
   id: string;
-  nameCN: string;
   nameEN: string;
   timezone: string;
   flag: string;
@@ -113,28 +123,46 @@ interface TimezoneConfig {
 }
 
 const SUPPORTED_TIMEZONES: TimezoneConfig[] = [
-  { id: "SG", nameCN: "新加坡", nameEN: "Singapore", timezone: "Asia/Singapore", flag: "🇸🇬", offset: "UTC+8" },
-  { id: "MY", nameCN: "马来西亚", nameEN: "Malaysia", timezone: "Asia/Kuala_Lumpur", flag: "🇲🇾", offset: "UTC+8" },
-  { id: "PH", nameCN: "菲律宾", nameEN: "Philippines", timezone: "Asia/Manila", flag: "🇵🇭", offset: "UTC+8" },
-  { id: "TH", nameCN: "泰国", nameEN: "Thailand", timezone: "Asia/Bangkok", flag: "🇹🇭", offset: "UTC+7" },
-  { id: "VN", nameCN: "越南", nameEN: "Vietnam", timezone: "Asia/Ho_Chi_Minh", flag: "🇻🇳", offset: "UTC+7" },
-  { id: "ID_WIB", nameCN: "印尼 (雅加达)", nameEN: "Indonesia (Jakarta)", timezone: "Asia/Jakarta", flag: "🇮🇩", offset: "UTC+7" },
-  { id: "ID_WITA", nameCN: "印尼 (巴厘岛)", nameEN: "Indonesia (Bali)", timezone: "Asia/Makassar", flag: "🇮🇩", offset: "UTC+8" },
-  { id: "LA", nameCN: "老挝", nameEN: "Laos", timezone: "Asia/Vientiane", flag: "🇱🇦", offset: "UTC+7" },
-  { id: "KH", nameCN: "柬埔寨", nameEN: "Cambodia", timezone: "Asia/Phnom_Penh", flag: "🇰🇭", offset: "UTC+7" },
-  { id: "MM", nameCN: "缅甸", nameEN: "Myanmar", timezone: "Asia/Yangon", flag: "🇲🇲", offset: "UTC+6:30" },
-  { id: "CN", nameCN: "中国 (北京)", nameEN: "China (Beijing)", timezone: "Asia/Shanghai", flag: "🇨🇳", offset: "UTC+8" },
-  { id: "JP", nameCN: "日本", nameEN: "Japan", timezone: "Asia/Tokyo", flag: "🇯🇵", offset: "UTC+9" },
-  { id: "KR", nameCN: "韩国", nameEN: "South Korea", timezone: "Asia/Seoul", flag: "🇰🇷", offset: "UTC+9" },
-  { id: "US_EST", nameCN: "美国 (东部)", nameEN: "US (Eastern)", timezone: "America/New_York", flag: "🇺🇸", offset: "UTC-5" },
-  { id: "US_PST", nameCN: "美国 (西部)", nameEN: "US (Pacific)", timezone: "America/Los_Angeles", flag: "🇺🇸", offset: "UTC-8" },
-  { id: "UK", nameCN: "英国 (伦敦)", nameEN: "United Kingdom", timezone: "Europe/London", flag: "🇬🇧", offset: "UTC+0" },
-  { id: "FR", nameCN: "法国 (巴黎)", nameEN: "France (Paris)", timezone: "Europe/Paris", flag: "🇫🇷", offset: "UTC+1" },
-  { id: "DE", nameCN: "德国 (柏林)", nameEN: "Germany (Berlin)", timezone: "Europe/Berlin", flag: "🇩🇪", offset: "UTC+1" }
+  { id: "SG", nameEN: "Singapore", timezone: "Asia/Singapore", flag: "🇸🇬", offset: "UTC+8" },
+  { id: "MY", nameEN: "Malaysia", timezone: "Asia/Kuala_Lumpur", flag: "🇲🇾", offset: "UTC+8" },
+  { id: "PH", nameEN: "Philippines", timezone: "Asia/Manila", flag: "🇵🇭", offset: "UTC+8" },
+  { id: "TH", nameEN: "Thailand", timezone: "Asia/Bangkok", flag: "🇹🇭", offset: "UTC+7" },
+  { id: "VN", nameEN: "Vietnam", timezone: "Asia/Ho_Chi_Minh", flag: "🇻🇳", offset: "UTC+7" },
+  { id: "ID_WIB", nameEN: "Indonesia (Jakarta)", timezone: "Asia/Jakarta", flag: "🇮🇩", offset: "UTC+7" },
+  { id: "ID_WITA", nameEN: "Indonesia (Bali)", timezone: "Asia/Makassar", flag: "🇮🇩", offset: "UTC+8" },
+  { id: "LA", nameEN: "Laos", timezone: "Asia/Vientiane", flag: "🇱🇦", offset: "UTC+7" },
+  { id: "KH", nameEN: "Cambodia", timezone: "Asia/Phnom_Penh", flag: "🇰🇭", offset: "UTC+7" },
+  { id: "MM", nameEN: "Myanmar", timezone: "Asia/Yangon", flag: "🇲🇲", offset: "UTC+6:30" },
+  { id: "CN", nameEN: "China (Beijing)", timezone: "Asia/Shanghai", flag: "🇨🇳", offset: "UTC+8" },
+  { id: "JP", nameEN: "Japan", timezone: "Asia/Tokyo", flag: "🇯🇵", offset: "UTC+9" },
+  { id: "KR", nameEN: "South Korea", timezone: "Asia/Seoul", flag: "🇰🇷", offset: "UTC+9" },
+  { id: "US_EST", nameEN: "US (Eastern)", timezone: "America/New_York", flag: "🇺🇸", offset: "UTC-5" },
+  { id: "US_PST", nameEN: "US (Pacific)", timezone: "America/Los_Angeles", flag: "🇺🇸", offset: "UTC-8" },
+  { id: "UK", nameEN: "United Kingdom", timezone: "Europe/London", flag: "🇬🇧", offset: "UTC+0" },
+  { id: "FR", nameEN: "France (Paris)", timezone: "Europe/Paris", flag: "🇫🇷", offset: "UTC+1" },
+  { id: "DE", nameEN: "Germany (Berlin)", timezone: "Europe/Berlin", flag: "🇩🇪", offset: "UTC+1" }
 ];
 
 const DEFAULT_TIMEZONE_IDS = ["TH", "VN", "SG", "ID_WIB"];
 const CREATE_SUBMIT_DEBOUNCE_MS = 1200;
+
+function timezoneDisplayName(timezone: TimezoneConfig, locale: string) {
+  const regionCode = timezone.id.startsWith("ID_")
+    ? "ID"
+    : timezone.id.startsWith("US_")
+      ? "US"
+      : timezone.id === "UK"
+        ? "GB"
+        : timezone.id;
+  try {
+    return (
+      new Intl.DisplayNames([locale], { type: "region" }).of(regionCode) ||
+      timezone.nameEN
+    );
+  } catch {
+    return timezone.nameEN;
+  }
+}
 
 export default function TeacherDashboard({ courses, user, fetchCourses }: { courses: Course[], user: TeacherUser, fetchCourses: () => void }) {
   const router = useRouter();
@@ -145,9 +173,22 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     d.setHours(0, 0, 0, 0);
     return d;
   });
+
+  useEffect(() => {
+    const requestedPage = new URLSearchParams(window.location.search).get("view");
+    if (
+      requestedPage === "schedule" ||
+      requestedPage === "courses" ||
+      requestedPage === "students" ||
+      requestedPage === "settings"
+    ) {
+      queueMicrotask(() => setActivePage(requestedPage));
+    }
+  }, []);
   const [enteringCourseId, setEnteringCourseId] = useState<string | null>(null);
   const [statusUpdatingCourseId, setStatusUpdatingCourseId] = useState<string | null>(null);
   const { t, locale } = useTranslation();
+  const { notify, confirmAction } = usePortalFeedback();
 
   // Create course dialog state
   const [createOpen, setCreateOpen] = useState(false);
@@ -158,6 +199,9 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const [createPasscode, setCreatePasscode] = useState("");
   const [createStartTime, setCreateStartTime] = useState("");
   const [createEndTime, setCreateEndTime] = useState("");
+  const [createDurationMinutes, setCreateDurationMinutes] = useState(
+    DEFAULT_COURSE_DURATION_MINUTES,
+  );
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState("");
   const [createTeacherResults, setCreateTeacherResults] = useState<UserSearchResult[]>([]);
@@ -180,7 +224,6 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const resetCreateTeacherSelection = useCallback(() => {
     setCreateTeachers([currentTeacher]);
     setCreatePrimaryTeacherId(currentTeacher.teacherId);
-    setCreateTeacherResults([]);
     setCreateTeacherError("");
   }, [currentTeacher]);
 
@@ -231,7 +274,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       .filter((tz) => selectedTzIds.includes(tz.id))
       .map((tz) => {
         try {
-          const formatted = localDate.toLocaleString(locale === "zh-CN" ? "zh-CN" : "en-US", {
+          const formatted = localDate.toLocaleString(locale, {
             timeZone: tz.timezone,
             weekday: "short",
             month: "short",
@@ -270,6 +313,29 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     { value: 2, label: t("common.roomTypeBig"), desc: t("teacherDashboard.roomDescBig"), icon: BookOpen },
     { value: 10, label: t("common.roomTypePublic"), desc: t("teacherDashboard.roomDescPublic"), icon: Key },
   ], [t]);
+  const selectedCreateRoomType =
+    roomTypes.find((roomType) => roomType.value === createRoomType) ??
+    roomTypes[0];
+  const createRequiredFieldCount = [
+    createName.trim(),
+    createStartTime,
+    createEndTime,
+  ].filter(Boolean).length;
+  const createCompletionPercent = Math.round(
+    (createRequiredFieldCount / 3) * 100
+  );
+  const createSchedulePreview = createStartTime
+    ? new Date(createStartTime).toLocaleString(
+        locale,
+        {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }
+      )
+    : t("teacherDashboard.schedulePending");
 
   const fetchMyGroups = useCallback(async () => {
     const res = await fetch("/api/groups", { credentials: "same-origin" });
@@ -289,7 +355,15 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
   const handleStatusChange = async (courseId: string, status: string) => {
     const statusLabel = getCourseStatusLabel(t, status);
-    if (!confirm(t("teacherDashboard.confirmFinishCancel", { status: statusLabel }))) return;
+    if (
+      !(await confirmAction({
+        title: statusLabel,
+        description: t("teacherDashboard.confirmFinishCancel", {
+          status: statusLabel,
+        }),
+        tone: "danger",
+      }))
+    ) return;
     setStatusUpdatingCourseId(courseId);
     try {
       const res = await fetch(`/api/courses/${courseId}`, {
@@ -301,11 +375,11 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       if (res.ok) {
         fetchCourses();
       } else {
-        alert(data.error || t("common.failed"));
+        notify(data.error || t("common.failed"), "error");
       }
     } catch (err) {
       console.error(err);
-      alert(t("common.failed"));
+      notify(t("common.failed"), "error");
     } finally {
       setStatusUpdatingCourseId(null);
     }
@@ -353,16 +427,16 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.allowed) {
-        alert(data.reason || t("classroom.launchError"));
+        notify(data.reason || t("classroom.launchError"), "error");
         return;
       }
       if (typeof data.classroomUrl !== "string" || !data.classroomUrl) {
-        alert(t("classroom.launchError"));
+        notify(t("classroom.launchError"), "error");
         return;
       }
       router.push(data.classroomUrl);
     } catch {
-      alert(t("classroom.launchError"));
+      notify(t("classroom.launchError"), "error");
     } finally {
       setEnteringCourseId(null);
     }
@@ -371,9 +445,9 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const copyShareUrl = async (url: string) => {
     try {
       await navigator.clipboard.writeText(url);
-      alert(t("courseDetail.copySuccess"));
+      notify(t("courseDetail.copySuccess"), "success");
     } catch {
-      alert(t("courseDetail.copyFailed"));
+      notify(t("courseDetail.copyFailed"), "error");
     }
   };
 
@@ -391,28 +465,6 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
   const teacherInitial = (teacher: Pick<CourseTeacherSummary, "teacherName" | "teacherId">) =>
     (teacher.teacherName || teacher.teacherId || "T").trim().slice(0, 1).toUpperCase();
-
-  const getCourseTeacherItems = (course: Course): CourseTeacherAvatarItem[] => {
-    const teachers =
-      course.teachers && course.teachers.length > 0
-        ? course.teachers
-        : [{
-            teacherId: course.teacherId,
-            teacherName: course.teacherName,
-            teacherAvatar: course.teacherAvatar || "",
-          }];
-    const uniqueTeachers: CourseTeacherAvatarItem[] = [];
-    for (const teacher of teachers) {
-      if (!uniqueTeachers.some((item) => sameTeacherId(item.teacherId, teacher.teacherId))) {
-        uniqueTeachers.push({
-          teacherId: teacher.teacherId,
-          teacherName: teacher.teacherName || teacher.teacherId,
-          teacherAvatar: teacher.teacherAvatar || "",
-        });
-      }
-    }
-    return uniqueTeachers;
-  };
 
   const getCourseStudentPreview = (course: Course) => {
     const students = new Map<string, string>();
@@ -460,28 +512,19 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     });
   };
 
-  const fetchCreateTeacherOptions = useCallback(async () => {
+  const fetchCreateTeacherOptions = useCallback(async (force = false) => {
     setCreateTeacherSearching(true);
     setCreateTeacherError("");
     try {
-      const res = await fetch(
-        "/api/users/teachers?limit=100",
-        { credentials: "same-origin" }
-      );
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        const teachers = data.teachers ?? data.users ?? [];
-        setCreateTeacherResults(teachers);
-        if (!teachers.length) {
-          setCreateTeacherError(t("teacherDashboard.searchUserNotFound"));
-        }
-      } else {
-        setCreateTeacherResults([]);
-        setCreateTeacherError(data.hint || data.error || t("common.failed"));
+      const teachers = await getTeacherDirectory({ force });
+      setCreateTeacherResults(teachers);
+      if (!teachers.length) {
+        setCreateTeacherError(t("teacherDashboard.searchUserNotFound"));
       }
-    } catch {
-      setCreateTeacherResults([]);
-      setCreateTeacherError(t("common.failed"));
+    } catch (error) {
+      setCreateTeacherError(
+        error instanceof Error ? error.message : t("common.failed"),
+      );
     } finally {
       setCreateTeacherSearching(false);
     }
@@ -505,9 +548,44 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   useEffect(() => {
     if (!createOpen) return;
     queueMicrotask(() => {
-      void fetchCreateTeacherOptions();
+      if (!createTeacherResults.length) {
+        void fetchCreateTeacherOptions();
+      }
     });
-  }, [createOpen, fetchCreateTeacherOptions]);
+  }, [createOpen, createTeacherResults.length, fetchCreateTeacherOptions]);
+
+  const previewPrimaryTeacher =
+    createTeachers.find((teacher) =>
+      sameTeacherId(teacher.teacherId, createPrimaryTeacherId),
+    ) || createTeachers[0] || currentTeacher;
+  const previewAssistantTeachers = createTeachers.filter(
+    (teacher) => !sameTeacherId(teacher.teacherId, previewPrimaryTeacher.teacherId),
+  );
+
+  const handleCreateStartTimeChange = (value: string) => {
+    setCreateStartTime(value);
+    setCreateEndTime(addMinutesToLocalValue(value, createDurationMinutes));
+    setCreateError("");
+  };
+
+  const handleCreateDurationChange = (value: number) => {
+    const duration = normalizeCourseDuration(value);
+    setCreateDurationMinutes(duration);
+    if (createStartTime) {
+      setCreateEndTime(addMinutesToLocalValue(createStartTime, duration));
+    }
+    setCreateError("");
+  };
+
+  const handleCreateEndTimeChange = (value: string) => {
+    setCreateEndTime(value);
+    if (createStartTime && value) {
+      setCreateDurationMinutes(
+        durationBetweenLocalValues(createStartTime, value, createDurationMinutes),
+      );
+    }
+    setCreateError("");
+  };
 
   const handleCreateCourse = async () => {
     if (createLockRef.current) return;
@@ -558,7 +636,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       }
       const { course } = await res.json();
       setCreateOpen(false);
-      setCreateName(""); setCreateDesc(""); setCreateRoomType(0); setCreateRequirePasscode(true); setCreatePasscode(""); setCreateStartTime(""); setCreateEndTime("");
+      setCreateName(""); setCreateDesc(""); setCreateRoomType(0); setCreateRequirePasscode(true); setCreatePasscode(""); setCreateStartTime(""); setCreateEndTime(""); setCreateDurationMinutes(DEFAULT_COURSE_DURATION_MINUTES);
       resetCreateTeacherSelection();
       router.push(`/courses/${course.id}`);
     } catch (err) {
@@ -627,7 +705,12 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   };
 
   const handleDeleteGroup = async (groupId: string) => {
-    if (!confirm(t("teacherDashboard.deleteGroupConfirm"))) return;
+    if (
+      !(await confirmAction({
+        description: t("teacherDashboard.deleteGroupConfirm"),
+        tone: "danger",
+      }))
+    ) return;
     setGroupBusy(true);
     try {
       const res = await fetch("/api/groups", {
@@ -643,7 +726,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
   const handleAddUserToGroup = async (u: UserSearchResult) => {
     if (!memberTargetGroupId) {
-      alert(t("teacherDashboard.selectTargetGroup"));
+      notify(t("teacherDashboard.selectTargetGroup"), "error");
       return;
     }
     setGroupBusy(true);
@@ -664,7 +747,12 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   };
 
   const handleRemoveMember = async (groupId: string, userId: string) => {
-    if (!confirm(t("teacherDashboard.removeMemberConfirm"))) return;
+    if (
+      !(await confirmAction({
+        description: t("teacherDashboard.removeMemberConfirm"),
+        tone: "danger",
+      }))
+    ) return;
     setGroupBusy(true);
     try {
       const res = await fetch("/api/groups", {
@@ -703,120 +791,28 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   }, [t]);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col transition-colors duration-300">
-      {/* Top Header Navigation */}
-      <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-card/60 backdrop-blur-md px-6 py-4 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <SiteLogo decorative className="h-6 w-6 text-primary animate-pulse" />
-            <span className="font-extrabold text-lg bg-gradient-to-r from-primary to-purple-600 bg-clip-text text-transparent">
-              {t("common.appName") || "在线课堂"}
-            </span>
-          </div>
-          <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20 flex items-center gap-1 text-[10px] font-semibold">
-            <User className="h-3 w-3" />
-            <span>{t("common.roleTeacher")}</span>
-          </Badge>
-        </div>
-
-        {/* Center: Apple-style segment controller buttons */}
-        <div className="hidden md:flex bg-muted/60 border border-border/40 p-1 rounded-xl">
-          <Button 
-            variant="ghost" 
-            size="sm"
-            className={`rounded-lg font-medium px-4 py-1 text-xs transition-all ${activePage === 'schedule' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-            onClick={() => setActivePage('schedule')}
-          >
-            <CalendarIcon className="mr-1.5 h-3.5 w-3.5" /> {t("teacherDashboard.schedule")}
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            className={`rounded-lg font-medium px-4 py-1 text-xs transition-all ${activePage === 'students' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-            onClick={() => setActivePage('students')}
-          >
-            <Users className="mr-1.5 h-3.5 w-3.5" /> {t("teacherDashboard.studentManage")}
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            className={`rounded-lg font-medium px-4 py-1 text-xs transition-all ${activePage === 'settings' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-            onClick={() => setActivePage('settings')}
-          >
-            <Settings className="mr-1.5 h-3.5 w-3.5" /> {t("settingsPanel.title")}
-          </Button>
-        </div>
-
-        {/* Right side: Global settings & user profile */}
-        <div className="flex items-center gap-4">
-          <div className="hidden sm:flex items-center gap-2">
-            <LanguageSwitcher />
-            <ThemeToggle />
-          </div>
-
-          <div className="flex items-center gap-3 border-l border-border/40 pl-4">
-            <Avatar className="h-8 w-8 border border-primary/20 shadow-sm">
-              <AvatarImage src={user.avatar} />
-              <AvatarFallback className="bg-primary/20 text-primary text-xs font-bold">{user.displayName?.[0] || 'T'}</AvatarFallback>
-            </Avatar>
-            <div className="hidden lg:flex flex-col text-left">
-              <span className="text-xs font-semibold text-foreground truncate max-w-[100px]">{user.displayName || user.name}</span>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground hover:text-destructive h-8 w-8 hover:bg-destructive/10 rounded-lg transition-colors"
-              onClick={logout}
-              title={t("common.logout")}
-            >
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="flex-1 p-6 md:p-10 max-w-7xl mx-auto w-full relative">
-        {/* Mobile Page Selector */}
-        <div className="flex md:hidden bg-muted/60 border border-border/40 p-1 rounded-xl mb-6">
-          <Button 
-            variant="ghost" 
-            size="sm"
-            className={`flex-1 rounded-lg font-medium py-2 text-xs transition-all ${activePage === 'schedule' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground'}`}
-            onClick={() => setActivePage('schedule')}
-          >
-            <CalendarIcon className="mr-1 h-3.5 w-3.5" /> {t("teacherDashboard.schedule")}
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            className={`flex-1 rounded-lg font-medium py-2 text-xs transition-all ${activePage === 'students' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground'}`}
-            onClick={() => setActivePage('students')}
-          >
-            <Users className="mr-1 h-3.5 w-3.5" /> {t("teacherDashboard.studentManage")}
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            className={`flex-1 rounded-lg font-medium py-2 text-xs transition-all ${activePage === 'settings' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground'}`}
-            onClick={() => setActivePage('settings')}
-          >
-            <Settings className="mr-1 h-3.5 w-3.5" /> {t("settingsPanel.title")}
-          </Button>
-        </div>
+    <PortalShell
+      role="teacher"
+      user={user}
+      activePage={activePage}
+      onPageChange={(page: PortalPage) => setActivePage(page as SidebarPage)}
+      onLogout={logout}
+    >
+      <main className="w-full">
 
         {/* ──── Schedule Page ──── */}
         {activePage === "schedule" && (
           <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-              <div>
-                <h2 className="text-3xl font-extrabold tracking-tight">{t("teacherDashboard.schedule")}</h2>
-                <p className="text-muted-foreground mt-1 text-sm font-medium">{t("teacherDashboard.groupManageDesc")}</p>
-              </div>
-              <Button onClick={openCreateDialog} className="bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all">
-                <Plus className="mr-2 h-4 w-4" /> {t("teacherDashboard.createCourse")}
-              </Button>
-            </div>
+            <PortalDashboardHero
+              role="teacher"
+              courses={courses}
+              enteringCourseId={enteringCourseId}
+              onEnter={(course) =>
+                void handleEnterClassroomFromList(course as Course)
+              }
+              onOpen={(course) => router.push(`/courses/${course.id}`)}
+              onCreate={openCreateDialog}
+            />
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               {/* Calendar Sidebar */}
@@ -825,9 +821,10 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                   <div className="p-4 flex items-center justify-between border-b border-border/40">
                     <Button variant="ghost" size="icon" onClick={() => shiftCalendarMonth(-1)}><ChevronLeft className="h-4 w-4" /></Button>
                     <span className="font-semibold text-sm">
-                      {locale === "zh-CN" || locale === "ja" 
-                        ? `${selectedDate.getFullYear()}${t("teacherDashboard.calendarYear")} ${selectedDate.getMonth() + 1}${t("teacherDashboard.calendarMonth")}` 
-                        : selectedDate.toLocaleString(locale, { month: 'long', year: 'numeric' })}
+                      {selectedDate.toLocaleString(locale, {
+                        month: "long",
+                        year: "numeric",
+                      })}
                     </span>
                     <Button variant="ghost" size="icon" onClick={() => shiftCalendarMonth(1)}><ChevronRight className="h-4 w-4" /></Button>
                   </div>
@@ -888,187 +885,151 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                     )}
                   </Card>
                 ) : (
-                  <div className="space-y-4">
+                  <div className={scheduleStyles.list}>
                     {selectedCourses.map((course) => (
                       (() => {
                         const studentPreview = getCourseStudentPreview(course);
                         const canTeachCourse = course.canTeach !== false;
+                        const timeFormatter = new Intl.DateTimeFormat(locale, {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          hour12: false,
+                        });
+                        const startLabel = course.startTime
+                          ? timeFormatter.format(new Date(course.startTime))
+                          : "TBD";
+                        const endLabel = course.endTime
+                          ? timeFormatter.format(new Date(course.endTime))
+                          : "—";
+                        const inviteLinks = [
+                          ...(course.activeCourseShareLinks || []).map((link) => ({
+                            id: link.id,
+                            label: link.label,
+                            url: link.courseShareUrl,
+                            icon: BookOpen,
+                          })),
+                          ...(course.activeJoinLinks || []).map((link) => ({
+                            id: link.id,
+                            label: link.label,
+                            url: link.joinUrl,
+                            icon: PlayCircle,
+                          })),
+                        ].slice(0, 2);
                         return (
-                      <Card key={course.id} className="border border-border/60 bg-card overflow-hidden rounded-2xl hover:border-primary/30 hover:shadow-md transition-all duration-300 flex flex-col md:flex-row">
-                        {/* Left date block */}
-                        <div className="md:w-64 bg-muted/40 p-6 flex flex-col justify-center items-center text-center border-b md:border-b-0 md:border-r border-border/50">
-                          <CalendarIcon className="h-7 w-7 text-primary/80 mb-2" />
-                          <div className="font-semibold text-sm text-foreground/90 leading-tight">
-                            <CourseTimeRangeDisplay
-                              startIsoString={course.startTime}
-                              endIsoString={course.endTime}
-                            />
-                          </div>
-                          <Badge variant="outline" className="mt-3 border-primary/20 bg-primary/5 text-primary text-[10px]">
-                            {t(ROOM_TYPE_KEYS[course.roomType]) || t("common.unknown")}
-                          </Badge>
-                        </div>
+                          <article
+                            key={course.id}
+                            className={scheduleStyles.card}
+                            onMouseEnter={() => router.prefetch(`/courses/${course.id}`)}
+                            onFocus={() => router.prefetch(`/courses/${course.id}`)}
+                          >
+                            <div className={scheduleStyles.time}>
+                              <strong>{startLabel}</strong>
+                              <span>{endLabel}</span>
+                              <i aria-hidden="true" />
+                            </div>
 
-                        {/* Right contents block */}
-                        <div className="flex-1 p-6 flex flex-col justify-between">
-                          <div>
-                            <div className="flex justify-between items-start mb-2">
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <h3 className="text-lg font-bold text-foreground hover:text-primary transition-colors cursor-pointer" onClick={() => router.push(`/courses/${course.id}`)}>
-                                    {course.name}
-                                  </h3>
-                                  <CourseStatusBadge status={course.status} />
-                                  {!canTeachCourse && (
-                                    <Badge
-                                      variant="outline"
-                                      className="border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300"
-                                    >
-                                      <Users className="mr-1 h-3 w-3" />
-                                      {t("common.roleStudent")}
-                                    </Badge>
-                                  )}
-                                  {course.roomType === 10 && course.passcode && (
-                                    <Badge 
-                                      variant="outline" 
-                                      className="border-primary/20 bg-primary/5 text-primary cursor-pointer flex items-center gap-1 hover:bg-primary/10 transition-colors font-mono"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        void copyShareUrl(course.passcode!);
-                                      }}
-                                      title={t("courseDetail.btnCopy")}
-                                    >
-                                      <Key className="h-3 w-3" />
-                                      <span>{t("courseDetail.passcodeLabel")}: {course.passcode}</span>
-                                    </Badge>
-                                  )}
-                                </div>
-                                <CourseTeacherAvatarGroup
-                                  leadLabel={t("common.lead")}
-                                  leadTeacher={{
-                                    teacherId: course.teacherId,
-                                    teacherName: course.teacherName,
-                                    teacherAvatar: course.teacherAvatar || "",
-                                  }}
-                                  teachers={getCourseTeacherItems(course)}
-                                  className="mt-2"
-                                />
-                                <div className="flex items-center gap-1.5 text-muted-foreground text-xs font-medium">
-                                  <Info className="h-3.5 w-3.5" />
-                                  <span>{course.description || t("courseDetail.noDescription")}</span>
-                                </div>
-                                {canTeachCourse && (
-                                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-border/50 bg-muted/30 px-2.5 py-1 font-medium text-foreground/80">
-                                      <Users className="h-3.5 w-3.5 text-primary" />
-                                      {locale === "zh-CN" ? "学生" : "Students"}: {studentPreview.total}
-                                    </span>
-                                    {studentPreview.preview.length > 0 ? (
-                                      <span className="truncate">
-                                        {studentPreview.preview.join(", ")}
-                                        {studentPreview.total > studentPreview.preview.length ? ` +${studentPreview.total - studentPreview.preview.length}` : ""}
-                                      </span>
-                                    ) : (
-                                      <span>{t("courseDetail.noAssignedStudents")}</span>
-                                    )}
-                                    {studentPreview.groupCount > 0 && (
-                                      <Badge variant="outline" className="h-5 border-primary/15 bg-primary/5 text-[10px] text-primary">
-                                        {locale === "zh-CN" ? `含学生组 ${studentPreview.groupCount} 人` : `${studentPreview.groupCount} from groups`}
-                                      </Badge>
-                                    )}
-                                  </div>
+                            <div className={scheduleStyles.main}>
+                              <div className={scheduleStyles.kicker}>
+                                <span className={scheduleStyles.roomBadge}>
+                                  {t(ROOM_TYPE_KEYS[course.roomType]) ||
+                                    t("common.unknown")}
+                                </span>
+                                <CourseStatusBadge status={course.status} />
+                                {!canTeachCourse && (
+                                  <Badge
+                                    variant="outline"
+                                    className="h-5 border-blue-500/20 bg-blue-500/10 text-[9px] text-blue-700 dark:text-blue-300"
+                                  >
+                                    {t("common.roleStudent")}
+                                  </Badge>
                                 )}
+                              </div>
+                              <button
+                                type="button"
+                                className={scheduleStyles.title}
+                                onClick={() => router.push(`/courses/${course.id}`)}
+                              >
+                                {course.name}
+                              </button>
+                              <div className={scheduleStyles.meta}>
+                                <span>
+                                  <User aria-hidden="true" />
+                                  {course.teacherName}
+                                </span>
+                                <span>
+                                  <Users aria-hidden="true" />
+                                  {t("teacherDashboard.studentsCount", {
+                                    count: studentPreview.total,
+                                  })}
+                                </span>
+                                {studentPreview.groupCount > 0 && (
+                                  <span>
+                                    <Users aria-hidden="true" />
+                                    {t("teacherDashboard.fromGroups", {
+                                      count: studentPreview.groupCount,
+                                    })}
+                                  </span>
+                                )}
+                              </div>
+                              <p className={scheduleStyles.description}>
+                                {course.description || t("courseDetail.noDescription")}
+                              </p>
+                              <div className={scheduleStyles.hoverDetails}>
+                                {course.roomType === 10 && course.passcode && (
+                                  <button
+                                    type="button"
+                                    className={scheduleStyles.linkChip}
+                                    onClick={() => void copyShareUrl(course.passcode!)}
+                                    title={t("courseDetail.btnCopy")}
+                                  >
+                                    <Key aria-hidden="true" />
+                                    {t("courseDetail.passcodeLabel")}: {course.passcode}
+                                  </button>
+                                )}
+                                {canTeachCourse &&
+                                  inviteLinks.map((link) => {
+                                    const InviteIcon = link.icon;
+                                    return (
+                                      <button
+                                        type="button"
+                                        className={scheduleStyles.linkChip}
+                                        key={link.id}
+                                        onClick={() => void copyShareUrl(link.url)}
+                                      >
+                                        <InviteIcon aria-hidden="true" />
+                                        {link.label.trim()
+                                          ? link.label.slice(0, 14)
+                                          : t("teacherDashboard.quickInvite")}
+                                      </button>
+                                    );
+                                  })}
                               </div>
                             </div>
 
-                            {/* Quick Invite Links */}
-                            {canTeachCourse && (
-                              <div className="mt-3 bg-muted/20 border border-border/40 rounded-xl p-3 text-xs space-y-2">
-                                <div className="flex items-center gap-1.5 font-medium text-primary">
-                                  <LinkIcon className="h-3.5 w-3.5" />
-                                  <span>{t("teacherDashboard.quickInvite")}</span>
-                                </div>
-                                {Boolean(
-                                  course.activeCourseShareLinks?.length ||
-                                    course.activeJoinLinks?.length
-                                ) ? (
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {course.activeCourseShareLinks?.map((link) => (
-                                      <Button
-                                        key={link.id}
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-7 text-xs border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 rounded-lg"
-                                        onClick={() => void copyShareUrl(link.courseShareUrl)}
-                                      >
-                                        <BookOpen className="h-3 w-3 mr-1" />
-                                        <span>{link.label.trim() ? link.label.slice(0, 14) : t("common.unknown")}</span>
-                                        {link.useCount ? <span className="ml-1 opacity-70">· {link.useCount}</span> : ""}
-                                      </Button>
-                                    ))}
-                                    {course.activeJoinLinks?.map((link) => (
-                                      <Button
-                                        key={link.id}
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-7 text-xs border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 rounded-lg"
-                                        onClick={() => void copyShareUrl(link.joinUrl)}
-                                      >
-                                        <PlayCircle className="h-3 w-3 mr-1" />
-                                        <span>{link.label.trim() ? link.label.slice(0, 14) : t("common.unknown")}</span>
-                                        {link.useCount ? <span className="ml-1 opacity-70">· {link.useCount}</span> : ""}
-                                      </Button>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="text-xs text-muted-foreground italic">{t("teacherDashboard.inviteLinkEmpty")}</p>
-                                )}
-                              </div>
-                            )}
-
-                            {course.studentRemarks && (
-                              <div className="text-xs bg-blue-500/5 border border-blue-500/20 p-3 rounded-xl text-blue-800 dark:text-blue-200 mt-2">
-                                <strong className="text-blue-600 dark:text-blue-300 mr-1">{t("studentDashboard.myRemarks")}</strong> {course.studentRemarks}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Footer Actions */}
-                          <div className="mt-5 pt-4 border-t border-border/40 flex flex-wrap justify-between items-center gap-3">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-muted-foreground hover:text-foreground text-xs flex items-center gap-1.5 rounded-lg"
-                              onClick={() => router.push(`/courses/${course.id}`)}
-                            >
-                              <Info className="h-4 w-4" />
-                              <span>{t("teacherDashboard.btnDetails")}</span>
-                            </Button>
-
-                            <div className="flex flex-wrap items-center justify-end gap-2">
-                              {canTeachCourse && (
-                                <CourseStatusSelect
-                                  value={course.status}
-                                  onValueChange={(status) => handleStatusChange(course.id, status)}
-                                  disabled={statusUpdatingCourseId === course.id}
-                                  className="mr-1"
-                                />
-                              )}
-
-                              <Button 
-                                disabled={enteringCourseId === course.id || (course.status === "finished" ? !course.recordUrl : !canEnterClassroom(course.status))}
-                                className={`rounded-xl px-5 py-2.5 font-medium shadow-sm text-sm active:scale-[0.98] transition-all flex items-center gap-1.5 ${
-                                  course.status === "finished" && !course.recordUrl
-                                    ? "bg-muted text-foreground border border-border/80 hover:bg-muted/80"
-                                    : "bg-primary hover:bg-primary/95 text-white"
-                                }`}
+                            <div className={scheduleStyles.actions}>
+                              <Button
+                                disabled={
+                                  enteringCourseId === course.id ||
+                                  (course.status === "finished"
+                                    ? !course.recordUrl
+                                    : !canEnterClassroom(course.status))
+                                }
+                                className={scheduleStyles.enterButton}
+                                onMouseEnter={() => router.prefetch("/classroom")}
                                 onClick={() => {
                                   if (course.status === "finished") {
-                                    const target = getPlaybackTarget(course.id, course.recordUrl);
+                                    const target = getPlaybackTarget(
+                                      course.id,
+                                      course.recordUrl,
+                                    );
                                     if (target?.kind === "internal") {
                                       router.push(target.href);
                                     } else if (target) {
-                                      window.open(target.href, "_blank", "noopener,noreferrer");
+                                      window.open(
+                                        target.href,
+                                        "_blank",
+                                        "noopener,noreferrer",
+                                      );
                                     }
                                   } else {
                                     void handleEnterClassroomFromList(course);
@@ -1076,26 +1037,46 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                 }}
                               >
                                 {enteringCourseId === course.id ? (
-                                  <>
-                                    <Loader2 className="h-4 w-4 animate-spin text-current" />
-                                    <span>{t("teacherDashboard.btnEntering")}</span>
-                                  </>
-                                ) : course.status === "finished" ? (
-                                  <>
-                                    <PlayCircle className="h-4.5 w-4.5 text-current" />
-                                    <span>{course.recordUrl ? t("studentDashboard.viewPlayback") : t("studentDashboard.livePlayback")}</span>
-                                  </>
+                                  <Loader2 className="h-4 w-4 animate-spin" />
                                 ) : (
-                                  <>
-                                    <PlayCircle className="h-4.5 w-4.5 text-current" />
-                                    <span>{t("teacherDashboard.btnEnterClass")}</span>
-                                  </>
+                                  <PlayCircle className="h-4 w-4" />
                                 )}
+                                <span>
+                                  {enteringCourseId === course.id
+                                    ? t("teacherDashboard.btnEntering")
+                                    : course.status === "finished"
+                                      ? course.recordUrl
+                                        ? t("studentDashboard.viewPlayback")
+                                        : t("studentDashboard.livePlayback")
+                                      : t("teacherDashboard.btnEnterClass")}
+                                </span>
                               </Button>
+                              <div className={scheduleStyles.subActions}>
+                                {canTeachCourse && (
+                                  <CourseStatusSelect
+                                    value={course.status}
+                                    onValueChange={(status) =>
+                                      handleStatusChange(course.id, status)
+                                    }
+                                    disabled={
+                                      statusUpdatingCourseId === course.id
+                                    }
+                                  />
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className={scheduleStyles.detailsButton}
+                                  onClick={() =>
+                                    router.push(`/courses/${course.id}`)
+                                  }
+                                  title={t("teacherDashboard.btnDetails")}
+                                >
+                                  <ArrowRight className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                      </Card>
+                          </article>
                         );
                       })()
                     ))}
@@ -1124,13 +1105,31 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
           </div>
         )}
 
+        {activePage === "courses" && (
+          <div className="max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-300">
+            <PortalCourseLibrary
+              courses={courses}
+              enteringCourseId={enteringCourseId}
+              onEnter={(course) =>
+                void handleEnterClassroomFromList(course as Course)
+              }
+              onOpen={(course) => router.push(`/courses/${course.id}`)}
+            />
+          </div>
+        )}
+
         {/* ──── Student Management Page ──── */}
         {activePage === "students" && (
           <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div>
-              <h2 className="text-3xl font-extrabold tracking-tight">{t("teacherDashboard.studentManage")}</h2>
-              <p className="text-muted-foreground mt-1 text-sm font-medium">{t("teacherDashboard.searchDesc")}</p>
-            </div>
+            <PortalSectionHeader
+              eyebrow={t("teacherDashboard.learningNetwork")}
+              title={t("teacherDashboard.studentManage")}
+              description={t("teacherDashboard.searchDesc")}
+              metric={{
+                value: myGroups.length,
+                label: t("teacherDashboard.studentGroupManage"),
+              }}
+            />
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Left: Search & Add */}
@@ -1278,17 +1277,137 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
         {/* ──── Create Course Dialog ──── */}
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[640px] bg-card border border-border/80 rounded-2xl shadow-xl animate-in zoom-in-95 duration-200">
-            <DialogHeader>
+          <DialogContent className={createCourseStyles.dialog}>
+            <aside className={createCourseStyles.preview} aria-label={t("teacherDashboard.coursePreview")}>
+              <span className={createCourseStyles.previewGlow} aria-hidden="true" />
+              <div className={createCourseStyles.previewContent}>
+                <div className={createCourseStyles.previewTop}>
+                  <span className={createCourseStyles.eyebrow}>
+                    <Sparkles aria-hidden="true" />
+                    Classroom studio
+                  </span>
+                  <span className={createCourseStyles.draftBadge}>
+                    {t("teacherDashboard.draft")}
+                  </span>
+                </div>
+
+                <div className={createCourseStyles.previewTitle}>
+                  <small>{t("teacherDashboard.liveCourseBrief")}</small>
+                  <h2>
+                    {createName.trim() ||
+                      t("teacherDashboard.nameNewClassroom")}
+                  </h2>
+                  <p>
+                    {createDesc.trim() ||
+                      t("teacherDashboard.courseBriefHint")}
+                  </p>
+                </div>
+
+                <div className={createCourseStyles.stage} aria-hidden="true">
+                  <div className={createCourseStyles.stageBar}>
+                    <span>CLASSROOM · PREVIEW</span>
+                    <span className={createCourseStyles.stageLive}>READY</span>
+                  </div>
+                  <div className={createCourseStyles.teacherTile}>
+                    <Avatar className={createCourseStyles.teacherAvatar}>
+                      <AvatarImage src={previewPrimaryTeacher.teacherAvatar || ""} />
+                      <AvatarFallback className="bg-[#7b6ff2] text-[11px] font-semibold text-white">
+                        {teacherInitial(previewPrimaryTeacher)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span>
+                      <strong>{previewPrimaryTeacher.teacherName}</strong>
+                      <span>{t("teacherDashboard.leadTeachingStage")}</span>
+                    </span>
+                  </div>
+                  <div className={createCourseStyles.seatRail}>
+                    {previewAssistantTeachers.slice(0, 4).map((teacher) => (
+                      <span
+                        className={`${createCourseStyles.seat} ${createCourseStyles.occupiedSeat}`}
+                        key={teacher.teacherId}
+                      >
+                        <Avatar className={createCourseStyles.seatAvatar}>
+                          <AvatarImage src={teacher.teacherAvatar || ""} />
+                          <AvatarFallback>{teacherInitial(teacher)}</AvatarFallback>
+                        </Avatar>
+                        <small>{teacher.teacherName}</small>
+                      </span>
+                    ))}
+                    {Array.from({ length: Math.max(0, 4 - previewAssistantTeachers.length) }).map((_, seat) => (
+                      <span className={createCourseStyles.seat} key={`empty-${seat}`}>
+                        <i>{seat + previewAssistantTeachers.length + 1}</i>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <dl className={createCourseStyles.metaGrid}>
+                  <div className={createCourseStyles.metaItem}>
+                    <dt>
+                      <CalendarIcon aria-hidden="true" />
+                      {t("teacherDashboard.scheduleLabel")}
+                    </dt>
+                    <dd>{createSchedulePreview}</dd>
+                  </div>
+                  <div className={createCourseStyles.metaItem}>
+                    <dt>
+                      <Users aria-hidden="true" />
+                      {t("teacherDashboard.roomMode")}
+                    </dt>
+                    <dd>{selectedCreateRoomType?.label}</dd>
+                  </div>
+                  <div className={createCourseStyles.metaItem}>
+                    <dt>
+                      <UserPlus aria-hidden="true" />
+                      {t("teacherDashboard.teachingTeam")}
+                    </dt>
+                    <dd>
+                      {t("teacherDashboard.teacherCount", {
+                        count: createTeachers.length,
+                      })}
+                    </dd>
+                  </div>
+                  <div className={createCourseStyles.metaItem}>
+                    <dt>
+                      <CheckCircle2 aria-hidden="true" />
+                      {t("teacherDashboard.entryPolicy")}
+                    </dt>
+                    <dd>
+                      {createRoomType === 10 && !createRequirePasscode
+                        ? t("teacherDashboard.openEntry")
+                        : t("teacherDashboard.identityCheck")}
+                    </dd>
+                  </div>
+                </dl>
+
+                <div className={createCourseStyles.readiness}>
+                  <div className={createCourseStyles.readinessTop}>
+                    <span>{t("teacherDashboard.setupReadiness")}</span>
+                    <strong>{createCompletionPercent}%</strong>
+                  </div>
+                  <div className={createCourseStyles.progress} aria-hidden="true">
+                    <span style={{ width: `${createCompletionPercent}%` }} />
+                  </div>
+                  <p>
+                    {t("teacherDashboard.readinessHint")}
+                  </p>
+                </div>
+              </div>
+            </aside>
+
+            <DialogHeader className={createCourseStyles.header}>
+              <span className={createCourseStyles.stepLabel}>
+                {t("teacherDashboard.courseSetup")}
+              </span>
               <DialogTitle className="text-xl font-bold">{t("teacherDashboard.createTitle")}</DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">{t("teacherDashboard.createDesc")}</DialogDescription>
             </DialogHeader>
 
             {createError && (
-              <div className="text-xs text-red-500 bg-red-500/5 p-3 rounded-xl border border-red-500/20">{createError}</div>
+              <div className={createCourseStyles.error}>{createError}</div>
             )}
 
-            <div className="space-y-4 py-2">
+            <div className={`${createCourseStyles.formBody} space-y-4`}>
               <div className="space-y-2">
                 <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("teacherDashboard.fieldName")} <span className="text-red-400">*</span></label>
                 <Input
@@ -1302,7 +1421,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("teacherDashboard.fieldDesc")} <span className="text-muted-foreground text-xs">({t("common.cancel")})</span></label>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("teacherDashboard.fieldDesc")} <span className="text-muted-foreground text-xs">({t("teacherDashboard.optional")})</span></label>
                 <Textarea
                   className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 resize-none rounded-xl"
                   placeholder={t("teacherDashboard.placeholderFieldDesc")}
@@ -1388,7 +1507,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                   <Select
                     disabled={createTeacherSearching}
                     onOpenChange={(open) => {
-                      if (open) {
+                      if (open && !createTeacherResults.length) {
                         void fetchCreateTeacherOptions();
                       }
                     }}
@@ -1439,7 +1558,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                       variant="secondary"
                       className="h-9 shrink-0 rounded-lg px-3 text-xs"
                       disabled={createTeacherSearching}
-                      onClick={() => void fetchCreateTeacherOptions()}
+                      onClick={() => void fetchCreateTeacherOptions(true)}
                       title={t("teacherDashboard.teacherSelectPlaceholder")}
                     >
                     {createTeacherSearching ? (
@@ -1457,106 +1576,105 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 )}
               </div>
 
-              <div className="space-y-4 flex flex-col sm:flex-row gap-4 sm:space-y-0">
-                <div className="space-y-2 flex-1">
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-primary" /> {t("teacherDashboard.fieldStartTime")} <span className="text-red-400">*</span>
-                  </label>
-                  <Input
-                    className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 cursor-pointer rounded-xl h-11 px-4 text-sm font-medium transition-all shadow-inner"
-                    type="datetime-local"
-                    min={minDateTime}
-                    value={createStartTime}
-                    onChange={(e) => { setCreateStartTime(e.target.value); setCreateError(""); }}
-                    onClick={(e) => {
-                      try { (e.target as HTMLInputElement).showPicker?.(); } catch {}
-                    }}
-                  />
-                </div>
-                <div className="space-y-2 flex-1">
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-primary" /> {t("teacherDashboard.fieldEndTime")} <span className="text-red-400">*</span>
-                  </label>
-                  <Input
-                    className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 cursor-pointer rounded-xl h-11 px-4 text-sm font-medium transition-all shadow-inner"
-                    type="datetime-local"
-                    min={createStartTime || minDateTime}
-                    value={createEndTime}
-                    onChange={(e) => { setCreateEndTime(e.target.value); setCreateError(""); }}
-                    onClick={(e) => {
-                      try { (e.target as HTMLInputElement).showPicker?.(); } catch {}
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Timezone Conversion Helper */}
-              <div className="bg-primary/5 border border-primary/10 p-3.5 rounded-xl space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-primary">
-                    <Globe className="h-3.5 w-3.5" />
-                    <span>{locale === "zh-CN" ? "多国时间对照 (排课辅助)" : "Timezone Comparison (Scheduling Help)"}</span>
+              <div className={createCourseStyles.scheduleBlock}>
+                <div className={createCourseStyles.scheduleHeading}>
+                  <div>
+                    <span><Clock aria-hidden="true" />{t("teacherDashboard.classSchedule")}</span>
+                    <p>{t("teacherDashboard.classScheduleHint")}</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowTzConfig(!showTzConfig)}
-                    className="text-[11px] text-primary hover:underline font-medium transition-all"
-                  >
-                    {showTzConfig 
-                      ? (locale === "zh-CN" ? "收起设定" : "Hide Settings") 
-                      : (locale === "zh-CN" ? "设定国家" : "Set Countries")}
-                  </button>
+                  <strong>{formatCourseDuration(createDurationMinutes, locale)}</strong>
                 </div>
 
-                {showTzConfig && (
-                  <div className="flex flex-wrap gap-1.5 p-2 bg-background rounded-lg border border-border/60 animate-in fade-in duration-200">
-                    {SUPPORTED_TIMEZONES.map((tz) => {
-                      const isSelected = selectedTzIds.includes(tz.id);
-                      return (
+                <div className={createCourseStyles.scheduleGrid}>
+                  <label>
+                    <span>{t("teacherDashboard.fieldStartTime")} *</span>
+                    <Input
+                      type="datetime-local"
+                      min={minDateTime}
+                      value={createStartTime}
+                      onChange={(event) => handleCreateStartTimeChange(event.target.value)}
+                      onClick={(event) => {
+                        try { (event.target as HTMLInputElement).showPicker?.(); } catch {}
+                      }}
+                    />
+                  </label>
+                  <label className={createCourseStyles.durationField}>
+                    <span>{t("teacherDashboard.durationMinutes")}</span>
+                    <Input
+                      type="number"
+                      min={15}
+                      max={720}
+                      step={15}
+                      value={createDurationMinutes}
+                      onChange={(event) => handleCreateDurationChange(Number(event.target.value))}
+                    />
+                  </label>
+                  <label>
+                    <span>{t("teacherDashboard.fieldEndTime")} *</span>
+                    <Input
+                      type="datetime-local"
+                      min={createStartTime || minDateTime}
+                      value={createEndTime}
+                      onChange={(event) => handleCreateEndTimeChange(event.target.value)}
+                      onClick={(event) => {
+                        try { (event.target as HTMLInputElement).showPicker?.(); } catch {}
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <div className={createCourseStyles.durationPresets} aria-label={t("teacherDashboard.durationPresets")}>
+                  {COURSE_DURATION_PRESETS.map((minutes) => (
+                    <button
+                      key={minutes}
+                      type="button"
+                      data-active={createDurationMinutes === minutes}
+                      onClick={() => handleCreateDurationChange(minutes)}
+                    >
+                      {formatCourseDuration(minutes, locale)}
+                    </button>
+                  ))}
+                </div>
+
+                <div className={createCourseStyles.timezoneInline}>
+                  <div className={createCourseStyles.timezoneHeader}>
+                    <span><Globe aria-hidden="true" />{t("teacherDashboard.worldTimes")}</span>
+                    <button type="button" onClick={() => setShowTzConfig((current) => !current)}>
+                      {showTzConfig
+                        ? t("teacherDashboard.hideCountries")
+                        : t("teacherDashboard.chooseCountries")}
+                    </button>
+                  </div>
+
+                  {showTzConfig ? (
+                    <div className={createCourseStyles.timezoneConfig}>
+                      {SUPPORTED_TIMEZONES.map((timezone) => (
                         <button
-                          key={tz.id}
+                          key={timezone.id}
                           type="button"
-                          onClick={() => handleTzToggle(tz.id)}
-                          className={`flex items-center gap-1 px-2.5 py-1 text-[10px] rounded-full border transition-all ${
-                            isSelected
-                              ? "bg-primary/10 border-primary/35 text-primary font-medium"
-                              : "bg-muted border-border/60 text-muted-foreground hover:border-border"
-                          }`}
+                          data-active={selectedTzIds.includes(timezone.id)}
+                          onClick={() => handleTzToggle(timezone.id)}
                         >
-                          <span>{tz.flag}</span>
-                          <span>{locale === "zh-CN" ? tz.nameCN : tz.nameEN}</span>
+                          {timezone.flag} {timezoneDisplayName(timezone, locale)}
                         </button>
-                      );
-                    })}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  ) : null}
 
-                {selectedTzIds.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground text-center py-2 italic">
-                    {locale === "zh-CN" ? "请设定需要对比的国家以进行对照" : "Please select countries to compare times."}
-                  </p>
-                ) : !createStartTime ? (
-                  <p className="text-[11px] text-muted-foreground text-center py-2 italic">
-                    {locale === "zh-CN" ? "请选择上课时间以自动对照其他国家时间" : "Please select start time to display multi-country times."}
-                  </p>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {convertedTimes.map((item) => (
-                      <div key={item.id} className="bg-background border border-border/60 rounded-lg p-2 flex flex-col justify-center hover:border-primary/20 transition-all">
-                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                          <span className="flex items-center gap-1 font-medium text-primary">
-                            <span>{item.flag}</span>
-                            <span>{locale === "zh-CN" ? item.nameCN : item.nameEN}</span>
-                          </span>
-                          <span className="text-[9px] bg-primary/5 px-1 rounded text-primary font-mono">{item.offset}</span>
-                        </div>
-                        <div className="text-[11px] font-semibold text-foreground mt-1 truncate">
-                          {item.convertedTime}
-                        </div>
-                      </div>
+                  <div className={createCourseStyles.timezoneRail}>
+                    {!createStartTime ? (
+                      <small>{t("teacherDashboard.worldTimesChooseStart")}</small>
+                    ) : !convertedTimes.length ? (
+                      <small>{t("teacherDashboard.worldTimesEmpty")}</small>
+                    ) : convertedTimes.map((item) => (
+                      <span key={item.id}>
+                        <b>{item.flag} {timezoneDisplayName(item, locale)}</b>
+                        <strong>{item.convertedTime}</strong>
+                        <i>{item.offset}</i>
+                      </span>
                     ))}
                   </div>
-                )}
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -1606,7 +1724,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                       }`}
                     >
                       <Globe className="h-4 w-4" />
-                      <span>{locale === "zh-CN" ? "无需密码，直接进入" : "Open entry"}</span>
+                      <span>{t("teacherDashboard.openEntryDirect")}</span>
                     </button>
                     <button
                       type="button"
@@ -1624,7 +1742,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                       }`}
                     >
                       <Key className="h-4 w-4" />
-                      <span>{locale === "zh-CN" ? "需要 Passcode" : "Require passcode"}</span>
+                      <span>{t("teacherDashboard.requirePasscode")}</span>
                     </button>
                   </div>
                   {createRequirePasscode && (
@@ -1644,25 +1762,37 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
               )}
             </div>
 
-            <DialogFooter className="gap-2 sm:gap-0">
-              <Button variant="ghost" className="rounded-xl text-xs" onClick={() => setCreateOpen(false)}>{t("common.cancel")}</Button>
-              <Button
-                className="bg-primary hover:bg-primary/95 text-white rounded-xl text-xs font-semibold shadow-sm active:scale-[0.98]"
-                onClick={handleCreateCourse}
-                disabled={
-                  createLoading ||
-                  !createName.trim() ||
-                  !createStartTime ||
-                  !createEndTime
-                }
-              >
-                {createLoading ? t("common.saving") : t("teacherDashboard.btnCreateCourse")}
-              </Button>
+            <DialogFooter className={createCourseStyles.footer}>
+              <p className={createCourseStyles.footerNote}>
+                {t("teacherDashboard.afterCreateHint")}
+              </p>
+              <div className={createCourseStyles.footerActions}>
+                <Button variant="ghost" className="rounded-xl text-xs" onClick={() => setCreateOpen(false)}>{t("common.cancel")}</Button>
+                <Button
+                  className={createCourseStyles.createButton}
+                  onClick={handleCreateCourse}
+                  disabled={
+                    createLoading ||
+                    !createName.trim() ||
+                    !createStartTime ||
+                    !createEndTime
+                  }
+                >
+                  {createLoading ? (
+                    <Loader2 className="animate-spin" aria-hidden="true" />
+                  ) : (
+                    <>
+                      {t("teacherDashboard.btnCreateCourse")}
+                      <ArrowRight aria-hidden="true" />
+                    </>
+                  )}
+                </Button>
+              </div>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       </main>
-    </div>
+    </PortalShell>
   );
 }
 
@@ -1714,10 +1844,11 @@ function SettingsPanel({ user, onLogout }: { user: TeacherUser; onLogout: () => 
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500">
-      <div className="mb-6">
-        <h2 className="text-3xl font-extrabold tracking-tight">{t("settingsPanel.title")}</h2>
-        <p className="text-muted-foreground mt-1 text-sm font-medium">{t("settingsPanel.desc")}</p>
-      </div>
+      <PortalSectionHeader
+        eyebrow="Account"
+        title={t("settingsPanel.title")}
+        description={t("settingsPanel.desc")}
+      />
 
       <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
         <CardHeader>

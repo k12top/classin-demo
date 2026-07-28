@@ -8,6 +8,8 @@ import {
 } from "@/lib/aliyun-oss";
 import { canAccessCourseware } from "@/lib/courseware-access";
 import { assertCanTeachCourse } from "@/lib/course-teacher";
+import { getWhiteboardConversionStatus } from "@/lib/whiteboard-convert";
+import type { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -26,18 +28,69 @@ export async function GET(
     if (!(await canAccessCourseware(session, courseId))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const canTeach =
+      session.role === "teacher" &&
+      (await assertCanTeachCourse(session.userId, courseId));
 
-    const items = await prisma.courseware.findMany({
-      where: { courseId },
+    let items = await prisma.courseware.findMany({
+      where: {
+        courseId,
+        ...(!canTeach ? { studentCanView: true } : {}),
+      },
       orderBy: { createdAt: "desc" },
     });
+
+    const converting = items.filter(
+      (item) => item.whiteboardEnabled &&
+        item.taskUuid &&
+        (item.taskStatus === "Pending" || item.taskStatus === "Converting"),
+    );
+    if (converting.length > 0) {
+      await Promise.all(
+        converting.map(async (item) => {
+          try {
+            const result = await getWhiteboardConversionStatus(
+              item.taskUuid!,
+              item.type === "dynamic" ? "dynamic" : "static",
+            );
+            await prisma.courseware.update({
+              where: { id: item.id },
+              data: {
+                taskStatus: result.status,
+                conversion: result as unknown as Prisma.InputJsonValue,
+                conversionError: null,
+              },
+            });
+          } catch (error) {
+            await prisma.courseware.update({
+              where: { id: item.id },
+              data: {
+                taskStatus: "Failed",
+                conversionError:
+                  error instanceof Error ? error.message : "课件转换失败",
+              },
+            });
+          }
+        }),
+      );
+      items = await prisma.courseware.findMany({
+        where: {
+          courseId,
+          ...(!canTeach ? { studentCanView: true } : {}),
+        },
+        orderBy: { createdAt: "desc" },
+      });
+    }
 
     return NextResponse.json(
       {
         courseware: items.map((item) => ({
           ...item,
           url: undefined,
-          downloadUrl: `/api/courses/${courseId}/courseware/${item.id}/download`,
+          downloadUrl:
+            canTeach || item.studentCanDownload
+              ? `/api/courses/${courseId}/courseware/${item.id}/download`
+              : null,
         })),
       },
       {
@@ -102,6 +155,9 @@ export async function POST(
         url: toCoursewareStorageUrl(cleanObjectKey),
         type: "file",
         taskStatus: "Finished",
+        studentCanView: true,
+        studentCanDownload: true,
+        whiteboardEnabled: false,
       },
     });
 

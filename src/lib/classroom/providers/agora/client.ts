@@ -8,11 +8,16 @@ import AgoraRTC, {
   type IMicrophoneAudioTrack,
   type UID,
 } from "agora-rtc-sdk-ng";
-import { classroomMediaProfile } from "@/lib/classroom/config";
-import { isScreenShareUserId } from "@/lib/classroom/screen-share";
 import {
-  canPublishInClassroom,
+  classroomMediaProfile,
+  classroomVideoPresets,
+} from "@/lib/classroom/config";
+import { isScreenShareUserId } from "@/lib/classroom/screen-share";
+import { decodeClassroomSttCaption } from "@/lib/classroom/stt-caption";
+import {
+  credentialCanPublish,
   type ClassroomConnectionState,
+  type ClassroomCaptionListener,
   type ClassroomJoinCredential,
   type ClassroomMediaListener,
   type ClassroomMediaProvider,
@@ -50,10 +55,13 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   private microphoneTrack: IMicrophoneAudioTrack | null = null;
   private cameraTrack: ICameraVideoTrack | null = null;
   private screenTrack: ILocalVideoTrack | null = null;
+  private preferredMicrophoneId: string | undefined;
+  private preferredCameraId: string | undefined;
   private remoteUsers = new Map<string, IAgoraRTCRemoteUser>();
   private participants = new Map<string, ClassroomParticipant>();
-  private videoElements = new Map<string, HTMLElement>();
+  private videoElements = new Map<string, Set<HTMLElement>>();
   private listeners = new Set<ClassroomMediaListener>();
+  private captionListeners = new Set<ClassroomCaptionListener>();
   private snapshot: ClassroomMediaSnapshot = {
     connectionState: "idle",
     participants: [],
@@ -61,6 +69,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       microphoneOn: false,
       cameraOn: false,
       screenSharing: false,
+      videoQuality: "hd",
     },
     focusedParticipantId: null,
   };
@@ -69,6 +78,11 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.listeners.add(listener);
     listener(this.getSnapshot());
     return () => this.listeners.delete(listener);
+  }
+
+  subscribeCaptions(listener: ClassroomCaptionListener): () => void {
+    this.captionListeners.add(listener);
+    return () => this.captionListeners.delete(listener);
   }
 
   getSnapshot(): ClassroomMediaSnapshot {
@@ -127,9 +141,60 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.emit();
   }
 
+  private mediaStreamTrackFor(id: string): MediaStreamTrack | null {
+    if (id === this.credential?.userId) {
+      return this.cameraTrack?.getMediaStreamTrack() ?? null;
+    }
+    if (id === this.credential?.screenShare?.userId) {
+      return this.screenTrack?.getMediaStreamTrack() ?? null;
+    }
+    return this.remoteUsers.get(id)?.videoTrack?.getMediaStreamTrack() ?? null;
+  }
+
+  private clearVideoTarget(element: HTMLElement) {
+    for (const video of element.querySelectorAll("video")) {
+      video.pause();
+      video.srcObject = null;
+    }
+    element.replaceChildren();
+  }
+
+  private renderVideoTarget(id: string, element: HTMLElement) {
+    this.clearVideoTarget(element);
+    const track = this.mediaStreamTrackFor(id);
+    if (!track || track.readyState === "ended") return;
+
+    const video = document.createElement("video");
+    video.className = "classroom-v3-native-video";
+    video.autoplay = true;
+    video.playsInline = true;
+    video.muted = true;
+    video.dataset.fit = isScreenShareUserId(id) ? "contain" : "cover";
+    video.dataset.mirror =
+      id === this.credential?.userId && !isScreenShareUserId(id)
+        ? "true"
+        : "false";
+    video.srcObject = new MediaStream([track]);
+    element.appendChild(video);
+    void video.play().catch(() => undefined);
+  }
+
+  private renderVideoTargets(id: string) {
+    for (const element of this.videoElements.get(id) ?? []) {
+      this.renderVideoTarget(id, element);
+    }
+  }
+
+  private clearVideoTargets(id: string) {
+    for (const element of this.videoElements.get(id) ?? []) {
+      this.clearVideoTarget(element);
+    }
+  }
+
   private removeParticipant(id: string) {
     this.remoteUsers.delete(id);
     this.participants.delete(id);
+    this.clearVideoTargets(id);
     this.videoElements.delete(id);
     if (this.snapshot.focusedParticipantId === id) {
       this.snapshot.focusedParticipantId = null;
@@ -151,11 +216,14 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.snapshot.connectionState = "connecting";
     this.emit();
 
-    const publishing = canPublishInClassroom(credential.role);
+    const publishing = credentialCanPublish(credential);
+    const liveBroadcasting = credential.scenario === "liveBroadcasting";
     const client = AgoraRTC.createClient({
-      mode: "live",
+      mode: liveBroadcasting ? "live" : "rtc",
       codec: "vp8",
-      role: publishing ? "host" : "audience",
+      ...(liveBroadcasting && {
+        role: publishing ? ("host" as const) : ("audience" as const),
+      }),
     });
     this.client = client;
 
@@ -181,6 +249,11 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         ...(mediaType === "video" ? { hasVideo: false } : {}),
       });
     });
+    client.on("stream-message", (_uid, bytes) => {
+      const caption = decodeClassroomSttCaption(bytes);
+      if (!caption) return;
+      for (const listener of this.captionListeners) listener(caption);
+    });
 
     await client.join(
       credential.appId,
@@ -201,7 +274,13 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         framerate: classroomMediaProfile.camera.low.frameRate,
         bitrate: classroomMediaProfile.camera.low.bitrateKbps,
       });
-      await client.enableDualStream();
+      // Dual-stream is an optional bandwidth optimization. Some browsers or
+      // Agora SDK states can take a long time to resolve this promise even
+      // after the RTC channel is connected, so it must not block classroom
+      // entry. High-stream publishing remains available if this setup fails.
+      void client.enableDualStream().catch((error: unknown) => {
+        console.warn("[ClassroomRTC] Failed to enable dual stream", error);
+      });
     }
   }
 
@@ -241,12 +320,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         )
         .catch(() => undefined);
       this.upsertParticipant(id, { hasVideo: true });
-      const element = this.videoElements.get(id);
-      if (element && user.videoTrack) {
-        user.videoTrack.play(element, {
-          fit: isScreenShareUserId(id) ? "contain" : "cover",
-        });
-      }
+      this.renderVideoTargets(id);
     }
   }
 
@@ -254,12 +328,15 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     if (!this.client || !this.credential) {
       throw new Error("课堂尚未连接");
     }
-    if (!canPublishInClassroom(this.credential.role)) {
+    if (!credentialCanPublish(this.credential)) {
       throw new Error("学生需要老师邀请上台后才能发言");
     }
 
     if (!this.microphoneTrack) {
       this.microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack({
+        ...(this.preferredMicrophoneId && {
+          microphoneId: this.preferredMicrophoneId,
+        }),
         AEC: true,
         AGC: true,
         ANS: true,
@@ -283,13 +360,17 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     if (!this.client || !this.credential) {
       throw new Error("课堂尚未连接");
     }
-    if (!canPublishInClassroom(this.credential.role)) {
+    if (!credentialCanPublish(this.credential)) {
       throw new Error("学生需要老师邀请上台后才能开启摄像头");
     }
 
     if (!this.cameraTrack) {
-      const high = classroomMediaProfile.camera.high;
+      const high =
+        classroomVideoPresets[this.snapshot.local.videoQuality].camera.high;
       this.cameraTrack = await AgoraRTC.createCameraVideoTrack({
+        ...(this.preferredCameraId && {
+          cameraId: this.preferredCameraId,
+        }),
         encoderConfig: {
           width: high.width,
           height: high.height,
@@ -310,9 +391,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.upsertParticipant(this.credential.userId, {
       hasVideo: this.snapshot.local.cameraOn,
     });
-    const element = this.videoElements.get(this.credential.userId);
-    if (element && this.snapshot.local.cameraOn) {
-      this.cameraTrack.play(element, { fit: "cover", mirror: true });
+    if (this.snapshot.local.cameraOn) {
+      this.renderVideoTargets(this.credential.userId);
+    } else {
+      this.clearVideoTargets(this.credential.userId);
     }
     return this.snapshot.local.cameraOn;
   }
@@ -342,9 +424,12 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.screenTrack = screenTrack;
 
     const screenClient = AgoraRTC.createClient({
-      mode: "live",
+      mode:
+        this.credential.scenario === "liveBroadcasting" ? "live" : "rtc",
       codec: "vp8",
-      role: "host",
+      ...(this.credential.scenario === "liveBroadcasting" && {
+        role: "host" as const,
+      }),
     });
     this.screenClient = screenClient;
     screenTrack.on("track-ended", () => {
@@ -413,34 +498,116 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   }
 
   attachVideo(id: string, element: HTMLElement): void {
-    this.videoElements.set(id, element);
-    if (id === this.credential?.userId && this.cameraTrack) {
-      this.cameraTrack.play(element, { fit: "cover", mirror: true });
-      return;
-    }
-    if (id === this.credential?.screenShare?.userId && this.screenTrack) {
-      this.screenTrack.play(element, { fit: "contain" });
-      return;
-    }
-    const user = this.remoteUsers.get(id);
-    if (user?.videoTrack) {
-      user.videoTrack.play(element, {
-        fit: isScreenShareUserId(id) ? "contain" : "cover",
-      });
-    }
+    const targets = this.videoElements.get(id) ?? new Set<HTMLElement>();
+    targets.add(element);
+    this.videoElements.set(id, targets);
+    this.renderVideoTarget(id, element);
   }
 
-  detachVideo(id: string): void {
-    this.videoElements.delete(id);
-    const user = this.remoteUsers.get(id);
-    user?.videoTrack?.stop();
-    if (id === this.credential?.userId) this.cameraTrack?.stop();
-    if (id === this.credential?.screenShare?.userId) this.screenTrack?.stop();
+  detachVideo(id: string, element: HTMLElement): void {
+    this.clearVideoTarget(element);
+    const targets = this.videoElements.get(id);
+    targets?.delete(element);
+    if (targets?.size === 0) this.videoElements.delete(id);
   }
 
   async renewToken(token: string): Promise<void> {
     if (!this.client) throw new Error("课堂尚未连接");
     await this.client.renewToken(token);
+  }
+
+  async listDevices(): Promise<{
+    microphones: MediaDeviceInfo[];
+    cameras: MediaDeviceInfo[];
+  }> {
+    const [microphones, cameras] = await Promise.all([
+      AgoraRTC.getMicrophones(true),
+      AgoraRTC.getCameras(true),
+    ]);
+    return { microphones, cameras };
+  }
+
+  async setMicrophoneDevice(deviceId: string): Promise<void> {
+    if (!deviceId) return;
+    this.preferredMicrophoneId = deviceId;
+    if (this.microphoneTrack) await this.microphoneTrack.setDevice(deviceId);
+  }
+
+  async setCameraDevice(deviceId: string): Promise<void> {
+    if (!deviceId) return;
+    this.preferredCameraId = deviceId;
+    if (this.cameraTrack) await this.cameraTrack.setDevice(deviceId);
+  }
+
+  async setVideoQuality(
+    quality: "economy" | "hd" | "fullHd",
+  ): Promise<void> {
+    const high = classroomVideoPresets[quality].camera.high;
+    if (this.cameraTrack) {
+      await this.cameraTrack.setEncoderConfiguration({
+        width: high.width,
+        height: high.height,
+        frameRate: high.frameRate,
+        bitrateMin: Math.round(high.bitrateKbps * 0.65),
+        bitrateMax: high.bitrateKbps,
+      });
+    }
+    this.snapshot.local.videoQuality = quality;
+    this.emit();
+  }
+
+  async setPublishingCredential(
+    credential: ClassroomJoinCredential | null,
+  ): Promise<void> {
+    if (!this.client || !this.credential) {
+      throw new Error("课堂尚未连接");
+    }
+
+    if (credential) {
+      if (
+        credential.channelName !== this.credential.channelName ||
+        credential.userId !== this.credential.userId
+      ) {
+        throw new Error("发布凭证与当前课堂不匹配");
+      }
+      await this.client.renewToken(credential.token);
+      if (credential.scenario === "liveBroadcasting") {
+        await this.client.setClientRole("host");
+      }
+      this.credential = {
+        ...this.credential,
+        ...credential,
+        publishAllowed: true,
+      };
+      return;
+    }
+
+    const localTracks = [this.microphoneTrack, this.cameraTrack].filter(
+      (track): track is IMicrophoneAudioTrack | ICameraVideoTrack =>
+        Boolean(track),
+    );
+    if (localTracks.length > 0) {
+      await this.client.unpublish(localTracks).catch(() => undefined);
+    }
+    this.microphoneTrack?.close();
+    this.cameraTrack?.close();
+    this.microphoneTrack = null;
+    this.cameraTrack = null;
+    this.snapshot.local.microphoneOn = false;
+    this.snapshot.local.cameraOn = false;
+    this.upsertParticipant(this.credential.userId, {
+      hasAudio: false,
+      hasVideo: false,
+    });
+    await this.stopScreenShare();
+    if (this.credential.scenario === "liveBroadcasting") {
+      await this.client.setClientRole("audience");
+    }
+    this.credential = {
+      ...this.credential,
+      publishAllowed: false,
+      screenShare: undefined,
+    };
   }
 
   async disconnect(): Promise<void> {
@@ -468,8 +635,11 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.cameraTrack = null;
     this.remoteUsers.clear();
     this.participants.clear();
+    for (const id of this.videoElements.keys()) this.clearVideoTargets(id);
     this.videoElements.clear();
     this.credential = null;
+    this.preferredMicrophoneId = undefined;
+    this.preferredCameraId = undefined;
     this.snapshot = {
       connectionState: "disconnected",
       participants: [],
@@ -477,10 +647,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         microphoneOn: false,
         cameraOn: false,
         screenSharing: false,
+        videoQuality: "hd",
       },
       focusedParticipantId: null,
     };
     this.emit();
   }
 }
-

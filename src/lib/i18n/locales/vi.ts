@@ -1,6 +1,7 @@
 import { zhCN } from "./zh-CN";
+import type { DeepPartial } from "../types";
 
-export const vi: typeof zhCN = {
+export const vi = {
   common: {
     loading: "Đang tải...",
     submitting: "Đang gửi...",
@@ -326,4 +327,4 @@ export const vi: typeof zhCN = {
     errInvalidPasscode: "Incorrect passcode, please try again",
     successJoin: "Verification successful! Joining classroom...",
   },
-};
+} satisfies DeepPartial<typeof zhCN>;

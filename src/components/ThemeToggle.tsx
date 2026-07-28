@@ -1,32 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getClientTheme, setClientTheme, Theme } from "@/lib/theme";
 
 export default function ThemeToggle({ className }: { className?: string }) {
-  const [theme, setTheme] = useState<Theme>("light");
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setTheme(getClientTheme());
-    setMounted(true);
-  }, []);
+  const theme = useSyncExternalStore(
+    (onStoreChange) => {
+      window.addEventListener("app-theme-change", onStoreChange);
+      return () =>
+        window.removeEventListener("app-theme-change", onStoreChange);
+    },
+    getClientTheme,
+    () => "light" as Theme,
+  );
 
   const toggleTheme = () => {
     const nextTheme = theme === "light" ? "dark" : "light";
     setClientTheme(nextTheme);
-    setTheme(nextTheme);
   };
-
-  if (!mounted) {
-    return (
-      <Button variant="ghost" size="icon" className={className} disabled>
-        <Sun className="h-5 w-5 opacity-30" />
-      </Button>
-    );
-  }
 
   return (
     <Button

@@ -9,6 +9,9 @@ export type IssueClassroomCredentialInput = {
   channelName: string;
   userId: string;
   role: ClassroomRole;
+  scenario?: "communication" | "liveBroadcasting";
+  publisher?: boolean;
+  allowScreenShare?: boolean;
 };
 
 export interface ClassroomServerProvider {
@@ -23,6 +26,7 @@ export type RecordingStartInput = {
   courseId: string;
   channelName: string;
   mediaProfile: ClassroomMediaProfile;
+  pageUrl?: string | null;
 };
 
 export type RecordingStartResult = {
@@ -30,6 +34,8 @@ export type RecordingStartResult = {
   resourceId: string;
   providerSessionId: string;
   providerState: Record<string, unknown>;
+  mode: "web" | "mix";
+  fallbackFrom?: "web";
 };
 
 export type RecordingStopInput = {
@@ -58,4 +64,3 @@ export interface RecordingProvider {
   stop(input: RecordingStopInput): Promise<RecordingStopResult>;
   query(input: RecordingStopInput): Promise<RecordingQueryResult>;
 }
-

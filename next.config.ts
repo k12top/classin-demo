@@ -15,18 +15,21 @@ loadEnvConfig(packageDir);
 const nextConfig: NextConfig = {
   reactCompiler: true,
   serverExternalPackages: ["agora-token", "ali-oss"],
+  webpack(config) {
+    // White Web SDK optionally probes Agora Foundation for local diagnostic
+    // logging. That package is not browser-safe (it imports Node `fs`), so
+    // resolve the optional probes to empty modules and let the SDK use Argus.
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "agora-foundation/lib/logger/common": false,
+      "agora-foundation/lib/logger": false,
+      "agora-foundation/package.json": false,
+    };
+    return config;
+  },
 
   async headers() {
     return [
-      {
-        source: "/vendor/edu_sdk-2.9.40-hand-up-10s.bundle.js",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "public, max-age=31536000, immutable",
-          },
-        ],
-      },
       {
         source: "/:path*",
         headers: [
@@ -38,7 +41,6 @@ const nextConfig: NextConfig = {
   },
 
   env: {
-    NEXT_PUBLIC_AGORA_APP_ID: process.env.AGORA_APP_ID,
     NEXT_PUBLIC_CASDOOR_SERVER_URL: process.env.NEXT_PUBLIC_CASDOOR_SERVER_URL,
     NEXT_PUBLIC_CASDOOR_CLIENT_ID: process.env.NEXT_PUBLIC_CASDOOR_CLIENT_ID,
     NEXT_PUBLIC_CASDOOR_APP_NAME: process.env.NEXT_PUBLIC_CASDOOR_APP_NAME,

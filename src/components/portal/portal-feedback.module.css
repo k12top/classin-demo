@@ -1,0 +1,207 @@
+.viewport {
+  position: fixed;
+  z-index: 1000;
+  top: 18px;
+  right: 18px;
+  display: grid;
+  width: min(370px, calc(100vw - 36px));
+  gap: 9px;
+  pointer-events: none;
+}
+
+.toast {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 15px;
+  color: #f4f6f8;
+  background: rgb(21 23 28 / 0.94);
+  box-shadow: 0 18px 56px rgb(9 10 13 / 0.24);
+  backdrop-filter: blur(22px);
+  pointer-events: auto;
+  animation: toastIn 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.toastIcon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 10px;
+  color: #bcb5ff;
+  background: rgb(123 111 242 / 0.13);
+}
+
+.toast[data-tone="success"] .toastIcon {
+  color: #5be3b3;
+  background: rgb(50 212 154 / 0.12);
+}
+
+.toast[data-tone="error"] .toastIcon {
+  color: #ff7a84;
+  background: rgb(255 94 105 / 0.12);
+}
+
+.toastIcon svg,
+.toastClose svg {
+  width: 15px;
+  height: 15px;
+}
+
+.toast p {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 630;
+  line-height: 1.5;
+}
+
+.toastClose {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: #8d95a2;
+  background: transparent;
+  cursor: pointer;
+}
+
+.toastClose:hover {
+  color: #fff;
+  background: rgb(255 255 255 / 0.08);
+}
+
+.backdrop {
+  position: fixed;
+  z-index: 1100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(9 10 13 / 0.52);
+  backdrop-filter: blur(12px);
+  animation: fadeIn 180ms ease;
+}
+
+.dialog {
+  width: min(100%, 440px);
+  overflow: hidden;
+  border: 1px solid hsl(var(--border) / 0.8);
+  border-radius: 22px;
+  color: hsl(var(--foreground));
+  background: hsl(var(--card) / 0.98);
+  box-shadow: 0 34px 110px rgb(9 10 13 / 0.34);
+  animation: dialogIn 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dialogBody {
+  display: grid;
+  justify-items: center;
+  padding: 30px 28px 24px;
+  text-align: center;
+}
+
+.dialogIcon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 16px;
+  color: #776bdf;
+  background: rgb(123 111 242 / 0.11);
+}
+
+.dialog[data-tone="danger"] .dialogIcon {
+  color: #e8525d;
+  background: rgb(255 94 105 / 0.1);
+}
+
+.dialogIcon svg {
+  width: 23px;
+  height: 23px;
+}
+
+.dialog h2 {
+  margin: 18px 0 0;
+  font-size: 19px;
+  font-weight: 720;
+  letter-spacing: -0.035em;
+}
+
+.dialog p {
+  margin: 8px 0 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.dialogActions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid hsl(var(--border) / 0.72);
+  background: hsl(var(--muted) / 0.24);
+}
+
+.dialogActions button {
+  min-height: 42px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background) / 0.72);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.dialogActions .confirm {
+  border-color: rgb(123 111 242 / 0.24);
+  color: #fff;
+  background: #6c60df;
+}
+
+.dialog[data-tone="danger"] .dialogActions .confirm {
+  border-color: rgb(255 94 105 / 0.26);
+  background: #de4e5a;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes dialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+}
+
+@media (max-width: 720px) {
+  .viewport {
+    inset: 12px 12px auto;
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .backdrop,
+  .dialog {
+    animation: none;
+  }
+}

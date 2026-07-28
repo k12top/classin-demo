@@ -46,11 +46,18 @@ async function fetchMeWithRefresh(): Promise<AuthUser | null> {
   return data.user ?? null;
 }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
+export function AuthProvider({
+  children,
+  initialUser = null,
+}: {
+  children: ReactNode;
+  initialUser?: AuthUser | null;
+}) {
+  const [user, setUser] = useState<AuthUser | null>(initialUser);
+  const [loading, setLoading] = useState(!initialUser);
 
   useEffect(() => {
+    if (initialUser) return;
     async function fetchUser() {
       try {
         const u = await fetchMeWithRefresh();
@@ -62,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
     fetchUser();
-  }, []);
+  }, [initialUser]);
 
   useEffect(() => {
     function onVisibilityChange() {

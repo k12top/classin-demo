@@ -111,20 +111,6 @@ export function isFinishedDue(
   return now.getTime() >= endTime.getTime() + delayMinutes * 60 * 1000;
 }
 
-/** Agora ClassState: 0=beforeClass, 1=ongoing, 2=afterClass, 3=close */
-export function mapAgoraClassStateToCourseStatus(
-  classState: number
-): CourseStatusValue | null {
-  switch (classState) {
-    case 1:
-      return CourseStatus.LIVE;
-    case 2:
-      return CourseStatus.AFTER_CLASS;
-    default:
-      return null;
-  }
-}
-
 export function parseCourseStatusFilter(
   raw: string | null
 ): CourseStatusValue | null | { error: string } {
@@ -142,28 +128,6 @@ export function parseCourseStatusFilter(
     };
   }
   return raw;
-}
-
-export function canApplyStatusFromAgora(
-  currentStatus: string,
-  nextStatus: CourseStatusValue
-): boolean {
-  if (
-    currentStatus === CourseStatus.CANCELLED ||
-    currentStatus === CourseStatus.FINISHED
-  ) {
-    return false;
-  }
-  if (nextStatus === CourseStatus.LIVE) {
-    return currentStatus === CourseStatus.SCHEDULED;
-  }
-  if (nextStatus === CourseStatus.AFTER_CLASS) {
-    return (
-      currentStatus === CourseStatus.SCHEDULED ||
-      currentStatus === CourseStatus.LIVE
-    );
-  }
-  return false;
 }
 
 /** Teacher manual finish: respect scheduled end time delay unless force. */

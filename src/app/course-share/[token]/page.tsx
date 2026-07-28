@@ -137,35 +137,18 @@ export default async function CourseSharePage({
 }) {
   const { token } = await params;
   const { lang: langParam } = await searchParams;
-  const { locale, t } = await getServerTranslation(langParam);
-  const copy =
-    locale === "zh-CN"
-      ? {
-          closedTitle: "课程无法加入",
-          closedMessage: "这门课程已结束或已取消",
-          closedHint:
-            "课程分享链接只支持未结束课程自动加入。如需回放、补课或重新报名，请联系授课老师确认后续安排。",
-          invalidHint: "请确认老师提供的链接是否完整，或联系老师重新发送新的课程分享链接。",
-          linkLabel: "课程分享链接",
-          detailLabel: "查看课程详情",
-          passcodeTitle: "输入密码加入课程",
-          passcodeDesc: "老师为这个课程分享链接设置了入会密码，请输入 6 位数字密码继续。",
-          passcodeButton: "验证并加入",
-        }
-      : {
-          closedTitle: "Course unavailable",
-          closedMessage: "This course has ended or was cancelled",
-          closedHint:
-            "Course share links only enroll students while a course is still active. Contact the teacher for playback, rescheduling, or a new enrollment link.",
-          invalidHint:
-            "Check that the link from your teacher is complete, or ask them to send a new course share link.",
-          linkLabel: "Course share link",
-          detailLabel: "View course details",
-          passcodeTitle: "Enter passcode to join",
-          passcodeDesc:
-            "The teacher protected this course share link. Enter the 6-digit passcode to continue.",
-          passcodeButton: "Verify and join",
-        };
+  const { t } = await getServerTranslation(langParam);
+  const copy = {
+    closedTitle: t("join.courseUnavailable"),
+    closedMessage: t("join.courseClosedMessage"),
+    closedHint: t("join.courseClosedHint"),
+    invalidHint: t("join.invalidCourseShareHint"),
+    linkLabel: t("join.courseShareLabel"),
+    detailLabel: t("accessDenied.viewDetail"),
+    passcodeTitle: t("join.coursePasscodeTitle"),
+    passcodeDesc: t("join.coursePasscodeDescription"),
+    passcodeButton: t("join.coursePasscodeButton"),
+  };
 
   const resolved = await resolveJoinLinkForPurpose(token, "course");
   if (!resolved.ok) {

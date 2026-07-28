@@ -6,7 +6,7 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 /** Bump when adding models so dev HMR does not keep a stale singleton. */
-const PRISMA_SCHEMA_GENERATION = 9;
+const PRISMA_SCHEMA_GENERATION = 11;
 
 const globalForPrismaMeta = globalThis as unknown as {
   prismaSchemaGeneration?: number;
@@ -43,6 +43,14 @@ function hasClassroomRecordingDelegate(client: PrismaClient): boolean {
   return "classroomRecording" in client;
 }
 
+function hasClassroomRuntimeDelegate(client: PrismaClient): boolean {
+  return (
+    "classroomRuntime" in client &&
+    "classroomMemberState" in client &&
+    "classroomMessage" in client
+  );
+}
+
 function getPrisma(): PrismaClient {
   const cached = globalForPrisma.prisma;
   const generation = globalForPrismaMeta.prismaSchemaGeneration;
@@ -54,7 +62,8 @@ function getPrisma(): PrismaClient {
     hasCourseTeacherDelegate(cached) &&
     hasUserProfileDelegate(cached) &&
     hasCourseAttendanceDelegate(cached) &&
-    hasClassroomRecordingDelegate(cached)
+    hasClassroomRecordingDelegate(cached) &&
+    hasClassroomRuntimeDelegate(cached)
   ) {
     return cached;
   }

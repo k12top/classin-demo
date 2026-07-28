@@ -14,7 +14,10 @@ function hasPlaybackExtension(
   if (!trimmed) return false;
 
   try {
-    const url = new URL(trimmed);
+    const url = trimmed.startsWith("/")
+      ? new URL(trimmed, "https://classroom.internal")
+      : new URL(trimmed);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
     return url.pathname.toLowerCase().endsWith(extension);
   } catch {
     return false;

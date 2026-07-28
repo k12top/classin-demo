@@ -68,10 +68,68 @@ function LoginContent() {
         </Select>
       </div>
 
-      <div className="relative z-10 mx-auto flex w-full max-w-[460px] flex-col items-center">
+      <div className="relative z-10 mx-auto grid w-full max-w-[1080px] overflow-hidden rounded-[32px] border border-border/70 bg-card/75 shadow-[0_36px_120px_-44px_rgba(26,20,74,0.38)] backdrop-blur-2xl lg:grid-cols-[0.92fr_1.08fr]">
+        <aside className="relative hidden min-h-[650px] overflow-hidden bg-[#15171c] p-12 text-[#f4f6f8] lg:flex lg:flex-col lg:justify-between">
+          <div
+            aria-hidden="true"
+            className="absolute -right-32 -top-28 h-[420px] w-[420px] rounded-full bg-[#7b6ff2]/30 blur-[90px]"
+          />
+          <div
+            aria-hidden="true"
+            className="absolute -bottom-28 -left-28 h-[360px] w-[360px] rounded-full bg-[#32d49a]/10 blur-[90px]"
+          />
+          <div className="relative">
+            <div className="flex items-center gap-3">
+              <SiteLogo
+                decorative
+                className="h-11 w-11 rounded-[14px] border border-white/10 bg-white/5 p-2"
+              />
+              <div>
+                <strong className="block text-sm tracking-[-0.02em]">
+                  {t("common.appName")}
+                </strong>
+                <span className="mt-1 block text-[9px] font-semibold uppercase tracking-[0.18em] text-[#a7afbd]">
+                  Live teaching system
+                </span>
+              </div>
+            </div>
+            <p className="mt-20 text-[10px] font-bold uppercase tracking-[0.18em] text-[#8d85ee]">
+              {t("login.heroEyebrow")}
+            </p>
+            <h2 className="mt-5 max-w-[390px] text-[46px] font-semibold leading-[0.98] tracking-[-0.06em]">
+              {t("login.heroTitle")}
+            </h2>
+            <p className="mt-6 max-w-[360px] text-sm leading-7 text-[#a7afbd]">
+              {t("login.heroDescription")}
+            </p>
+          </div>
+
+          <div className="relative grid grid-cols-3 gap-2">
+            {[
+              [ShieldCheck, t("login.unifiedIdentity")],
+              [BookOpenCheck, t("login.classroomCollaboration")],
+              [Clock3, t("login.completePlayback")],
+            ].map(([Icon, label]) => {
+              const ItemIcon = Icon as typeof ShieldCheck;
+              return (
+                <div
+                  key={String(label)}
+                  className="rounded-2xl border border-white/[0.07] bg-white/[0.04] p-4"
+                >
+                  <ItemIcon className="h-4 w-4 text-[#bcb5ff]" />
+                  <span className="mt-8 block text-[10px] font-semibold text-[#c9ced7]">
+                    {String(label)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </aside>
+
+        <div className="flex min-w-0 flex-col items-center justify-center p-4 sm:p-8 lg:p-12">
         <section
           aria-labelledby="login-title"
-          className="relative w-full overflow-hidden rounded-[28px] border border-border/70 bg-card/90 p-5 shadow-[0_24px_80px_-28px_rgba(76,29,149,0.35)] backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-3 motion-safe:duration-500 sm:p-8"
+          className="relative w-full max-w-[460px] overflow-hidden rounded-[26px] border border-border/70 bg-card/90 p-5 shadow-[0_24px_70px_-34px_rgba(76,29,149,0.32)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-3 motion-safe:duration-500 sm:p-8"
         >
           <div
             aria-hidden="true"
@@ -173,7 +231,7 @@ function LoginContent() {
           </p>
         </section>
 
-        <ul className="mt-4 grid w-full grid-cols-3 gap-2 sm:mt-5 sm:gap-3">
+        <ul className="mt-4 grid w-full max-w-[460px] grid-cols-3 gap-2 sm:mt-5 sm:gap-3 lg:hidden">
           <li className="flex min-w-0 flex-col items-center rounded-2xl border border-border/60 bg-card/70 px-2 py-3 text-center shadow-sm backdrop-blur-md sm:px-3 sm:py-4">
             <ShieldCheck aria-hidden="true" className="h-5 w-5 text-primary" />
             <span className="mt-2 text-[11px] font-medium leading-4 text-muted-foreground sm:text-xs">
@@ -197,6 +255,7 @@ function LoginContent() {
         <footer className="mt-5 text-center text-xs text-muted-foreground">
           {t("common.appName")}
         </footer>
+        </div>
       </div>
     </main>
   );

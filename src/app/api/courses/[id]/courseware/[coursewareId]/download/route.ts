@@ -7,6 +7,7 @@ import {
 import { canAccessCourseware } from "@/lib/courseware-access";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
+import { assertCanTeachCourse } from "@/lib/course-teacher";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -25,9 +26,23 @@ export async function GET(
 
   const courseware = await prisma.courseware.findFirst({
     where: { id: coursewareId, courseId },
-    select: { name: true, url: true },
+    select: {
+      name: true,
+      url: true,
+      studentCanView: true,
+      studentCanDownload: true,
+    },
   });
   if (!courseware) return NextResponse.json({ error: "Courseware not found" }, { status: 404 });
+  const canTeach =
+    session.role === "teacher" &&
+    (await assertCanTeachCourse(session.userId, courseId));
+  if (
+    !canTeach &&
+    (!courseware.studentCanView || !courseware.studentCanDownload)
+  ) {
+    return NextResponse.json({ error: "该课件未开放下载" }, { status: 403 });
+  }
 
   const objectKey = getCoursewareObjectKey(courseware.url);
   if (!objectKey) return NextResponse.redirect(courseware.url);

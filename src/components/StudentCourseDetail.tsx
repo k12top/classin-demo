@@ -13,6 +13,8 @@ import { canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
 import { getPlaybackTarget } from "@/lib/playback-url";
 import TimeDisplay from "@/components/TimeDisplay";
+import workspaceStyles from "@/components/portal/course-workspace.module.css";
+import { usePortalFeedback } from "@/components/portal/portal-feedback";
 
 const ROOM_TYPE_KEYS: Record<number, string> = {
   0: "common.roomType1v1",
@@ -63,6 +65,7 @@ export default function StudentCourseDetail({
   const [remarksValue, setRemarksValue] = useState(course.studentRemarks || "");
   const [savingRemarks, setSavingRemarks] = useState(false);
   const { t } = useTranslation();
+  const { notify } = usePortalFeedback();
 
   const [courseware, setCourseware] = useState<CoursewareItem[]>([]);
 
@@ -94,7 +97,7 @@ export default function StudentCourseDetail({
       });
       if (res.ok) {
         fetchCourse();
-        alert(t("courseDetail.updateRemarksSuccess"));
+        notify(t("courseDetail.updateRemarksSuccess"), "success");
       }
     } catch (err) {
       console.error(err);
@@ -114,22 +117,22 @@ export default function StudentCourseDetail({
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 pt-4">
       {/* Header Card */}
-      <Card className="border border-border/60 bg-card overflow-hidden relative rounded-2xl shadow-sm">
+      <Card className={workspaceStyles.hero}>
         <div className="absolute top-[-50%] right-[-10%] w-[300px] h-[300px] bg-primary/5 rounded-full blur-[100px] pointer-events-none" />
-        <CardContent className="p-8 relative z-10">
+        <CardContent className={workspaceStyles.heroContent}>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
             <div className="space-y-4">
               <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary text-[10px]">
                 {t(ROOM_TYPE_KEYS[course.roomType]) || t("common.unknown")}
               </Badge>
-              <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-foreground">{course.name}</h1>
+              <h1 className={workspaceStyles.heroTitle}>{course.name}</h1>
               
               <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mt-4">
-                <div className="flex items-center gap-1.5 bg-muted px-3 py-1.5 rounded-xl border border-border/40 text-xs font-semibold text-foreground">
+                <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold ${workspaceStyles.heroPill}`}>
                   <User className="h-4 w-4 text-primary" />
                   <span className="text-foreground/80">{t("courseDetail.teacherInfo", { name: course.teacherName })}</span>
                 </div>
-                <div className="flex items-center gap-1.5 bg-muted px-3 py-1.5 rounded-xl border border-border/40 text-xs font-semibold text-foreground">
+                <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold ${workspaceStyles.heroPill}`}>
                   <Clock className="h-4 w-4 text-primary" />
                   <span className="text-foreground/80">
                     <TimeDisplay isoString={course.startTime} options={{ month: "long", day: "numeric", weekday: "long", hour: "2-digit", minute: "2-digit" }} />
@@ -142,7 +145,7 @@ export default function StudentCourseDetail({
             <div className="w-full md:w-auto shrink-0">
               <Button
                 size="lg"
-                className="w-full md:w-auto bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all"
+                className={`w-full md:w-auto rounded-xl font-medium active:scale-[0.98] transition-all ${workspaceStyles.primaryAction}`}
                 onClick={() => {
                   if (course.status === "finished") {
                     const target = getPlaybackTarget(course.id, course.recordUrl);
@@ -178,7 +181,7 @@ export default function StudentCourseDetail({
 
       {/* Main Tabs Area */}
       <Tabs defaultValue="info" className="w-full">
-        <TabsList className="bg-muted/60 border border-border/40 p-1 rounded-xl mb-6 inline-flex w-full md:w-auto">
+        <TabsList className={`mb-6 inline-flex ${workspaceStyles.tabs}`}>
           <TabsTrigger value="info" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm">
             <BookOpen className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.info")}
           </TabsTrigger>
@@ -241,7 +244,7 @@ export default function StudentCourseDetail({
                           href={item.downloadUrl}
                           className="bg-primary hover:bg-primary/95 text-white text-xs px-3.5 py-2 rounded-xl font-medium shadow-sm transition-all"
                         >
-                          下载课件
+                          {t("courseDetail.downloadCourseware")}
                         </a>
                       </div>
                     </div>

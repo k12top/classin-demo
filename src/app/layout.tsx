@@ -3,8 +3,14 @@ import { cookies } from "next/headers";
 import { AppDocumentGuard } from "@/components/app-document-guard";
 import { AuthProvider } from "@/lib/auth-context";
 import { I18nProvider } from "@/lib/i18n/context";
-import { SupportedLocale } from "@/lib/i18n/locales";
+import {
+  isSupportedLocale,
+  localeDirection,
+  type SupportedLocale,
+} from "@/lib/i18n/locales";
 import { siteDescription, siteIcon, siteTitle } from "@/lib/site-brand";
+import { PortalFeedbackProvider } from "@/components/portal/portal-feedback";
+import { getSession } from "@/lib/session";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -22,22 +28,41 @@ export default async function RootLayout({
 }>) {
   const cookieStore = await cookies();
   const cookieVal = cookieStore.get("NEXT_LOCALE")?.value;
-  const initialLocale = (cookieVal || "en") as SupportedLocale;
+  const initialLocale: SupportedLocale = isSupportedLocale(cookieVal)
+    ? cookieVal
+    : "en";
   const themeVal = cookieStore.get("NEXT_THEME")?.value || "light";
+  const session = await getSession();
+  const initialUser = session
+    ? {
+        userId: session.userId,
+        name: session.name,
+        displayName: session.displayName,
+        avatar: session.avatar,
+        role: session.role,
+        email: session.email,
+      }
+    : null;
 
   return (
-    <html lang={initialLocale} className={themeVal}>
+    <html
+      lang={initialLocale}
+      dir={localeDirection(initialLocale)}
+      className={themeVal}
+    >
       <body className="font-sans antialiased bg-background text-foreground min-h-screen flex flex-col">
-        {/* Dynamic Background */}
-        <div className="fixed inset-0 z-[-1] bg-[radial-gradient(ellipse_at_20%_50%,rgba(59,130,246,0.08)_0%,transparent_50%),radial-gradient(ellipse_at_80%_20%,rgba(139,92,246,0.06)_0%,transparent_50%),radial-gradient(ellipse_at_50%_80%,rgba(6,182,212,0.05)_0%,transparent_50%)] pointer-events-none">
-           <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[repeating-conic-gradient(rgba(255,255,255,0.01)_0%,transparent_2%)] animate-bg-rotate pointer-events-none" />
-        </div>
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_84%_-8%,rgba(123,111,242,0.10),transparent_32rem),linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted)/0.26))]"
+        />
         
         <I18nProvider initialLocale={initialLocale}>
-          <AuthProvider>
-            <AppDocumentGuard />
-            {children}
-          </AuthProvider>
+          <PortalFeedbackProvider>
+            <AuthProvider initialUser={initialUser}>
+              <AppDocumentGuard />
+              {children}
+            </AuthProvider>
+          </PortalFeedbackProvider>
         </I18nProvider>
       </body>
     </html>

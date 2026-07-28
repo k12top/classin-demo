@@ -3,6 +3,7 @@
  */
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { AlertCircle, ArrowRight, Video } from "lucide-react";
 import JoinLinkPasscodeGate from "@/components/JoinLinkPasscodeGate";
 import { getSession } from "@/lib/session";
 import {
@@ -29,23 +30,13 @@ export default async function JoinPage({
   const { token } = await params;
   const { embed: embedParam, lang: langParam } = await searchParams;
   const wantEmbed = embedParam === "1" || embedParam === "true";
-  const { locale, t } = await getServerTranslation(langParam);
-  const copy =
-    locale === "zh-CN"
-      ? {
-          linkLabel: "直播分享链接",
-          passcodeTitle: "输入密码进入直播",
-          passcodeDesc:
-            "老师为这个直播分享链接设置了入会密码，请输入 6 位数字密码继续。",
-          passcodeButton: "验证并进入",
-        }
-      : {
-          linkLabel: "Live share link",
-          passcodeTitle: "Enter passcode to join live",
-          passcodeDesc:
-            "The teacher protected this live share link. Enter the 6-digit passcode to continue.",
-          passcodeButton: "Verify and enter",
-        };
+  const { t } = await getServerTranslation(langParam);
+  const copy = {
+    linkLabel: t("join.liveShareLabel"),
+    passcodeTitle: t("join.livePasscodeTitle"),
+    passcodeDesc: t("join.livePasscodeDescription"),
+    passcodeButton: t("join.livePasscodeButton"),
+  };
 
   const resolved = await resolveJoinLink(token);
   if (!resolved.ok) {
@@ -55,20 +46,33 @@ export default async function JoinPage({
       expired: t("join.expired"),
     };
     return (
-      <>
-        <div className="page-bg" />
-        <div className="auth-container">
-          <div className="card" style={{ textAlign: "center", padding: 40 }}>
-            <h2>{t("classroom.launchError")}</h2>
-            <p style={{ marginTop: 12, color: "var(--color-text-secondary)" }}>
+      <main className="grid min-h-screen place-items-center bg-background px-5 py-10">
+        <section className="relative w-full max-w-xl overflow-hidden rounded-[26px] border border-white/10 bg-[#15171c] p-7 text-[#f4f6f8] shadow-[0_30px_90px_rgba(12,13,17,0.24)] sm:p-10">
+          <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[#7b6ff2]/25 blur-[70px]" />
+          <div className="relative">
+            <span className="inline-flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.16em] text-[#a7afbd]">
+              <Video className="h-4 w-4 text-[#bcb5ff]" />
+              {copy.linkLabel}
+            </span>
+            <div className="mt-12 flex h-14 w-14 items-center justify-center rounded-2xl border border-[#ff5e69]/20 bg-[#ff5e69]/10 text-[#ff7a84]">
+              <AlertCircle className="h-7 w-7" />
+            </div>
+            <h1 className="mt-6 text-3xl font-semibold tracking-[-0.05em]">
+              {t("classroom.launchError")}
+            </h1>
+            <p className="mt-3 max-w-md text-sm leading-7 text-[#a7afbd]">
               {messages[resolved.reason]}
             </p>
-            <Link href="/" className="btn btn-primary" style={{ marginTop: 24, display: "inline-block" }}>
+            <Link
+              href="/"
+              className="mt-9 inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#6c60df] px-5 text-sm font-semibold text-white shadow-[0_12px_32px_rgba(61,48,172,0.28)] transition-transform hover:-translate-y-0.5"
+            >
               {t("common.backToHome")}
+              <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
-        </div>
-      </>
+        </section>
+      </main>
     );
   }
 

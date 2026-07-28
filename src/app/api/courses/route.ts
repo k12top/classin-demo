@@ -57,7 +57,10 @@ export async function GET(request: NextRequest) {
 
   try {
     // Auto-promote any overdue course statuses before listing
-    await promoteCoursesIfDue();
+    // The minute-level cron owns provider reconciliation. A dashboard read only
+    // needs the cheap database status promotion and must never wait for external
+    // recording APIs.
+    await promoteCoursesIfDue(undefined, { reconcileRecordings: false });
 
     if (session.role === "teacher") {
       // A platform teacher can also join another teacher's course as a student.

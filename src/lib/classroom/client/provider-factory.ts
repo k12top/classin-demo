@@ -4,14 +4,16 @@ import type {
   ClassroomMediaProvider,
   ClassroomProviderName,
 } from "@/lib/classroom/types";
-import { AgoraRtcMediaProvider } from "@/lib/classroom/providers/agora/client";
 
-export function createClassroomMediaProvider(
+export async function createClassroomMediaProvider(
   provider: ClassroomProviderName,
-): ClassroomMediaProvider {
+): Promise<ClassroomMediaProvider> {
   switch (provider) {
-    case "agora":
+    case "agora": {
+      const { AgoraRtcMediaProvider } = await import(
+        "@/lib/classroom/providers/agora/client"
+      );
       return new AgoraRtcMediaProvider();
+    }
   }
 }
-

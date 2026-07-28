@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import {
   ClassroomProviderConfigurationError,
   ClassroomProviderRequestError,
-} from "@/lib/classroom/providers/agora/server";
-import { classroomMediaProfile } from "@/lib/classroom/config";
+} from "@/lib/classroom/server/errors";
 import { getRecordingProvider } from "@/lib/classroom/server/provider-factory";
-import { courseIdToRoomUuid } from "@/lib/course-room";
-import { CourseStatus } from "@/lib/course-status";
+import {
+  startRecordingForCourse,
+  stopRecordingAttempt,
+} from "@/lib/classroom/server/recording-orchestrator";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
 import { userCanTeachCourse } from "@/lib/course-teacher";
@@ -14,7 +16,9 @@ import { userCanTeachCourse } from "@/lib/course-teacher";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const ACTIVE_RECORDING_STATUSES = ["starting", "recording", "stopping"];
+function inputJson(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
 
 async function teacherCourse(request: NextRequest, courseId: string) {
   const session = await getSessionFromRequest(request);
@@ -45,6 +49,8 @@ function publicRecording(recording: {
   startedAt: Date | null;
   stoppedAt: Date | null;
   errorMessage: string | null;
+  mode: string;
+  fallbackFrom: string | null;
 }) {
   return {
     id: recording.id,
@@ -53,6 +59,8 @@ function publicRecording(recording: {
     startedAt: recording.startedAt?.toISOString() ?? null,
     stoppedAt: recording.stoppedAt?.toISOString() ?? null,
     errorMessage: recording.errorMessage,
+    mode: recording.mode,
+    fallbackFrom: recording.fallbackFrom,
   };
 }
 
@@ -79,7 +87,7 @@ export async function GET(
     });
   }
 
-  let providerState = latest.providerState;
+  let providerState: unknown = latest.providerState;
   if (
     latest.status === "recording" &&
     latest.resourceId &&
@@ -102,7 +110,7 @@ export async function GET(
       providerState = queried.providerState;
       await prisma.classroomRecording.update({
         where: { id: latest.id },
-        data: { providerState: queried.providerState },
+        data: { providerState: inputJson(queried.providerState) },
       });
     } catch (error) {
       console.warn("[classroom:recording] query failed", {
@@ -149,91 +157,13 @@ export async function POST(
 
   const { course } = resolved;
   const latest = course.recordings[0];
-  const provider = getRecordingProvider(
-    action === "stop" && latest ? latest.provider : course.recordingProvider,
-  );
-
   try {
     if (action === "start") {
-      if (
-        course.status === CourseStatus.FINISHED ||
-        course.status === CourseStatus.CANCELLED
-      ) {
-        return NextResponse.json(
-          { error: "已结束或已取消的课程不能开始录制" },
-          { status: 409 },
-        );
-      }
-      if (
-        latest &&
-        ACTIVE_RECORDING_STATUSES.includes(latest.status)
-      ) {
-        return NextResponse.json({
-          recording: publicRecording(latest),
-        });
-      }
-      if (!provider.isConfigured()) {
-        return NextResponse.json(
-          {
-            error: "云端录制尚未配置完成",
-            code: "recording_not_configured",
-          },
-          { status: 503 },
-        );
-      }
-
-      const channelName = courseIdToRoomUuid(course.id, course.roomUuid);
-      const created = await prisma.classroomRecording.create({
-        data: {
-          courseId: course.id,
-          provider: provider.name,
-          channelName,
-          recorderUserId: "pending",
-          status: "starting",
-        },
-      });
-
-      try {
-        const started = await provider.start({
-          recordingId: created.id,
-          courseId: course.id,
-          channelName,
-          mediaProfile: classroomMediaProfile,
-        });
-        const recording = await prisma.classroomRecording.update({
-          where: { id: created.id },
-          data: {
-            recorderUserId: started.recorderUserId,
-            resourceId: started.resourceId,
-            providerSessionId: started.providerSessionId,
-            providerState: started.providerState,
-            status: "recording",
-            startedAt: new Date(),
-            errorMessage: null,
-          },
-        });
-        await prisma.course.update({
-          where: { id: course.id },
-          data: {
-            status: CourseStatus.LIVE,
-            endedAt: null,
-          },
-        });
-        return NextResponse.json(
-          { recording: publicRecording(recording) },
-          { status: 201 },
-        );
-      } catch (error) {
-        await prisma.classroomRecording.update({
-          where: { id: created.id },
-          data: {
-            status: "failed",
-            errorMessage:
-              error instanceof Error ? error.message : "Recording start failed",
-          },
-        });
-        throw error;
-      }
+      const recording = await startRecordingForCourse(course.id);
+      return NextResponse.json(
+        { recording: publicRecording(recording) },
+        { status: 201 },
+      );
     }
 
     if (!latest || latest.status === "completed") {
@@ -252,56 +182,8 @@ export async function POST(
       );
     }
 
-    await prisma.classroomRecording.update({
-      where: { id: latest.id },
-      data: { status: "stopping", errorMessage: null },
-    });
-    try {
-      const stopped = await provider.stop({
-        channelName: latest.channelName,
-        recorderUserId: latest.recorderUserId,
-        resourceId: latest.resourceId,
-        providerSessionId: latest.providerSessionId,
-        providerState:
-          latest.providerState &&
-          typeof latest.providerState === "object" &&
-          !Array.isArray(latest.providerState)
-            ? (latest.providerState as Record<string, unknown>)
-            : null,
-      });
-      const recording = await prisma.classroomRecording.update({
-        where: { id: latest.id },
-        data: {
-          status: "completed",
-          playbackObjectKey: stopped.playbackObjectKey,
-          files: stopped.files,
-          providerState: stopped.providerState,
-          stoppedAt: new Date(),
-          errorMessage: null,
-        },
-      });
-      await prisma.course.update({
-        where: { id: course.id },
-        data: {
-          status: CourseStatus.AFTER_CLASS,
-          endedAt: new Date(),
-          recordUrl: stopped.playbackObjectKey
-            ? `/api/courses/${encodeURIComponent(course.id)}/recording.mp4`
-            : undefined,
-        },
-      });
-      return NextResponse.json({ recording: publicRecording(recording) });
-    } catch (error) {
-      await prisma.classroomRecording.update({
-        where: { id: latest.id },
-        data: {
-          status: "recording",
-          errorMessage:
-            error instanceof Error ? error.message : "Recording stop failed",
-        },
-      });
-      throw error;
-    }
+    const recording = await stopRecordingAttempt(latest);
+    return NextResponse.json({ recording: publicRecording(recording) });
   } catch (error) {
     console.error("[classroom:recording] action failed", {
       courseId: id,
@@ -333,4 +215,3 @@ export async function POST(
     );
   }
 }
-
