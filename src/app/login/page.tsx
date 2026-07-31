@@ -52,7 +52,7 @@ function LoginContent() {
       <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6">
         <Select value={locale} onValueChange={(val) => setLocale(val as SupportedLocale)}>
           <SelectTrigger
-            aria-label="Language"
+            aria-label={t("common.language")}
             className="h-11 w-[138px] rounded-xl border-border/70 bg-card/85 text-foreground shadow-sm backdrop-blur-xl transition-colors hover:border-primary/40 focus:ring-primary/30"
           >
             <Globe className="mr-2 h-4 w-4 text-primary" />
@@ -261,17 +261,20 @@ function LoginContent() {
   );
 }
 
+function LoginLoadingFallback() {
+  const { t } = useTranslation();
+  return (
+    <div
+      className="min-h-[100svh] w-full bg-background"
+      role="status"
+      aria-label={t("common.loading")}
+    />
+  );
+}
+
 export default function LoginPage() {
   return (
-    <Suspense
-      fallback={
-        <div
-          className="min-h-[100svh] w-full bg-background"
-          role="status"
-          aria-label="Loading"
-        />
-      }
-    >
+    <Suspense fallback={<LoginLoadingFallback />}>
       <LoginContent />
     </Suspense>
   );

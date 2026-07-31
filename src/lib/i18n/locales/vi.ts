@@ -31,6 +31,11 @@ export const vi = {
     teachingTeachers: "Teaching teachers",
     added: "Added",
     makeLeadTeacher: "Make lead",
+    language: "Ngôn ngữ",
+    dismiss: "Đóng",
+    pleaseConfirm: "Vui lòng xác nhận",
+    switchToDarkMode: "Chuyển sang giao diện tối",
+    switchToLightMode: "Chuyển sang giao diện sáng",
   },
   login: {
     title: "Lớp học trực tuyến",
@@ -58,6 +63,17 @@ export const vi = {
     exit: "Thoát",
     verifyingAccess: "Đang xác thực quyền truy cập...",
     initializing: "Đang khởi tạo lớp học...",
+    v3: {
+      roleLead: "Giáo viên chính", roleAssistant: "Trợ giảng", roleStudent: "Học viên", me: "Tôi",
+      connected: "Đã kết nối", reconnecting: "Đang kết nối lại", liveClass: "Lớp học trực tiếp",
+      classEndedLabel: "Lớp học đã kết thúc", readyRoom: "Phòng học sẵn sàng", classDuration: "Thời lượng lớp học",
+      startClass: "Bắt đầu lớp học", endClass: "Kết thúc lớp học", screenShare: "Chia sẻ màn hình",
+      whiteboard: "Bảng tương tác", members: "Thành viên", chat: "Trò chuyện", captions: "Phụ đề",
+      courseware: "Tài liệu học", tools: "Công cụ", raiseHand: "Giơ tay", cancelHand: "Hạ tay",
+      backToCourse: "Quay lại khóa học", leave: "Rời lớp", waitingForSharedContent: "Đang chờ nội dung được chia sẻ",
+      cameraOff: "Đã tắt camera", muted: "Đã tắt tiếng", screenSharing: "Đang chia sẻ màn hình",
+      online: "Trực tuyến", offline: "Ngoại tuyến", speaking: "Đang nói",
+    },
   },
   accessDenied: {
     title: "Truy cập bị hạn chế",
@@ -80,6 +96,11 @@ export const vi = {
     hlsUnsupported: "Trình duyệt hiện tại không hỗ trợ phát HLS/M3U8. Vui lòng thử trình duyệt khác.",
     browserHint: "Nếu video không phát được, hãy kiểm tra liên kết có thể truy cập và máy chủ hỗ trợ phát trên trình duyệt.",
     teacher: "Giáo viên giảng dạy",
+  },
+  portal: {
+    workspace: "Không gian giảng dạy", navigation: "Không gian làm việc", today: "Hôm nay", courses: "Khóa học", students: "Học viên & nhóm", settings: "Cài đặt", teacherPortal: "Cổng giáo viên", studentPortal: "Cổng học viên", liveSystem: "Hệ thống dạy học trực tuyến", logout: "Đăng xuất", account: "Tài khoản", language: "Ngôn ngữ", appearance: "Giao diện",
+    command: "Bảng điều khiển giảng dạy hôm nay", next: "Lớp tiếp theo", noNext: "Hôm nay không còn lớp nào", noNextDescription: "Tạo lớp mới hoặc mở thư viện khóa học để xem lịch sắp tới.", enter: "Vào lớp", details: "Xem chi tiết", create: "Tạo khóa học", countdown: "Bắt đầu sau", live: "Lớp đang diễn ra", ended: "Lớp đã kết thúc", todayCount: "Hôm nay", liveCount: "Đang trực tiếp", totalCount: "Tất cả khóa học", timeline: "Lịch hôm nay", timelineHint: "Sắp xếp theo thời gian · chọn một lớp để xem chi tiết", emptyTimeline: "Hôm nay chưa có lớp nào",
+    library: "Thư viện khóa học", libraryDescription: "Tìm mọi lớp theo trạng thái, giáo viên và lịch học.", search: "Tìm khóa học hoặc giáo viên…", all: "Tất cả", courseGroups: "Nhóm khóa học", standaloneCourses: "Khóa học riêng lẻ", courseGroup: "Nhóm khóa học", standaloneCourse: "Khóa học riêng lẻ", lessonCount: "{count} buổi học", upcoming: "Sắp diễn ra", finished: "Đã kết thúc", cancelled: "Đã hủy", noCourses: "Không có khóa học phù hợp", noCoursesHint: "Hãy thử đổi từ khóa hoặc bộ lọc trạng thái.", teacher: "Giáo viên", publicClass: "Lớp công khai", bigClass: "Lớp lớn", smallClass: "Lớp nhỏ", oneToOne: "1 kèm 1", ready: "Sẵn sàng", liveNow: "LIVE · NGAY BÂY GIỜ",
   },
   studentDashboard: {
     learningCenter: "Trung tâm học tập",

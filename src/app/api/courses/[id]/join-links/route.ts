@@ -24,6 +24,7 @@ import {
 function serializeLink(
   link: {
     id: string;
+    sessionId: string | null;
     token: string;
     purpose: string;
     passcode: string | null;
@@ -43,6 +44,7 @@ function serializeLink(
   const shareUrl = purpose === "course" ? courseShareUrl : liveUrl;
   return {
     id: link.id,
+    sessionId: link.sessionId,
     purpose,
     label: link.label,
     token: link.token,
@@ -128,7 +130,15 @@ export async function POST(
   try {
     const course = await prisma.course.findUnique({
       where: { id: courseId },
-      select: { roomType: true, passcode: true },
+      select: {
+        roomType: true,
+        passcode: true,
+        sessions: {
+          where: { status: { in: ["scheduled", "live", "afterClass"] } },
+          orderBy: [{ startTime: "asc" }, { position: "asc" }],
+          select: { id: true, roomType: true },
+        },
+      },
     });
     if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
@@ -139,6 +149,19 @@ export async function POST(
     const purpose: JoinLinkPurpose = isJoinLinkPurpose(body.purpose)
       ? body.purpose
       : "live";
+    const requestedSessionId =
+      typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+    const lesson = purpose === "live"
+      ? requestedSessionId
+        ? course.sessions.find((item) => item.id === requestedSessionId)
+        : course.sessions[0]
+      : null;
+    if (purpose === "live" && !lesson) {
+      return NextResponse.json(
+        { error: "请先排课并选择要分享的课次" },
+        { status: 409 },
+      );
+    }
     const defaultPasscode =
       course.roomType === 10 && course.passcode ? course.passcode : null;
     const requirePasscode =
@@ -171,6 +194,7 @@ export async function POST(
     const link = await prisma.courseJoinLink.create({
       data: {
         courseId,
+        sessionId: purpose === "live" ? lesson!.id : null,
         token,
         purpose,
         passcode,

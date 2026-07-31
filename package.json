@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
+    "dev:clean": "rm -rf .next && next dev --webpack",
     "build": "next build --webpack",
     "build:deploy": "npm run db:migrate && npm run build",
     "start": "next start",
@@ -13,7 +14,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
-    "db:push": "prisma db push",
+    "db:push": "prisma migrate deploy",
+    "db:push:unsafe": "prisma db push",
     "db:studio": "prisma studio"
   },
   "dependencies": {

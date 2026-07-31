@@ -22,35 +22,39 @@ function providerStateRecord(
 
 const ACTIVE_RECORDING_STATUSES = ["starting", "recording", "stopping"];
 
-export async function startRecordingForCourse(courseId: string) {
-  const course = await prisma.course.findUnique({
-    where: { id: courseId },
+export async function startRecordingForCourse(
+  courseId: string,
+  sessionId = courseId,
+) {
+  const lesson = await prisma.courseSession.findFirst({
+    where: { id: sessionId, courseId },
     include: {
       recordings: { orderBy: { createdAt: "desc" }, take: 1 },
     },
   });
-  if (!course) throw new Error("Course not found");
+  if (!lesson) throw new Error("Course session not found");
   if (
-    course.status === CourseStatus.FINISHED ||
-    course.status === CourseStatus.CANCELLED
+    lesson.status === CourseStatus.FINISHED ||
+    lesson.status === CourseStatus.CANCELLED
   ) {
     throw new Error("Recording cannot start for a finished or cancelled course");
   }
-  const latest = course.recordings[0];
+  const latest = lesson.recordings[0];
   if (latest && ACTIVE_RECORDING_STATUSES.includes(latest.status)) {
     return latest;
   }
-  const provider = getRecordingProvider(course.recordingProvider);
+  const provider = getRecordingProvider(lesson.recordingProvider);
   if (!provider.isConfigured()) {
     throw new Error("Cloud recording is not configured");
   }
   const retryCount =
     latest?.status === "failed" ? Math.min(latest.retryCount + 1, 3) : 0;
-  const channelName = courseIdToRoomUuid(course.id, course.roomUuid);
-  const pageUrl = await createRecorderPageUrl(course.id);
+  const channelName = courseIdToRoomUuid(lesson.id, lesson.roomUuid);
+  const pageUrl = await createRecorderPageUrl(lesson.id);
   const created = await prisma.classroomRecording.create({
     data: {
-      courseId: course.id,
+      courseId: lesson.courseId,
+      sessionId: lesson.id,
       provider: provider.name,
       channelName,
       recorderUserId: "pending",
@@ -63,7 +67,7 @@ export async function startRecordingForCourse(courseId: string) {
   try {
     const started = await provider.start({
       recordingId: created.id,
-      courseId: course.id,
+      courseId: lesson.id,
       channelName,
       mediaProfile: classroomMediaProfile,
       pageUrl,
@@ -83,8 +87,8 @@ export async function startRecordingForCourse(courseId: string) {
         errorMessage: null,
       },
     });
-    await prisma.course.update({
-      where: { id: course.id },
+    await prisma.courseSession.update({
+      where: { id: lesson.id },
       data: { status: CourseStatus.LIVE, endedAt: null },
     });
     return recording;
@@ -107,7 +111,8 @@ export async function retryFailedLiveRecordings(): Promise<number> {
     where: { status: "live" },
     select: {
       courseId: true,
-      course: {
+      sessionId: true,
+      session: {
         select: {
           recordingProvider: true,
           recordings: {
@@ -123,12 +128,12 @@ export async function retryFailedLiveRecordings(): Promise<number> {
   for (const runtime of runtimes) {
     if (
       !getRecordingProvider(
-        runtime.course.recordingProvider,
+        runtime.session.recordingProvider,
       ).isConfigured()
     ) {
       continue;
     }
-    const latest = runtime.course.recordings[0];
+    const latest = runtime.session.recordings[0];
     if (
       latest &&
       (latest.status !== "failed" || latest.retryCount >= 3)
@@ -136,11 +141,12 @@ export async function retryFailedLiveRecordings(): Promise<number> {
       continue;
     }
     try {
-      await startRecordingForCourse(runtime.courseId);
+      await startRecordingForCourse(runtime.courseId, runtime.sessionId);
       started += 1;
     } catch (error) {
       console.error("[classroom:recording] retry failed", {
         courseId: runtime.courseId,
+        sessionId: runtime.sessionId,
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -215,10 +221,12 @@ export async function stopRecordingAttempt(recording: ClassroomRecording) {
 /** Stop every recorder attached to a course before rotating or deleting it. */
 export async function stopActiveRecordingsForCourse(
   courseId: string,
+  sessionId?: string,
 ): Promise<number> {
   const recordings = await prisma.classroomRecording.findMany({
     where: {
       courseId,
+      ...(sessionId ? { sessionId } : {}),
       status: { in: ["recording", "stopping"] },
     },
   });

@@ -49,9 +49,13 @@ function publicCaption(caption: {
   };
 }
 
-export async function getClassroomCaptions(courseId: string, take = 100) {
+export async function getClassroomCaptions(
+  courseId: string,
+  take = 100,
+  sessionId = courseId,
+) {
   const captions = await prisma.classroomCaption.findMany({
-    where: { courseId },
+    where: { sessionId },
     orderBy: { occurredAt: "desc" },
     take: Math.min(300, Math.max(1, take)),
   });
@@ -61,11 +65,12 @@ export async function getClassroomCaptions(courseId: string, take = 100) {
 export async function ingestClassroomCaption(
   courseId: string,
   input: ClassroomCaptionInput,
+  sessionId = courseId,
 ) {
-  const runtime = await ensureClassroomRuntime(courseId);
-  const course = await prisma.course.findUniqueOrThrow({
-    where: { id: courseId },
-    select: { id: true, name: true, roomUuid: true },
+  const runtime = await ensureClassroomRuntime(courseId, sessionId);
+  const lesson = await prisma.courseSession.findUniqueOrThrow({
+    where: { id: sessionId },
+    select: { id: true, title: true, roomUuid: true },
   });
   const externalId = input.id.trim().slice(0, 240);
   const text = input.text.trim().slice(0, 20_000);
@@ -78,13 +83,13 @@ export async function ingestClassroomCaption(
       // overwriting an already persisted final sentence.
       await transaction.$queryRaw`
         SELECT pg_advisory_xact_lock(
-          hashtext(${courseId}),
+          hashtext(${sessionId}),
           hashtext(${externalId})
         )
       `;
 
       const existingCaption = await transaction.classroomCaption.findUnique({
-        where: { courseId_externalId: { courseId, externalId } },
+        where: { sessionId_externalId: { sessionId, externalId } },
       });
       const existingTranslations = translationsRecord(
         existingCaption?.translations,
@@ -124,7 +129,7 @@ export async function ingestClassroomCaption(
 
       const member = input.speakerId
         ? await transaction.classroomMemberState.findUnique({
-            where: { courseId_userId: { courseId, userId: input.speakerId } },
+            where: { sessionId_userId: { sessionId, userId: input.speakerId } },
             select: { displayName: true },
           })
         : null;
@@ -149,14 +154,14 @@ export async function ingestClassroomCaption(
       if (wordlyFinal) {
         try {
           await ensureWordlyRoom({
-            courseId,
-            title: course.name,
-            channelName: courseIdToRoomUuid(course.id, course.roomUuid),
+            courseId: sessionId,
+            title: lesson.title,
+            channelName: courseIdToRoomUuid(lesson.id, lesson.roomUuid),
             sourceLanguage: runtime.sourceLanguage,
             targetLanguages: wordlyTargets,
           });
           const translated = await translateCaptionWithWordly(
-            courseId,
+            sessionId,
             normalized,
           );
           normalized = {
@@ -183,10 +188,11 @@ export async function ingestClassroomCaption(
           ? "wordly"
           : "shengwang";
       const caption = await transaction.classroomCaption.upsert({
-        where: { courseId_externalId: { courseId, externalId } },
+        where: { sessionId_externalId: { sessionId, externalId } },
         create: {
           runtimeId: runtime.id,
           courseId,
+          sessionId,
           externalId,
           provider,
           speakerId: normalized.speakerId,

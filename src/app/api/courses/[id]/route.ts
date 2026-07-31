@@ -5,10 +5,12 @@
  * DELETE /api/courses/:id
  */
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { serializeCourse } from "@/lib/course-serialize";
 import {
   CourseStatus,
+  getFinishedDelayMinutes,
   isValidCourseStatus,
 } from "@/lib/course-status";
 import { closeOpenAttendanceSessionsForCourse } from "@/lib/course-attendance";
@@ -17,10 +19,15 @@ import { stopActiveRecordingsForCourse } from "@/lib/classroom/server/recording-
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import {
+  casdoorUserIdCandidates,
   normalizeCourseTeachers,
   userCanTeachCourse,
   userOwnsCourse,
 } from "@/lib/course-teacher";
+import {
+  getEffectiveSessionRoster,
+  rosterContainsUser,
+} from "@/lib/course-session-roster";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +36,73 @@ function courseAttendanceCloseTime(
   now = new Date()
 ): Date {
   return endTime && endTime <= now ? endTime : now;
+}
+
+const courseDetailInclude = {
+  teachers: { orderBy: { createdAt: "asc" } },
+  sessions: {
+    orderBy: [
+      { startTime: "asc" },
+      { position: "asc" },
+    ],
+    include: {
+      series: true,
+      teachers: { orderBy: { createdAt: "asc" } },
+      students: { orderBy: { createdAt: "asc" } },
+      groupLinks: { orderBy: { createdAt: "asc" } },
+      _count: {
+        select: {
+          teachers: true,
+          students: true,
+          attendances: true,
+          recordings: true,
+        },
+      },
+    },
+  },
+  students: true,
+  groupLinks: {
+    include: {
+      group: {
+        include: {
+          members: true,
+        },
+      },
+    },
+  },
+} satisfies Prisma.CourseInclude;
+
+function needsStatusReconciliation(course: {
+  status: string;
+  startTime: Date | null;
+  endTime: Date | null;
+  sessions: Array<{ status: string; startTime: Date; endTime: Date }>;
+}) {
+  const now = new Date();
+  const finishThreshold = new Date(
+    now.getTime() - getFinishedDelayMinutes() * 60_000,
+  );
+  const activeStatuses = new Set<string>([
+    CourseStatus.SCHEDULED,
+    CourseStatus.LIVE,
+    CourseStatus.AFTER_CLASS,
+  ]);
+  const lessonNeedsUpdate = course.sessions.some((lesson) =>
+    (lesson.status === CourseStatus.SCHEDULED &&
+      lesson.startTime <= now &&
+      lesson.endTime > finishThreshold) ||
+    (activeStatuses.has(lesson.status) && lesson.endTime <= finishThreshold),
+  );
+  if (lessonNeedsUpdate) return true;
+  return Boolean(
+    course.startTime &&
+      course.endTime &&
+      ((course.status === CourseStatus.SCHEDULED &&
+        course.startTime <= now &&
+        course.endTime > finishThreshold) ||
+        (activeStatuses.has(course.status) &&
+          course.endTime <= finishThreshold)),
+  );
 }
 
 export async function GET(
@@ -42,41 +116,87 @@ export async function GET(
 
   const { id } = await params;
   try {
-    await promoteCourseIfDueById(id, { reconcileRecordings: false });
-    const course = await prisma.course.findUnique({
+    let course = await prisma.course.findUnique({
       where: { id },
-      include: {
-        teachers: { orderBy: { createdAt: "asc" } },
-        students: true,
-        groupLinks: {
-          include: {
-            group: {
-              include: {
-                members: true,
-              },
-            },
-          },
-        },
-      },
+      include: courseDetailInclude,
     });
 
     if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
     }
 
+    // The minute-level reconciler remains authoritative. Detail reads only
+    // run the fallback when this course is actually crossing a time boundary;
+    // normal navigation therefore stays a single database round trip.
+    if (needsStatusReconciliation(course)) {
+      await promoteCourseIfDueById(id, { reconcileRecordings: false });
+      course = await prisma.course.findUnique({
+        where: { id },
+        include: courseDetailInclude,
+      });
+      if (!course) {
+        return NextResponse.json({ error: "Course not found" }, { status: 404 });
+      }
+    }
+
     const isTeacher = userCanTeachCourse(course, [
       session.userId,
       session.name,
     ]);
+    const identityCandidates = Array.from(
+      new Set(
+        [session.userId, session.name || ""]
+          .flatMap(casdoorUserIdCandidates)
+          .filter(Boolean),
+      ),
+    );
+    const isCourseStudent =
+      course.students.some((student) =>
+        identityCandidates.some((candidate) =>
+          casdoorUserIdsMatch(student.studentId, candidate),
+        ),
+      ) ||
+      course.groupLinks.some((link) =>
+        link.group.members.some((member) =>
+          identityCandidates.some((candidate) =>
+            casdoorUserIdsMatch(member.userId, candidate),
+          ),
+        ),
+      );
+    const visibleSessionIds = new Set<string>();
+    if (!isTeacher) {
+      await Promise.all(
+        course.sessions.map(async (lesson) => {
+          const roster = await getEffectiveSessionRoster(lesson.id);
+          if (roster && rosterContainsUser(roster, identityCandidates)) {
+            visibleSessionIds.add(lesson.id);
+          }
+        }),
+      );
+      if (!isCourseStudent && visibleSessionIds.size === 0) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+    }
+    const visibleSessions = isTeacher || isCourseStudent
+      ? course.sessions
+      : course.sessions.filter((lesson) => visibleSessionIds.has(lesson.id));
     type SerializedCourse = Omit<typeof course, "passcode"> & {
       statusLabel: string;
       isCourseOwner: boolean;
       canTeach: boolean;
       requiresPasscode: boolean;
+      nextSession: unknown;
+      sessionCount: number;
+      completedSessionCount: number;
       passcode?: string | null;
     };
     const serialized = serializeCourse({
       ...course,
+      sessions: visibleSessions,
+      ...(!isTeacher ? { students: [], groupLinks: [] } : {}),
+      ...(!isTeacher && !isCourseStudent
+        ? { limitedToSessionId: visibleSessions[0]?.id || null }
+        : {}),
       isCourseOwner: userOwnsCourse(course, session.userId),
       canTeach: isTeacher,
       requiresPasscode: course.roomType === 10 && Boolean(course.passcode),
@@ -302,7 +422,10 @@ export async function PUT(
     const course =
       (await prisma.course.findUnique({
         where: { id: promoted?.id ?? id },
-        include: { teachers: { orderBy: { createdAt: "asc" } } },
+        include: {
+          teachers: { orderBy: { createdAt: "asc" } },
+          sessions: { orderBy: [{ startTime: "asc" }, { position: "asc" }] },
+        },
       })) ?? promoted;
     if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 });

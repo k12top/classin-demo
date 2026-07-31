@@ -69,6 +69,7 @@ function VideoSurface({
   onSelect: () => void;
   compact?: boolean;
 }) {
+  const { t } = useTranslation();
   const videoRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -93,7 +94,9 @@ function VideoSurface({
           ? "ring-2 ring-violet-400 ring-offset-2 ring-offset-[#11182a]"
           : "ring-1 ring-white/10 hover:ring-white/30",
       ].join(" ")}
-      aria-label={`放大 ${participant.displayName}`}
+      aria-label={t("classroom.v3.spotlightMember", {
+        name: participant.displayName,
+      })}
     >
       <div ref={videoRef} className="absolute inset-0" />
       {!participant.hasVideo && (
@@ -115,10 +118,10 @@ function VideoSurface({
           </p>
           <p className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-white/55">
             {participant.kind === "screen"
-              ? "Screen"
+              ? t("classroom.v3.screenSharing")
               : participant.isLocal
-                ? "You"
-                : "Participant"}
+                ? t("classroom.v3.me")
+                : t("classroom.v3.members")}
           </p>
         </div>
         {!compact && participant.kind !== "screen" && (
@@ -132,9 +135,8 @@ function VideoSurface({
 function ClassroomContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { locale } = useTranslation();
+  const { t } = useTranslation();
   const { user, loading: authLoading } = useAuth();
-  const isZh = locale === "zh-CN";
   const courseId = searchParams.get("courseId") || "";
   const shareAccess = searchParams.get("shareAccess") || "";
   const [loadingState, setLoadingState] = useState<LoadingState>("loading");
@@ -215,14 +217,15 @@ function ClassroomContent() {
                 code:
                   (payload.code as CourseAccessDeniedCode | undefined) ||
                   "default",
-                reason: payload.error || "无权进入课堂",
+                reason: payload.error || t("classroom.v3.accessDenied"),
                 courseId,
               }),
             );
             return;
           }
           throw new Error(
-            ("error" in payload && payload.error) || "无法创建课堂会话",
+            ("error" in payload && payload.error) ||
+              t("classroom.v3.sessionCreateFailed"),
           );
         }
         if (cancelled) return;
@@ -260,7 +263,9 @@ function ClassroomContent() {
         if (cancelled) return;
         console.error("[classroom] launch failed", error);
         setErrorMessage(
-          error instanceof Error ? error.message : "无法启动课堂",
+          error instanceof Error
+            ? error.message
+            : t("classroom.v3.classroomLaunchFailed"),
         );
         setLoadingState("error");
       }
@@ -276,10 +281,10 @@ function ClassroomContent() {
   }, [
     authLoading,
     courseId,
-    isZh,
     reportAttendanceLeave,
     router,
     shareAccess,
+    t,
     user,
   ]);
 
@@ -323,13 +328,15 @@ function ClassroomContent() {
         await action(provider);
       } catch (error) {
         setActionError(
-          error instanceof Error ? error.message : "课堂操作失败",
+          error instanceof Error
+            ? error.message
+            : t("classroom.v3.mediaActionFailed"),
         );
       } finally {
         setActionBusy(null);
       }
     },
-    [actionBusy],
+    [actionBusy, t],
   );
 
   const toggleRecording = useCallback(async () => {
@@ -354,17 +361,19 @@ function ClassroomContent() {
         recording?: { status?: string } | null;
       };
       if (!response.ok) {
-        throw new Error(payload.error || "录制操作失败");
+        throw new Error(payload.error || t("classroom.v3.recordingActionFailed"));
       }
       setRecordingStatus(payload.recording?.status ?? null);
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "录制操作失败",
+          error instanceof Error
+            ? error.message
+            : t("classroom.v3.recordingActionFailed"),
       );
     } finally {
       setActionBusy(null);
     }
-  }, [actionBusy, courseId, recordingStatus]);
+  }, [actionBusy, courseId, recordingStatus, t]);
 
   const leaveClassroom = useCallback(async () => {
     reportAttendanceLeave();
@@ -380,7 +389,7 @@ function ClassroomContent() {
   if (loadingState === "loading" && courseId) {
     return (
       <PageLoadingState
-        message={isZh ? "正在建立课堂连接…" : "Connecting to classroom…"}
+        message={t("classroom.v3.entering")}
         variant="classroom"
       />
     );
@@ -397,21 +406,19 @@ function ClassroomContent() {
         <section className="w-full max-w-md rounded-3xl border border-rose-400/20 bg-slate-950/80 p-8 text-center shadow-2xl backdrop-blur">
           <AlertCircle className="mx-auto h-12 w-12 text-rose-400" />
           <h1 className="mt-5 text-2xl font-semibold text-white">
-            {isZh ? "无法进入课堂" : "Unable to enter classroom"}
+            {t("classroom.v3.cannotEnter")}
           </h1>
           <p className="mt-3 text-sm leading-6 text-slate-300">
             {courseId
               ? errorMessage
-              : isZh
-                ? "缺少课程 ID，请从课程详情进入课堂。"
-                : "Missing course ID."}
+              : t("classroom.v3.missingCourse")}
           </p>
           <button
             type="button"
             onClick={() => router.push(courseId ? `/courses/${courseId}` : "/")}
             className="mt-7 rounded-xl bg-violet-500 px-5 py-3 text-sm font-semibold text-white outline-none transition hover:bg-violet-400 focus-visible:ring-2 focus-visible:ring-violet-300"
           >
-            {isZh ? "返回课程" : "Back to course"}
+            {t("classroom.v3.backToCourse")}
           </button>
         </section>
       </main>
@@ -462,10 +469,8 @@ function ClassroomContent() {
               ].join(" ")}
             />
             {media.connectionState === "connected"
-              ? isZh
-                ? "连接正常"
-                : "Connected"
-              : media.connectionState}
+              ? t("classroom.v3.connected")
+              : t("classroom.v3.reconnecting")}
           </div>
           {recordingActive && (
             <div className="flex items-center gap-2 rounded-full border border-rose-400/25 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-200">
@@ -494,16 +499,12 @@ function ClassroomContent() {
               <div>
                 <Presentation className="mx-auto h-10 w-10 text-violet-300/70" />
                 <p className="mt-4 text-sm font-medium text-white">
-                  {isZh ? "课堂已连接" : "Classroom connected"}
+                  {t("classroom.v3.connected")}
                 </p>
                 <p className="mt-1 text-xs text-slate-400">
                   {isTeacher
-                    ? isZh
-                      ? "开启摄像头或共享屏幕开始授课"
-                      : "Turn on camera or share your screen"
-                    : isZh
-                      ? "等待老师开始授课"
-                      : "Waiting for the teacher"}
+                    ? t("classroom.v3.startTeaching")
+                    : t("classroom.v3.waitForTeacher")}
                 </p>
               </div>
             </div>
@@ -526,7 +527,7 @@ function ClassroomContent() {
           ))}
           {filmstripParticipants.length === 0 && selectedParticipant && (
             <div className="hidden rounded-2xl border border-dashed border-white/10 px-4 py-6 text-center text-xs text-slate-500 md:block">
-              {isZh ? "其他成员将显示在这里" : "Other participants appear here"}
+              {t("classroom.v3.stageWaiting")}
             </div>
           )}
         </aside>
@@ -558,7 +559,7 @@ function ClassroomContent() {
                   ) : (
                     <MicOff className="h-5 w-5" />
                   )}
-                  <span>{isZh ? "麦克风" : "Mic"}</span>
+                  <span>{t("classroom.v3.microphone")}</span>
                 </button>
                 <button
                   type="button"
@@ -575,7 +576,7 @@ function ClassroomContent() {
                   ) : (
                     <VideoOff className="h-5 w-5" />
                   )}
-                  <span>{isZh ? "摄像头" : "Camera"}</span>
+                  <span>{t("classroom.v3.camera")}</span>
                 </button>
                 <button
                   type="button"
@@ -594,7 +595,7 @@ function ClassroomContent() {
                   ) : (
                     <MonitorUp className="h-5 w-5" />
                   )}
-                  <span>{isZh ? "共享屏幕" : "Share"}</span>
+                  <span>{t("classroom.v3.screenShare")}</span>
                 </button>
               </>
             )}
@@ -615,9 +616,7 @@ function ClassroomContent() {
                 title={
                   sessionData.recording.enabled
                     ? undefined
-                    : isZh
-                      ? "云端录制尚未配置"
-                      : "Cloud recording is not configured"
+                    : t("classroom.v3.recordingNotConfigured")
                 }
               >
                 {recordingActive ? (
@@ -627,12 +626,8 @@ function ClassroomContent() {
                 )}
                 <span>
                   {recordingActive
-                    ? isZh
-                      ? "结束并保存"
-                      : "Stop & save"
-                    : isZh
-                      ? "开始上课"
-                      : "Start class"}
+                    ? t("classroom.v3.stopRecording")
+                    : t("classroom.v3.startRecording")}
                 </span>
               </button>
             )}
@@ -642,7 +637,7 @@ function ClassroomContent() {
               className="classroom-v2-control"
             >
               <LogOut className="h-5 w-5" />
-              <span>{isZh ? "离开" : "Leave"}</span>
+              <span>{t("classroom.v3.leave")}</span>
             </button>
           </div>
         </div>
@@ -652,16 +647,12 @@ function ClassroomContent() {
 }
 
 export default function ClassroomV2() {
-  const { locale } = useTranslation();
+  const { t } = useTranslation();
   return (
     <Suspense
       fallback={
         <PageLoadingState
-          message={
-            locale === "zh-CN"
-              ? "正在准备在线课堂…"
-              : "Preparing classroom…"
-          }
+          message={t("classroom.v3.entering")}
           variant="classroom"
         />
       }

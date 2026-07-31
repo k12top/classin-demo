@@ -12,34 +12,21 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw, AlertCircle, Upload, Network, ChevronLeft, ChevronRight } from "lucide-react";
+import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw, AlertCircle, Upload, CalendarClock, ChevronLeft, ChevronRight, Share2, Send } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
-import {
-  CourseStatusSelect,
-  getCourseStatusLabel,
-} from "@/components/CourseStatusSelect";
-import { canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
-import { getPlaybackTarget } from "@/lib/playback-url";
 import TimeDisplay from "@/components/TimeDisplay";
 import workspaceStyles from "@/components/portal/course-workspace.module.css";
 import { usePortalFeedback } from "@/components/portal/portal-feedback";
-import {
-  addMinutesToLocalValue,
-  COURSE_DURATION_PRESETS,
-  DEFAULT_COURSE_DURATION_MINUTES,
-  durationBetweenLocalValues,
-  formatCourseDuration,
-  normalizeCourseDuration,
-  toDateTimeLocalValue,
-} from "@/lib/course-schedule";
 import {
   getTeacherDirectory,
   type TeacherDirectoryEntry,
 } from "@/lib/teacher-directory-client";
 import type { AuthUser } from "@/lib/auth-context";
-import { LargeClassBreakoutManager } from "@/components/classroom/large-class-breakout-manager";
+import {
+  CourseSessionManager,
+  type CourseSessionItem,
+} from "@/components/course-sessions/course-session-manager";
 
 const ROOM_TYPE_KEYS: Record<number, string> = {
   0: "common.roomType1v1",
@@ -158,6 +145,7 @@ interface TeacherCourse {
   name: string;
   description: string;
   roomType: number;
+  courseKind?: "series" | "standalone";
   passcode?: string | null;
   teacherId: string;
   teacherName: string;
@@ -175,6 +163,16 @@ interface TeacherCourse {
   recordUrl?: string | null;
   students: CourseStudentSummary[];
   groupLinks: CourseGroupLinkSummary[];
+  sessionCount?: number;
+  completedSessionCount?: number;
+  nextSession?: {
+    id: string;
+    title?: string;
+    status: string;
+    startTime: string;
+    endTime: string;
+  } | null;
+  sessions?: CourseSessionItem[];
 }
 
 function countNestedMembers(g: GroupNode): number {
@@ -212,8 +210,6 @@ function formatAttendanceDuration(totalSeconds: number): string {
 
 export default function TeacherCourseDetail({ 
   course, 
-  user,
-  onEnterClassroom,
   enterLoading,
   fetchCourse
 }: { 
@@ -227,28 +223,13 @@ export default function TeacherCourseDetail({
   const { t, locale } = useTranslation();
   const { notify, confirmAction } = usePortalFeedback();
   const isCourseOwner = Boolean(course.isCourseOwner);
-  const canManageBreakouts = Boolean(
-    user &&
-      (casdoorUserIdsMatch(course.teacherId, user.userId) ||
-        casdoorUserIdsMatch(course.teacherId, user.name)),
-  );
   const defaultJoinLinkPasscode =
     course.roomType === 10 && course.passcode ? course.passcode : "";
   const [isEditingCourseName, setIsEditingCourseName] = useState(false);
   const [courseNameDraft, setCourseNameDraft] = useState("");
   const [courseNameSaving, setCourseNameSaving] = useState(false);
   const [courseNameError, setCourseNameError] = useState("");
-  const [isEditingSchedule, setIsEditingSchedule] = useState(false);
-  const [scheduleStartDraft, setScheduleStartDraft] = useState("");
-  const [scheduleEndDraft, setScheduleEndDraft] = useState("");
-  const [scheduleDurationMinutes, setScheduleDurationMinutes] = useState(
-    DEFAULT_COURSE_DURATION_MINUTES,
-  );
-  const [scheduleSaving, setScheduleSaving] = useState(false);
-  const [scheduleError, setScheduleError] = useState("");
-  const [statusSaving, setStatusSaving] = useState(false);
-  const [roomReopening, setRoomReopening] = useState(false);
-  const [activeTab, setActiveTab] = useState("members");
+  const [activeTab, setActiveTab] = useState("sessions");
   const tabsScrollerRef = useRef<HTMLDivElement>(null);
   const [tabScrollState, setTabScrollState] = useState({
     canScrollBack: false,
@@ -404,20 +385,6 @@ export default function TeacherCourseDetail({
     });
   }, [baseCourseTeachers, course.teacherId]);
 
-  useEffect(() => {
-    queueMicrotask(() => {
-      setScheduleStartDraft(toDateTimeLocalValue(course.startTime));
-      setScheduleEndDraft(toDateTimeLocalValue(course.endTime));
-      setScheduleDurationMinutes(
-        durationBetweenLocalValues(
-          toDateTimeLocalValue(course.startTime),
-          toDateTimeLocalValue(course.endTime),
-        ),
-      );
-      setScheduleError("");
-      setIsEditingSchedule(false);
-    });
-  }, [course.endTime, course.startTime]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -656,6 +623,34 @@ export default function TeacherCourseDetail({
     }
   };
 
+  const courseInvitationText = (link: CourseJoinLinkSummary, url: string) => {
+    const passcodeLine = link.passcode
+      ? `\n${t("courseDetail.invitationPasscode", { passcode: link.passcode })}`
+      : "";
+    return t("courseDetail.invitationTemplate", {
+      course: course.name,
+      url,
+      passcodeLine,
+    });
+  };
+
+  const shareCourseInvitation = async (link: CourseJoinLinkSummary, url: string) => {
+    const text = courseInvitationText(link, url);
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({
+          title: t("courseDetail.invitationTitle", { course: course.name }),
+          text,
+          url,
+        });
+        return;
+      } catch (cause) {
+        if (cause instanceof DOMException && cause.name === "AbortError") return;
+      }
+    }
+    await copyText(text, t("courseDetail.invitationCopied"));
+  };
+
   const handleCreateJoinLink = async (purpose: "course" | "live") => {
     const label =
       purpose === "course" ? newCourseLinkLabel.trim() : newLiveLinkLabel.trim();
@@ -788,97 +783,6 @@ export default function TeacherCourseDetail({
       );
     } finally {
       setCourseNameSaving(false);
-    }
-  };
-
-  const openScheduleEditor = () => {
-    const startValue = toDateTimeLocalValue(course.startTime);
-    const endValue = toDateTimeLocalValue(course.endTime);
-    setScheduleStartDraft(startValue);
-    setScheduleEndDraft(endValue);
-    setScheduleDurationMinutes(durationBetweenLocalValues(startValue, endValue));
-    setScheduleError("");
-    setIsEditingSchedule(true);
-  };
-
-  const handleScheduleStartChange = (value: string) => {
-    setScheduleStartDraft(value);
-    setScheduleEndDraft(addMinutesToLocalValue(value, scheduleDurationMinutes));
-    setScheduleError("");
-  };
-
-  const handleScheduleDurationChange = (value: number) => {
-    const duration = normalizeCourseDuration(value);
-    setScheduleDurationMinutes(duration);
-    if (scheduleStartDraft) {
-      setScheduleEndDraft(addMinutesToLocalValue(scheduleStartDraft, duration));
-    }
-    setScheduleError("");
-  };
-
-  const handleScheduleEndChange = (value: string) => {
-    setScheduleEndDraft(value);
-    if (scheduleStartDraft && value) {
-      setScheduleDurationMinutes(
-        durationBetweenLocalValues(
-          scheduleStartDraft,
-          value,
-          scheduleDurationMinutes,
-        ),
-      );
-    }
-    setScheduleError("");
-  };
-
-  const handleSaveSchedule = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!scheduleStartDraft) {
-      setScheduleError(t("teacherDashboard.errStartTimeEmpty"));
-      return;
-    }
-    if (!scheduleEndDraft) {
-      setScheduleError(t("teacherDashboard.errEndTimeEmpty"));
-      return;
-    }
-    const start = new Date(scheduleStartDraft);
-    const end = new Date(scheduleEndDraft);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      setScheduleError(t("courseDetail.invalidCourseTime"));
-      return;
-    }
-    if (end <= start) {
-      setScheduleError(t("teacherDashboard.errEndTimeBefore"));
-      return;
-    }
-
-    setScheduleSaving(true);
-    setScheduleError("");
-    try {
-      const res = await fetch(`/api/courses/${course.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({
-          startTime: start.toISOString(),
-          endTime: end.toISOString(),
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(
-          data.error || t("courseDetail.courseTimeSaveFailed")
-        );
-      }
-      setIsEditingSchedule(false);
-      await fetchCourse();
-    } catch (error) {
-      setScheduleError(
-        error instanceof Error
-          ? error.message
-          : t("courseDetail.courseTimeSaveFailed")
-      );
-    } finally {
-      setScheduleSaving(false);
     }
   };
 
@@ -1109,69 +1013,6 @@ export default function TeacherCourseDetail({
     }
   };
 
-  const handleStatusChange = async (status: string) => {
-    const statusText = getCourseStatusLabel(t, status);
-    if (
-      !(await confirmAction({
-        title: statusText,
-        description: t("teacherDashboard.confirmFinishCancel", {
-          status: statusText,
-        }),
-        tone: "danger",
-      }))
-    ) return;
-    setStatusSaving(true);
-    try {
-      const res = await fetch(`/api/courses/${course.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        await fetchCourse();
-      } else {
-        notify(data.error || t("common.failed"), "error");
-      }
-    } catch (err) {
-      console.error(err);
-      notify(t("common.failed"), "error");
-    } finally {
-      setStatusSaving(false);
-    }
-  };
-
-  const handleReopenClassroom = async () => {
-    const confirmed = await confirmAction({
-      title: t("courseDetail.reopenClassroom"),
-      description: t("courseDetail.reopenClassroomConfirm"),
-      tone: "danger",
-    });
-    if (!confirmed) return;
-
-    setRoomReopening(true);
-    try {
-      const res = await fetch(`/api/courses/${course.id}/reopen-room`, {
-        method: "POST",
-        credentials: "same-origin",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        notify(data.error || t("common.failed"), "error");
-        return;
-      }
-
-      await fetchCourse();
-      notify(t("courseDetail.reopenClassroomSuccess"), "success");
-      onEnterClassroom();
-    } catch (error) {
-      console.error(error);
-      notify(t("common.failed"), "error");
-    } finally {
-      setRoomReopening(false);
-    }
-  };
-
   const courseShareLinks = joinLinks.filter((link) => link.purpose === "course");
   const liveJoinLinks = joinLinks.filter((link) => link.purpose !== "course");
   const sharingText = {
@@ -1186,6 +1027,8 @@ export default function TeacherCourseDetail({
     generatePasscode: t("courseDetail.generatePasscode"),
     passcodeProtected: t("courseDetail.passcodeProtected"),
     copyPasscode: t("courseDetail.copyPasscode"),
+    copyInvitation: t("courseDetail.copyInvitation"),
+    systemShare: t("courseDetail.systemShare"),
     courseEmpty: t("courseDetail.courseShareEmpty"),
     liveEmpty: t("courseDetail.liveShareEmpty"),
     activeCourseLinks: t("courseDetail.activeCourseLinks"),
@@ -1269,6 +1112,11 @@ export default function TeacherCourseDetail({
     return <FileText className="h-5 w-5 text-muted-foreground shrink-0" />;
   };
 
+  const nextSession = course.nextSession || null;
+  const canEnterNextSession = Boolean(
+    nextSession && !["finished", "cancelled"].includes(nextSession.status),
+  );
+
   return (
     <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 pt-4">
       {/* Header Card */}
@@ -1281,6 +1129,13 @@ export default function TeacherCourseDetail({
                 <span className={workspaceStyles.heroEyebrow}>
                   {t("courseDetail.courseControl")}
                 </span>
+                <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary text-[10px]">
+                  {t(
+                    course.courseKind === "standalone"
+                      ? "portal.standaloneCourse"
+                      : "portal.courseGroup",
+                  )}
+                </Badge>
                 <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary text-[10px]">
                   {t(ROOM_TYPE_KEYS[course.roomType]) || t("common.unknown")}
                 </Badge>
@@ -1383,175 +1238,49 @@ export default function TeacherCourseDetail({
                 <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold ${workspaceStyles.heroPill}`}>
                   <Clock className="h-4 w-4 text-primary" />
                   <span className="text-foreground/80">
-                    <TimeDisplay isoString={course.startTime} options={{ month: "long", day: "numeric", weekday: "long", hour: "2-digit", minute: "2-digit" }} />
+                    {nextSession ? (
+                      <TimeDisplay isoString={nextSession.startTime} options={{ month: "long", day: "numeric", weekday: "long", hour: "2-digit", minute: "2-digit" }} />
+                    ) : t("courseSessions.empty")}
                   </span>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 rounded-xl border-border/60 bg-muted/20 text-xs"
-                  onClick={openScheduleEditor}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  {t("courseDetail.editTime")}
-                </Button>
+                <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold ${workspaceStyles.heroPill}`}>
+                  <CalendarClock className="h-4 w-4 text-primary" />
+                  <span className="text-foreground/80">
+                    {t("courseSessions.progress", {
+                      completed: course.completedSessionCount || 0,
+                      total: course.sessionCount || 0,
+                    })}
+                  </span>
+                </div>
               </div>
             </div>
-
-            <Dialog open={isEditingSchedule} onOpenChange={(open) => !scheduleSaving && setIsEditingSchedule(open)}>
-              <DialogContent className={workspaceStyles.scheduleDialog}>
-                <form onSubmit={handleSaveSchedule}>
-                  <DialogHeader>
-                    <span className={workspaceStyles.scheduleEyebrow}>
-                      <Clock aria-hidden="true" />
-                      {t("courseDetail.classSchedule")}
-                    </span>
-                    <DialogTitle>{t("courseDetail.editClassTime")}</DialogTitle>
-                    <DialogDescription>
-                      {t("courseDetail.editClassTimeHint")}
-                    </DialogDescription>
-                  </DialogHeader>
-
-                  <div className={workspaceStyles.scheduleDialogBody}>
-                    <div className={workspaceStyles.scheduleDialogGrid}>
-                      <label>
-                        <span>{t("teacherDashboard.fieldStartTime")}</span>
-                        <Input
-                          type="datetime-local"
-                          value={scheduleStartDraft}
-                          onChange={(event) => handleScheduleStartChange(event.target.value)}
-                        />
-                      </label>
-                      <label>
-                        <span>{t("teacherDashboard.durationMinutes")}</span>
-                        <Input
-                          type="number"
-                          min={15}
-                          max={720}
-                          step={15}
-                          value={scheduleDurationMinutes}
-                          onChange={(event) => handleScheduleDurationChange(Number(event.target.value))}
-                        />
-                      </label>
-                      <label>
-                        <span>{t("teacherDashboard.fieldEndTime")}</span>
-                        <Input
-                          type="datetime-local"
-                          min={scheduleStartDraft || undefined}
-                          value={scheduleEndDraft}
-                          onChange={(event) => handleScheduleEndChange(event.target.value)}
-                        />
-                      </label>
-                    </div>
-
-                    <div className={workspaceStyles.schedulePresets}>
-                      {COURSE_DURATION_PRESETS.map((minutes) => (
-                        <button
-                          key={minutes}
-                          type="button"
-                          data-active={scheduleDurationMinutes === minutes}
-                          onClick={() => handleScheduleDurationChange(minutes)}
-                        >
-                          {formatCourseDuration(minutes, locale)}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className={workspaceStyles.scheduleSummary}>
-                      <Clock aria-hidden="true" />
-                      <span>{t("courseDetail.currentDuration")}</span>
-                      <strong>{formatCourseDuration(scheduleDurationMinutes, locale)}</strong>
-                    </div>
-
-                    {scheduleError ? (
-                      <p className={workspaceStyles.scheduleError}>{scheduleError}</p>
-                    ) : null}
-                  </div>
-
-                  <DialogFooter className={workspaceStyles.scheduleFooter}>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={scheduleSaving}
-                      onClick={() => setIsEditingSchedule(false)}
-                    >
-                      {t("common.cancel")}
-                    </Button>
-                    <Button type="submit" disabled={scheduleSaving}>
-                      {scheduleSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                      {scheduleSaving ? t("common.saving") : t("common.save")}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </DialogContent>
-            </Dialog>
             
             <div className={`flex flex-col gap-3 w-full md:w-auto shrink-0 ${workspaceStyles.heroActionPanel}`}>
               <span className={workspaceStyles.heroActionLabel}>
-                {t("courseDetail.classActions")}
+                {t("courseSessions.nextLesson")}
               </span>
-              <Button
-                size="lg"
-                className={`w-full rounded-xl font-medium active:scale-[0.98] transition-all ${workspaceStyles.primaryAction}`}
-                onClick={() => {
-                  if (course.status === "finished") {
-                    const target = getPlaybackTarget(course.id, course.recordUrl);
-                    if (target?.kind === "internal") {
-                      router.push(target.href);
-                    } else if (target) {
-                      window.open(target.href, "_blank", "noopener,noreferrer");
-                    }
-                  } else {
-                    onEnterClassroom();
-                  }
-                }}
-                disabled={enterLoading || (course.status === "finished" ? !course.recordUrl : !canEnterClassroom(course.status))}
-              >
-                {enterLoading ? (
-                  <span className="flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-current" />
-                    {t("teacherDashboard.btnEntering")}
-                  </span>
-                ) : course.status === "finished" ? (
+              {canEnterNextSession ? (
+                <Button
+                  size="lg"
+                  className={`w-full rounded-xl font-medium active:scale-[0.98] transition-all ${workspaceStyles.primaryAction}`}
+                  onClick={() => router.push(`/classroom?sessionId=${encodeURIComponent(nextSession!.id)}`)}
+                  disabled={enterLoading}
+                >
                   <span className="flex items-center gap-2">
                     <PlayCircle className="h-5 w-5" />
-                    {course.recordUrl ? t("studentDashboard.viewPlayback") : t("studentDashboard.livePlayback")}
+                    {t("courseSessions.enterLive")}
                   </span>
-                ) : (
-                  <span className="flex items-center gap-2"><PlayCircle className="h-5 w-5" /> {t("teacherDashboard.btnEnterClass")}</span>
-                )}
-              </Button>
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"
                 className={`w-full rounded-xl ${workspaceStyles.secondaryAction}`}
-                onClick={() => void handleReopenClassroom()}
-                disabled={
-                  roomReopening ||
-                  enterLoading ||
-                  course.status === "cancelled"
-                }
+                onClick={() => setActiveTab("sessions")}
               >
-                {roomReopening ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                )}
-                {t("courseDetail.reopenClassroom")}
+                <CalendarClock className="mr-2 h-4 w-4" />
+                {t("courseSessions.manage")}
               </Button>
-              <div className={workspaceStyles.heroStatusControl}>
-                <span>
-                  {t("courseDetail.courseClassroomStatus")}
-                </span>
-                <CourseStatusSelect
-                  value={course.status}
-                  onValueChange={handleStatusChange}
-                  disabled={statusSaving}
-                  className="flex-1"
-                  triggerClassName={`h-9 rounded-xl ${workspaceStyles.heroStatusSelect}`}
-                />
-              </div>
             </div>
           </div>
         </CardContent>
@@ -1567,17 +1296,15 @@ export default function TeacherCourseDetail({
             onWheel={handleTabsWheel}
           >
         <TabsList className={workspaceStyles.tabs}>
+          <TabsTrigger value="sessions" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
+            <CalendarClock className="mr-2 h-4 w-4" /> {t("courseSessions.title")}
+          </TabsTrigger>
           <TabsTrigger value="members" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
             <Users className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.members")}
           </TabsTrigger>
           <TabsTrigger value="teachers" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
             <User className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.teachers")}
           </TabsTrigger>
-          {course.roomType === 2 && (
-            <TabsTrigger value="breakouts" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
-              <Network className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.breakouts")}
-            </TabsTrigger>
-          )}
           <TabsTrigger value="courseware" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
             <BookOpen className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.coursewareManage")}
           </TabsTrigger>
@@ -1619,6 +1346,24 @@ export default function TeacherCourseDetail({
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
+
+        <TabsContent value="sessions" className="mt-0">
+          <CourseSessionManager
+            courseId={course.id}
+            courseName={course.name}
+            courseKind={course.courseKind}
+            roomType={course.roomType}
+            canManage={Boolean(course.canTeach)}
+            leadTeacherId={course.teacherId}
+            teachers={selectedTeachers}
+            students={course.students}
+            groupLinks={course.groupLinks}
+            initialSessions={course.sessions}
+            onManageRoster={(role) =>
+              setActiveTab(role === "assistant" ? "teachers" : "members")
+            }
+          />
+        </TabsContent>
 
         <TabsContent value="teachers" className="mt-0">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1799,22 +1544,6 @@ export default function TeacherCourseDetail({
             )}
           </div>
         </TabsContent>
-
-        {course.roomType === 2 && (
-          <TabsContent value="breakouts" className="mt-0">
-            <LargeClassBreakoutManager
-              courseId={course.id}
-              canManage={canManageBreakouts}
-              leadTeacherId={course.teacherId}
-              teachers={selectedTeachers}
-              students={course.students}
-              groupLinks={course.groupLinks}
-              onManageRoster={(role) =>
-                setActiveTab(role === "assistant" ? "teachers" : "members")
-              }
-            />
-          </TabsContent>
-        )}
 
         <TabsContent value="members" className="mt-0">
           <div className={`grid grid-cols-1 ${supportsStudentGroups && isCourseOwner ? "lg:grid-cols-2" : ""} gap-6`}>
@@ -2096,8 +1825,14 @@ export default function TeacherCourseDetail({
 
                             {link.status === "active" && url && (
                               <div className="flex flex-wrap gap-2 mt-auto">
-                                <Button size="sm" className="flex-1 bg-muted border border-border/60 hover:bg-muted/80 text-foreground rounded-lg text-xs" onClick={() => void copyText(url, t("courseDetail.copySuccess"))}>
+                                <Button size="sm" className="bg-muted border border-border/60 hover:bg-muted/80 text-foreground rounded-lg text-xs" onClick={() => void copyText(url, t("courseDetail.copySuccess"))}>
                                   <Copy className="h-3.5 w-3.5 mr-1" /> {t("courseDetail.btnCopy")}
+                                </Button>
+                                <Button size="sm" className="flex-1 bg-primary/10 border border-primary/15 hover:bg-primary/15 text-primary rounded-lg text-xs" onClick={() => void copyText(courseInvitationText(link, url), t("courseDetail.invitationCopied"))}>
+                                  <Send className="h-3.5 w-3.5 mr-1" /> {sharingText.copyInvitation}
+                                </Button>
+                                <Button size="sm" variant="outline" className="rounded-lg text-xs" onClick={() => void shareCourseInvitation(link, url)}>
+                                  <Share2 className="h-3.5 w-3.5 mr-1" /> {sharingText.systemShare}
                                 </Button>
                                 {link.passcode && (
                                   <Button size="sm" variant="outline" className="rounded-lg text-xs" onClick={() => void copyText(link.passcode!, t("courseDetail.copyPasscodeSuccess"))}>

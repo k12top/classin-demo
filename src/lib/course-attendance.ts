@@ -5,7 +5,7 @@ export function attendanceDurationSec(enteredAt: Date, leftAt: Date): number {
 }
 
 async function closeAttendanceSessions(
-  where: { courseId: string; studentId?: string },
+  where: { courseId?: string; sessionId?: string; studentId?: string },
   leftAt: Date
 ) {
   const openSessions = await prisma.courseAttendance.findMany({
@@ -51,4 +51,19 @@ export async function closeOpenAttendanceSessionsForCourse(
   leftAt = new Date()
 ) {
   return closeAttendanceSessions({ courseId }, leftAt);
+}
+
+export async function closeOpenAttendanceSessionsForLesson(
+  sessionId: string,
+  studentId: string,
+  leftAt = new Date(),
+) {
+  return closeAttendanceSessions({ sessionId, studentId }, leftAt);
+}
+
+export async function closeAllOpenAttendanceForLesson(
+  sessionId: string,
+  leftAt = new Date(),
+) {
+  return closeAttendanceSessions({ sessionId }, leftAt);
 }

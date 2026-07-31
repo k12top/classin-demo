@@ -31,6 +31,11 @@ export const id = {
     teachingTeachers: "Teaching teachers",
     added: "Added",
     makeLeadTeacher: "Make lead",
+    language: "Bahasa",
+    dismiss: "Tutup",
+    pleaseConfirm: "Harap konfirmasi",
+    switchToDarkMode: "Beralih ke mode gelap",
+    switchToLightMode: "Beralih ke mode terang",
   },
   login: {
     title: "Kelas Online",
@@ -58,6 +63,17 @@ export const id = {
     exit: "Keluar",
     verifyingAccess: "Memverifikasi hak akses...",
     initializing: "Menginisialisasi kelas...",
+    v3: {
+      roleLead: "Pengajar utama", roleAssistant: "Asisten pengajar", roleStudent: "Siswa", me: "Saya",
+      connected: "Terhubung", reconnecting: "Menyambungkan kembali", liveClass: "Kelas langsung",
+      classEndedLabel: "Kelas telah berakhir", readyRoom: "Ruang siap", classDuration: "Durasi kelas",
+      startClass: "Mulai kelas", endClass: "Akhiri kelas", screenShare: "Bagikan layar",
+      whiteboard: "Papan tulis interaktif", members: "Anggota", chat: "Obrolan", captions: "Teks",
+      courseware: "Materi", tools: "Alat", raiseHand: "Angkat tangan", cancelHand: "Turunkan tangan",
+      backToCourse: "Kembali ke kelas", leave: "Keluar", waitingForSharedContent: "Menunggu konten yang dibagikan",
+      cameraOff: "Kamera mati", muted: "Dibisukan", screenSharing: "Berbagi layar",
+      online: "Online", offline: "Offline", speaking: "Sedang berbicara",
+    },
   },
   accessDenied: {
     title: "Akses Dibatasi",
@@ -80,6 +96,11 @@ export const id = {
     hlsUnsupported: "Browser ini tidak mendukung pemutaran HLS/M3U8. Coba gunakan browser lain.",
     browserHint: "Jika video tidak dapat diputar, pastikan tautan dapat diakses dan server mendukung pemutaran di browser.",
     teacher: "Guru pengajar",
+  },
+  portal: {
+    workspace: "Ruang kerja pengajaran", navigation: "Ruang kerja", today: "Hari ini", courses: "Kursus", students: "Siswa & grup", settings: "Pengaturan", teacherPortal: "Portal guru", studentPortal: "Portal siswa", liveSystem: "Sistem pengajaran langsung", logout: "Keluar", account: "Akun", language: "Bahasa", appearance: "Tampilan",
+    command: "Pusat pengajaran hari ini", next: "Kelas berikutnya", noNext: "Tidak ada kelas lagi hari ini", noNextDescription: "Buat kelas atau buka perpustakaan kursus untuk melihat jadwal berikutnya.", enter: "Masuk kelas", details: "Lihat detail", create: "Buat kursus", countdown: "Dimulai dalam", live: "Kelas sedang berlangsung", ended: "Kelas berakhir", todayCount: "Hari ini", liveCount: "Langsung", totalCount: "Semua kursus", timeline: "Jadwal hari ini", timelineHint: "Diurutkan berdasarkan waktu · pilih kelas untuk melihat detail", emptyTimeline: "Tidak ada kelas terjadwal hari ini",
+    library: "Perpustakaan kursus", libraryDescription: "Temukan setiap kelas berdasarkan status, guru, dan jadwal.", search: "Cari kursus atau guru…", all: "Semua", courseGroups: "Grup kursus", standaloneCourses: "Kursus mandiri", courseGroup: "Grup kursus", standaloneCourse: "Kursus mandiri", lessonCount: "{count} sesi", upcoming: "Mendatang", finished: "Selesai", cancelled: "Dibatalkan", noCourses: "Tidak ada kursus yang cocok", noCoursesHint: "Coba ubah kata kunci atau filter status.", teacher: "Guru", publicClass: "Kelas publik", bigClass: "Kelas besar", smallClass: "Kelas kecil", oneToOne: "1 lawan 1", ready: "Siap", liveNow: "LANGSUNG · SEKARANG",
   },
   studentDashboard: {
     learningCenter: "Pusat Pembelajaran",

@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { closeOpenAttendanceSessions } from "@/lib/course-attendance";
-import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
+import { closeOpenAttendanceSessionsForLesson } from "@/lib/course-attendance";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
-import { userCanTeachCourse } from "@/lib/course-teacher";
+import { resolveCourseSessionAccess } from "@/lib/course-session-access";
 
 export const dynamic = "force-dynamic";
 
@@ -221,21 +220,34 @@ export async function GET(
       );
     }
 
-    const course = await withDatabaseRetry(() =>
-      prisma.course.findUnique({
-        where: { id },
+    const access = await withDatabaseRetry(() =>
+      resolveCourseSessionAccess(id, session.userId, {
+        userIdAliases: [session.name],
+      }),
+    );
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.reason, code: access.code },
+        { status: access.httpStatus, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (access.role !== "teacher") {
+      return NextResponse.json(
+        { error: "Forbidden", code: "FORBIDDEN" },
+        { status: 403, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    const lesson = await withDatabaseRetry(() =>
+      prisma.courseSession.findUnique({
+        where: { id: access.sessionId },
         select: {
           id: true,
-          name: true,
-          ownerId: true,
-          teacherId: true,
           endTime: true,
-          teachers: { select: { teacherId: true } },
         },
       })
     );
 
-    if (!course) {
+    if (!lesson) {
       return NextResponse.json(
         { error: "Course not found", code: "COURSE_NOT_FOUND" },
         {
@@ -244,25 +256,15 @@ export async function GET(
         }
       );
     }
-    if (!userCanTeachCourse(course, [session.userId, session.name])) {
-      return NextResponse.json(
-        { error: "Forbidden", code: "FORBIDDEN" },
-        {
-          status: 403,
-          headers: { "Cache-Control": "no-store" },
-        }
-      );
-    }
-
     const rows = await withDatabaseRetry(() =>
       prisma.courseAttendance.findMany({
-        where: { courseId: id },
+        where: { sessionId: lesson.id },
         orderBy: [{ enteredAt: "asc" }],
       })
     );
 
     const now = new Date();
-    const attendance = summarizeAttendanceRows(rows, course.endTime, now);
+    const attendance = summarizeAttendanceRows(rows, lesson.endTime, now);
 
     if (request.nextUrl.searchParams.get("format") === "csv") {
       const header = [
@@ -299,7 +301,7 @@ export async function GET(
       return new NextResponse(lines.join("\n"), {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
-          "Content-Disposition": `attachment; filename="attendance-${id}.csv"`,
+          "Content-Disposition": `attachment; filename="attendance-${lesson.id}.csv"`,
           "Cache-Control": "no-store, max-age=0, must-revalidate",
         },
       });
@@ -353,40 +355,19 @@ export async function PATCH(
     return NextResponse.json({ error: "Unsupported attendance event" }, { status: 400 });
   }
 
-  const course = await prisma.course.findUnique({
-    where: { id },
-    include: {
-      students: { select: { studentId: true } },
-      groupLinks: {
-        include: {
-          group: { include: { members: { select: { userId: true } } } },
-        },
-      },
-      teachers: { select: { teacherId: true } },
-    },
+  const access = await resolveCourseSessionAccess(id, session.userId, {
+    userIdAliases: [session.name],
   });
-
-  if (!course) {
-    return NextResponse.json({ error: "Course not found" }, { status: 404 });
+  if (!access.ok) {
+    return NextResponse.json(
+      { error: access.reason, code: access.code },
+      { status: access.httpStatus },
+    );
   }
 
-  const isTeacher = userCanTeachCourse(course, [
+  const result = await closeOpenAttendanceSessionsForLesson(
+    access.sessionId,
     session.userId,
-    session.name,
-  ]);
-  const isDirectStudent = course.students.some((student) =>
-    casdoorUserIdsMatch(student.studentId, session.userId)
   );
-  const isGroupStudent = course.groupLinks.some((link) =>
-    link.group.members.some((member) =>
-      casdoorUserIdsMatch(member.userId, session.userId)
-    )
-  );
-
-  if (!isTeacher && !isDirectStudent && !isGroupStudent) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const result = await closeOpenAttendanceSessions(id, session.userId);
   return NextResponse.json({ success: true, ...result });
 }

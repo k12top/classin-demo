@@ -23,7 +23,13 @@ export async function GET(
     );
   }
   return NextResponse.json(
-    { captions: await getClassroomCaptions(courseId) },
+    {
+      captions: await getClassroomCaptions(
+        resolved.access.courseId,
+        100,
+        resolved.access.sessionId,
+      ),
+    },
     { headers: { "Cache-Control": "no-store, max-age=0, must-revalidate" } },
   );
 }
@@ -59,7 +65,7 @@ export async function POST(
   }
   try {
     return NextResponse.json(
-      await ingestClassroomCaption(courseId, {
+      await ingestClassroomCaption(resolved.access.courseId, {
         id: caption.id,
         text: caption.text,
         sourceLanguage:
@@ -78,7 +84,7 @@ export async function POST(
             ? caption.occurredAt
             : new Date().toISOString(),
         isFinal: caption.isFinal,
-      }),
+      }, resolved.access.sessionId),
     );
   } catch (error) {
     console.error("[classroom:captions] ingest failed", error);

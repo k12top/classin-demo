@@ -29,21 +29,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const [course, member] = await Promise.all([
-    prisma.course.findUnique({
-      where: { id: courseId },
+  const sessionId = resolved.access.sessionId;
+  const [lesson, member] = await Promise.all([
+    prisma.courseSession.findUnique({
+      where: { id: sessionId },
       select: { classroomProvider: true, roomType: true },
     }),
     prisma.classroomMemberState.findUnique({
       where: {
-        courseId_userId: {
-          courseId,
+        sessionId_userId: {
+          sessionId,
           userId: resolved.session.userId,
         },
       },
     }),
   ]);
-  if (!course || !member) {
+  if (!lesson || !member) {
     return NextResponse.json({ error: "课堂成员不存在" }, { status: 404 });
   }
   const teachingRole =
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
     resolved.access.role === "student" &&
     member.onStage &&
     member.stageState === "accepted";
-  const mode = classroomModePolicy(course.roomType);
+  const mode = classroomModePolicy(lesson.roomType);
   const defaultStudentPublisher =
     resolved.access.role === "student" && mode.defaultStudentOnStage;
   if (!teachingRole && !acceptedStudent && !defaultStudentPublisher) {
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest) {
   }
 
   const credential = getClassroomServerProvider(
-    course.classroomProvider,
+    lesson.classroomProvider,
   ).issueCredential({
     channelName: resolved.access.roomUuid,
     userId: resolved.session.userId,

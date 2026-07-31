@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { PlayCircle, Clock, User, BookOpen, MessageSquare, FileText, Loader2 } from "lucide-react";
+import { PlayCircle, Clock, User, BookOpen, MessageSquare, FileText, Loader2, CalendarClock, CalendarCheck2 } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
@@ -15,6 +15,8 @@ import { getPlaybackTarget } from "@/lib/playback-url";
 import TimeDisplay from "@/components/TimeDisplay";
 import workspaceStyles from "@/components/portal/course-workspace.module.css";
 import { usePortalFeedback } from "@/components/portal/portal-feedback";
+import { CourseSessionManager } from "@/components/course-sessions/course-session-manager";
+import { StudentAttendancePanel } from "@/components/attendance/student-attendance-panel";
 
 const ROOM_TYPE_KEYS: Record<number, string> = {
   0: "common.roomType1v1",
@@ -28,6 +30,7 @@ interface StudentCourse {
   name: string;
   description: string;
   roomType: number;
+  courseKind?: "series" | "standalone";
   teacherName: string;
   status: string;
   startTime: string | null;
@@ -64,6 +67,7 @@ export default function StudentCourseDetail({
   const router = useRouter();
   const [remarksValue, setRemarksValue] = useState(course.studentRemarks || "");
   const [savingRemarks, setSavingRemarks] = useState(false);
+  const [activeTab, setActiveTab] = useState("sessions");
   const { t } = useTranslation();
   const { notify } = usePortalFeedback();
 
@@ -122,9 +126,18 @@ export default function StudentCourseDetail({
         <CardContent className={workspaceStyles.heroContent}>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
             <div className="space-y-4">
-              <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary text-[10px]">
-                {t(ROOM_TYPE_KEYS[course.roomType]) || t("common.unknown")}
-              </Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary text-[10px]">
+                  {t(
+                    course.courseKind === "standalone"
+                      ? "portal.standaloneCourse"
+                      : "portal.courseGroup",
+                  )}
+                </Badge>
+                <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary text-[10px]">
+                  {t(ROOM_TYPE_KEYS[course.roomType]) || t("common.unknown")}
+                </Badge>
+              </div>
               <h1 className={workspaceStyles.heroTitle}>{course.name}</h1>
               
               <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mt-4">
@@ -180,18 +193,42 @@ export default function StudentCourseDetail({
       </Card>
 
       {/* Main Tabs Area */}
-      <Tabs defaultValue="info" className="w-full">
-        <TabsList className={`mb-6 inline-flex ${workspaceStyles.tabs}`}>
-          <TabsTrigger value="info" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm">
-            <BookOpen className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.info")}
-          </TabsTrigger>
-          <TabsTrigger value="courseware" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm">
-            <FileText className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.courseware")}
-          </TabsTrigger>
-          <TabsTrigger value="requirements" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm">
-            <MessageSquare className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.requirements")}
-          </TabsTrigger>
-        </TabsList>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <div className={`${workspaceStyles.tabsShell} mb-6`}>
+          <div className={workspaceStyles.tabsScroller}>
+            <TabsList className={`inline-flex ${workspaceStyles.tabs}`}>
+              <TabsTrigger value="sessions" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm">
+                <CalendarClock className="mr-2 h-4 w-4" /> {t("courseSessions.title")}
+              </TabsTrigger>
+              <TabsTrigger value="info" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm">
+                <BookOpen className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.info")}
+              </TabsTrigger>
+              <TabsTrigger value="courseware" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm">
+                <FileText className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.courseware")}
+              </TabsTrigger>
+              <TabsTrigger value="attendance" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm">
+                <CalendarCheck2 className="mr-2 h-4 w-4" /> {t("studentAttendance.tab")}
+              </TabsTrigger>
+              <TabsTrigger value="requirements" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm">
+                <MessageSquare className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.requirements")}
+              </TabsTrigger>
+            </TabsList>
+          </div>
+        </div>
+
+        <TabsContent value="sessions" className="mt-0">
+          <CourseSessionManager
+            courseId={course.id}
+            courseName={course.name}
+            roomType={course.roomType}
+            canManage={false}
+            leadTeacherId=""
+            teachers={[]}
+            students={[]}
+            groupLinks={[]}
+            onManageRoster={() => undefined}
+          />
+        </TabsContent>
 
         <TabsContent value="info" className="mt-0">
           <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
@@ -253,6 +290,13 @@ export default function StudentCourseDetail({
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="attendance" className="mt-0">
+          <StudentAttendancePanel
+            courseId={course.id}
+            enabled={activeTab === "attendance"}
+          />
         </TabsContent>
 
         <TabsContent value="requirements" className="mt-0">

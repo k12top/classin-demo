@@ -466,6 +466,8 @@ function LiveRail({
   onManageMedia,
   onRemoveStage,
   maxStudentSeats,
+  collapsed,
+  onToggleCollapsed,
 }: {
   members: ClassroomMemberSnapshot[];
   media: ClassroomMediaSnapshot;
@@ -482,6 +484,8 @@ function LiveRail({
   ) => void;
   onRemoveStage: (userId: string) => void;
   maxStudentSeats: number;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }) {
   const { t } = useTranslation();
   const teachers = members.filter(
@@ -506,7 +510,26 @@ function LiveRail({
     <section
       className="classroom-v3-live-rail"
       aria-label={t("classroom.v3.stageSeats")}
+      data-collapsed={collapsed}
     >
+      <button
+        type="button"
+        className="classroom-v3-rail-toggle"
+        onClick={onToggleCollapsed}
+        aria-expanded={!collapsed}
+        aria-label={t(
+          collapsed
+            ? "classroom.v3.expandStageSeats"
+            : "classroom.v3.collapseStageSeats",
+        )}
+        title={t(
+          collapsed
+            ? "classroom.v3.expandStageSeats"
+            : "classroom.v3.collapseStageSeats",
+        )}
+      >
+        <ChevronRight />
+      </button>
       <div className="classroom-v3-rail-title">
         <i />
         <span>{t("classroom.v3.stageSeats")}</span>
@@ -1863,7 +1886,12 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { t, locale } = useTranslation();
-  const courseId = searchParams.get("courseId") || "";
+  const requestedSessionId = searchParams.get("sessionId") || "";
+  const legacyCourseId = searchParams.get("courseId") || "";
+  // `courseId` remains the local classroom-scope identifier to keep the
+  // media/signaling code compact. For V3 links it is the authoritative
+  // session id; legacy links resolve their course id to a default session.
+  const courseId = requestedSessionId || legacyCourseId;
   const shareAccess = searchParams.get("shareAccess") || "";
   const recorderToken = searchParams.get("recorderToken") || "";
   const isRecorder =
@@ -1890,6 +1918,10 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
   const [activePanel, setActivePanel] = useState<DrawerPanel | null>(
     isRecorder ? "chat" : null,
   );
+  const [liveRailCollapsed, setLiveRailCollapsed] = useState(() => {
+    if (isRecorder || typeof window === "undefined") return false;
+    return window.localStorage.getItem("classroom_live_rail_collapsed") === "1";
+  });
   const [layoutMode, setLayoutMode] =
     useState<ClassroomLayoutMode>("focus");
   const [actionBusy, setActionBusy] = useState<string | null>(null);
@@ -1933,6 +1965,14 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
     window.localStorage.setItem(CAPTION_LANGUAGE_STORAGE_KEY, captionLanguage);
   }, [captionLanguage]);
 
+  useEffect(() => {
+    if (isRecorder) return;
+    window.localStorage.setItem(
+      "classroom_live_rail_collapsed",
+      liveRailCollapsed ? "1" : "0",
+    );
+  }, [isRecorder, liveRailCollapsed]);
+
   const updateSession = useCallback(
     (update: Partial<ClassroomSessionResponse>) => {
       setSessionData((current) => (current ? { ...current, ...update } : current));
@@ -1959,7 +1999,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
       try {
         await disconnectRoom();
         const response = await fetch(
-          `/api/courses/${encodeURIComponent(courseId)}/classroom/spaces/credential`,
+          `/api/sessions/${encodeURIComponent(courseId)}/classroom/spaces/credential`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -2009,7 +2049,9 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        courseId,
+        ...(requestedSessionId
+          ? { sessionId: requestedSessionId }
+          : { courseId: legacyCourseId }),
         ...(shareAccess && { shareAccess }),
         ...(isRecorder && { recorderToken }),
       }),
@@ -2019,7 +2061,9 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          courseId,
+          ...(requestedSessionId
+            ? { sessionId: requestedSessionId }
+            : { courseId: legacyCourseId }),
           ...(shareAccess && { shareAccess }),
         }),
       });
@@ -2046,7 +2090,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
       throw new Error(t("classroom.v3.sessionCreateFailed"));
     }
     return payload;
-  }, [courseId, isRecorder, recorderToken, router, shareAccess, t]);
+  }, [courseId, isRecorder, legacyCourseId, recorderToken, requestedSessionId, router, shareAccess, t]);
 
   useEffect(() => {
     if ((!isRecorder && authLoading) || !courseId) return;
@@ -2103,7 +2147,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
           if (!caption.isFinal && Date.now() - lastIngested < 600) return;
           captionIngestAtRef.current.set(caption.id, Date.now());
           void fetch(
-            `/api/courses/${encodeURIComponent(courseId)}/classroom/captions`,
+            `/api/sessions/${encodeURIComponent(courseId)}/classroom/captions`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -2209,10 +2253,10 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
         ? `?shareAccess=${encodeURIComponent(shareAccess)}`
         : "";
       const [stateResponse, messagesResponse] = await Promise.all([
-        fetch(`/api/courses/${encodeURIComponent(courseId)}/classroom/state${query}`, {
+        fetch(`/api/sessions/${encodeURIComponent(courseId)}/classroom/state${query}`, {
           cache: "no-store",
         }),
-        fetch(`/api/courses/${encodeURIComponent(courseId)}/classroom/messages${query}`, {
+        fetch(`/api/sessions/${encodeURIComponent(courseId)}/classroom/messages${query}`, {
           cache: "no-store",
         }),
       ]);
@@ -2234,7 +2278,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
       }
       if (sessionRef.current?.capabilities.canControlRecording) {
         const response = await fetch(
-          `/api/courses/${encodeURIComponent(courseId)}/recording`,
+          `/api/sessions/${encodeURIComponent(courseId)}/recording`,
           { cache: "no-store" },
         );
         if (response.ok) {
@@ -2333,7 +2377,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
     if (isRecorder || loadingState !== "ready" || !courseId) return;
     const heartbeat = () => {
       void fetch(
-        `/api/courses/${encodeURIComponent(courseId)}/classroom/actions`,
+        `/api/sessions/${encodeURIComponent(courseId)}/classroom/actions`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2374,7 +2418,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          courseId,
+          sessionId: courseId,
           ...(shareAccess && { shareAccess }),
         }),
       })
@@ -2447,7 +2491,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        courseId,
+        sessionId: courseId,
         ...(shareAccess && { shareAccess }),
       }),
     })
@@ -2501,7 +2545,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
       setActionError("");
       try {
         const response = await fetch(
-          `/api/courses/${encodeURIComponent(courseId)}/classroom/actions`,
+          `/api/sessions/${encodeURIComponent(courseId)}/classroom/actions`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -2605,7 +2649,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
       },
     ) => {
       const response = await fetch(
-        `/api/courses/${encodeURIComponent(courseId)}/classroom/messages`,
+        `/api/sessions/${encodeURIComponent(courseId)}/classroom/messages`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2637,7 +2681,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
   const deleteMessage = useCallback(
     async (messageId: string) => {
       const response = await fetch(
-        `/api/courses/${encodeURIComponent(courseId)}/classroom/messages`,
+        `/api/sessions/${encodeURIComponent(courseId)}/classroom/messages`,
         {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
@@ -2675,7 +2719,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
     ) => {
       setActionBusy(`courseware-${coursewareId}`);
       const response = await fetch(
-        `/api/courses/${encodeURIComponent(courseId)}/courseware/${encodeURIComponent(coursewareId)}`,
+        `/api/courses/${encodeURIComponent(sessionRef.current?.course.id || legacyCourseId)}/courseware/${encodeURIComponent(coursewareId)}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -2695,7 +2739,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
       );
       setActionBusy(null);
     },
-    [courseId, publishInvalidation, refreshState, t],
+    [legacyCourseId, publishInvalidation, refreshState, t],
   );
 
   const mutateSpaces = useCallback(
@@ -2708,7 +2752,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
       setActionError("");
       try {
         const response = await fetch(
-          `/api/courses/${encodeURIComponent(courseId)}/classroom/spaces`,
+          `/api/sessions/${encodeURIComponent(courseId)}/classroom/spaces`,
           {
             method,
             headers: { "Content-Type": "application/json" },
@@ -2753,7 +2797,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
   const askQuestion = useCallback(
     async (content: string, spaceId: string | null) => {
       const response = await fetch(
-        `/api/courses/${encodeURIComponent(courseId)}/classroom/questions`,
+        `/api/sessions/${encodeURIComponent(courseId)}/classroom/questions`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2788,7 +2832,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
       answer?: string,
     ) => {
       const response = await fetch(
-        `/api/courses/${encodeURIComponent(courseId)}/classroom/questions`,
+        `/api/sessions/${encodeURIComponent(courseId)}/classroom/questions`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -2827,7 +2871,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
     setActionBusy("recording");
     try {
       const response = await fetch(
-        `/api/courses/${encodeURIComponent(courseId)}/recording`,
+        `/api/sessions/${encodeURIComponent(courseId)}/recording`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2872,12 +2916,14 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
     t,
   ]);
 
+  const parentCourseId = sessionData?.course.id || null;
+  const classroomRole = sessionData?.credential.role || null;
   const leaveClassroom = useCallback(() => {
     if (isLeaving) return;
     setIsLeaving(true);
-    if (!isRecorder && courseId && sessionData?.credential.role === "student") {
+    if (!isRecorder && courseId && classroomRole === "student") {
       void fetch(
-        `/api/courses/${encodeURIComponent(courseId)}/attendance`,
+        `/api/sessions/${encodeURIComponent(courseId)}/attendance`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -2886,8 +2932,8 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
         },
       );
     }
-    const destination = courseId
-      ? `/courses/${encodeURIComponent(courseId)}`
+    const destination = parentCourseId
+      ? `/courses/${encodeURIComponent(parentCourseId)}`
       : "/";
     const signaling = signalingRef.current;
     const mediaProvider = providerRef.current;
@@ -2912,7 +2958,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
         window.location.replace(destination);
       }
     }, 1_200);
-  }, [courseId, isLeaving, isRecorder, router, sessionData?.credential.role]);
+  }, [classroomRole, courseId, isLeaving, isRecorder, parentCourseId, router]);
 
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) {
@@ -3158,7 +3204,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
 
   return (
     <main
-      className={`classroom-v3-shell is-mode-${sessionData.mode} ${isRecorder ? "is-recorder" : ""}`}
+      className={`classroom-v3-shell is-mode-${sessionData.mode} ${isRecorder ? "is-recorder" : ""} ${sessionData.modePolicy.showLiveRail && liveRailCollapsed ? "is-rail-collapsed" : ""}`}
       data-runtime-status={sessionData.runtime.status}
       data-classroom-mode={sessionData.mode}
     >
@@ -3180,10 +3226,10 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
           <div>
             <small>
               {sessionData.runtime.status === "live"
-                ? "LIVE CLASS"
+                ? t("classroom.v3.liveClass")
                 : sessionData.runtime.status === "ended"
-                  ? "CLASS ENDED"
-                  : "READY ROOM"}
+                  ? t("classroom.v3.classEndedLabel")
+                  : t("classroom.v3.readyRoom")}
             </small>
             <h1>{sessionData.course.name}</h1>
           </div>
@@ -3298,6 +3344,8 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
           onRemoveStage={(userId) =>
             void performAction({ type: "removeStage", targetUserId: userId })
           }
+          collapsed={liveRailCollapsed}
+          onToggleCollapsed={() => setLiveRailCollapsed((value) => !value)}
         />
       )}
 
@@ -3539,6 +3587,7 @@ export function ClassroomV3({ recorderMode = false }: { recorderMode?: boolean }
               <motion.aside
                 key={activePanel}
                 className="classroom-v3-drawer"
+                data-panel={activePanel}
                 initial={{ opacity: 0, x: 24 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 18 }}

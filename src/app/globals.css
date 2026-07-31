@@ -4262,3 +4262,151 @@ html[lang="de"] .classroom-v3-dock button > span {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Classroom workspace density controls. The stage keeps the available canvas;
+   utility surfaces float above it and collapse when their content is short. */
+.classroom-v3-shell.is-rail-collapsed {
+  grid-template-rows: 54px 42px minmax(0, 1fr) 64px;
+}
+
+.classroom-v3-live-rail {
+  position: relative;
+  overflow: hidden;
+  transition:
+    margin 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 180ms ease;
+}
+
+.classroom-v3-rail-toggle {
+  position: absolute;
+  z-index: 7;
+  top: 50%;
+  left: 7px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  color: #8c93a0;
+  background: transparent;
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: color 160ms ease, background 160ms ease;
+}
+
+.classroom-v3-rail-toggle:hover,
+.classroom-v3-rail-toggle:focus-visible {
+  color: #f4f6f8;
+  background: rgb(255 255 255 / 0.07);
+}
+
+.classroom-v3-rail-toggle svg {
+  width: 14px;
+  height: 14px;
+  transform: rotate(-90deg);
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.classroom-v3-rail-title {
+  padding-left: 27px;
+}
+
+.classroom-v3-live-rail[data-collapsed="true"] {
+  align-items: center;
+  margin-top: 4px;
+  margin-bottom: 3px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-rail-toggle svg {
+  transform: rotate(90deg);
+}
+
+.classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-rail-title {
+  display: flex;
+  width: auto;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding-left: 27px;
+}
+
+.classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-rail-title i {
+  margin: 0;
+}
+
+.classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-seats {
+  width: 0;
+  height: 0;
+  max-width: 0;
+  flex: 0 0 0;
+  gap: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-hand-queue {
+  width: auto;
+  height: 29px;
+  margin-left: auto;
+}
+
+@media (min-width: 1101px) {
+  .classroom-v3-side,
+  .classroom-v3-side.is-open {
+    width: 50px;
+    flex: 0 0 50px;
+  }
+
+  .classroom-v3-drawer {
+    position: absolute;
+    z-index: 24;
+    top: 0;
+    right: 58px;
+    width: min(320px, calc(100vw - 130px));
+    height: min(100%, 720px);
+    max-height: 100%;
+    border-radius: 14px;
+    box-shadow: -12px 18px 54px rgb(0 0 0 / 0.42);
+  }
+
+  .classroom-v3-drawer[data-panel="members"],
+  .classroom-v3-drawer[data-panel="courseware"],
+  .classroom-v3-drawer[data-panel="tools"] {
+    height: auto;
+  }
+
+  .classroom-v3-drawer[data-panel="members"] .classroom-v3-panel-body,
+  .classroom-v3-drawer[data-panel="courseware"] .classroom-v3-panel-body,
+  .classroom-v3-drawer[data-panel="tools"] .classroom-v3-panel-body {
+    height: auto;
+    max-height: min(100%, 720px);
+  }
+
+  .classroom-v3-drawer[data-panel="members"] .classroom-v3-member-list {
+    max-height: min(54dvh, 520px);
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .classroom-v3-shell.is-rail-collapsed {
+    grid-template-rows: 54px 40px minmax(0, 1fr) calc(72px + env(safe-area-inset-bottom));
+  }
+
+  .classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-rail-title {
+    display: flex;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .classroom-v3-live-rail,
+  .classroom-v3-rail-toggle svg {
+    transition: none !important;
+  }
+}

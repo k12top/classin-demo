@@ -11,7 +11,7 @@ import {
 } from "@/lib/classroom/server/recording-orchestrator";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
-import { userCanTeachCourse } from "@/lib/course-teacher";
+import { resolveCourseSessionAccess } from "@/lib/course-session-access";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,23 +23,28 @@ function inputJson(value: unknown): Prisma.InputJsonValue {
 async function teacherCourse(request: NextRequest, courseId: string) {
   const session = await getSessionFromRequest(request);
   if (!session) return { error: "Unauthorized", status: 401 } as const;
-
-  const course = await prisma.course.findUnique({
-    where: { id: courseId },
+  const access = await resolveCourseSessionAccess(courseId, session.userId, {
+    userIdAliases: [session.name],
+  });
+  if (!access.ok) {
+    return { error: access.reason, status: access.httpStatus } as const;
+  }
+  if (access.role !== "teacher") {
+    return { error: "Forbidden", status: 403 } as const;
+  }
+  const lesson = await prisma.courseSession.findUnique({
+    where: { id: access.sessionId },
     include: {
-      teachers: { select: { teacherId: true } },
+      course: true,
       recordings: {
         orderBy: { createdAt: "desc" },
         take: 1,
       },
     },
   });
-  if (!course) return { error: "Course not found", status: 404 } as const;
-  if (!userCanTeachCourse(course, [session.userId, session.name])) {
-    return { error: "Forbidden", status: 403 } as const;
-  }
+  if (!lesson) return { error: "Course session not found", status: 404 } as const;
 
-  return { session, course } as const;
+  return { session, access, course: lesson.course, lesson } as const;
 }
 
 function publicRecording(recording: {
@@ -77,11 +82,11 @@ export async function GET(
     );
   }
 
-  const latest = resolved.course.recordings[0];
+  const latest = resolved.lesson.recordings[0];
   if (!latest) {
     return NextResponse.json({
       enabled: getRecordingProvider(
-        resolved.course.recordingProvider,
+        resolved.lesson.recordingProvider,
       ).isConfigured(),
       recording: null,
     });
@@ -122,7 +127,7 @@ export async function GET(
 
   return NextResponse.json({
     enabled: getRecordingProvider(
-      resolved.course.recordingProvider,
+      resolved.lesson.recordingProvider,
     ).isConfigured(),
     recording: {
       ...publicRecording(latest),
@@ -155,11 +160,11 @@ export async function POST(
     );
   }
 
-  const { course } = resolved;
-  const latest = course.recordings[0];
+  const { course, lesson } = resolved;
+  const latest = lesson.recordings[0];
   try {
     if (action === "start") {
-      const recording = await startRecordingForCourse(course.id);
+      const recording = await startRecordingForCourse(course.id, lesson.id);
       return NextResponse.json(
         { recording: publicRecording(recording) },
         { status: 201 },

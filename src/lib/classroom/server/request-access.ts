@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { NextRequest } from "next/server";
-import { resolveCourseAccess } from "@/lib/course-access";
+import { resolveCourseSessionAccess } from "@/lib/course-session-access";
 import { getSessionFromRequest } from "@/lib/session";
 
 export async function resolveClassroomRequestAccess(
@@ -18,7 +18,7 @@ export async function resolveClassroomRequestAccess(
       code: "unauthorized",
     };
   }
-  const access = await resolveCourseAccess(courseId, session.userId, {
+  const access = await resolveCourseSessionAccess(courseId, session.userId, {
     shareAccessToken: shareAccess || undefined,
     userIdAliases: [session.name],
   });

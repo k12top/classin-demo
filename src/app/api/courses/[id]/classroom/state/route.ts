@@ -31,31 +31,37 @@ export async function GET(
       { status: resolved.status },
     );
   }
+  const resolvedCourseId = resolved.access.courseId;
+  const sessionId = resolved.access.sessionId;
 
   await touchClassroomMember(
-    courseId,
+    resolvedCourseId,
     resolved.session,
     resolved.access.role,
+    undefined,
+    sessionId,
   );
-  const course = await prisma.course.findUnique({
-    where: { id: courseId },
+  const lesson = await prisma.courseSession.findUnique({
+    where: { id: sessionId },
     select: { roomType: true },
   });
-  const mode = classroomModePolicy(course?.roomType ?? 4);
+  const mode = classroomModePolicy(lesson?.roomType ?? 4);
   const [runtimeSnapshot, courseware, captions, spaces, questions] = await Promise.all([
-    getClassroomRuntimeSnapshot(courseId),
-    getClassroomCourseware(courseId, resolved.access.role),
-    getClassroomCaptions(courseId),
+    getClassroomRuntimeSnapshot(resolvedCourseId, sessionId),
+    getClassroomCourseware(resolvedCourseId, resolved.access.role, sessionId),
+    getClassroomCaptions(resolvedCourseId, 100, sessionId),
     mode.allowBreakouts
       ? getClassroomSpaces({
-          courseId,
+          courseId: resolvedCourseId,
+          sessionId,
           viewerId: resolved.session.userId,
           role: resolved.access.role,
         })
       : Promise.resolve([]),
     mode.showPublicQuestions
       ? getClassroomQuestions({
-          courseId,
+          courseId: resolvedCourseId,
+          sessionId,
           viewerId: resolved.session.userId,
           role: resolved.access.role,
         })

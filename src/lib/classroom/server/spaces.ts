@@ -10,6 +10,7 @@ import type {
 } from "@/lib/classroom/types";
 import { prisma } from "@/lib/db";
 import { planLargeClassAssignments } from "@/lib/classroom/space-planner";
+import { getEffectiveSessionRoster } from "@/lib/course-session-roster";
 
 export class ClassroomSpaceError extends Error {
   constructor(
@@ -43,9 +44,9 @@ type SpaceRecord = {
   members: SpaceMemberRecord[];
 };
 
-function breakoutChannelName(courseId: string, position: number): string {
+function breakoutChannelName(sessionId: string, position: number): string {
   const courseDigest = createHash("sha256")
-    .update(courseId)
+    .update(sessionId)
     .digest("hex")
     .slice(0, 24);
   return `br-${courseDigest}-${String(position).padStart(2, "0")}`;
@@ -105,14 +106,16 @@ const memberSelect = {
 
 export async function getClassroomSpaces(input: {
   courseId: string;
+  sessionId?: string;
   viewerId: string;
   role: ClassroomRole;
 }): Promise<ClassroomSpaceSnapshot[]> {
+  const sessionId = input.sessionId || input.courseId;
   const where =
     input.role === "teacher"
-      ? { courseId: input.courseId }
+      ? { sessionId }
       : {
-          courseId: input.courseId,
+          sessionId,
           members: { some: { userId: input.viewerId, active: true } },
         };
   const spaces = await prisma.classroomSpace.findMany({
@@ -125,20 +128,22 @@ export async function getClassroomSpaces(input: {
 
 export async function ensureClassroomSpaceAssignment(input: {
   courseId: string;
+  sessionId?: string;
   userId: string;
   displayName: string;
   avatar: string;
   role: ClassroomRole;
 }) {
+  const sessionId = input.sessionId || input.courseId;
   if (input.role === "teacher") return null;
   const existing = await prisma.classroomSpaceMember.findFirst({
-    where: { courseId: input.courseId, userId: input.userId, active: true },
+    where: { sessionId, userId: input.userId, active: true },
     select: { spaceId: true },
   });
   if (existing) return existing.spaceId;
   const spaces = await prisma.classroomSpace.findMany({
     where: {
-      courseId: input.courseId,
+      sessionId,
       kind: "breakout",
       status: { not: "closed" },
     },
@@ -172,6 +177,7 @@ export async function ensureClassroomSpaceAssignment(input: {
       },
       create: {
         courseId: input.courseId,
+        sessionId,
         spaceId: target.space.id,
         userId: input.userId,
         displayName: input.displayName,
@@ -188,26 +194,26 @@ export async function ensureClassroomSpaceAssignment(input: {
       },
     }),
     prisma.classroomRuntime.update({
-      where: { courseId: input.courseId },
+      where: { sessionId },
       data: { revision: { increment: 1 } },
     }),
   ]);
   return target.space.id;
 }
 
-async function assertLargeClass(courseId: string) {
-  const course = await prisma.course.findUnique({
-    where: { id: courseId },
+async function assertLargeClass(courseId: string, sessionId: string) {
+  const lesson = await prisma.courseSession.findFirst({
+    where: { id: sessionId, courseId },
     select: { roomType: true },
   });
-  if (!course) throw new ClassroomSpaceError("课程不存在", 404);
-  if (!classroomModePolicy(course.roomType).allowBreakouts) {
+  if (!lesson) throw new ClassroomSpaceError("课次不存在", 404);
+  if (!classroomModePolicy(lesson.roomType).allowBreakouts) {
     throw new ClassroomSpaceError("当前课堂模式不支持分组教室", 409);
   }
 }
 
-async function incrementRevision(courseId: string) {
-  const runtime = await ensureClassroomRuntime(courseId);
+async function incrementRevision(courseId: string, sessionId: string) {
+  const runtime = await ensureClassroomRuntime(courseId, sessionId);
   return prisma.classroomRuntime.update({
     where: { id: runtime.id },
     data: { revision: { increment: 1 } },
@@ -217,11 +223,13 @@ async function incrementRevision(courseId: string) {
 
 export async function createClassroomBreakouts(input: {
   courseId: string;
+  sessionId?: string;
   actorRole: ClassroomRole;
   actorId: string;
   count: number;
   capacity?: number | null;
 }): Promise<{ spaces: ClassroomSpaceSnapshot[]; revision: number }> {
+  const sessionId = input.sessionId || input.courseId;
   if (input.actorRole !== "teacher") {
     throw new ClassroomSpaceError("只有主讲老师可以创建分组教室", 403);
   }
@@ -235,12 +243,12 @@ export async function createClassroomBreakouts(input: {
   ) {
     throw new ClassroomSpaceError("每个分组教室人数必须在 2 到 50 之间");
   }
-  await assertLargeClass(input.courseId);
-  await ensureClassroomRuntime(input.courseId);
+  await assertLargeClass(input.courseId, sessionId);
+  await ensureClassroomRuntime(input.courseId, sessionId);
 
   const result = await prisma.$transaction(async (tx) => {
     const existing = await tx.classroomSpace.findMany({
-      where: { courseId: input.courseId, kind: "breakout" },
+      where: { sessionId, kind: "breakout" },
       orderBy: { position: "asc" },
     });
     if (existing.length > 0 && existing.length !== input.count) {
@@ -255,9 +263,10 @@ export async function createClassroomBreakouts(input: {
           const position = index + 1;
           return {
             courseId: input.courseId,
+            sessionId,
             kind: "breakout",
             name: `Room ${position}`,
-            channelName: breakoutChannelName(input.courseId, position),
+            channelName: breakoutChannelName(sessionId, position),
             position,
             capacity: input.capacity ?? null,
           };
@@ -265,7 +274,7 @@ export async function createClassroomBreakouts(input: {
       });
     }
     return tx.classroomRuntime.update({
-      where: { courseId: input.courseId },
+      where: { sessionId },
       data: { revision: { increment: existing.length === 0 ? 1 : 0 } },
       select: { revision: true },
     });
@@ -274,6 +283,7 @@ export async function createClassroomBreakouts(input: {
   return {
     spaces: await getClassroomSpaces({
       courseId: input.courseId,
+      sessionId,
       viewerId: input.actorId,
       role: input.actorRole,
     }),
@@ -288,74 +298,34 @@ type RosterMember = {
   role: "assistant" | "student";
 };
 
-async function largeClassRoster(courseId: string): Promise<RosterMember[]> {
-  const course = await prisma.course.findUnique({
-    where: { id: courseId },
-    include: {
-      teachers: true,
-      students: true,
-      groupLinks: { include: { group: { include: { members: true } } } },
-      classroomMembers: true,
-    },
-  });
-  if (!course) throw new ClassroomSpaceError("课程不存在", 404);
-  const roster = new Map<string, RosterMember>();
-  for (const teacher of course.teachers) {
-    if (teacher.teacherId === course.teacherId) continue;
-    roster.set(teacher.teacherId, {
-      userId: teacher.teacherId,
-      displayName: teacher.teacherName || teacher.teacherId,
-      avatar: teacher.teacherAvatar,
-      role: "assistant",
-    });
-  }
-  for (const student of course.students) {
-    roster.set(student.studentId, {
-      userId: student.studentId,
-      displayName: student.studentName || student.studentId,
-      avatar: student.studentAvatar,
-      role: "student",
-    });
-  }
-  for (const link of course.groupLinks) {
-    for (const member of link.group.members) {
-      if (!roster.has(member.userId)) {
-        roster.set(member.userId, {
-          userId: member.userId,
-          displayName: member.userName || member.userId,
-          avatar: member.userAvatar,
-          role: "student",
-        });
-      }
-    }
-  }
-  for (const member of course.classroomMembers) {
-    if (member.role === "teacher") continue;
-    roster.set(member.userId, {
-      userId: member.userId,
-      displayName: member.displayName || member.userId,
-      avatar: member.avatar,
-      role: member.role === "assistant" ? "assistant" : "student",
-    });
-  }
-  return [...roster.values()];
+async function largeClassRoster(sessionId: string): Promise<RosterMember[]> {
+  const roster = await getEffectiveSessionRoster(sessionId);
+  if (!roster) throw new ClassroomSpaceError("课次不存在", 404);
+  return [
+    ...roster.teachers
+      .filter((teacher) => teacher.role === "assistant")
+      .map((teacher) => ({ ...teacher, role: "assistant" as const })),
+    ...roster.students.map((student) => ({ ...student, role: "student" as const })),
+  ];
 }
 
 export async function autoAssignClassroomSpaces(input: {
   courseId: string;
+  sessionId?: string;
   actorRole: ClassroomRole;
   actorId: string;
 }) {
+  const sessionId = input.sessionId || input.courseId;
   if (input.actorRole !== "teacher") {
     throw new ClassroomSpaceError("只有主讲老师可以自动分配成员", 403);
   }
-  await assertLargeClass(input.courseId);
+  await assertLargeClass(input.courseId, sessionId);
   const [spaces, roster] = await Promise.all([
     prisma.classroomSpace.findMany({
-      where: { courseId: input.courseId, kind: "breakout" },
+      where: { sessionId, kind: "breakout" },
       orderBy: { position: "asc" },
     }),
-    largeClassRoster(input.courseId),
+    largeClassRoster(sessionId),
   ]);
   if (spaces.length === 0) {
     throw new ClassroomSpaceError("请先创建分组教室", 409);
@@ -372,7 +342,7 @@ export async function autoAssignClassroomSpaces(input: {
 
   await prisma.$transaction(async (tx) => {
     await tx.classroomSpaceMember.updateMany({
-      where: { courseId: input.courseId, active: true },
+      where: { sessionId, active: true },
       data: { active: false, leftAt: new Date() },
     });
     for (const assignment of planned) {
@@ -386,6 +356,7 @@ export async function autoAssignClassroomSpaces(input: {
         },
         create: {
           courseId: input.courseId,
+          sessionId,
           spaceId: assignment.spaceId,
           ...member,
         },
@@ -401,13 +372,14 @@ export async function autoAssignClassroomSpaces(input: {
       });
     }
     await tx.classroomRuntime.update({
-      where: { courseId: input.courseId },
+      where: { sessionId },
       data: { revision: { increment: 1 } },
     });
   });
   return {
     spaces: await getClassroomSpaces({
       courseId: input.courseId,
+      sessionId,
       viewerId: input.actorId,
       role: input.actorRole,
     }),
@@ -416,22 +388,24 @@ export async function autoAssignClassroomSpaces(input: {
 
 export async function assignClassroomSpaceMember(input: {
   courseId: string;
+  sessionId?: string;
   actorRole: ClassroomRole;
   actorId: string;
   spaceId: string;
   targetUserId: string;
   role: "assistant" | "student";
 }) {
+  const sessionId = input.sessionId || input.courseId;
   if (input.actorRole !== "teacher") {
     throw new ClassroomSpaceError("只有主讲老师可以调整分组", 403);
   }
-  await assertLargeClass(input.courseId);
+  await assertLargeClass(input.courseId, sessionId);
   const [space, roster] = await Promise.all([
     prisma.classroomSpace.findFirst({
-      where: { id: input.spaceId, courseId: input.courseId },
+      where: { id: input.spaceId, sessionId },
       include: { members: { where: { active: true, role: "student" } } },
     }),
-    largeClassRoster(input.courseId),
+    largeClassRoster(sessionId),
   ]);
   if (!space) throw new ClassroomSpaceError("分组教室不存在", 404);
   const member = roster.find(
@@ -450,12 +424,12 @@ export async function assignClassroomSpaceMember(input: {
   }
   await prisma.$transaction(async (tx) => {
     await tx.classroomSpaceMember.updateMany({
-      where: { courseId: input.courseId, userId: member.userId, active: true },
+      where: { sessionId, userId: member.userId, active: true },
       data: { active: false, leftAt: new Date() },
     });
     await tx.classroomSpaceMember.upsert({
       where: { spaceId_userId: { spaceId: space.id, userId: member.userId } },
-      create: { courseId: input.courseId, spaceId: space.id, ...member },
+      create: { courseId: input.courseId, sessionId, spaceId: space.id, ...member },
       update: {
         displayName: member.displayName,
         avatar: member.avatar,
@@ -467,12 +441,13 @@ export async function assignClassroomSpaceMember(input: {
       },
     });
     await tx.classroomRuntime.update({
-      where: { courseId: input.courseId },
+      where: { sessionId },
       data: { revision: { increment: 1 } },
     });
   });
   return getClassroomSpaces({
     courseId: input.courseId,
+    sessionId,
     viewerId: input.actorId,
     role: input.actorRole,
   });
@@ -480,6 +455,7 @@ export async function assignClassroomSpaceMember(input: {
 
 export async function updateClassroomSpace(input: {
   courseId: string;
+  sessionId?: string;
   actorRole: ClassroomRole;
   actorId: string;
   spaceId?: string;
@@ -490,7 +466,8 @@ export async function updateClassroomSpace(input: {
   cameraAllowed?: boolean;
   screenShareAllowed?: boolean;
 }) {
-  await assertLargeClass(input.courseId);
+  const sessionId = input.sessionId || input.courseId;
+  await assertLargeClass(input.courseId, sessionId);
   const assistantManagingOwnRoom =
     input.actorRole === "assistant" &&
     input.action === "permissions" &&
@@ -498,7 +475,7 @@ export async function updateClassroomSpace(input: {
     Boolean(
       await prisma.classroomSpaceMember.findFirst({
         where: {
-          courseId: input.courseId,
+          sessionId,
           spaceId: input.spaceId,
           userId: input.actorId,
           role: "assistant",
@@ -513,7 +490,7 @@ export async function updateClassroomSpace(input: {
   if (input.action === "open" || input.action === "close") {
     await prisma.classroomSpace.updateMany({
       where: {
-        courseId: input.courseId,
+        sessionId,
         ...(input.spaceId && { id: input.spaceId }),
       },
       data: { status: input.action === "open" ? "open" : "closed" },
@@ -524,7 +501,7 @@ export async function updateClassroomSpace(input: {
       throw new ClassroomSpaceError("教室名称长度应为 1–40 个字符");
     }
     await prisma.classroomSpace.updateMany({
-      where: { id: input.spaceId, courseId: input.courseId },
+      where: { id: input.spaceId, sessionId },
       data: { name },
     });
   } else {
@@ -547,7 +524,7 @@ export async function updateClassroomSpace(input: {
           };
     const result = await prisma.classroomSpaceMember.updateMany({
       where: {
-        courseId: input.courseId,
+        sessionId,
         spaceId: input.spaceId,
         userId: input.targetUserId,
         active: true,
@@ -556,10 +533,11 @@ export async function updateClassroomSpace(input: {
     });
     if (result.count === 0) throw new ClassroomSpaceError("分组成员不存在", 404);
   }
-  const runtime = await incrementRevision(input.courseId);
+  const runtime = await incrementRevision(input.courseId, sessionId);
   return {
     spaces: await getClassroomSpaces({
       courseId: input.courseId,
+      sessionId,
       viewerId: input.actorId,
       role: input.actorRole,
     }),
@@ -569,19 +547,21 @@ export async function updateClassroomSpace(input: {
 
 export async function deleteClassroomBreakouts(input: {
   courseId: string;
+  sessionId?: string;
   actorRole: ClassroomRole;
 }) {
+  const sessionId = input.sessionId || input.courseId;
   if (input.actorRole !== "teacher") {
     throw new ClassroomSpaceError("只有主讲老师可以重置分组教室", 403);
   }
   const open = await prisma.classroomSpace.count({
-    where: { courseId: input.courseId, status: "open" },
+    where: { sessionId, status: "open" },
   });
   if (open > 0) throw new ClassroomSpaceError("请先结束分组活动", 409);
   await prisma.$transaction([
-    prisma.classroomSpace.deleteMany({ where: { courseId: input.courseId } }),
+    prisma.classroomSpace.deleteMany({ where: { sessionId } }),
     prisma.classroomRuntime.update({
-      where: { courseId: input.courseId },
+      where: { sessionId },
       data: { revision: { increment: 1 } },
     }),
   ]);
@@ -589,12 +569,14 @@ export async function deleteClassroomBreakouts(input: {
 
 export async function getClassroomSpaceCredentialAccess(input: {
   courseId: string;
+  sessionId?: string;
   spaceId: string;
   viewerId: string;
   role: ClassroomRole;
 }) {
+  const sessionId = input.sessionId || input.courseId;
   const space = await prisma.classroomSpace.findFirst({
-    where: { id: input.spaceId, courseId: input.courseId },
+    where: { id: input.spaceId, sessionId },
     include: {
       members: {
         where: { userId: input.viewerId, active: true },

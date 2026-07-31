@@ -15,7 +15,10 @@ export default function LanguageSwitcher({ className }: { className?: string }) 
           <span className="truncate">{selectedLanguage?.label || "Language"}</span>
         </div>
       </SelectTrigger>
-      <SelectContent className="bg-popover border border-border/80 max-h-[300px] overflow-y-auto rounded-xl shadow-lg">
+      <SelectContent
+        data-account-language-list="true"
+        className="bg-popover border border-border/80 max-h-[300px] overflow-y-auto rounded-xl shadow-lg"
+      >
         {languageOptions.map((opt) => (
           <SelectItem key={opt.value} value={opt.value} className="text-xs hover:bg-muted/50 focus:bg-muted/50 rounded-lg py-2">
             <span className="flex items-center gap-2">

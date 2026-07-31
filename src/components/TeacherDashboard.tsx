@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, Calendar as CalendarIcon, CheckCircle2, Users, LogOut, ChevronLeft, ChevronRight, PlayCircle, Search, Trash2, UserPlus, Info, Clock, Globe, Key, Loader2, User, BookOpen, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowRight, Calendar as CalendarIcon, CheckCircle2, Users, LogOut, ChevronLeft, ChevronRight, PlayCircle, Search, Trash2, UserPlus, Info, Globe, Key, Loader2, User, BookOpen, RefreshCw, Sparkles, Layers3, Video } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import {
   CourseStatusSelect,
@@ -19,15 +19,8 @@ import {
 } from "@/components/CourseStatusSelect";
 import { canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
+import { prefetchCourseDetail } from "@/lib/course-detail-client-cache";
 import { getPlaybackTarget } from "@/lib/playback-url";
-import {
-  addMinutesToLocalValue,
-  COURSE_DURATION_PRESETS,
-  DEFAULT_COURSE_DURATION_MINUTES,
-  durationBetweenLocalValues,
-  formatCourseDuration,
-  normalizeCourseDuration,
-} from "@/lib/course-schedule";
 import {
   getTeacherDirectory,
   type TeacherDirectoryEntry,
@@ -44,6 +37,12 @@ import {
 import { usePortalFeedback } from "@/components/portal/portal-feedback";
 import createCourseStyles from "@/components/portal/create-course-dialog.module.css";
 import scheduleStyles from "@/components/portal/teacher-schedule.module.css";
+import { useTeacherSchedules } from "@/hooks/use-teacher-schedules";
+import {
+  TeacherSchedulePeek,
+  teacherSchedulePeekStyles,
+} from "@/components/scheduling/teacher-schedule-peek";
+import { TeacherPlanSettings } from "@/components/scheduling/teacher-plan-settings";
 
 interface Course {
   id: string;
@@ -61,6 +60,8 @@ interface Course {
   canTeach?: boolean;
   joinedAs?: "teacher" | "student";
   status: string;
+  courseKind?: "series" | "standalone";
+  sessionCount?: number;
   startTime: string | null;
   endTime: string | null;
   studentRemarks: string;
@@ -114,54 +115,14 @@ const ROOM_TYPE_KEYS: Record<number, string> = {
 
 type SidebarPage = "schedule" | "courses" | "students" | "settings";
 
-interface TimezoneConfig {
-  id: string;
-  nameEN: string;
-  timezone: string;
-  flag: string;
-  offset: string;
-}
-
-const SUPPORTED_TIMEZONES: TimezoneConfig[] = [
-  { id: "SG", nameEN: "Singapore", timezone: "Asia/Singapore", flag: "🇸🇬", offset: "UTC+8" },
-  { id: "MY", nameEN: "Malaysia", timezone: "Asia/Kuala_Lumpur", flag: "🇲🇾", offset: "UTC+8" },
-  { id: "PH", nameEN: "Philippines", timezone: "Asia/Manila", flag: "🇵🇭", offset: "UTC+8" },
-  { id: "TH", nameEN: "Thailand", timezone: "Asia/Bangkok", flag: "🇹🇭", offset: "UTC+7" },
-  { id: "VN", nameEN: "Vietnam", timezone: "Asia/Ho_Chi_Minh", flag: "🇻🇳", offset: "UTC+7" },
-  { id: "ID_WIB", nameEN: "Indonesia (Jakarta)", timezone: "Asia/Jakarta", flag: "🇮🇩", offset: "UTC+7" },
-  { id: "ID_WITA", nameEN: "Indonesia (Bali)", timezone: "Asia/Makassar", flag: "🇮🇩", offset: "UTC+8" },
-  { id: "LA", nameEN: "Laos", timezone: "Asia/Vientiane", flag: "🇱🇦", offset: "UTC+7" },
-  { id: "KH", nameEN: "Cambodia", timezone: "Asia/Phnom_Penh", flag: "🇰🇭", offset: "UTC+7" },
-  { id: "MM", nameEN: "Myanmar", timezone: "Asia/Yangon", flag: "🇲🇲", offset: "UTC+6:30" },
-  { id: "CN", nameEN: "China (Beijing)", timezone: "Asia/Shanghai", flag: "🇨🇳", offset: "UTC+8" },
-  { id: "JP", nameEN: "Japan", timezone: "Asia/Tokyo", flag: "🇯🇵", offset: "UTC+9" },
-  { id: "KR", nameEN: "South Korea", timezone: "Asia/Seoul", flag: "🇰🇷", offset: "UTC+9" },
-  { id: "US_EST", nameEN: "US (Eastern)", timezone: "America/New_York", flag: "🇺🇸", offset: "UTC-5" },
-  { id: "US_PST", nameEN: "US (Pacific)", timezone: "America/Los_Angeles", flag: "🇺🇸", offset: "UTC-8" },
-  { id: "UK", nameEN: "United Kingdom", timezone: "Europe/London", flag: "🇬🇧", offset: "UTC+0" },
-  { id: "FR", nameEN: "France (Paris)", timezone: "Europe/Paris", flag: "🇫🇷", offset: "UTC+1" },
-  { id: "DE", nameEN: "Germany (Berlin)", timezone: "Europe/Berlin", flag: "🇩🇪", offset: "UTC+1" }
-];
-
-const DEFAULT_TIMEZONE_IDS = ["TH", "VN", "SG", "ID_WIB"];
 const CREATE_SUBMIT_DEBOUNCE_MS = 1200;
 
-function timezoneDisplayName(timezone: TimezoneConfig, locale: string) {
-  const regionCode = timezone.id.startsWith("ID_")
-    ? "ID"
-    : timezone.id.startsWith("US_")
-      ? "US"
-      : timezone.id === "UK"
-        ? "GB"
-        : timezone.id;
-  try {
-    return (
-      new Intl.DisplayNames([locale], { type: "region" }).of(regionCode) ||
-      timezone.nameEN
-    );
-  } catch {
-    return timezone.nameEN;
-  }
+function defaultCourseStartValue() {
+  const date = new Date();
+  date.setSeconds(0, 0);
+  date.setMinutes(date.getMinutes() < 30 ? 30 : 60);
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
 export default function TeacherDashboard({ courses, user, fetchCourses }: { courses: Course[], user: TeacherUser, fetchCourses: () => void }) {
@@ -194,14 +155,12 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createDesc, setCreateDesc] = useState("");
+  const [createKind, setCreateKind] = useState<"series" | "standalone">("series");
+  const [createStartTime, setCreateStartTime] = useState(defaultCourseStartValue);
+  const [createDuration, setCreateDuration] = useState(60);
   const [createRoomType, setCreateRoomType] = useState(0);
   const [createRequirePasscode, setCreateRequirePasscode] = useState(true);
   const [createPasscode, setCreatePasscode] = useState("");
-  const [createStartTime, setCreateStartTime] = useState("");
-  const [createEndTime, setCreateEndTime] = useState("");
-  const [createDurationMinutes, setCreateDurationMinutes] = useState(
-    DEFAULT_COURSE_DURATION_MINUTES,
-  );
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState("");
   const [createTeacherResults, setCreateTeacherResults] = useState<UserSearchResult[]>([]);
@@ -227,76 +186,6 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     setCreateTeacherError("");
   }, [currentTeacher]);
 
-  const minDateTime = (() => {
-    const now = new Date();
-    const tzOffset = now.getTimezoneOffset() * 60000;
-    return new Date(now.getTime() - tzOffset).toISOString().slice(0, 16);
-  })();
-
-  // Timezone conversion state
-  const [selectedTzIds, setSelectedTzIds] = useState<string[]>([]);
-  const [showTzConfig, setShowTzConfig] = useState(false);
-
-  // Load selected timezones on mount
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      queueMicrotask(() => {
-        const saved = localStorage.getItem("classroom_selected_timezones");
-        if (saved) {
-          try {
-            setSelectedTzIds(JSON.parse(saved));
-          } catch {
-            setSelectedTzIds(DEFAULT_TIMEZONE_IDS);
-          }
-        } else {
-          setSelectedTzIds(DEFAULT_TIMEZONE_IDS);
-        }
-      });
-    }
-  }, []);
-
-  // Save selected timezones when changed
-  const handleTzToggle = (id: string) => {
-    setSelectedTzIds((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      localStorage.setItem("classroom_selected_timezones", JSON.stringify(next));
-      return next;
-    });
-  };
-
-  // Convert createStartTime to target countries' times
-  const convertedTimes = useMemo(() => {
-    if (!createStartTime) return [];
-    const localDate = new Date(createStartTime);
-    if (isNaN(localDate.getTime())) return [];
-
-    return SUPPORTED_TIMEZONES
-      .filter((tz) => selectedTzIds.includes(tz.id))
-      .map((tz) => {
-        try {
-          const formatted = localDate.toLocaleString(locale, {
-            timeZone: tz.timezone,
-            weekday: "short",
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
-          });
-          return {
-            ...tz,
-            convertedTime: formatted,
-          };
-        } catch (e) {
-          console.error(`Failed to format timezone ${tz.timezone}:`, e);
-          return {
-            ...tz,
-            convertedTime: "Error",
-          };
-        }
-      });
-  }, [createStartTime, selectedTzIds, locale]);
-
   // Student management state
   const [myGroups, setMyGroups] = useState<GroupNode[]>([]);
   const [newGroupName, setNewGroupName] = useState("");
@@ -316,26 +205,49 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const selectedCreateRoomType =
     roomTypes.find((roomType) => roomType.value === createRoomType) ??
     roomTypes[0];
-  const createRequiredFieldCount = [
-    createName.trim(),
-    createStartTime,
-    createEndTime,
-  ].filter(Boolean).length;
-  const createCompletionPercent = Math.round(
-    (createRequiredFieldCount / 3) * 100
+  const createCompletionPercent = createName.trim()
+    ? createKind === "series" || createStartTime
+      ? 100
+      : 60
+    : 0;
+  const createSchedulePreview = useMemo(() => {
+    if (createKind === "series") {
+      return t("courseSessions.scheduleAfterCreation");
+    }
+    const start = new Date(createStartTime);
+    if (Number.isNaN(start.getTime())) {
+      return t("teacherDashboard.schedulePending");
+    }
+    const end = new Date(start.getTime() + createDuration * 60_000);
+    const formatter = new Intl.DateTimeFormat(locale, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    return `${formatter.format(start)} – ${formatter.format(end)}`;
+  }, [createDuration, createKind, createStartTime, locale, t]);
+  const createTeacherScheduleIds = useMemo(
+    () => [
+      ...createTeachers.map((teacher) => teacher.teacherId),
+      ...createTeacherResults.map((result) => result.casdoorUuid || result.id),
+    ],
+    [createTeacherResults, createTeachers],
   );
-  const createSchedulePreview = createStartTime
-    ? new Date(createStartTime).toLocaleString(
-        locale,
-        {
-          month: "short",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        }
-      )
-    : t("teacherDashboard.schedulePending");
+  const {
+    schedules: createTeacherSchedules,
+    loading: createTeacherSchedulesLoading,
+  } = useTeacherSchedules(createTeacherScheduleIds, { enabled: createOpen, days: 7 });
+  const createCandidateRange = useMemo(() => {
+    if (createKind !== "standalone") return { start: null, end: null };
+    const start = new Date(createStartTime);
+    if (Number.isNaN(start.getTime())) return { start: null, end: null };
+    return {
+      start,
+      end: new Date(start.getTime() + createDuration * 60_000),
+    };
+  }, [createDuration, createKind, createStartTime]);
 
   const fetchMyGroups = useCallback(async () => {
     const res = await fetch("/api/groups", { credentials: "same-origin" });
@@ -404,7 +316,10 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   }, [courses, selectedDate]);
 
   const coursesMissingStartTime = useMemo(
-    () => courses.filter((c) => !c.startTime),
+    () =>
+      courses.filter(
+        (course) => course.courseKind === "standalone" && !course.startTime,
+      ),
     [courses]
   );
 
@@ -541,6 +456,9 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
   const openCreateDialog = () => {
     setCreateError("");
+    setCreateKind("series");
+    setCreateStartTime(defaultCourseStartValue());
+    setCreateDuration(60);
     resetCreateTeacherSelection();
     setCreateOpen(true);
   };
@@ -562,38 +480,31 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     (teacher) => !sameTeacherId(teacher.teacherId, previewPrimaryTeacher.teacherId),
   );
 
-  const handleCreateStartTimeChange = (value: string) => {
-    setCreateStartTime(value);
-    setCreateEndTime(addMinutesToLocalValue(value, createDurationMinutes));
-    setCreateError("");
-  };
-
-  const handleCreateDurationChange = (value: number) => {
-    const duration = normalizeCourseDuration(value);
-    setCreateDurationMinutes(duration);
-    if (createStartTime) {
-      setCreateEndTime(addMinutesToLocalValue(createStartTime, duration));
-    }
-    setCreateError("");
-  };
-
-  const handleCreateEndTimeChange = (value: string) => {
-    setCreateEndTime(value);
-    if (createStartTime && value) {
-      setCreateDurationMinutes(
-        durationBetweenLocalValues(createStartTime, value, createDurationMinutes),
-      );
-    }
-    setCreateError("");
-  };
-
   const handleCreateCourse = async () => {
     if (createLockRef.current) return;
     if (!createName.trim()) { setCreateError(t("teacherDashboard.errNameEmpty")); return; }
-    if (!createStartTime) { setCreateError(t("teacherDashboard.errStartTimeEmpty")); return; }
-    if (new Date(createStartTime) < new Date(Date.now() - 120000)) { setCreateError(t("teacherDashboard.errStartTimePast")); return; }
-    if (!createEndTime) { setCreateError(t("teacherDashboard.errEndTimeEmpty")); return; }
-    if (new Date(createEndTime) <= new Date(createStartTime)) { setCreateError(t("teacherDashboard.errEndTimeBefore")); return; }
+    let standaloneStart: Date | null = null;
+    let standaloneEnd: Date | null = null;
+    if (createKind === "standalone") {
+      if (!createStartTime) {
+        setCreateError(t("teacherDashboard.errStartTimeEmpty"));
+        return;
+      }
+      standaloneStart = new Date(createStartTime);
+      if (Number.isNaN(standaloneStart.getTime())) {
+        setCreateError(t("teacherDashboard.errStartTimeEmpty"));
+        return;
+      }
+      if (standaloneStart.getTime() < Date.now() - 120_000) {
+        setCreateError(t("teacherDashboard.errStartTimePast"));
+        return;
+      }
+      if (!Number.isFinite(createDuration) || createDuration < 10 || createDuration > 720) {
+        setCreateError(t("teacherDashboard.errDurationInvalid"));
+        return;
+      }
+      standaloneEnd = new Date(standaloneStart.getTime() + createDuration * 60_000);
+    }
     if (createRoomType === 10 && createRequirePasscode) {
       if (createPasscode && !/^\d{6}$/.test(createPasscode)) {
         setCreateError(t("teacherDashboard.errPasscodeInvalid"));
@@ -621,11 +532,12 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         body: JSON.stringify({
           name: createName,
           description: createDesc,
+          courseKind: createKind,
+          startTime: standaloneStart?.toISOString(),
+          endTime: standaloneEnd?.toISOString(),
           roomType: createRoomType,
           requirePasscode: createRoomType === 10 ? createRequirePasscode : undefined,
           passcode: createRoomType === 10 && createRequirePasscode ? createPasscode : undefined,
-          startTime: new Date(createStartTime).toISOString(),
-          endTime: new Date(createEndTime).toISOString(),
           primaryTeacher: selectedPrimaryTeacher,
           teachers: createTeachers.length ? createTeachers : [currentTeacher],
         }),
@@ -636,7 +548,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       }
       const { course } = await res.json();
       setCreateOpen(false);
-      setCreateName(""); setCreateDesc(""); setCreateRoomType(0); setCreateRequirePasscode(true); setCreatePasscode(""); setCreateStartTime(""); setCreateEndTime(""); setCreateDurationMinutes(DEFAULT_COURSE_DURATION_MINUTES);
+      setCreateName(""); setCreateDesc(""); setCreateKind("series"); setCreateStartTime(defaultCourseStartValue()); setCreateDuration(60); setCreateRoomType(0); setCreateRequirePasscode(true); setCreatePasscode("");
       resetCreateTeacherSelection();
       router.push(`/courses/${course.id}`);
     } catch (err) {
@@ -811,6 +723,10 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 void handleEnterClassroomFromList(course as Course)
               }
               onOpen={(course) => router.push(`/courses/${course.id}`)}
+              onPrefetch={(course) => {
+                router.prefetch(`/courses/${course.id}`);
+                void prefetchCourseDetail(course.id);
+              }}
               onCreate={openCreateDialog}
             />
 
@@ -919,8 +835,14 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                           <article
                             key={course.id}
                             className={scheduleStyles.card}
-                            onMouseEnter={() => router.prefetch(`/courses/${course.id}`)}
-                            onFocus={() => router.prefetch(`/courses/${course.id}`)}
+                            onMouseEnter={() => {
+                              router.prefetch(`/courses/${course.id}`);
+                              void prefetchCourseDetail(course.id);
+                            }}
+                            onFocus={() => {
+                              router.prefetch(`/courses/${course.id}`);
+                              void prefetchCourseDetail(course.id);
+                            }}
                           >
                             <div className={scheduleStyles.time}>
                               <strong>{startLabel}</strong>
@@ -1114,6 +1036,10 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 void handleEnterClassroomFromList(course as Course)
               }
               onOpen={(course) => router.push(`/courses/${course.id}`)}
+              onPrefetch={(course) => {
+                router.prefetch(`/courses/${course.id}`);
+                void prefetchCourseDetail(course.id);
+              }}
             />
           </div>
         )}
@@ -1287,12 +1213,22 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                     Classroom studio
                   </span>
                   <span className={createCourseStyles.draftBadge}>
-                    {t("teacherDashboard.draft")}
+                    {t(
+                      createKind === "series"
+                        ? "teacherDashboard.courseGroup"
+                        : "teacherDashboard.standaloneCourse",
+                    )}
                   </span>
                 </div>
 
                 <div className={createCourseStyles.previewTitle}>
-                  <small>{t("teacherDashboard.liveCourseBrief")}</small>
+                  <small>
+                    {t(
+                      createKind === "series"
+                        ? "teacherDashboard.courseGroupBrief"
+                        : "teacherDashboard.standaloneBrief",
+                    )}
+                  </small>
                   <h2>
                     {createName.trim() ||
                       t("teacherDashboard.nameNewClassroom")}
@@ -1305,8 +1241,10 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
                 <div className={createCourseStyles.stage} aria-hidden="true">
                   <div className={createCourseStyles.stageBar}>
-                    <span>CLASSROOM · PREVIEW</span>
-                    <span className={createCourseStyles.stageLive}>READY</span>
+                    <span>{t("teacherDashboard.coursePreview")}</span>
+                    <span className={createCourseStyles.stageLive}>
+                      {t("courseDetail.ready")}
+                    </span>
                   </div>
                   <div className={createCourseStyles.teacherTile}>
                     <Avatar className={createCourseStyles.teacherAvatar}>
@@ -1389,7 +1327,11 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                     <span style={{ width: `${createCompletionPercent}%` }} />
                   </div>
                   <p>
-                    {t("teacherDashboard.readinessHint")}
+                    {t(
+                      createKind === "series"
+                        ? "teacherDashboard.courseGroupReadinessHint"
+                        : "teacherDashboard.standaloneReadinessHint",
+                    )}
                   </p>
                 </div>
               </div>
@@ -1400,7 +1342,13 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 {t("teacherDashboard.courseSetup")}
               </span>
               <DialogTitle className="text-xl font-bold">{t("teacherDashboard.createTitle")}</DialogTitle>
-              <DialogDescription className="text-xs text-muted-foreground">{t("teacherDashboard.createDesc")}</DialogDescription>
+              <DialogDescription className="text-xs text-muted-foreground">
+                {t(
+                  createKind === "series"
+                    ? "teacherDashboard.courseGroupCreateDesc"
+                    : "teacherDashboard.standaloneCreateDesc",
+                )}
+              </DialogDescription>
             </DialogHeader>
 
             {createError && (
@@ -1408,6 +1356,47 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
             )}
 
             <div className={`${createCourseStyles.formBody} space-y-4`}>
+              <div className={createCourseStyles.kindSelector}>
+                <div className={createCourseStyles.kindHeading}>
+                  <span>{t("teacherDashboard.creationMode")}</span>
+                  <small>{t("teacherDashboard.creationModeHint")}</small>
+                </div>
+                <div
+                  className={createCourseStyles.kindOptions}
+                  role="radiogroup"
+                  aria-label={t("teacherDashboard.creationMode")}
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={createKind === "series"}
+                    data-active={createKind === "series"}
+                    onClick={() => {
+                      setCreateKind("series");
+                      setCreateError("");
+                    }}
+                  >
+                    <span><Layers3 aria-hidden="true" /></span>
+                    <strong>{t("teacherDashboard.courseGroup")}</strong>
+                    <small>{t("teacherDashboard.courseGroupDesc")}</small>
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={createKind === "standalone"}
+                    data-active={createKind === "standalone"}
+                    onClick={() => {
+                      setCreateKind("standalone");
+                      setCreateError("");
+                    }}
+                  >
+                    <span><Video aria-hidden="true" /></span>
+                    <strong>{t("teacherDashboard.standaloneCourse")}</strong>
+                    <small>{t("teacherDashboard.standaloneCourseDesc")}</small>
+                  </button>
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("teacherDashboard.fieldName")} <span className="text-red-400">*</span></label>
                 <Input
@@ -1419,6 +1408,65 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                   autoFocus
                 />
               </div>
+
+              {createKind === "standalone" && (
+                <div className={createCourseStyles.scheduleBlock}>
+                  <div className={createCourseStyles.scheduleHeading}>
+                    <div>
+                      <span>
+                        <CalendarIcon aria-hidden="true" />
+                        {t("teacherDashboard.classSchedule")}
+                      </span>
+                      <p>{t("teacherDashboard.standaloneScheduleHint")}</p>
+                    </div>
+                    <strong>{createDuration} min</strong>
+                  </div>
+                  <div className={createCourseStyles.singleScheduleGrid}>
+                    <label>
+                      <span>{t("teacherDashboard.fieldStartTime")}</span>
+                      <input
+                        type="datetime-local"
+                        value={createStartTime}
+                        onChange={(event) => {
+                          setCreateStartTime(event.target.value);
+                          setCreateError("");
+                        }}
+                      />
+                    </label>
+                    <label className={createCourseStyles.durationField}>
+                      <span>{t("teacherDashboard.durationMinutes")}</span>
+                      <input
+                        type="number"
+                        min={10}
+                        max={720}
+                        step={5}
+                        value={createDuration}
+                        onChange={(event) => {
+                          setCreateDuration(Number(event.target.value));
+                          setCreateError("");
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <div className={createCourseStyles.durationPresets}>
+                    {[45, 60, 90, 120].map((minutes) => (
+                      <button
+                        key={minutes}
+                        type="button"
+                        data-active={createDuration === minutes}
+                        onClick={() => setCreateDuration(minutes)}
+                      >
+                        {minutes} min
+                      </button>
+                    ))}
+                  </div>
+                  <p className={createCourseStyles.scheduleEndHint}>
+                    {t("teacherDashboard.calculatedSchedule", {
+                      value: createSchedulePreview,
+                    })}
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("teacherDashboard.fieldDesc")} <span className="text-muted-foreground text-xs">({t("teacherDashboard.optional")})</span></label>
@@ -1453,7 +1501,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                     return (
                       <div
                         key={teacher.teacherId}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/50 bg-background px-3 py-2"
+                        className={`${teacherSchedulePeekStyles.trigger} flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/50 bg-background px-3 py-2`}
                       >
                         <div className="flex min-w-0 items-center gap-3">
                           <Avatar className="h-8 w-8 border border-border/70">
@@ -1498,6 +1546,12 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
+                        <TeacherSchedulePeek
+                          events={createTeacherSchedules[teacher.teacherId]?.events || []}
+                          loading={createTeacherSchedulesLoading}
+                          candidateStart={createCandidateRange.start}
+                          candidateEnd={createCandidateRange.end}
+                        />
                       </div>
                     );
                   })}
@@ -1574,107 +1628,6 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                     {createTeacherError}
                   </p>
                 )}
-              </div>
-
-              <div className={createCourseStyles.scheduleBlock}>
-                <div className={createCourseStyles.scheduleHeading}>
-                  <div>
-                    <span><Clock aria-hidden="true" />{t("teacherDashboard.classSchedule")}</span>
-                    <p>{t("teacherDashboard.classScheduleHint")}</p>
-                  </div>
-                  <strong>{formatCourseDuration(createDurationMinutes, locale)}</strong>
-                </div>
-
-                <div className={createCourseStyles.scheduleGrid}>
-                  <label>
-                    <span>{t("teacherDashboard.fieldStartTime")} *</span>
-                    <Input
-                      type="datetime-local"
-                      min={minDateTime}
-                      value={createStartTime}
-                      onChange={(event) => handleCreateStartTimeChange(event.target.value)}
-                      onClick={(event) => {
-                        try { (event.target as HTMLInputElement).showPicker?.(); } catch {}
-                      }}
-                    />
-                  </label>
-                  <label className={createCourseStyles.durationField}>
-                    <span>{t("teacherDashboard.durationMinutes")}</span>
-                    <Input
-                      type="number"
-                      min={15}
-                      max={720}
-                      step={15}
-                      value={createDurationMinutes}
-                      onChange={(event) => handleCreateDurationChange(Number(event.target.value))}
-                    />
-                  </label>
-                  <label>
-                    <span>{t("teacherDashboard.fieldEndTime")} *</span>
-                    <Input
-                      type="datetime-local"
-                      min={createStartTime || minDateTime}
-                      value={createEndTime}
-                      onChange={(event) => handleCreateEndTimeChange(event.target.value)}
-                      onClick={(event) => {
-                        try { (event.target as HTMLInputElement).showPicker?.(); } catch {}
-                      }}
-                    />
-                  </label>
-                </div>
-
-                <div className={createCourseStyles.durationPresets} aria-label={t("teacherDashboard.durationPresets")}>
-                  {COURSE_DURATION_PRESETS.map((minutes) => (
-                    <button
-                      key={minutes}
-                      type="button"
-                      data-active={createDurationMinutes === minutes}
-                      onClick={() => handleCreateDurationChange(minutes)}
-                    >
-                      {formatCourseDuration(minutes, locale)}
-                    </button>
-                  ))}
-                </div>
-
-                <div className={createCourseStyles.timezoneInline}>
-                  <div className={createCourseStyles.timezoneHeader}>
-                    <span><Globe aria-hidden="true" />{t("teacherDashboard.worldTimes")}</span>
-                    <button type="button" onClick={() => setShowTzConfig((current) => !current)}>
-                      {showTzConfig
-                        ? t("teacherDashboard.hideCountries")
-                        : t("teacherDashboard.chooseCountries")}
-                    </button>
-                  </div>
-
-                  {showTzConfig ? (
-                    <div className={createCourseStyles.timezoneConfig}>
-                      {SUPPORTED_TIMEZONES.map((timezone) => (
-                        <button
-                          key={timezone.id}
-                          type="button"
-                          data-active={selectedTzIds.includes(timezone.id)}
-                          onClick={() => handleTzToggle(timezone.id)}
-                        >
-                          {timezone.flag} {timezoneDisplayName(timezone, locale)}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  <div className={createCourseStyles.timezoneRail}>
-                    {!createStartTime ? (
-                      <small>{t("teacherDashboard.worldTimesChooseStart")}</small>
-                    ) : !convertedTimes.length ? (
-                      <small>{t("teacherDashboard.worldTimesEmpty")}</small>
-                    ) : convertedTimes.map((item) => (
-                      <span key={item.id}>
-                        <b>{item.flag} {timezoneDisplayName(item, locale)}</b>
-                        <strong>{item.convertedTime}</strong>
-                        <i>{item.offset}</i>
-                      </span>
-                    ))}
-                  </div>
-                </div>
               </div>
 
               <div className="space-y-2">
@@ -1764,7 +1717,11 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
             <DialogFooter className={createCourseStyles.footer}>
               <p className={createCourseStyles.footerNote}>
-                {t("teacherDashboard.afterCreateHint")}
+                {t(
+                  createKind === "series"
+                    ? "teacherDashboard.courseGroupAfterCreateHint"
+                    : "teacherDashboard.standaloneAfterCreateHint",
+                )}
               </p>
               <div className={createCourseStyles.footerActions}>
                 <Button variant="ghost" className="rounded-xl text-xs" onClick={() => setCreateOpen(false)}>{t("common.cancel")}</Button>
@@ -1773,16 +1730,18 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                   onClick={handleCreateCourse}
                   disabled={
                     createLoading ||
-                    !createName.trim() ||
-                    !createStartTime ||
-                    !createEndTime
+                    !createName.trim()
                   }
                 >
                   {createLoading ? (
                     <Loader2 className="animate-spin" aria-hidden="true" />
                   ) : (
                     <>
-                      {t("teacherDashboard.btnCreateCourse")}
+                      {t(
+                        createKind === "series"
+                          ? "teacherDashboard.btnCreateCourseGroup"
+                          : "teacherDashboard.btnCreateStandalone",
+                      )}
                       <ArrowRight aria-hidden="true" />
                     </>
                   )}
@@ -1845,7 +1804,7 @@ function SettingsPanel({ user, onLogout }: { user: TeacherUser; onLogout: () => 
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500">
       <PortalSectionHeader
-        eyebrow="Account"
+        eyebrow={t("portal.account")}
         title={t("settingsPanel.title")}
         description={t("settingsPanel.desc")}
       />
@@ -1934,6 +1893,8 @@ function SettingsPanel({ user, onLogout }: { user: TeacherUser; onLogout: () => 
           </div>
         </CardContent>
       </Card>
+
+      <TeacherPlanSettings teacherId={user.userId} />
 
       <Card className="border border-destructive/20 bg-destructive/5 rounded-2xl shadow-sm">
         <CardHeader>

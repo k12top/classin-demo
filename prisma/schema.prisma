@@ -23,6 +23,24 @@ model UserProfile {
   @@index([role])
 }
 
+// ── Teacher-authored availability and busy plans ──
+// Concrete time blocks keep scheduling queries predictable across timezones.
+// `available` blocks are recommendations; `busy` blocks are hard conflicts.
+model TeacherScheduleBlock {
+  id        String   @id @default(uuid())
+  teacherId String
+  kind      String   @default("busy") // available | busy
+  title     String   @default("")
+  startTime DateTime
+  endTime   DateTime
+  timezone  String   @default("Asia/Shanghai")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([teacherId, startTime])
+  @@index([teacherId, endTime])
+}
+
 // ── Course ──
 model Course {
   id             String    @id @default(uuid())
@@ -40,6 +58,8 @@ model Course {
   teacherName    String
   teacherAvatar  String    @default("")
   status         String    @default("scheduled") // scheduled | live | afterClass | cancelled | finished
+  lifecycleStatus String   @default("active") // draft | active | archived
+  courseKind     String    @default("series") // series | standalone
   startTime      DateTime?
   endTime        DateTime?
   endedAt        DateTime? // Platform after-class time; scheduled endTime controls auto-finish
@@ -56,6 +76,62 @@ model Course {
   teachers     CourseTeacher[]
   attendances  CourseAttendance[]
   recordings   ClassroomRecording[]
+  classroomRuntimes ClassroomRuntime[]
+  classroomMembers ClassroomMemberState[]
+  classroomMessages ClassroomMessage[]
+  classroomCaptions ClassroomCaption[]
+  classroomSpaces ClassroomSpace[]
+  classroomSpaceMembers ClassroomSpaceMember[]
+  classroomQuestions ClassroomQuestion[]
+  sessions      CourseSession[]
+  sessionSeries CourseSessionSeries[]
+  sessionTeacherRules CourseSessionTeacher[]
+  sessionStudentRules CourseSessionStudent[]
+  sessionGroupRules CourseSessionGroupLink[]
+  sessionCoursewareRules CourseSessionCourseware[]
+
+  @@index([ownerId])
+  @@index([teacherId])
+  @@index([status])
+}
+
+// ── Course → scheduled lesson/session ──
+// Course keeps the long-lived roster and content library. Every live lesson has
+// an independent provider room, runtime, attendance, recording and whiteboard.
+model CourseSession {
+  id                String    @id @default(uuid())
+  courseId          String
+  seriesId          String?
+  title             String    @default("")
+  position          Int
+  roomUuid          String    @unique
+  roomType          Int
+  classroomProvider String    @default("agora")
+  recordingProvider String    @default("agora")
+  teacherMode       String    @default("inherit") // inherit | custom
+  studentMode       String    @default("inherit") // inherit | custom
+  leadTeacherId     String?
+  leadTeacherName   String    @default("")
+  leadTeacherAvatar String    @default("")
+  status            String    @default("scheduled") // scheduled | live | afterClass | cancelled | finished
+  startTime         DateTime
+  endTime           DateTime
+  endedAt           DateTime?
+  isDetached        Boolean   @default(false)
+  createdBy         String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  course          Course                     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  series          CourseSessionSeries?       @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  teachers        CourseSessionTeacher[]
+  students        CourseSessionStudent[]
+  groupLinks      CourseSessionGroupLink[]
+  coursewareRules CourseSessionCourseware[]
+  joinLinks       CourseJoinLink[]
+  courseware      Courseware[]
+  recordings      ClassroomRecording[]
+  attendances     CourseAttendance[]
   classroomRuntime ClassroomRuntime?
   classroomMembers ClassroomMemberState[]
   classroomMessages ClassroomMessage[]
@@ -64,15 +140,101 @@ model Course {
   classroomSpaceMembers ClassroomSpaceMember[]
   classroomQuestions ClassroomQuestion[]
 
-  @@index([ownerId])
-  @@index([teacherId])
-  @@index([status])
+  @@unique([courseId, position])
+  @@index([courseId, startTime])
+  @@index([courseId, status])
+  @@index([seriesId, startTime])
+  @@index([leadTeacherId, startTime])
+}
+
+model CourseSessionSeries {
+  id              String   @id @default(uuid())
+  courseId        String
+  timezone        String
+  recurrenceRule  Json
+  durationMinutes Int
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  course   Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  sessions CourseSession[]
+
+  @@index([courseId])
+}
+
+model CourseSessionTeacher {
+  id            String   @id @default(uuid())
+  courseId      String
+  sessionId     String
+  teacherId     String
+  teacherName   String   @default("")
+  teacherAvatar String   @default("")
+  action        String   @default("include") // include | exclude
+  role          String   @default("assistant") // teacher | assistant
+  createdAt     DateTime @default(now())
+
+  course  Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, teacherId])
+  @@index([courseId, teacherId])
+}
+
+model CourseSessionStudent {
+  id            String   @id @default(uuid())
+  courseId      String
+  sessionId     String
+  studentId     String
+  studentName   String   @default("")
+  studentAvatar String   @default("")
+  action        String   @default("include") // include | exclude
+  createdAt     DateTime @default(now())
+
+  course  Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, studentId])
+  @@index([courseId, studentId])
+}
+
+model CourseSessionGroupLink {
+  id        String   @id @default(uuid())
+  courseId  String
+  sessionId String
+  groupId   String
+  action    String   @default("include") // include | exclude
+  createdAt DateTime @default(now())
+
+  course  Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  group   StudentGroup  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, groupId])
+  @@index([courseId, groupId])
+}
+
+model CourseSessionCourseware {
+  id           String   @id @default(uuid())
+  courseId     String
+  sessionId    String
+  coursewareId String
+  action       String   @default("exclude") // include | exclude
+  createdAt    DateTime @default(now())
+
+  course     Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session    CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  courseware Courseware    @relation(fields: [coursewareId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, coursewareId])
+  @@index([courseId, coursewareId])
 }
 
 // ── Provider-neutral classroom recording attempts ──
 model ClassroomRecording {
   id                String    @id @default(uuid())
   courseId          String
+  sessionId         String
   provider          String
   channelName       String
   recorderUserId    String
@@ -92,8 +254,10 @@ model ClassroomRecording {
   updatedAt         DateTime  @updatedAt
 
   course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([courseId])
+  @@index([sessionId])
   @@index([courseId, status])
   @@index([providerSessionId])
 }
@@ -118,6 +282,7 @@ model CourseTeacher {
 model CourseJoinLink {
   id         String    @id @default(uuid())
   courseId   String
+  sessionId  String?
   token      String    @unique
   purpose    String    @default("live") // live | course
   passcode   String?   // Optional 6-digit passcode required before using this share link
@@ -130,8 +295,10 @@ model CourseJoinLink {
   createdAt  DateTime  @default(now())
 
   course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([courseId])
+  @@index([sessionId])
   @@index([courseId, purpose])
   @@index([createdBy])
 }
@@ -152,6 +319,7 @@ model StudentGroup {
   // Relations
   members    GroupMember[]
   courseLinks CourseGroupLink[]
+  sessionLinks CourseSessionGroupLink[]
 
   @@index([parentId])
   @@index([createdBy])
@@ -176,6 +344,7 @@ model CourseStudent {
 model CourseAttendance {
   id            String    @id @default(uuid())
   courseId      String
+  sessionId     String
   studentId     String
   studentName   String    @default("")
   studentAvatar String    @default("")
@@ -186,8 +355,10 @@ model CourseAttendance {
   updatedAt     DateTime  @updatedAt
 
   course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([courseId])
+  @@index([sessionId])
   @@index([studentId])
   @@index([courseId, studentId])
   @@index([courseId, enteredAt])
@@ -225,6 +396,7 @@ model GroupMember {
 model Courseware {
   id          String   @id @default(uuid())
   courseId    String
+  sessionId   String?
   name        String
   ext         String   // pdf, ppt, pptx, doc, docx, mp3, mp4, png, jpg, gif
   size        Int      @default(0) // size in bytes
@@ -241,14 +413,18 @@ model Courseware {
   updatedAt   DateTime @updatedAt
 
   course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionRules CourseSessionCourseware[]
 
   @@index([courseId])
+  @@index([sessionId])
 }
 
 // ── Authoritative live classroom state ──
 model ClassroomRuntime {
   id                 String    @id @default(uuid())
-  courseId           String    @unique
+  courseId           String
+  sessionId          String    @unique
   status             String    @default("waiting") // waiting | live | ended
   revision           Int       @default(1)
   startedAt          DateTime?
@@ -274,6 +450,7 @@ model ClassroomRuntime {
   updatedAt          DateTime  @updatedAt
 
   course   Course                 @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session  CourseSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   members  ClassroomMemberState[]
   messages ClassroomMessage[]
   captions ClassroomCaption[]
@@ -286,6 +463,7 @@ model ClassroomMemberState {
   id                 String    @id @default(uuid())
   runtimeId          String
   courseId           String
+  sessionId          String
   userId             String
   displayName        String    @default("")
   avatar             String    @default("")
@@ -305,8 +483,10 @@ model ClassroomMemberState {
 
   runtime ClassroomRuntime @relation(fields: [runtimeId], references: [id], onDelete: Cascade)
   course  Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  @@unique([courseId, userId])
+  @@unique([sessionId, userId])
+  @@index([courseId, userId])
   @@index([runtimeId, presence])
   @@index([courseId, handRaisedAt])
   @@index([courseId, onStage])
@@ -316,6 +496,7 @@ model ClassroomMessage {
   id         String    @id @default(uuid())
   runtimeId  String
   courseId   String
+  sessionId  String
   senderId   String
   senderName String
   senderRole String
@@ -331,9 +512,11 @@ model ClassroomMessage {
 
   runtime ClassroomRuntime @relation(fields: [runtimeId], references: [id], onDelete: Cascade)
   course  Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   space   ClassroomSpace?  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
 
   @@index([courseId, createdAt])
+  @@index([sessionId, createdAt])
   @@index([runtimeId, createdAt])
   @@index([spaceId, createdAt])
   @@index([courseId, scope, createdAt])
@@ -346,6 +529,7 @@ model ClassroomMessage {
 model ClassroomSpace {
   id                 String   @id @default(uuid())
   courseId           String
+  sessionId          String
   kind               String   @default("breakout") // main | breakout
   name               String
   channelName        String   @unique
@@ -357,17 +541,20 @@ model ClassroomSpace {
   updatedAt          DateTime @updatedAt
 
   course    Course                 @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session   CourseSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   members   ClassroomSpaceMember[]
   messages  ClassroomMessage[]
   questions ClassroomQuestion[]
 
-  @@unique([courseId, position])
+  @@unique([sessionId, position])
   @@index([courseId, status])
+  @@index([sessionId, status])
 }
 
 model ClassroomSpaceMember {
   id          String    @id @default(uuid())
   courseId    String
+  sessionId   String
   spaceId     String
   userId      String
   displayName String    @default("")
@@ -384,16 +571,19 @@ model ClassroomSpaceMember {
   updatedAt   DateTime  @updatedAt
 
   course Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   space  ClassroomSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
 
   @@unique([spaceId, userId])
   @@index([courseId, userId])
+  @@index([sessionId, userId])
   @@index([spaceId, role, active])
 }
 
 model ClassroomQuestion {
   id          String    @id @default(uuid())
   courseId    String
+  sessionId   String
   spaceId     String?
   askerId     String
   askerName   String    @default("")
@@ -407,9 +597,11 @@ model ClassroomQuestion {
   updatedAt   DateTime  @updatedAt
 
   course Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   space  ClassroomSpace? @relation(fields: [spaceId], references: [id], onDelete: Cascade)
 
   @@index([courseId, status, createdAt])
+  @@index([sessionId, status, createdAt])
   @@index([spaceId, status, createdAt])
 }
 
@@ -418,6 +610,7 @@ model ClassroomCaption {
   id             String    @id @default(uuid())
   runtimeId      String
   courseId       String
+  sessionId      String
   externalId     String
   provider       String    @default("shengwang")
   speakerId      String    @default("")
@@ -433,8 +626,10 @@ model ClassroomCaption {
 
   runtime ClassroomRuntime @relation(fields: [runtimeId], references: [id], onDelete: Cascade)
   course  Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  @@unique([courseId, externalId])
+  @@unique([sessionId, externalId])
   @@index([courseId, occurredAt])
+  @@index([sessionId, occurredAt])
   @@index([runtimeId, occurredAt])
 }

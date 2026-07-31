@@ -150,15 +150,10 @@ export async function PATCH(
     }
   }
 
-  const runtime = await prisma.classroomRuntime.findUnique({
+  await prisma.classroomRuntime.updateMany({
     where: { courseId },
+    data: { revision: { increment: 1 } },
   });
-  if (runtime) {
-    await prisma.classroomRuntime.update({
-      where: { id: runtime.id },
-      data: { revision: { increment: 1 } },
-    });
-  }
   return NextResponse.json({
     courseware: {
       ...updated,

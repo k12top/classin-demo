@@ -29,7 +29,8 @@ export async function GET(
   }
   return NextResponse.json({
     questions: await getClassroomQuestions({
-      courseId,
+      courseId: resolved.access.courseId,
+      sessionId: resolved.access.sessionId,
       viewerId: resolved.session.userId,
       role: resolved.access.role,
     }),
@@ -57,7 +58,8 @@ export async function POST(
   try {
     return NextResponse.json(
       await createClassroomQuestion({
-        courseId,
+        courseId: resolved.access.courseId,
+        sessionId: resolved.access.sessionId,
         askerId: resolved.session.userId,
         askerName:
           resolved.session.displayName || resolved.session.name || resolved.session.userId,
@@ -107,7 +109,8 @@ export async function PATCH(
   try {
     return NextResponse.json(
       await updateClassroomQuestion({
-        courseId,
+        courseId: resolved.access.courseId,
+        sessionId: resolved.access.sessionId,
         actorId: resolved.session.userId,
         role: resolved.access.role,
         questionId: typeof body?.questionId === "string" ? body.questionId : "",

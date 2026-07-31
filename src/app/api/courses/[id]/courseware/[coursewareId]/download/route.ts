@@ -4,10 +4,12 @@ import {
   getCoursewareObjectKey,
   getCoursewareOssClient,
 } from "@/lib/aliyun-oss";
-import { canAccessCourseware } from "@/lib/courseware-access";
+import {
+  isCoursewareAvailableInSession,
+  resolveCoursewareAccess,
+} from "@/lib/courseware-access";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
-import { assertCanTeachCourse } from "@/lib/course-teacher";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,13 +22,22 @@ export async function GET(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: courseId, coursewareId } = await params;
-  if (!(await canAccessCourseware(session, courseId))) {
+  const requestedSessionId = request.nextUrl.searchParams.get("sessionId")?.trim() || null;
+  const access = await resolveCoursewareAccess(
+    session,
+    courseId,
+    requestedSessionId,
+  );
+  if (!access.allowed) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const courseware = await prisma.courseware.findFirst({
     where: { id: coursewareId, courseId },
     select: {
+      id: true,
+      courseId: true,
+      sessionId: true,
       name: true,
       url: true,
       studentCanView: true,
@@ -34,11 +45,17 @@ export async function GET(
     },
   });
   if (!courseware) return NextResponse.json({ error: "Courseware not found" }, { status: 404 });
-  const canTeach =
-    session.role === "teacher" &&
-    (await assertCanTeachCourse(session.userId, courseId));
   if (
-    !canTeach &&
+    requestedSessionId &&
+    !(await isCoursewareAvailableInSession(courseware, requestedSessionId))
+  ) {
+    return NextResponse.json({ error: "该课件未开放给此课次" }, { status: 403 });
+  }
+  if (!requestedSessionId && courseware.sessionId && !access.teaching) {
+    return NextResponse.json({ error: "该课件仅对指定课次开放" }, { status: 403 });
+  }
+  if (
+    !access.teaching &&
     (!courseware.studentCanView || !courseware.studentCanDownload)
   ) {
     return NextResponse.json({ error: "该课件未开放下载" }, { status: 403 });

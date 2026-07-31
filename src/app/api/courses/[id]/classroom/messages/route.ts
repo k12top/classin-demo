@@ -59,9 +59,11 @@ async function access(
   );
   if (!resolved.ok) return resolved;
   await touchClassroomMember(
-    courseId,
+    resolved.access.courseId,
     resolved.session,
     resolved.access.role,
+    undefined,
+    resolved.access.sessionId,
   );
   return resolved;
 }
@@ -84,7 +86,7 @@ export async function GET(
   }
   const messages = await prisma.classroomMessage.findMany({
     where: {
-      courseId,
+      sessionId: resolved.access.sessionId,
       OR: [
         { scope: "classroom" },
         ...(resolved.access.role !== "student" ? [{ scope: "staff" }] : []),
@@ -151,11 +153,15 @@ export async function POST(
       { status: resolved.status },
     );
   }
-  const runtime = await ensureClassroomRuntime(courseId);
+  const sessionId = resolved.access.sessionId;
+  const runtime = await ensureClassroomRuntime(
+    resolved.access.courseId,
+    sessionId,
+  );
   const member = await prisma.classroomMemberState.findUniqueOrThrow({
     where: {
-      courseId_userId: {
-        courseId,
+      sessionId_userId: {
+        sessionId,
         userId: resolved.session.userId,
       },
     },
@@ -191,7 +197,7 @@ export async function POST(
     const spaceAccess = await prisma.classroomSpace.findFirst({
       where: {
         id: spaceId,
-        courseId,
+        sessionId,
         ...(resolved.access.role === "teacher"
           ? {}
           : {
@@ -208,7 +214,7 @@ export async function POST(
   }
   if (scope === "direct" && recipientId) {
     const recipient = await prisma.classroomMemberState.findFirst({
-      where: { courseId, userId: recipientId },
+      where: { sessionId, userId: recipientId },
       select: { userId: true },
     });
     if (!recipient) {
@@ -220,7 +226,8 @@ export async function POST(
     prisma.classroomMessage.create({
       data: {
         runtimeId: runtime.id,
-        courseId,
+        courseId: resolved.access.courseId,
+        sessionId,
         senderId: resolved.session.userId,
         senderName:
           resolved.session.displayName ||
@@ -238,7 +245,10 @@ export async function POST(
       data: { revision: { increment: 1 } },
     }),
   ]);
-  const runtimeSnapshot = await getClassroomRuntimeSnapshot(courseId);
+  const runtimeSnapshot = await getClassroomRuntimeSnapshot(
+    resolved.access.courseId,
+    sessionId,
+  );
   return NextResponse.json(
     { message: publicMessage(message), revision: runtimeSnapshot.revision },
     { status: 201 },
@@ -279,9 +289,13 @@ export async function DELETE(
       { status: 403 },
     );
   }
-  const runtime = await ensureClassroomRuntime(courseId);
+  const sessionId = resolved.access.sessionId;
+  const runtime = await ensureClassroomRuntime(
+    resolved.access.courseId,
+    sessionId,
+  );
   const result = await prisma.classroomMessage.updateMany({
-    where: { id: messageId, courseId, deletedAt: null },
+    where: { id: messageId, sessionId, deletedAt: null },
     data: {
       deletedAt: new Date(),
       deletedBy: resolved.session.userId,

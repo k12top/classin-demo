@@ -463,6 +463,100 @@
   letter-spacing: 0.08em;
 }
 
+.kindSelector {
+  display: grid;
+  gap: 13px;
+}
+
+.kindHeading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.kindHeading > span {
+  color: #5b4fc9;
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.kindHeading > small {
+  color: #8a92a0;
+  font-size: 10px;
+}
+
+.kindOptions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.kindOptions > button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 3px 11px;
+  min-width: 0;
+  border: 1px solid rgba(21, 23, 28, 0.1);
+  border-radius: 14px;
+  background: #f7f8fa;
+  padding: 13px;
+  color: #15171c;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: 180ms ease;
+}
+
+.kindOptions > button:hover {
+  border-color: rgba(123, 111, 242, 0.32);
+  transform: translateY(-1px);
+}
+
+.kindOptions > button[data-active="true"] {
+  border-color: rgba(123, 111, 242, 0.48);
+  background: rgba(123, 111, 242, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(123, 111, 242, 0.1);
+}
+
+.kindOptions > button > span {
+  display: grid;
+  grid-row: 1 / 3;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  color: #7065da;
+  background: rgba(123, 111, 242, 0.1);
+}
+
+.kindOptions svg {
+  width: 17px;
+  height: 17px;
+}
+
+.kindOptions strong {
+  align-self: end;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kindOptions small {
+  overflow: hidden;
+  color: #7e8695;
+  font-size: 9px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .scheduleBlock {
   display: grid;
   gap: 14px;
@@ -514,6 +608,41 @@
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(105px, 0.62fr) minmax(0, 1.35fr);
   gap: 10px;
+}
+
+.singleScheduleGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 10px;
+}
+
+.singleScheduleGrid label {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.singleScheduleGrid label > span {
+  color: #626a78;
+  font-size: 9px;
+  font-weight: 720;
+}
+
+.singleScheduleGrid input {
+  height: 42px;
+  min-width: 0;
+  border-radius: 11px;
+  padding-inline: 11px;
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.scheduleEndHint {
+  margin: 0;
+  border-top: 1px solid rgba(21, 23, 28, 0.07);
+  padding-top: 10px;
+  color: #737b8a;
+  font-size: 10px;
 }
 
 .scheduleGrid label {
@@ -833,8 +962,35 @@
 
 :global(html.dark) .formBody label,
 :global(html.dark) .scheduleGrid label > span,
+:global(html.dark) .singleScheduleGrid label > span,
 :global(html.dark) .timezoneHeader > span {
   color: #a7afbd;
+}
+
+:global(html.dark) .kindHeading > span {
+  color: #a79eff;
+}
+
+:global(html.dark) .kindHeading > small,
+:global(html.dark) .kindOptions small,
+:global(html.dark) .scheduleEndHint {
+  color: #8f97a7;
+}
+
+:global(html.dark) .kindOptions > button {
+  border-color: rgba(167, 175, 189, 0.16);
+  color: #f4f6f8;
+  background: #101218;
+}
+
+:global(html.dark) .kindOptions > button:hover,
+:global(html.dark) .kindOptions > button[data-active="true"] {
+  border-color: rgba(167, 158, 255, 0.48);
+  background: rgba(123, 111, 242, 0.16);
+}
+
+:global(html.dark) .scheduleEndHint {
+  border-top-color: rgba(167, 175, 189, 0.11);
 }
 
 :global(html.dark) .scheduleHeading > div > span,
@@ -1038,6 +1194,11 @@
 
   .scheduleGrid {
     grid-template-columns: 1fr 104px;
+  }
+
+  .kindOptions,
+  .singleScheduleGrid {
+    grid-template-columns: 1fr;
   }
 
   .scheduleGrid label:last-child {

@@ -7,11 +7,9 @@ import { AlertCircle, ArrowRight, Video } from "lucide-react";
 import JoinLinkPasscodeGate from "@/components/JoinLinkPasscodeGate";
 import { getSession } from "@/lib/session";
 import {
-  courseIdToRoomUuid,
-  resolveCourseAccess,
-} from "@/lib/course-access";
-import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
-import { ensureStudentEnrolledInCourse } from "@/lib/course-enrollment";
+  buildAccessDeniedUrl,
+  type CourseAccessDeniedCode,
+} from "@/lib/access-denied-codes";
 import {
   createShareAccessToken,
   recordJoinLinkUse,
@@ -19,6 +17,8 @@ import {
 } from "@/lib/join-link";
 import { prisma } from "@/lib/db";
 import { getServerTranslation } from "@/lib/i18n/server";
+import { resolveCourseSessionAccess } from "@/lib/course-session-access";
+import { resolveCourseSessionReference } from "@/lib/course-session-roster";
 
 export default async function JoinPage({
   params,
@@ -127,33 +127,48 @@ export default async function JoinPage({
     );
   }
 
-  const access = await resolveCourseAccess(resolved.courseId, session.userId, {
+  const lesson = await resolveCourseSessionReference(
+    resolved.sessionId || resolved.courseId,
+  );
+  if (!lesson || lesson.courseId !== resolved.courseId) {
+    redirect(buildAccessDeniedUrl({ code: "not_found", reason: t("join.courseNotExist") }));
+  }
+
+  let access = await resolveCourseSessionAccess(lesson.id, session.userId, {
     userIdAliases: [session.name],
   });
   if (!access.ok) {
     if (access.code === "not_enrolled") {
-      await ensureStudentEnrolledInCourse(course.id, session);
-      await recordJoinLinkUse(resolved.linkId);
-      const shareAccess = createShareAccessToken({
-        userId: session.userId,
-        courseId: course.id,
-        linkId: resolved.linkId,
+      await prisma.courseSessionStudent.upsert({
+        where: {
+          sessionId_studentId: {
+            sessionId: lesson.id,
+            studentId: session.userId,
+          },
+        },
+        create: {
+          courseId: course.id,
+          sessionId: lesson.id,
+          studentId: session.userId,
+          studentName: session.displayName || session.name || session.userId,
+          studentAvatar: session.avatar || "",
+          action: "include",
+        },
+        update: {
+          studentName: session.displayName || session.name || session.userId,
+          studentAvatar: session.avatar || "",
+          action: "include",
+        },
       });
-      const roomUuid = courseIdToRoomUuid(course.id, course.roomUuid);
-      const qs = new URLSearchParams({
-        roomUuid,
-        roomType: String(course.roomType),
-        roomName: course.name,
-        courseId: course.id,
-        shareAccess,
+      access = await resolveCourseSessionAccess(lesson.id, session.userId, {
+        userIdAliases: [session.name],
       });
-      if (wantEmbed) qs.set("embed", "1");
-      if (langParam) qs.set("lang", langParam);
-      redirect(`/classroom?${qs.toString()}`);
     }
+  }
+  if (!access.ok) {
     redirect(
       buildAccessDeniedUrl({
-        code: access.code,
+        code: access.code as CourseAccessDeniedCode,
         reason: access.reason,
         course: t("teacherDashboard.fieldName"),
         courseId: resolved.courseId,
@@ -163,11 +178,15 @@ export default async function JoinPage({
 
   await recordJoinLinkUse(resolved.linkId);
 
-  const qs = new URLSearchParams({
-    roomUuid: access.roomUuid,
-    roomType: String(course.roomType),
-    roomName: course.name,
+  const shareAccess = createShareAccessToken({
+    userId: session.userId,
     courseId: course.id,
+    sessionId: lesson.id,
+    linkId: resolved.linkId,
+  });
+  const qs = new URLSearchParams({
+    sessionId: lesson.id,
+    shareAccess,
   });
   if (wantEmbed) {
     qs.set("embed", "1");

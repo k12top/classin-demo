@@ -7,10 +7,12 @@ import {
   CalendarClock,
   DoorOpen,
   GraduationCap,
+  Layers3,
   Loader2,
   Plus,
   Search,
   Users,
+  Video,
 } from "lucide-react";
 import { canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
@@ -22,6 +24,9 @@ export type PortalCourse = {
   description?: string;
   roomType: number;
   status: string;
+  courseKind?: "series" | "standalone";
+  sessionCount?: number;
+  nextSession?: { id: string; status: string; startTime: string; endTime: string } | null;
   startTime: string | null;
   endTime: string | null;
   teacherName: string;
@@ -35,6 +40,7 @@ type DashboardProps = {
   enteringCourseId?: string | null;
   onEnter: (course: PortalCourse) => void;
   onOpen: (course: PortalCourse) => void;
+  onPrefetch?: (course: PortalCourse) => void;
   onCreate?: () => void;
 };
 
@@ -93,6 +99,11 @@ function copyFor(t: ReturnType<typeof useTranslation>["t"]) {
     libraryDesc: t("portal.libraryDescription"),
     search: t("portal.search"),
     all: t("portal.all"),
+    courseGroups: t("portal.courseGroups"),
+    standaloneCourses: t("portal.standaloneCourses"),
+    courseGroup: t("portal.courseGroup"),
+    standaloneCourse: t("portal.standaloneCourse"),
+    lessonCount: (count: number) => t("portal.lessonCount", { count }),
     upcoming: t("portal.upcoming"),
     finished: t("portal.finished"),
     cancelled: t("portal.cancelled"),
@@ -168,6 +179,7 @@ export function PortalDashboardHero({
   enteringCourseId,
   onEnter,
   onOpen,
+  onPrefetch,
   onCreate,
 }: DashboardProps) {
   const { locale, t } = useTranslation();
@@ -259,6 +271,8 @@ export function PortalDashboardHero({
                   type="button"
                   className={styles.heroSecondary}
                   onClick={() => onOpen(nextCourse)}
+                  onMouseEnter={() => onPrefetch?.(nextCourse)}
+                  onFocus={() => onPrefetch?.(nextCourse)}
                 >
                   {copy.details}
                   <ArrowRight aria-hidden="true" />
@@ -335,6 +349,8 @@ export function PortalDashboardHero({
                 className={styles.railCard}
                 data-live={course.status === "live"}
                 onClick={() => onOpen(course)}
+                onMouseEnter={() => onPrefetch?.(course)}
+                onFocus={() => onPrefetch?.(course)}
               >
                 <span className={styles.railTime}>
                   {course.startTime
@@ -368,11 +384,13 @@ export function PortalCourseLibrary({
   enteringCourseId,
   onEnter,
   onOpen,
+  onPrefetch,
 }: Omit<DashboardProps, "role" | "onCreate">) {
   const { locale, t } = useTranslation();
   const copy = copyFor(t);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
+  const [kind, setKind] = useState<"all" | "series" | "standalone">("all");
 
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -386,9 +404,16 @@ export function PortalCourseLibrary({
         (status === "upcoming"
           ? ["scheduled", "live", "afterClass"].includes(course.status)
           : course.status === status);
-      return searchMatches && statusMatches;
+      const kindMatches = kind === "all" || (course.courseKind || "series") === kind;
+      return searchMatches && statusMatches && kindMatches;
     });
-  }, [courses, query, status]);
+  }, [courses, kind, query, status]);
+
+  const kindCounts = useMemo(() => ({
+    all: courses.length,
+    series: courses.filter((course) => (course.courseKind || "series") === "series").length,
+    standalone: courses.filter((course) => course.courseKind === "standalone").length,
+  }), [courses]);
 
   return (
     <section className={styles.library}>
@@ -398,6 +423,27 @@ export function PortalCourseLibrary({
           <p>{copy.libraryDesc}</p>
         </div>
       </header>
+
+      <div className={styles.libraryKinds} role="tablist" aria-label={copy.library}>
+        {([
+          ["all", copy.all, BookOpen, kindCounts.all],
+          ["series", copy.courseGroups, Layers3, kindCounts.series],
+          ["standalone", copy.standaloneCourses, Video, kindCounts.standalone],
+        ] as const).map(([value, label, Icon, count]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={kind === value}
+            data-active={kind === value}
+            onClick={() => setKind(value)}
+          >
+            <Icon aria-hidden="true" />
+            <span>{label}</span>
+            <small>{count}</small>
+          </button>
+        ))}
+      </div>
 
       <div className={styles.libraryToolbar}>
         <label className={styles.search}>
@@ -432,8 +478,16 @@ export function PortalCourseLibrary({
         {filtered.length ? (
           filtered.map((course) => (
             <article key={course.id} className={styles.courseRow}>
-              <span className={styles.dateBlock}>
-                {course.startTime ? (
+              <span
+                className={styles.dateBlock}
+                data-kind={course.courseKind || "series"}
+              >
+                {(course.courseKind || "series") === "series" ? (
+                  <>
+                    <Layers3 aria-hidden="true" />
+                    <small>{copy.lessonCount(course.sessionCount || 0)}</small>
+                  </>
+                ) : course.startTime ? (
                   <>
                     {new Intl.DateTimeFormat(locale, {
                       month: "short",
@@ -454,6 +508,16 @@ export function PortalCourseLibrary({
                 <strong>{course.name}</strong>
                 <small>{course.description || copy.libraryDesc}</small>
                 <span className={styles.courseMeta}>
+                  <span className={styles.courseStructure}>
+                    {(course.courseKind || "series") === "series" ? (
+                      <Layers3 aria-hidden="true" />
+                    ) : (
+                      <Video aria-hidden="true" />
+                    )}
+                    {(course.courseKind || "series") === "series"
+                      ? copy.courseGroup
+                      : copy.standaloneCourse}
+                  </span>
                   <span className={styles.courseTeacher}>
                     <GraduationCap aria-hidden="true" />
                     {course.teacherName}
@@ -475,6 +539,8 @@ export function PortalCourseLibrary({
                 <button
                   type="button"
                   onClick={() => onOpen(course)}
+                  onMouseEnter={() => onPrefetch?.(course)}
+                  onFocus={() => onPrefetch?.(course)}
                 >
                   {copy.details}
                   <ArrowRight aria-hidden="true" />
@@ -484,6 +550,7 @@ export function PortalCourseLibrary({
                   data-primary="true"
                   disabled={
                     enteringCourseId === course.id ||
+                    !course.nextSession ||
                     !canEnterClassroom(course.status)
                   }
                   onClick={() => onEnter(course)}

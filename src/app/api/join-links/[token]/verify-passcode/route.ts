@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  courseIdToRoomUuid,
-  resolveCourseAccess,
-} from "@/lib/course-access";
-import {
   ensureShareLinkCourseAccess,
-  ensureStudentEnrolledInCourse,
 } from "@/lib/course-enrollment";
-import { canEnterClassroom } from "@/lib/course-status";
-import { promoteCourseIfDueById } from "@/lib/course-promote";
 import { prisma } from "@/lib/db";
 import { getServerTranslation } from "@/lib/i18n/server";
 import {
@@ -19,6 +12,8 @@ import {
   recordJoinLinkUse,
 } from "@/lib/join-link";
 import { getSessionFromRequest } from "@/lib/session";
+import { resolveCourseSessionAccess } from "@/lib/course-session-access";
+import { resolveCourseSessionReference } from "@/lib/course-session-roster";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +43,7 @@ export async function POST(
     select: {
       id: true,
       courseId: true,
+      sessionId: true,
       purpose: true,
       passcode: true,
       revokedAt: true,
@@ -66,7 +62,6 @@ export async function POST(
     );
   }
 
-  await promoteCourseIfDueById(link.courseId);
   const course = await prisma.course.findUnique({
     where: { id: link.courseId },
     include: {
@@ -88,13 +83,6 @@ export async function POST(
     return NextResponse.json({ error: t("join.courseNotExist") }, { status: 404 });
   }
 
-  if (!canEnterClassroom(course.status)) {
-    return NextResponse.json(
-      { error: t("join.courseNotExist") },
-      { status: 403 }
-    );
-  }
-
   if (purpose === "course") {
     const access = await ensureShareLinkCourseAccess(course, session);
 
@@ -106,7 +94,11 @@ export async function POST(
     });
   }
 
-  const access = await resolveCourseAccess(course.id, session.userId, {
+  const lesson = await resolveCourseSessionReference(link.sessionId || course.id);
+  if (!lesson || lesson.courseId !== course.id) {
+    return NextResponse.json({ error: t("join.courseNotExist") }, { status: 404 });
+  }
+  let access = await resolveCourseSessionAccess(lesson.id, session.userId, {
     userIdAliases: [session.name],
   });
   if (!access.ok && access.code !== "not_enrolled") {
@@ -117,20 +109,46 @@ export async function POST(
   }
 
   if (!access.ok && access.code === "not_enrolled") {
-    await ensureStudentEnrolledInCourse(course.id, session);
+    await prisma.courseSessionStudent.upsert({
+      where: {
+        sessionId_studentId: {
+          sessionId: lesson.id,
+          studentId: session.userId,
+        },
+      },
+      create: {
+        courseId: course.id,
+        sessionId: lesson.id,
+        studentId: session.userId,
+        studentName: session.displayName || session.name || session.userId,
+        studentAvatar: session.avatar || "",
+        action: "include",
+      },
+      update: {
+        studentName: session.displayName || session.name || session.userId,
+        studentAvatar: session.avatar || "",
+        action: "include",
+      },
+    });
+    access = await resolveCourseSessionAccess(lesson.id, session.userId, {
+      userIdAliases: [session.name],
+    });
+  }
+  if (!access.ok) {
+    return NextResponse.json(
+      { error: access.reason, code: access.code },
+      { status: access.httpStatus === 404 ? 404 : 403 },
+    );
   }
 
   const shareAccess = createShareAccessToken({
     userId: session.userId,
     courseId: course.id,
+    sessionId: lesson.id,
     linkId: link.id,
   });
-  const roomUuid = courseIdToRoomUuid(course.id, course.roomUuid);
   const qs = new URLSearchParams({
-    roomUuid,
-    roomType: String(course.roomType),
-    roomName: course.name,
-    courseId: course.id,
+    sessionId: lesson.id,
     shareAccess,
   });
   if (embed) qs.set("embed", "1");

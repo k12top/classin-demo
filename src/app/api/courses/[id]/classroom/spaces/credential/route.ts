@@ -37,13 +37,14 @@ export async function POST(
   try {
     const [space, course] = await Promise.all([
       getClassroomSpaceCredentialAccess({
-        courseId,
+        courseId: resolved.access.courseId,
+        sessionId: resolved.access.sessionId,
         spaceId,
         viewerId: resolved.session.userId,
         role: resolved.access.role,
       }),
-      prisma.course.findUnique({
-        where: { id: courseId },
+      prisma.courseSession.findUnique({
+        where: { id: resolved.access.sessionId },
         select: { classroomProvider: true },
       }),
     ]);

@@ -104,7 +104,11 @@ export function PortalShell({
   useEffect(() => {
     if (!accountOpen) return;
     const closeMenu = (event: MouseEvent) => {
-      if (!accountRef.current?.contains(event.target as Node)) {
+      const target = event.target;
+      const isLanguageList =
+        target instanceof Element &&
+        Boolean(target.closest('[data-account-language-list="true"]'));
+      if (!accountRef.current?.contains(target as Node) && !isLanguageList) {
         setAccountOpen(false);
       }
     };

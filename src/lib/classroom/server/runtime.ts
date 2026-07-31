@@ -42,29 +42,33 @@ export class ClassroomActionError extends Error {
   }
 }
 
-export async function ensureClassroomRuntime(courseId: string) {
-  const course = await prisma.course.findUnique({
-    where: { id: courseId },
+export async function ensureClassroomRuntime(
+  courseId: string,
+  sessionId = courseId,
+) {
+  const lesson = await prisma.courseSession.findFirst({
+    where: { id: sessionId, courseId },
     select: { id: true, status: true, endTime: true },
   });
-  if (!course) throw new ClassroomActionError("课程不存在", 404);
+  if (!lesson) throw new ClassroomActionError("课次不存在", 404);
 
   const ended =
-    course.status === CourseStatus.FINISHED ||
-    course.status === CourseStatus.CANCELLED;
+    lesson.status === CourseStatus.FINISHED ||
+    lesson.status === CourseStatus.CANCELLED;
   const live =
-    course.status === CourseStatus.LIVE ||
-    course.status === CourseStatus.AFTER_CLASS;
+    lesson.status === CourseStatus.LIVE ||
+    lesson.status === CourseStatus.AFTER_CLASS;
   const runtime = await prisma.classroomRuntime.upsert({
-    where: { courseId },
+    where: { sessionId },
     create: {
       courseId,
+      sessionId,
       status: ended ? "ended" : live ? "live" : "waiting",
-      graceEndsAt: classroomGraceEndAt(course.endTime),
+      graceEndsAt: classroomGraceEndAt(lesson.endTime),
       startedAt: live ? new Date() : null,
     },
     update: {
-      graceEndsAt: classroomGraceEndAt(course.endTime),
+      graceEndsAt: classroomGraceEndAt(lesson.endTime),
       ...(ended ? { status: "ended" } : {}),
     },
   });
@@ -75,8 +79,8 @@ export async function ensureClassroomRuntime(courseId: string) {
     runtime.graceEndsAt.getTime() <= Date.now()
   ) {
     const [, updated] = await prisma.$transaction([
-      prisma.course.update({
-        where: { id: courseId },
+      prisma.courseSession.update({
+        where: { id: sessionId },
         data: { status: CourseStatus.FINISHED },
       }),
       prisma.classroomRuntime.update({
@@ -97,13 +101,14 @@ export async function touchClassroomMember(
   >,
   role: ClassroomRole,
   suppliedModePolicy?: ClassroomModePolicy,
+  sessionId = courseId,
 ) {
   const [runtime, course] = await Promise.all([
-    ensureClassroomRuntime(courseId),
+    ensureClassroomRuntime(courseId, sessionId),
     suppliedModePolicy
       ? Promise.resolve(null)
-      : prisma.course.findUnique({
-          where: { id: courseId },
+      : prisma.courseSession.findUnique({
+          where: { id: sessionId },
           select: { roomType: true },
         }),
   ]);
@@ -117,10 +122,11 @@ export async function touchClassroomMember(
   const startsOnStage =
     role === "teacher" || assistantStartsOnStage || studentStartsOnStage;
   return prisma.classroomMemberState.upsert({
-    where: { courseId_userId: { courseId, userId: session.userId } },
+    where: { sessionId_userId: { sessionId, userId: session.userId } },
     create: {
       runtimeId: runtime.id,
       courseId,
+      sessionId,
       userId: session.userId,
       displayName: session.displayName || session.name || session.userId,
       avatar: session.avatar || "",
@@ -200,10 +206,11 @@ function publicMember(
 
 export async function getClassroomRuntimeSnapshot(
   courseId: string,
+  sessionId = courseId,
 ): Promise<ClassroomRuntimeSnapshot> {
-  await ensureClassroomRuntime(courseId);
+  await ensureClassroomRuntime(courseId, sessionId);
   const runtime = await prisma.classroomRuntime.findUniqueOrThrow({
-    where: { courseId },
+    where: { sessionId },
     include: {
       members: {
         orderBy: [
@@ -257,11 +264,27 @@ export async function getClassroomRuntimeSnapshot(
 export async function getClassroomCourseware(
   courseId: string,
   role: ClassroomRole,
+  sessionId = courseId,
 ): Promise<ClassroomCoursewareSnapshot[]> {
   const teachingRole = role === "teacher" || role === "assistant";
+  const rules = await prisma.courseSessionCourseware.findMany({
+    where: { sessionId },
+    select: { coursewareId: true, action: true },
+  });
+  const excludedIds = rules
+    .filter((rule) => rule.action === "exclude")
+    .map((rule) => rule.coursewareId);
+  const includedIds = rules
+    .filter((rule) => rule.action === "include")
+    .map((rule) => rule.coursewareId);
   const items = await prisma.courseware.findMany({
     where: {
       courseId,
+      OR: [
+        { sessionId: null, id: { notIn: excludedIds } },
+        { sessionId },
+        ...(includedIds.length ? [{ id: { in: includedIds } }] : []),
+      ],
       ...(!teachingRole ? { studentCanView: true } : {}),
     },
     orderBy: { createdAt: "desc" },
@@ -281,7 +304,7 @@ export async function getClassroomCourseware(
     whiteboardEnabled: item.whiteboardEnabled,
     downloadUrl:
       teachingRole || item.studentCanDownload
-        ? `/api/courses/${courseId}/courseware/${item.id}/download`
+        ? `/api/courses/${courseId}/courseware/${item.id}/download?sessionId=${encodeURIComponent(sessionId)}`
         : null,
   }));
 }
@@ -308,6 +331,7 @@ function requireLeadTeacher(role: ClassroomRole) {
 
 export async function applyClassroomAction(input: {
   courseId: string;
+  sessionId?: string;
   session: Pick<
     SessionPayload,
     "userId" | "displayName" | "name" | "avatar"
@@ -317,16 +341,17 @@ export async function applyClassroomAction(input: {
   action: ClassroomAction;
 }): Promise<ClassroomRuntimeSnapshot> {
   const { courseId, session, role, action } = input;
-  const courseMode = await prisma.course.findUnique({
-    where: { id: courseId },
+  const sessionId = input.sessionId || courseId;
+  const courseMode = await prisma.courseSession.findFirst({
+    where: { id: sessionId, courseId },
     select: { roomType: true },
   });
-  if (!courseMode) throw new ClassroomActionError("课程不存在", 404);
+  if (!courseMode) throw new ClassroomActionError("课次不存在", 404);
   const mode = classroomModePolicy(courseMode.roomType);
-  await touchClassroomMember(courseId, session, role, mode);
+  await touchClassroomMember(courseId, session, role, mode, sessionId);
 
   if (action.type === "heartbeat") {
-    return getClassroomRuntimeSnapshot(courseId);
+    return getClassroomRuntimeSnapshot(courseId, sessionId);
   }
   if (action.type === "raiseHand" && !mode.showHandRaise) {
     throw new ClassroomActionError("当前课堂模式无需举手", 409);
@@ -334,7 +359,7 @@ export async function applyClassroomAction(input: {
 
   await prisma.$transaction(async (tx) => {
     const runtime = await tx.classroomRuntime.findUniqueOrThrow({
-      where: { courseId },
+      where: { sessionId },
     });
     if (
       input.expectedRevision !== undefined &&
@@ -344,25 +369,25 @@ export async function applyClassroomAction(input: {
     }
 
     const actorWhere = {
-      courseId_userId: { courseId, userId: session.userId },
+      sessionId_userId: { sessionId, userId: session.userId },
     } as const;
 
     switch (action.type) {
       case "startClass": {
         requireLeadTeacher(role);
-        const course = await tx.course.findUniqueOrThrow({
-          where: { id: courseId },
+        const lesson = await tx.courseSession.findUniqueOrThrow({
+          where: { id: sessionId },
           select: { status: true, endTime: true },
         });
         if (
-          course.status === CourseStatus.CANCELLED ||
-          course.status === CourseStatus.FINISHED
+          lesson.status === CourseStatus.CANCELLED ||
+          lesson.status === CourseStatus.FINISHED
         ) {
-          throw new ClassroomActionError("已结束或取消的课程不能开始", 409);
+          throw new ClassroomActionError("已结束或取消的课次不能开始", 409);
         }
         const now = new Date();
-        await tx.course.update({
-          where: { id: courseId },
+        await tx.courseSession.update({
+          where: { id: sessionId },
           data: { status: CourseStatus.LIVE, endedAt: null },
         });
         await tx.classroomRuntime.update({
@@ -370,7 +395,7 @@ export async function applyClassroomAction(input: {
           data: {
             status: "live",
             startedAt: runtime.startedAt ?? now,
-            graceEndsAt: classroomGraceEndAt(course.endTime),
+            graceEndsAt: classroomGraceEndAt(lesson.endTime),
             revision: { increment: 1 },
           },
         });
@@ -378,8 +403,8 @@ export async function applyClassroomAction(input: {
       }
       case "endClass":
         requireLeadTeacher(role);
-        await tx.course.update({
-          where: { id: courseId },
+        await tx.courseSession.update({
+          where: { id: sessionId },
           data: { status: CourseStatus.AFTER_CLASS, endedAt: new Date() },
         });
         await tx.classroomRuntime.update({
@@ -413,7 +438,7 @@ export async function applyClassroomAction(input: {
           throw new ClassroomActionError("上台邀请已失效", 409);
         }
         const stageCount = await tx.classroomMemberState.count({
-          where: { courseId, role: "student", onStage: true },
+          where: { sessionId, role: "student", onStage: true },
         });
         if (stageCount >= mode.maxStageStudents) {
           throw new ClassroomActionError("学生席位已满", 409);
@@ -443,8 +468,8 @@ export async function applyClassroomAction(input: {
         requireTeachingRole(role);
         await tx.classroomMemberState.update({
           where: {
-            courseId_userId: {
-              courseId,
+            sessionId_userId: {
+              sessionId,
               userId: action.targetUserId,
             },
           },
@@ -455,8 +480,8 @@ export async function applyClassroomAction(input: {
         requireTeachingRole(role);
         await tx.classroomMemberState.update({
           where: {
-            courseId_userId: {
-              courseId,
+            sessionId_userId: {
+              sessionId,
               userId: action.targetUserId,
             },
           },
@@ -473,8 +498,8 @@ export async function applyClassroomAction(input: {
         requireTeachingRole(role);
         await tx.classroomMemberState.update({
           where: {
-            courseId_userId: {
-              courseId,
+            sessionId_userId: {
+              sessionId,
               userId: action.targetUserId,
             },
           },
@@ -485,8 +510,8 @@ export async function applyClassroomAction(input: {
         requireTeachingRole(role);
         await tx.classroomMemberState.update({
           where: {
-            courseId_userId: {
-              courseId,
+            sessionId_userId: {
+              sessionId,
               userId: action.targetUserId,
             },
           },
@@ -499,7 +524,7 @@ export async function applyClassroomAction(input: {
       case "muteAll":
         requireTeachingRole(role);
         await tx.classroomMemberState.updateMany({
-          where: { courseId, role: "student" },
+          where: { sessionId, role: "student" },
           data: { chatMuted: action.muted },
         });
         break;
@@ -508,8 +533,8 @@ export async function applyClassroomAction(input: {
         if (action.writable) {
           const targetMember = await tx.classroomMemberState.findUnique({
             where: {
-              courseId_userId: {
-                courseId,
+              sessionId_userId: {
+                sessionId,
                 userId: action.targetUserId,
               },
             },
@@ -529,8 +554,8 @@ export async function applyClassroomAction(input: {
         }
         await tx.classroomMemberState.update({
           where: {
-            courseId_userId: {
-              courseId,
+            sessionId_userId: {
+              sessionId,
               userId: action.targetUserId,
             },
           },
@@ -624,5 +649,5 @@ export async function applyClassroomAction(input: {
     });
   });
 
-  return getClassroomRuntimeSnapshot(courseId);
+  return getClassroomRuntimeSnapshot(courseId, sessionId);
 }

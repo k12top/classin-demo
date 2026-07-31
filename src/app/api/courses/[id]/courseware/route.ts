@@ -6,7 +6,7 @@ import {
   isCoursewareObjectKey,
   toCoursewareStorageUrl,
 } from "@/lib/aliyun-oss";
-import { canAccessCourseware } from "@/lib/courseware-access";
+import { resolveCoursewareAccess } from "@/lib/courseware-access";
 import { assertCanTeachCourse } from "@/lib/course-teacher";
 import { getWhiteboardConversionStatus } from "@/lib/whiteboard-convert";
 import type { Prisma } from "@prisma/client";
@@ -23,20 +23,53 @@ export async function GET(
   }
 
   const { id: courseId } = await params;
+  const requestedSessionId = request.nextUrl.searchParams.get("sessionId")?.trim() || null;
 
   try {
-    if (!(await canAccessCourseware(session, courseId))) {
+    const access = await resolveCoursewareAccess(
+      session,
+      courseId,
+      requestedSessionId,
+    );
+    if (!access.allowed) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    const canTeach =
-      session.role === "teacher" &&
-      (await assertCanTeachCourse(session.userId, courseId));
+    const teaching = access.teaching;
+    let lessonFilter: Prisma.CoursewareWhereInput = { sessionId: null };
+    if (requestedSessionId) {
+      const lesson = await prisma.courseSession.findFirst({
+        where: { id: requestedSessionId, courseId },
+        select: { id: true },
+      });
+      if (!lesson) {
+        return NextResponse.json({ error: "Course session not found" }, { status: 404 });
+      }
+      const rules = await prisma.courseSessionCourseware.findMany({
+        where: { sessionId: lesson.id },
+        select: { coursewareId: true, action: true },
+      });
+      const excludedIds = rules
+        .filter((rule) => rule.action === "exclude")
+        .map((rule) => rule.coursewareId);
+      const includedIds = rules
+        .filter((rule) => rule.action === "include")
+        .map((rule) => rule.coursewareId);
+      lessonFilter = {
+        OR: [
+          { sessionId: null, id: { notIn: excludedIds } },
+          { sessionId: lesson.id },
+          ...(includedIds.length ? [{ id: { in: includedIds } }] : []),
+        ],
+      };
+    }
+    const itemWhere: Prisma.CoursewareWhereInput = {
+      courseId,
+      ...lessonFilter,
+      ...(!teaching ? { studentCanView: true } : {}),
+    };
 
     let items = await prisma.courseware.findMany({
-      where: {
-        courseId,
-        ...(!canTeach ? { studentCanView: true } : {}),
-      },
+      where: itemWhere,
       orderBy: { createdAt: "desc" },
     });
 
@@ -74,10 +107,7 @@ export async function GET(
         }),
       );
       items = await prisma.courseware.findMany({
-        where: {
-          courseId,
-          ...(!canTeach ? { studentCanView: true } : {}),
-        },
+        where: itemWhere,
         orderBy: { createdAt: "desc" },
       });
     }
@@ -88,8 +118,12 @@ export async function GET(
           ...item,
           url: undefined,
           downloadUrl:
-            canTeach || item.studentCanDownload
-              ? `/api/courses/${courseId}/courseware/${item.id}/download`
+            teaching || item.studentCanDownload
+              ? `/api/courses/${courseId}/courseware/${item.id}/download${
+                  requestedSessionId
+                    ? `?sessionId=${encodeURIComponent(requestedSessionId)}`
+                    : ""
+                }`
               : null,
         })),
       },

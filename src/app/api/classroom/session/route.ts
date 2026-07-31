@@ -9,9 +9,8 @@ import {
   getClassroomServerProvider,
   getRecordingProvider,
 } from "@/lib/classroom/server/provider-factory";
-import { closeOpenAttendanceSessions } from "@/lib/course-attendance";
-import { ensureStudentEnrolledInCourse } from "@/lib/course-enrollment";
-import { resolveCourseAccess } from "@/lib/course-access";
+import { closeOpenAttendanceSessionsForLesson } from "@/lib/course-attendance";
+import { resolveCourseSessionAccess } from "@/lib/course-session-access";
 import {
   getClassroomCourseware,
   getClassroomRuntimeSnapshot,
@@ -22,7 +21,6 @@ import { classroomModePolicy } from "@/lib/classroom/mode";
 import { verifyRecorderToken } from "@/lib/classroom/server/recorder-token";
 import { issueAgoraSignalingCredential } from "@/lib/classroom/signaling/agora-server";
 import { getWhiteboardProvider } from "@/lib/classroom/whiteboard/provider-factory";
-import { courseIdToRoomUuid } from "@/lib/course-room";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
 import { getClassroomCaptions } from "@/lib/classroom/server/captions";
@@ -75,23 +73,27 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as {
       courseId?: unknown;
+      sessionId?: unknown;
       shareAccess?: unknown;
       recorderToken?: unknown;
     };
-    const courseId =
+    const suppliedCourseId =
       typeof body.courseId === "string" ? body.courseId.trim() : "";
+    const suppliedSessionId =
+      typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+    const referenceId = suppliedSessionId || suppliedCourseId;
     const shareAccess =
       typeof body.shareAccess === "string" ? body.shareAccess.trim() : "";
-    if (!courseId) {
+    if (!referenceId) {
       return NextResponse.json(
-        { error: "courseId is required" },
+        { error: "sessionId or courseId is required" },
         { status: 400 },
       );
     }
     const recorderToken =
       typeof body.recorderToken === "string" ? body.recorderToken.trim() : "";
     const recorder = recorderToken
-      ? await verifyRecorderToken(recorderToken, courseId)
+      ? await verifyRecorderToken(recorderToken, referenceId)
       : false;
     const session = recorder ? null : await getSessionFromRequest(request);
     if (!recorder && !session) {
@@ -100,7 +102,7 @@ export async function POST(request: NextRequest) {
 
     const access = recorder
       ? null
-      : await resolveCourseAccess(courseId, session!.userId, {
+      : await resolveCourseSessionAccess(referenceId, session!.userId, {
           shareAccessToken: shareAccess || undefined,
           userIdAliases: [session!.name],
         });
@@ -111,19 +113,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const course = await prisma.course.findUnique({
-      where: { id: courseId },
+    const resolvedLesson = recorder
+      ? await prisma.courseSession.findUnique({
+          where: { id: referenceId },
+          select: { courseId: true },
+        })
+      : null;
+    const sessionId = recorder ? referenceId : access!.sessionId;
+    const courseId = recorder ? resolvedLesson?.courseId || "" : access!.courseId;
+    const lesson = await prisma.courseSession.findFirst({
+      where: { id: sessionId, courseId },
       select: {
         id: true,
         roomUuid: true,
         roomType: true,
-        name: true,
-        teacherName: true,
+        title: true,
+        leadTeacherName: true,
         status: true,
         startTime: true,
         endTime: true,
         classroomProvider: true,
         recordingProvider: true,
+        course: { select: { name: true } },
         recordings: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -131,25 +142,30 @@ export async function POST(request: NextRequest) {
         },
       },
     });
-    if (!course) {
+    if (!lesson) {
       return NextResponse.json(
         { error: "Course not found" },
         { status: 404 },
       );
     }
     const role: ClassroomRole = recorder ? "student" : access!.role;
-    const modePolicy = classroomModePolicy(course.roomType);
-    const channelName = recorder
-      ? courseIdToRoomUuid(course.id, course.roomUuid)
-      : access!.roomUuid;
+    const modePolicy = classroomModePolicy(lesson.roomType);
+    const channelName = lesson.roomUuid;
     const userId = recorder
       ? `recorder-${courseId.replace(/-/g, "").slice(0, 40)}`
       : session!.userId;
     if (!recorder) {
-      await touchClassroomMember(courseId, session!, role, modePolicy);
+      await touchClassroomMember(
+        courseId,
+        session!,
+        role,
+        modePolicy,
+        sessionId,
+      );
       if (modePolicy.allowBreakouts) {
         await ensureClassroomSpaceAssignment({
           courseId,
+          sessionId,
           userId: session!.userId,
           displayName:
             session!.displayName || session!.name || session!.userId,
@@ -158,20 +174,20 @@ export async function POST(request: NextRequest) {
         });
       }
     }
-    const runtimeSnapshot = await getClassroomRuntimeSnapshot(courseId);
+    const runtimeSnapshot = await getClassroomRuntimeSnapshot(courseId, sessionId);
     const member = recorder
       ? null
       : await prisma.classroomMemberState.findUnique({
           where: {
-            courseId_userId: { courseId, userId },
+            sessionId_userId: { sessionId, userId },
           },
           select: { whiteboardWritable: true },
         });
 
     const classroomProvider = getClassroomServerProvider(
-      course.classroomProvider,
+      lesson.classroomProvider,
     );
-    const recordingProvider = getRecordingProvider(course.recordingProvider);
+    const recordingProvider = getRecordingProvider(lesson.recordingProvider);
     const credential = classroomProvider.issueCredential({
       channelName,
       userId,
@@ -191,11 +207,11 @@ export async function POST(request: NextRequest) {
     });
 
     if (!recorder && role === "student") {
-      await ensureStudentEnrolledInCourse(courseId, session!);
-      await closeOpenAttendanceSessions(courseId, session!.userId);
+      await closeOpenAttendanceSessionsForLesson(sessionId, session!.userId);
       await prisma.courseAttendance.create({
         data: {
           courseId,
+          sessionId,
           studentId: session!.userId,
           studentName:
             session!.displayName || session!.name || session!.userId,
@@ -206,9 +222,9 @@ export async function POST(request: NextRequest) {
     }
 
     const visibleMessageWhere = recorder
-      ? { courseId, scope: "classroom" }
+      ? { sessionId, scope: "classroom" }
       : {
-          courseId,
+          sessionId,
           OR: [
             { scope: "classroom" },
             ...(role !== "student" ? [{ scope: "staff" }] : []),
@@ -229,9 +245,9 @@ export async function POST(request: NextRequest) {
           ],
         };
     const [courseware, whiteboard, messages, captions, spaces, questions] = await Promise.all([
-      getClassroomCourseware(courseId, role),
+      getClassroomCourseware(courseId, role, sessionId),
       getWhiteboardProvider().issueJoinCredential({
-        courseId,
+        courseId: sessionId,
         userId,
         role,
         writable: member?.whiteboardWritable ?? false,
@@ -241,12 +257,12 @@ export async function POST(request: NextRequest) {
         orderBy: { createdAt: "desc" },
         take: 100,
       }),
-      getClassroomCaptions(courseId),
+      getClassroomCaptions(courseId, 100, sessionId),
       !recorder && modePolicy.allowBreakouts
-        ? getClassroomSpaces({ courseId, viewerId: userId, role })
+        ? getClassroomSpaces({ courseId, sessionId, viewerId: userId, role })
         : Promise.resolve([]),
       !recorder && modePolicy.showPublicQuestions
-        ? getClassroomQuestions({ courseId, viewerId: userId, role })
+        ? getClassroomQuestions({ courseId, sessionId, viewerId: userId, role })
         : Promise.resolve([]),
     ]);
 
@@ -257,13 +273,14 @@ export async function POST(request: NextRequest) {
         credential,
         mediaProfile: classroomMediaProfile,
         course: {
-          id: course.id,
-          name: course.name,
-          roomType: course.roomType,
-          teacherName: course.teacherName,
-          status: course.status,
-          startTime: course.startTime?.toISOString() ?? null,
-          endTime: course.endTime?.toISOString() ?? null,
+          id: courseId,
+          sessionId,
+          name: lesson.title || lesson.course.name,
+          roomType: lesson.roomType,
+          teacherName: lesson.leadTeacherName,
+          status: lesson.status,
+          startTime: lesson.startTime.toISOString(),
+          endTime: lesson.endTime.toISOString(),
         },
         runtime: runtimeSnapshot,
         capabilities: recorder
@@ -281,7 +298,7 @@ export async function POST(request: NextRequest) {
           : classroomCapabilities(role, modePolicy),
         signaling: recorder
           ? null
-          : issueAgoraSignalingCredential(courseId, session!.userId),
+          : issueAgoraSignalingCredential(sessionId, session!.userId),
         whiteboard,
         courseware,
         messages: messages.reverse().map(publicMessage),
@@ -290,14 +307,14 @@ export async function POST(request: NextRequest) {
         captions,
         recording: {
           enabled: recordingProvider.isConfigured(),
-          status: course.recordings[0]?.status ?? null,
+          status: lesson.recordings[0]?.status ?? null,
           mode:
-            course.recordings[0]?.mode === "web"
+            lesson.recordings[0]?.mode === "web"
               ? "web"
-              : course.recordings[0]?.mode === "mix"
+              : lesson.recordings[0]?.mode === "mix"
                 ? "mix"
                 : null,
-          fallbackFrom: course.recordings[0]?.fallbackFrom ?? null,
+          fallbackFrom: lesson.recordings[0]?.fallbackFrom ?? null,
         },
       },
       {

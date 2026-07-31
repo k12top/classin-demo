@@ -73,8 +73,11 @@ export async function POST(
   }
 
   try {
+    const resolvedCourseId = resolved.access.courseId;
+    const sessionId = resolved.access.sessionId;
     let runtimeSnapshot = await applyClassroomAction({
-      courseId,
+      courseId: resolvedCourseId,
+      sessionId,
       session: resolved.session,
       role: resolved.access.role,
       expectedRevision:
@@ -87,49 +90,49 @@ export async function POST(
       body.action.type === "startClass" &&
       resolved.access.role === "teacher"
     ) {
-      await startRecordingForCourse(courseId).catch((error) => {
+      await startRecordingForCourse(resolvedCourseId, sessionId).catch((error) => {
         console.error("[classroom:actions] auto recording failed", {
           courseId,
           error: error instanceof Error ? error.message : String(error),
         });
       });
-      await syncClassroomTranscription(courseId).catch((error) => {
+      await syncClassroomTranscription(resolvedCourseId, { sessionId }).catch((error) => {
         console.error("[classroom:actions] auto transcription failed", {
           courseId,
           error: error instanceof Error ? error.message : String(error),
         });
       });
-      runtimeSnapshot = await getClassroomRuntimeSnapshot(courseId);
+      runtimeSnapshot = await getClassroomRuntimeSnapshot(resolvedCourseId, sessionId);
     }
     if (
       body.action.type === "endClass" &&
       resolved.access.role === "teacher"
     ) {
-      await stopActiveRecordingsForCourse(courseId).catch((error) => {
+      await stopActiveRecordingsForCourse(resolvedCourseId, sessionId).catch((error) => {
         console.error("[classroom:actions] stop recording failed", {
           courseId,
           error: error instanceof Error ? error.message : String(error),
         });
       });
-      await stopClassroomTranscription(courseId).catch((error) => {
+      await stopClassroomTranscription(resolvedCourseId, sessionId).catch((error) => {
         console.error("[classroom:actions] stop transcription failed", {
           courseId,
           error: error instanceof Error ? error.message : String(error),
         });
       });
-      runtimeSnapshot = await getClassroomRuntimeSnapshot(courseId);
+      runtimeSnapshot = await getClassroomRuntimeSnapshot(resolvedCourseId, sessionId);
     }
     if (
       body.action.type === "setInterpretation" &&
       resolved.access.role === "teacher"
     ) {
-      await syncClassroomTranscription(courseId, { restart: true }).catch((error) => {
+      await syncClassroomTranscription(resolvedCourseId, { restart: true, sessionId }).catch((error) => {
         console.error("[classroom:actions] transcription settings failed", {
           courseId,
           error: error instanceof Error ? error.message : String(error),
         });
       });
-      runtimeSnapshot = await getClassroomRuntimeSnapshot(courseId);
+      runtimeSnapshot = await getClassroomRuntimeSnapshot(resolvedCourseId, sessionId);
     }
     return NextResponse.json({ runtime: runtimeSnapshot });
   } catch (error) {
@@ -137,7 +140,10 @@ export async function POST(
       return NextResponse.json(
         {
           error: "课堂状态已更新，请重试",
-          runtime: await getClassroomRuntimeSnapshot(courseId),
+          runtime: await getClassroomRuntimeSnapshot(
+            resolved.access.courseId,
+            resolved.access.sessionId,
+          ),
         },
         { status: 409 },
       );

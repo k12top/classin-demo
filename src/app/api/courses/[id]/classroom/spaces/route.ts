@@ -26,11 +26,11 @@ async function resolveRequest(
     shareAccess,
   );
   if (!resolved.ok) return resolved;
-  const course = await prisma.course.findUnique({
-    where: { id: courseId },
+  const lesson = await prisma.courseSession.findUnique({
+    where: { id: resolved.access.sessionId },
     select: { roomType: true },
   });
-  if (!course) {
+  if (!lesson) {
     return {
       ok: false as const,
       status: 404,
@@ -38,7 +38,7 @@ async function resolveRequest(
       code: "course_not_found",
     };
   }
-  return { ...resolved, modePolicy: classroomModePolicy(course.roomType) };
+  return { ...resolved, modePolicy: classroomModePolicy(lesson.roomType) };
 }
 
 export async function GET(
@@ -61,7 +61,8 @@ export async function GET(
     return NextResponse.json({ enabled: false, spaces: [] });
   }
   const spaces = await getClassroomSpaces({
-    courseId,
+    courseId: resolved.access.courseId,
+    sessionId: resolved.access.sessionId,
     viewerId: resolved.session.userId,
     role: resolved.access.role,
   });
@@ -91,7 +92,8 @@ export async function POST(
   }
   try {
     const result = await createClassroomBreakouts({
-      courseId,
+      courseId: resolved.access.courseId,
+      sessionId: resolved.access.sessionId,
       actorId: resolved.session.userId,
       actorRole: resolved.access.role,
       count: typeof body?.count === "number" ? body.count : Number.NaN,
@@ -150,7 +152,8 @@ export async function PATCH(
     if (action === "autoAssign") {
       return NextResponse.json(
         await autoAssignClassroomSpaces({
-          courseId,
+          courseId: resolved.access.courseId,
+          sessionId: resolved.access.sessionId,
           actorId: resolved.session.userId,
           actorRole: resolved.access.role,
         }),
@@ -159,7 +162,8 @@ export async function PATCH(
     if (action === "assign") {
       return NextResponse.json({
         spaces: await assignClassroomSpaceMember({
-          courseId,
+          courseId: resolved.access.courseId,
+          sessionId: resolved.access.sessionId,
           actorId: resolved.session.userId,
           actorRole: resolved.access.role,
           spaceId: typeof body?.spaceId === "string" ? body.spaceId : "",
@@ -180,7 +184,8 @@ export async function PATCH(
     }
     return NextResponse.json(
       await updateClassroomSpace({
-        courseId,
+        courseId: resolved.access.courseId,
+        sessionId: resolved.access.sessionId,
         actorId: resolved.session.userId,
         actorRole: resolved.access.role,
         action,
@@ -232,7 +237,8 @@ export async function DELETE(
   }
   try {
     await deleteClassroomBreakouts({
-      courseId,
+      courseId: resolved.access.courseId,
+      sessionId: resolved.access.sessionId,
       actorRole: resolved.access.role,
     });
     return NextResponse.json({ ok: true });

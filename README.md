@@ -150,6 +150,23 @@ without blocking classroom entry. Shengwang translation accepts at most 10
 target languages per class; Wordly mode still uses Shengwang ASR and sends
 only final transcripts to the configured bridge.
 
+### Cross-platform classroom clients
+
+The browser remains the source of truth for course management and the Web
+classroom. Native clients consume the same server-authoritative classroom
+bootstrap and session APIs; they never generate room IDs, roles, media tokens,
+or recording permissions themselves.
+
+- [Cross-platform architecture](docs/cross-platform/architecture.md)
+- [Electron desktop shell](clients/desktop/README.md) for Windows and macOS
+- [Flutter mobile shell](clients/mobile/README.md) for iOS, iPadOS and Android
+- [HarmonyOS NEXT ArkUI shell](clients/harmony/README.md)
+
+The shared transport contract and design primitives live in
+`contracts/classroom-v1.schema.json` and `design-tokens/classroom.tokens.json`.
+Each native project has its own platform toolchain and should be built in its
+own CI job; the root `npm` scripts only validate and build the Next.js Web app.
+
 Apply the committed Prisma migration before starting the updated application:
 
 ```bash

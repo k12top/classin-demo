@@ -11,6 +11,7 @@ import {
 } from "react";
 import { AlertTriangle, Check, Info, X } from "lucide-react";
 import styles from "./portal-feedback.module.css";
+import { useTranslation } from "@/lib/i18n/context";
 
 type ToastTone = "info" | "success" | "error";
 type ConfirmTone = "default" | "danger";
@@ -44,6 +45,7 @@ const PortalFeedbackContext = createContext<PortalFeedbackContextValue | null>(
 );
 
 export function PortalFeedbackProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   const nextId = useRef(1);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [confirmation, setConfirmation] =
@@ -115,7 +117,7 @@ export function PortalFeedbackProvider({ children }: { children: ReactNode }) {
                 type="button"
                 className={styles.toastClose}
                 onClick={() => dismissToast(toast.id)}
-                aria-label="Dismiss"
+                aria-label={t("common.dismiss")}
               >
                 <X aria-hidden="true" />
               </button>
@@ -145,7 +147,7 @@ export function PortalFeedbackProvider({ children }: { children: ReactNode }) {
                 <AlertTriangle aria-hidden="true" />
               </span>
               <h2 id="portal-confirm-title">
-                {confirmation.options.title || "Please confirm"}
+                {confirmation.options.title || t("common.pleaseConfirm")}
               </h2>
               <p id="portal-confirm-description">
                 {confirmation.options.description}
@@ -157,14 +159,14 @@ export function PortalFeedbackProvider({ children }: { children: ReactNode }) {
                 autoFocus
                 onClick={() => settleConfirmation(false)}
               >
-                {confirmation.options.cancelLabel || "Cancel"}
+                {confirmation.options.cancelLabel || t("common.cancel")}
               </button>
               <button
                 type="button"
                 className={styles.confirm}
                 onClick={() => settleConfirmation(true)}
               >
-                {confirmation.options.confirmLabel || "Confirm"}
+                {confirmation.options.confirmLabel || t("common.confirm")}
               </button>
             </div>
           </section>

@@ -434,6 +434,75 @@
   line-height: 1.65;
 }
 
+.libraryKinds {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid hsl(var(--border) / 0.72);
+  padding: 0 2px;
+  scrollbar-width: none;
+}
+
+.libraryKinds button {
+  position: relative;
+  display: inline-flex;
+  min-width: max-content;
+  height: 42px;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  padding: 0 12px;
+  color: hsl(var(--muted-foreground));
+  font: inherit;
+  font-size: 10px;
+  font-weight: 660;
+  cursor: pointer;
+}
+
+.libraryKinds button::after {
+  position: absolute;
+  right: 10px;
+  bottom: -1px;
+  left: 10px;
+  height: 2px;
+  border-radius: 999px 999px 0 0;
+  background: #7b6ff2;
+  content: "";
+  opacity: 0;
+  transform: scaleX(0.55);
+  transition: 180ms ease;
+}
+
+.libraryKinds button[data-active="true"] {
+  color: hsl(var(--foreground));
+}
+
+.libraryKinds button[data-active="true"]::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.libraryKinds svg {
+  width: 14px;
+  height: 14px;
+  color: #8277e7;
+}
+
+.libraryKinds small {
+  display: grid;
+  min-width: 19px;
+  height: 19px;
+  place-items: center;
+  border-radius: 999px;
+  background: hsl(var(--muted));
+  padding: 0 5px;
+  font-family: "SFMono-Regular", "SF Mono", ui-monospace, monospace;
+  font-size: 8px;
+}
+
 .libraryToolbar {
   align-items: stretch;
   padding: 12px;
@@ -542,6 +611,25 @@
   text-align: center;
 }
 
+.dateBlock[data-kind="series"] {
+  align-content: center;
+  gap: 6px;
+  background:
+    linear-gradient(145deg, rgb(123 111 242 / 0.13), rgb(123 111 242 / 0.05));
+}
+
+.dateBlock[data-kind="series"] svg {
+  width: 20px;
+  height: 20px;
+}
+
+.dateBlock[data-kind="series"] small {
+  color: hsl(var(--muted-foreground));
+  font-family: inherit;
+  font-size: 8px;
+  font-weight: 650;
+}
+
 .courseIdentity {
   grid-area: identity;
   min-width: 0;
@@ -577,7 +665,8 @@
 }
 
 .courseTeacher,
-.courseType {
+.courseType,
+.courseStructure {
   display: inline-flex;
   min-width: 0;
   align-items: center;
@@ -588,11 +677,16 @@
 }
 
 .courseTeacher svg,
-.courseType svg {
+.courseType svg,
+.courseStructure svg {
   width: 12px;
   height: 12px;
   flex: 0 0 auto;
   color: #8277e7;
+}
+
+.courseStructure {
+  color: #7065da;
 }
 
 .status {
@@ -754,6 +848,10 @@
   }
 
   .courseType {
+    display: none;
+  }
+
+  .courseStructure {
     display: none;
   }
 

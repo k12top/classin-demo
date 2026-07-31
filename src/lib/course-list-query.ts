@@ -135,5 +135,5 @@ export function courseListStatusWhere(
   status: CourseStatusValue | null
 ): Prisma.CourseWhereInput | undefined {
   if (!status) return undefined;
-  return { status };
+  return { sessions: { some: { status } } };
 }

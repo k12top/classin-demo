@@ -20,14 +20,17 @@ import {
 } from "@/lib/classroom/translation/wordly";
 import { ensureClassroomRuntime } from "@/lib/classroom/server/runtime";
 
-export async function stopClassroomTranscription(courseId: string) {
-  const runtime = await prisma.classroomRuntime.findUnique({ where: { courseId } });
+export async function stopClassroomTranscription(
+  courseId: string,
+  sessionId = courseId,
+) {
+  const runtime = await prisma.classroomRuntime.findUnique({ where: { sessionId } });
   if (!runtime) return;
   const agentId = runtime.transcriptionAgentId;
   await Promise.allSettled([
     agentId ? stopAgoraTranscription(agentId) : Promise.resolve(),
     runtime.interpretationProvider === "wordly"
-      ? stopWordlyRoom(courseId)
+      ? stopWordlyRoom(sessionId)
       : Promise.resolve(),
   ]);
   await prisma.classroomRuntime.update({
@@ -42,14 +45,15 @@ export async function stopClassroomTranscription(courseId: string) {
 
 export async function syncClassroomTranscription(
   courseId: string,
-  options: { restart?: boolean } = {},
+  options: { restart?: boolean; sessionId?: string } = {},
 ) {
-  await ensureClassroomRuntime(courseId);
-  const course = await prisma.course.findUniqueOrThrow({
-    where: { id: courseId },
-    include: { classroomRuntime: true },
+  const sessionId = options.sessionId || courseId;
+  await ensureClassroomRuntime(courseId, sessionId);
+  const lesson = await prisma.courseSession.findFirstOrThrow({
+    where: { id: sessionId, courseId },
+    include: { classroomRuntime: true, course: { select: { name: true } } },
   });
-  const runtime = course.classroomRuntime!;
+  const runtime = lesson.classroomRuntime!;
 
   if (
     !options.restart &&
@@ -62,8 +66,8 @@ export async function syncClassroomTranscription(
   }
 
   if (!runtime.interpretationEnabled || runtime.status !== "live") {
-    await stopClassroomTranscription(courseId);
-    return prisma.classroomRuntime.findUniqueOrThrow({ where: { courseId } });
+    await stopClassroomTranscription(courseId, sessionId);
+    return prisma.classroomRuntime.findUniqueOrThrow({ where: { sessionId } });
   }
 
   const provider = runtime.interpretationProvider === "wordly" ? "wordly" : "shengwang";
@@ -78,20 +82,20 @@ export async function syncClassroomTranscription(
     if (!isAgoraTranscriptionConfigured()) {
       throw new Error("Shengwang ASR is not configured. Check AGORA_STT_* and REST credentials.");
     }
-    const channelName = courseIdToRoomUuid(course.id, course.roomUuid);
+    const channelName = courseIdToRoomUuid(lesson.id, lesson.roomUuid);
     if (provider === "wordly") {
       if (!isWordlyConfigured()) {
         throw new Error("Wordly is not configured. Set WORDLY_API_URL and WORDLY_INTERNAL_TOKEN.");
       }
       await ensureWordlyRoom({
-        courseId,
-        title: course.name,
+        courseId: sessionId,
+        title: lesson.title || lesson.course.name,
         channelName,
         sourceLanguage,
         targetLanguages,
       });
     } else {
-      await stopWordlyRoom(courseId).catch(() => undefined);
+      await stopWordlyRoom(sessionId).catch(() => undefined);
     }
 
     if (options.restart && runtime.transcriptionAgentId) {
@@ -118,8 +122,9 @@ export async function syncClassroomTranscription(
           });
         }
       } catch (error) {
-        console.warn("[classroom:captions] live update failed; restarting", {
-          courseId,
+      console.warn("[classroom:captions] live update failed; restarting", {
+        courseId,
+        sessionId,
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -136,7 +141,7 @@ export async function syncClassroomTranscription(
       },
     });
     const started = await startAgoraTranscription({
-      courseId,
+      courseId: sessionId,
       channelName,
       sourceLanguage,
       targetLanguages,

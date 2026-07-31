@@ -48,9 +48,9 @@ function publicQuestion(question: QuestionRecord): ClassroomQuestionSnapshot {
   };
 }
 
-async function assignedSpaceIds(courseId: string, userId: string) {
+async function assignedSpaceIds(sessionId: string, userId: string) {
   const memberships = await prisma.classroomSpaceMember.findMany({
-    where: { courseId, userId, active: true },
+    where: { sessionId, userId, active: true },
     select: { spaceId: true },
   });
   return memberships.map((membership) => membership.spaceId);
@@ -58,26 +58,28 @@ async function assignedSpaceIds(courseId: string, userId: string) {
 
 export async function getClassroomQuestions(input: {
   courseId: string;
+  sessionId?: string;
   viewerId: string;
   role: ClassroomRole;
 }) {
+  const sessionId = input.sessionId || input.courseId;
   const spaces =
     input.role === "teacher"
       ? []
-      : await assignedSpaceIds(input.courseId, input.viewerId);
+      : await assignedSpaceIds(sessionId, input.viewerId);
   const where =
     input.role === "teacher"
-      ? { courseId: input.courseId }
+      ? { sessionId }
       : input.role === "assistant"
         ? {
-            courseId: input.courseId,
+            sessionId,
             OR: [
               { spaceId: { in: spaces } },
               { status: { in: ["promoted", "answered"] } },
             ],
           }
         : {
-            courseId: input.courseId,
+            sessionId,
             OR: [
               { askerId: input.viewerId },
               { status: { in: ["promoted", "answered"] } },
@@ -94,12 +96,14 @@ export async function getClassroomQuestions(input: {
 
 export async function createClassroomQuestion(input: {
   courseId: string;
+  sessionId?: string;
   askerId: string;
   askerName: string;
   role: ClassroomRole;
   content: string;
   requestedSpaceId?: string | null;
 }) {
+  const sessionId = input.sessionId || input.courseId;
   if (input.role === "teacher") {
     throw new ClassroomQuestionError("主讲老师无需提交课堂提问", 409);
   }
@@ -107,23 +111,24 @@ export async function createClassroomQuestion(input: {
   if (!content || content.length > 500) {
     throw new ClassroomQuestionError("提问长度应为 1–500 个字符");
   }
-  const course = await prisma.course.findUnique({
-    where: { id: input.courseId },
+  const lesson = await prisma.courseSession.findFirst({
+    where: { id: sessionId, courseId: input.courseId },
     select: { roomType: true },
   });
-  if (!course || !classroomModePolicy(course.roomType).showPublicQuestions) {
+  if (!lesson || !classroomModePolicy(lesson.roomType).showPublicQuestions) {
     throw new ClassroomQuestionError("当前课堂模式未开放提问", 409);
   }
-  const spaces = await assignedSpaceIds(input.courseId, input.askerId);
+  const spaces = await assignedSpaceIds(sessionId, input.askerId);
   const spaceId = input.requestedSpaceId || spaces[0] || null;
   if (spaceId && !spaces.includes(spaceId)) {
     throw new ClassroomQuestionError("你未被分配到该分组教室", 403);
   }
-  const runtime = await ensureClassroomRuntime(input.courseId);
+  const runtime = await ensureClassroomRuntime(input.courseId, sessionId);
   const [question, updated] = await prisma.$transaction([
     prisma.classroomQuestion.create({
       data: {
         courseId: input.courseId,
+        sessionId,
         spaceId,
         askerId: input.askerId,
         askerName: input.askerName,
@@ -142,24 +147,26 @@ export async function createClassroomQuestion(input: {
 
 export async function updateClassroomQuestion(input: {
   courseId: string;
+  sessionId?: string;
   actorId: string;
   role: ClassroomRole;
   questionId: string;
   action: "promote" | "answer" | "dismiss" | "reopen";
   answer?: string;
 }) {
+  const sessionId = input.sessionId || input.courseId;
   if (input.role === "student") {
     throw new ClassroomQuestionError("只有教师可以处理课堂提问", 403);
   }
   const question = await prisma.classroomQuestion.findFirst({
-    where: { id: input.questionId, courseId: input.courseId },
+    where: { id: input.questionId, sessionId },
   });
   if (!question) throw new ClassroomQuestionError("课堂提问不存在", 404);
   if (input.role === "assistant") {
     const assigned = question.spaceId
       ? await prisma.classroomSpaceMember.findFirst({
           where: {
-            courseId: input.courseId,
+            sessionId,
             spaceId: question.spaceId,
             userId: input.actorId,
             role: "assistant",
@@ -193,7 +200,7 @@ export async function updateClassroomQuestion(input: {
               answeredBy: null,
               resolvedAt: null,
             };
-  const runtime = await ensureClassroomRuntime(input.courseId);
+  const runtime = await ensureClassroomRuntime(input.courseId, sessionId);
   const [updated, revision] = await prisma.$transaction([
     prisma.classroomQuestion.update({
       where: { id: question.id },

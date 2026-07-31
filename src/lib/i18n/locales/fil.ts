@@ -31,6 +31,11 @@ export const fil = {
     teachingTeachers: "Teaching teachers",
     added: "Added",
     makeLeadTeacher: "Make lead",
+    language: "Wika",
+    dismiss: "Isara",
+    pleaseConfirm: "Mangyaring kumpirmahin",
+    switchToDarkMode: "Lumipat sa madilim na tema",
+    switchToLightMode: "Lumipat sa maliwanag na tema",
   },
   login: {
     title: "Online na Silid-aralan",
@@ -58,6 +63,17 @@ export const fil = {
     exit: "Lumabas",
     verifyingAccess: "Pinapatunayan ang pag-access...",
     initializing: "Pinasisimulan ang classroom...",
+    v3: {
+      roleLead: "Pangunahing guro", roleAssistant: "Katulong na guro", roleStudent: "Mag-aaral", me: "Ako",
+      connected: "Nakakonekta", reconnecting: "Muling kumokonekta", liveClass: "Live na klase",
+      classEndedLabel: "Tapos na ang klase", readyRoom: "Handa ang silid", classDuration: "Tagal ng klase",
+      startClass: "Simulan ang klase", endClass: "Tapusin ang klase", screenShare: "Ibahagi ang screen",
+      whiteboard: "Interactive na whiteboard", members: "Mga miyembro", chat: "Chat", captions: "Mga subtitle",
+      courseware: "Mga materyal", tools: "Mga tool", raiseHand: "Magtaas ng kamay", cancelHand: "Ibaba ang kamay",
+      backToCourse: "Bumalik sa kurso", leave: "Umalis", waitingForSharedContent: "Naghihintay ng ibinahaging nilalaman",
+      cameraOff: "Naka-off ang camera", muted: "Naka-mute", screenSharing: "Nagbabahagi ng screen",
+      online: "Online", offline: "Offline", speaking: "Nagsasalita",
+    },
   },
   accessDenied: {
     title: "Limitadong Pag-access",
@@ -80,6 +96,11 @@ export const fil = {
     hlsUnsupported: "Hindi sinusuportahan ng browser na ito ang HLS/M3U8 playback. Subukan ang ibang browser.",
     browserHint: "Kung hindi nagpe-play ang video, tiyaking maa-access ang link at sinusuportahan ng server ang browser playback.",
     teacher: "Guro",
+  },
+  portal: {
+    workspace: "Lugar ng pagtuturo", navigation: "Workspace", today: "Ngayon", courses: "Mga kurso", students: "Mga mag-aaral at grupo", settings: "Mga setting", teacherPortal: "Portal ng guro", studentPortal: "Portal ng mag-aaral", liveSystem: "Sistema ng live na pagtuturo", logout: "Mag-log out", account: "Account", language: "Wika", appearance: "Itsura",
+    command: "Plano ng pagtuturo ngayon", next: "Susunod na klase", noNext: "Wala nang klase ngayong araw", noNextDescription: "Gumawa ng klase o buksan ang library ng kurso upang makita ang susunod na iskedyul.", enter: "Pumasok sa silid-aralan", details: "Tingnan ang detalye", create: "Gumawa ng kurso", countdown: "Magsisimula sa", live: "Live ang klase", ended: "Tapos na ang klase", todayCount: "Ngayon", liveCount: "Live", totalCount: "Lahat ng kurso", timeline: "Iskedyul ngayon", timelineHint: "Nakaayos ayon sa oras · pumili ng klase para sa detalye", emptyTimeline: "Walang nakaiskedyul na klase ngayon",
+    library: "Library ng kurso", libraryDescription: "Hanapin ang bawat klase ayon sa status, guro at iskedyul.", search: "Maghanap ng kurso o guro…", all: "Lahat", courseGroups: "Mga grupo ng kurso", standaloneCourses: "Mga hiwalay na kurso", courseGroup: "Grupo ng kurso", standaloneCourse: "Hiwalay na kurso", lessonCount: "{count} aralin", upcoming: "Paparating", finished: "Tapos na", cancelled: "Kinansela", noCourses: "Walang katugmang kurso", noCoursesHint: "Subukang baguhin ang paghahanap o filter ng status.", teacher: "Guro", publicClass: "Pampublikong klase", bigClass: "Malaking klase", smallClass: "Maliit na klase", oneToOne: "1-sa-1", ready: "Handa", liveNow: "LIVE · NGAYON",
   },
   studentDashboard: {
     learningCenter: "Sentro ng Pag-aaral",

@@ -28,11 +28,12 @@ export async function POST(request: NextRequest) {
       { status: resolved.status },
     );
   }
+  const sessionId = resolved.access.sessionId;
 
   const member = await prisma.classroomMemberState.findUnique({
     where: {
-      courseId_userId: {
-        courseId,
+      sessionId_userId: {
+        sessionId,
         userId: resolved.session.userId,
       },
     },
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest) {
       member.onStage &&
       member.stageState === "accepted");
   const whiteboard = await getWhiteboardProvider().issueJoinCredential({
-    courseId,
+    courseId: sessionId,
     userId: resolved.session.userId,
     role: resolved.access.role,
     writable,

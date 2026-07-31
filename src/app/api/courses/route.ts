@@ -85,8 +85,37 @@ export async function GET(request: NextRequest) {
             { teacherId: { in: userIdCandidates } },
             { teachers: { some: { teacherId: { in: userIdCandidates } } } },
             {
+              sessions: {
+                some: {
+                  OR: [
+                    { leadTeacherId: { in: userIdCandidates } },
+                    {
+                      teachers: {
+                        some: {
+                          teacherId: { in: userIdCandidates },
+                          action: "include",
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+            {
               students: {
                 some: { studentId: { in: studentIdCandidates } },
+              },
+            },
+            {
+              sessions: {
+                some: {
+                  students: {
+                    some: {
+                      studentId: { in: studentIdCandidates },
+                      action: "include",
+                    },
+                  },
+                },
               },
             },
             ...(groupIds.length > 0
@@ -97,6 +126,7 @@ export async function GET(request: NextRequest) {
         },
         include: {
           teachers: { orderBy: { createdAt: "asc" } },
+          sessions: { orderBy: { startTime: "asc" } },
           students: { select: { studentId: true, studentName: true, studentAvatar: true } },
           groupLinks: {
             include: {
@@ -133,7 +163,7 @@ export async function GET(request: NextRequest) {
       });
       const origin = request.nextUrl.origin.replace(/\/$/, "");
       const courses = applyCourseListSort(
-        coursesRaw.map(({ joinLinks, ...course }) => {
+        serializeCourses(coursesRaw.map(({ joinLinks, ...course }) => {
           const canTeach = userCanTeachCourse(course, userIdCandidates);
           return {
             ...course,
@@ -180,11 +210,11 @@ export async function GET(request: NextRequest) {
                   }))
               : [],
           };
-        }),
+        })),
         sortParsed
       );
       return NextResponse.json(
-        { courses: serializeCourses(courses) },
+        { courses },
         {
           headers: {
             "Cache-Control": "no-store, max-age=0, must-revalidate",
@@ -194,25 +224,51 @@ export async function GET(request: NextRequest) {
     } else {
       // Student sees courses they're assigned to plus public classes.
       const studentIdCandidates = sessionStudentIdCandidates(session);
-      const directCourses = await prisma.course.findMany({
-        where: {
-          students: { some: { studentId: { in: studentIdCandidates } } },
-          ...statusWhere,
-        },
-        include: {
-          teachers: { orderBy: { createdAt: "asc" } },
-          students: { select: { studentId: true, studentName: true, studentAvatar: true } },
-        },
-        orderBy,
-      });
-
-      // Also find courses via group membership
       const groupMemberships = await prisma.groupMember.findMany({
         where: { userId: { in: studentIdCandidates } },
         select: { groupId: true },
       });
       const groupIds = groupMemberships.map((m: { groupId: string }) => m.groupId);
-
+      const directCourses = await prisma.course.findMany({
+        where: {
+          OR: [
+            { students: { some: { studentId: { in: studentIdCandidates } } } },
+            {
+              sessions: {
+                some: {
+                  students: {
+                    some: {
+                      studentId: { in: studentIdCandidates },
+                      action: "include",
+                    },
+                  },
+                },
+              },
+            },
+            ...(groupIds.length > 0
+              ? [
+                  {
+                    sessions: {
+                      some: {
+                        groupLinks: {
+                          some: { groupId: { in: groupIds }, action: "include" },
+                        },
+                      },
+                    },
+                  },
+                ]
+              : []),
+          ],
+          ...statusWhere,
+        },
+        include: {
+          teachers: { orderBy: { createdAt: "asc" } },
+          sessions: { orderBy: { startTime: "asc" } },
+          students: { select: { studentId: true, studentName: true, studentAvatar: true } },
+        },
+        orderBy,
+      });
+      // Also find courses via course-level group membership.
       let groupCourses: typeof directCourses = [];
       if (groupIds.length > 0) {
         groupCourses = await prisma.course.findMany({
@@ -223,6 +279,7 @@ export async function GET(request: NextRequest) {
           },
           include: {
             teachers: { orderBy: { createdAt: "asc" } },
+            sessions: { orderBy: { startTime: "asc" } },
             students: { select: { studentId: true, studentName: true, studentAvatar: true } },
           },
           orderBy,
@@ -244,13 +301,14 @@ export async function GET(request: NextRequest) {
         },
         include: {
           teachers: { orderBy: { createdAt: "asc" } },
+          sessions: { orderBy: { startTime: "asc" } },
           students: { select: { studentId: true, studentName: true, studentAvatar: true } },
         },
         orderBy,
       });
 
       const courses = applyCourseListSort(
-        [
+        serializeCourses([
           ...directCourses.map((course) => ({
             ...course,
             requiresPasscode: course.roomType === 10 && Boolean(course.passcode),
@@ -269,11 +327,11 @@ export async function GET(request: NextRequest) {
             publicListing: true,
             passcode: undefined,
           })),
-        ],
+        ]),
         sortParsed
       );
       return NextResponse.json(
-        { courses: serializeCourses(courses) },
+        { courses },
         {
           headers: {
             "Cache-Control": "no-store, max-age=0, must-revalidate",
@@ -312,32 +370,52 @@ export async function POST(request: NextRequest) {
       primaryTeacherName,
       teachers,
       teacherIds,
+      courseKind,
     } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Course name is required" }, { status: 400 });
     }
 
-    if (!startTime) {
-      return NextResponse.json({ error: "开始时间不能为空" }, { status: 400 });
+    const normalizedCourseKind =
+      courseKind === "standalone" ||
+      (courseKind === undefined && Boolean(startTime))
+        ? "standalone"
+        : "series";
+    if (courseKind !== undefined && !["series", "standalone"].includes(courseKind)) {
+      return NextResponse.json(
+        { error: "courseKind must be series or standalone" },
+        { status: 400 },
+      );
     }
-    if (!endTime) {
-      return NextResponse.json({ error: "结束时间不能为空" }, { status: 400 });
+    if (
+      normalizedCourseKind === "standalone" &&
+      (!startTime || !endTime)
+    ) {
+      return NextResponse.json(
+        { error: "单独课程必须填写开始时间和结束时间" },
+        { status: 400 },
+      );
     }
-
-    const parsedStartTime = new Date(startTime);
-    const parsedEndTime = new Date(endTime);
-    if (Number.isNaN(parsedStartTime.getTime()) || Number.isNaN(parsedEndTime.getTime())) {
-      return NextResponse.json({ error: "课程时间格式无效" }, { status: 400 });
+    if (Boolean(startTime) !== Boolean(endTime)) {
+      return NextResponse.json(
+        { error: "创建首个课次时必须同时填写开始和结束时间" },
+        { status: 400 },
+      );
     }
-    if (parsedStartTime < new Date(Date.now() - 120000)) {
+    const parsedStartTime = startTime ? new Date(startTime) : null;
+    const parsedEndTime = endTime ? new Date(endTime) : null;
+    if (
+      (parsedStartTime && Number.isNaN(parsedStartTime.getTime())) ||
+      (parsedEndTime && Number.isNaN(parsedEndTime.getTime()))
+    ) {
+      return NextResponse.json({ error: "课次时间格式无效" }, { status: 400 });
+    }
+    if (parsedStartTime && parsedStartTime < new Date(Date.now() - 120000)) {
       return NextResponse.json({ error: "开始时间不能早于当前时间" }, { status: 400 });
     }
-    if (parsedEndTime <= parsedStartTime) {
+    if (parsedStartTime && parsedEndTime && parsedEndTime <= parsedStartTime) {
       return NextResponse.json({ error: "结束时间必须晚于开始时间" }, { status: 400 });
-    }
-    if (parsedEndTime < new Date()) {
-      return NextResponse.json({ error: "结束时间不能早于当前时间" }, { status: 400 });
     }
 
     let finalPasscode: string | null = null;
@@ -387,8 +465,7 @@ export async function POST(request: NextRequest) {
       where: {
         ownerId: session.userId,
         name: name.trim(),
-        startTime: parsedStartTime,
-        endTime: parsedEndTime,
+        courseKind: normalizedCourseKind,
         createdAt: {
           gte: new Date(Date.now() - 5000), // created in last 5 seconds
         },
@@ -398,9 +475,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "检测到重复提交，请勿在 5 秒内重复创建相同课程" }, { status: 409 });
     }
 
+    const initialRoomUuid = parsedStartTime ? generateCourseRoomUuid() : null;
     const course = await prisma.course.create({
       data: {
-        roomUuid: generateCourseRoomUuid(),
+        roomUuid: initialRoomUuid,
         name: name.trim(),
         description: description?.trim() || "",
         roomType: roomType ?? 0,
@@ -411,6 +489,8 @@ export async function POST(request: NextRequest) {
         teacherId: leadTeacher.teacherId,
         teacherName: leadTeacher.teacherName,
         teacherAvatar: leadTeacher.teacherAvatar,
+        courseKind: normalizedCourseKind,
+        lifecycleStatus: parsedStartTime ? "active" : "draft",
         startTime: parsedStartTime,
         endTime: parsedEndTime,
         studentRemarks: studentRemarks?.trim() || "",
@@ -421,8 +501,29 @@ export async function POST(request: NextRequest) {
             teacherAvatar: teacher.teacherAvatar,
           })),
         },
+        ...(parsedStartTime && parsedEndTime && initialRoomUuid
+          ? {
+              sessions: {
+                create: {
+                  title: `${name.trim()} · 第 1 课`,
+                  position: 1,
+                  roomUuid: initialRoomUuid,
+                  roomType: roomType ?? 0,
+                  leadTeacherId: leadTeacher.teacherId,
+                  leadTeacherName: leadTeacher.teacherName,
+                  leadTeacherAvatar: leadTeacher.teacherAvatar,
+                  startTime: parsedStartTime,
+                  endTime: parsedEndTime,
+                  createdBy: session.userId,
+                },
+              },
+            }
+          : {}),
       },
-      include: { teachers: { orderBy: { createdAt: "asc" } } },
+      include: {
+        teachers: { orderBy: { createdAt: "asc" } },
+        sessions: { orderBy: { position: "asc" } },
+      },
     });
 
     return NextResponse.json({ course: serializeCourse(course) }, { status: 201 });

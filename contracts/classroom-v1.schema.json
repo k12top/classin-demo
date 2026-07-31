@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://live.xiangyuwenshu.cn/contracts/classroom-v1.schema.json",
+  "title": "Xiangyu Classroom V1 transport contract",
+  "description": "Platform-neutral classroom bootstrap, action and event payloads. Native clients must treat the server-issued sessionId, credentials and capabilities as authoritative.",
+  "$defs": {
+    "role": {
+      "type": "string",
+      "enum": ["teacher", "assistant", "student"]
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["oneToOne", "smallClass", "largeClass", "publicLive"]
+    },
+    "videoProfile": {
+      "type": "object",
+      "required": ["width", "height", "frameRate", "bitrateKbps"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "frameRate": { "type": "integer", "minimum": 1 },
+        "bitrateKbps": { "type": "integer", "minimum": 1 },
+        "optimizationMode": { "enum": ["detail", "motion", "balanced"] }
+      },
+      "additionalProperties": false
+    },
+    "joinCredential": {
+      "type": "object",
+      "required": ["provider", "scenario", "appId", "channelName", "userId", "role", "token", "expiresInSeconds"],
+      "properties": {
+        "provider": { "const": "agora" },
+        "scenario": { "enum": ["communication", "liveBroadcasting"] },
+        "appId": { "type": "string", "minLength": 1 },
+        "channelName": { "type": "string", "minLength": 1 },
+        "userId": { "type": "string", "minLength": 1 },
+        "role": { "$ref": "#/$defs/role" },
+        "publishAllowed": { "type": "boolean" },
+        "token": { "type": "string", "minLength": 1 },
+        "expiresInSeconds": { "type": "integer", "minimum": 1 },
+        "screenShare": {
+          "type": "object",
+          "required": ["userId", "token"],
+          "properties": {
+            "userId": { "type": "string" },
+            "token": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "capabilities": {
+      "type": "object",
+      "required": ["canStartClass", "canEndClass", "canControlRecording", "canManageStage", "canManageMembers", "canManageChat", "canManageWhiteboard", "canManageInterpretation", "canShareScreen"],
+      "properties": {
+        "canStartClass": { "type": "boolean" },
+        "canEndClass": { "type": "boolean" },
+        "canControlRecording": { "type": "boolean" },
+        "canManageStage": { "type": "boolean" },
+        "canManageMembers": { "type": "boolean" },
+        "canManageChat": { "type": "boolean" },
+        "canManageWhiteboard": { "type": "boolean" },
+        "canManageInterpretation": { "type": "boolean" },
+        "canShareScreen": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["revision", "status", "stageMode", "stageLocked", "chatEnabled", "members", "interpretation"],
+      "properties": {
+        "revision": { "type": "integer", "minimum": 0 },
+        "status": { "enum": ["waiting", "live", "ended"] },
+        "startedAt": { "type": ["string", "null"], "format": "date-time" },
+        "graceEndsAt": { "type": ["string", "null"], "format": "date-time" },
+        "stageMode": { "enum": ["auto", "screen", "whiteboard", "spotlight"] },
+        "stageLocked": { "type": "boolean" },
+        "spotlightUserId": { "type": ["string", "null"] },
+        "activeCoursewareId": { "type": ["string", "null"] },
+        "chatEnabled": { "type": "boolean" },
+        "members": { "type": "array", "items": { "$ref": "#/$defs/member" } },
+        "interpretation": { "$ref": "#/$defs/interpretation" }
+      },
+      "additionalProperties": true
+    },
+    "member": {
+      "type": "object",
+      "required": ["userId", "displayName", "avatar", "role", "online", "onStage", "stageState", "microphoneAllowed", "cameraAllowed", "chatMuted", "whiteboardWritable", "handRaisedAt"],
+      "properties": {
+        "userId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "avatar": { "type": "string" },
+        "role": { "$ref": "#/$defs/role" },
+        "online": { "type": "boolean" },
+        "onStage": { "type": "boolean" },
+        "stageState": { "enum": ["offstage", "invited", "accepted"] },
+        "microphoneAllowed": { "type": "boolean" },
+        "cameraAllowed": { "type": "boolean" },
+        "chatMuted": { "type": "boolean" },
+        "whiteboardWritable": { "type": "boolean" },
+        "handRaisedAt": { "type": ["string", "null"], "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "interpretation": {
+      "type": "object",
+      "required": ["enabled", "provider", "sourceLanguage", "targetLanguages", "status", "error"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "provider": { "enum": ["shengwang", "wordly"] },
+        "sourceLanguage": { "type": "string" },
+        "targetLanguages": { "type": "array", "maxItems": 10, "items": { "type": "string" } },
+        "status": { "enum": ["stopped", "starting", "running", "failed"] },
+        "error": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "action": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "enum": ["heartbeat", "startClass", "endClass", "raiseHand", "lowerHand", "inviteStage", "acceptStage", "declineStage", "removeStage", "setMemberMuted", "setMediaAllowed", "muteAll", "setWhiteboardWritable", "setSpotlight", "setStage", "setChatEnabled", "setInterpretation", "startTimer", "resetTimer"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "bootstrap": {
+      "type": "object",
+      "required": ["mode", "modePolicy", "credential", "mediaProfile", "course", "runtime", "capabilities", "whiteboard", "courseware", "messages", "spaces", "questions", "captions", "recording"],
+      "properties": {
+        "mode": { "$ref": "#/$defs/mode" },
+        "modePolicy": { "type": "object" },
+        "credential": { "$ref": "#/$defs/joinCredential" },
+        "mediaProfile": {
+          "type": "object",
+          "required": ["camera", "screen", "recording"],
+          "properties": {
+            "camera": {
+              "type": "object",
+              "required": ["low", "high"],
+              "properties": {
+                "low": { "$ref": "#/$defs/videoProfile" },
+                "high": { "$ref": "#/$defs/videoProfile" }
+              }
+            },
+            "screen": { "$ref": "#/$defs/videoProfile" },
+            "recording": { "$ref": "#/$defs/videoProfile" }
+          }
+        },
+        "course": {
+          "type": "object",
+          "required": ["id", "sessionId", "name", "roomType", "teacherName", "status", "startTime", "endTime"],
+          "properties": {
+            "id": { "type": "string" },
+            "sessionId": { "type": "string" },
+            "name": { "type": "string" },
+            "roomType": { "type": "integer" },
+            "teacherName": { "type": "string" },
+            "status": { "type": "string" },
+            "startTime": { "type": ["string", "null"], "format": "date-time" },
+            "endTime": { "type": ["string", "null"], "format": "date-time" }
+          }
+        },
+        "runtime": { "$ref": "#/$defs/runtime" },
+        "capabilities": { "$ref": "#/$defs/capabilities" },
+        "signaling": { "type": ["object", "null"] },
+        "whiteboard": { "type": "object" },
+        "courseware": { "type": "array" },
+        "messages": { "type": "array" },
+        "spaces": { "type": "array" },
+        "questions": { "type": "array" },
+        "captions": { "type": "array" },
+        "recording": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "actionRequest": {
+      "type": "object",
+      "required": ["action"],
+      "properties": {
+        "action": { "$ref": "#/$defs/action" },
+        "expectedRevision": { "type": "integer", "minimum": 0 },
+        "shareAccess": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "eventEnvelope": {
+      "type": "object",
+      "required": ["version", "sessionId", "revision", "topic"],
+      "properties": {
+        "version": { "const": 1 },
+        "sessionId": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 0 },
+        "topic": { "enum": ["runtime.changed", "message.created", "caption.created", "space.changed", "question.changed"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/bootstrap" },
+    { "$ref": "#/$defs/actionRequest" },
+    { "$ref": "#/$defs/eventEnvelope" }
+  ]
+}

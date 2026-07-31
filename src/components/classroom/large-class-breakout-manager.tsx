@@ -56,6 +56,7 @@ type RosterMember = {
 
 type LargeClassBreakoutManagerProps = {
   courseId: string;
+  sessionId?: string;
   canManage: boolean;
   leadTeacherId: string;
   teachers: TeacherSummary[];
@@ -101,6 +102,7 @@ function MemberAvatar({ member }: { member: Pick<RosterMember, "displayName" | "
 
 export function LargeClassBreakoutManager({
   courseId,
+  sessionId,
   canManage,
   leadTeacherId,
   teachers,
@@ -117,6 +119,7 @@ export function LargeClassBreakoutManager({
   const [capacity, setCapacity] = useState(20);
   const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
   const [resetArmed, setResetArmed] = useState(false);
+  const classroomScopeId = sessionId || courseId;
 
   const roster = useMemo(() => {
     const result = new Map<string, RosterMember>();
@@ -154,7 +157,7 @@ export function LargeClassBreakoutManager({
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/courses/${courseId}/classroom/spaces`, {
+      const response = await fetch(`/api/sessions/${classroomScopeId}/classroom/spaces`, {
         cache: "no-store",
         credentials: "same-origin",
       });
@@ -172,7 +175,7 @@ export function LargeClassBreakoutManager({
     } finally {
       setLoading(false);
     }
-  }, [courseId, t]);
+  }, [classroomScopeId, t]);
 
   useEffect(() => {
     queueMicrotask(() => void loadSpaces());
@@ -187,7 +190,7 @@ export function LargeClassBreakoutManager({
       setBusyKey(key);
       setError("");
       try {
-        const response = await fetch(`/api/courses/${courseId}/classroom/spaces`, {
+        const response = await fetch(`/api/sessions/${classroomScopeId}/classroom/spaces`, {
           method,
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
@@ -209,7 +212,7 @@ export function LargeClassBreakoutManager({
         setBusyKey("");
       }
     },
-    [courseId, t],
+    [classroomScopeId, t],
   );
 
   const assignMember = (spaceId: string, value: string) => {

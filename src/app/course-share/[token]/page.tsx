@@ -13,9 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { canEnterClassroom } from "@/lib/course-status";
 import { ensureShareLinkCourseAccess } from "@/lib/course-enrollment";
-import { promoteCourseIfDueById } from "@/lib/course-promote";
 import { prisma } from "@/lib/db";
 import { getServerTranslation } from "@/lib/i18n/server";
 import {
@@ -175,7 +173,6 @@ export default async function CourseSharePage({
     redirect(`/api/auth/login?next=${encodeURIComponent(next)}`);
   }
 
-  await promoteCourseIfDueById(resolved.courseId);
   const course = await prisma.course.findUnique({
     where: { id: resolved.courseId },
     include: {
@@ -206,7 +203,7 @@ export default async function CourseSharePage({
     );
   }
 
-  if (!canEnterClassroom(course.status)) {
+  if (course.lifecycleStatus === "archived") {
     return (
       <CourseShareError
         title={copy.closedTitle}

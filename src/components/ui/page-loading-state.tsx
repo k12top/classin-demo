@@ -18,6 +18,7 @@ interface PageLoadingStateProps {
   message?: string;
   variant?: PageLoadingVariant;
   className?: string;
+  embedded?: boolean;
   classroomCopy?: ClassroomLoadingCopy;
 }
 
@@ -99,7 +100,7 @@ function DashboardLoading({ message }: { message: string }) {
 
         <main className="mx-auto flex w-full max-w-[1460px] flex-col gap-6 p-5 sm:p-8 lg:p-10">
           <section className="min-h-[294px] rounded-[26px] border border-white/5 bg-[#15171c] p-7 shadow-[0_28px_80px_rgba(12,13,17,0.16)] sm:p-10">
-            <StatusLine message={message} icon={BookOpen} />
+            {message ? <StatusLine message={message} icon={BookOpen} /> : null}
             <Skeleton className="mt-12 h-11 w-full max-w-lg bg-white/10" />
             <Skeleton className="mt-4 h-4 w-full max-w-sm bg-white/10" />
             <div className="mt-16 flex gap-3">
@@ -141,10 +142,10 @@ function DashboardLoading({ message }: { message: string }) {
   );
 }
 
-function CourseLoading({ message }: { message: string }) {
+function CourseLoading({ message, embedded = false }: { message: string; embedded?: boolean }) {
   return (
-    <div className="min-h-screen bg-background">
-      <div className="border-b border-border/60 bg-card/70 backdrop-blur-xl">
+    <div className={embedded ? "w-full" : "min-h-screen bg-background"}>
+      {!embedded ? <div className="border-b border-border/60 bg-card/70 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-5 sm:px-6">
           <Skeleton className="h-9 w-28 rounded-xl" />
           <div className="flex items-center gap-3">
@@ -153,10 +154,10 @@ function CourseLoading({ message }: { message: string }) {
             <Skeleton className="hidden h-4 w-24 sm:block" />
           </div>
         </div>
-      </div>
+      </div> : null}
 
       <main className="mx-auto w-full max-w-6xl space-y-5 px-5 py-8 sm:px-6">
-        <StatusLine message={message} icon={CalendarDays} />
+        {message && !embedded ? <StatusLine message={message} icon={CalendarDays} /> : null}
         <section className="rounded-2xl border border-border/70 bg-card/80 p-5 shadow-sm sm:p-7">
           <div className="flex flex-wrap items-start justify-between gap-5">
             <div className="min-w-0 flex-1 space-y-4">
@@ -260,7 +261,7 @@ function ClassroomLoading({
               <Video />
             </div>
             <span className={classroomStyles.launchKicker}>{copy.launchSequence}</span>
-            <h1>{message}</h1>
+            {message ? <h1>{message}</h1> : null}
             <p>{copy.description}</p>
 
             <div className={classroomStyles.sequence}>
@@ -313,21 +314,26 @@ function ClassroomLoading({
 }
 
 export function PageLoadingState({
-  message = "Loading...",
+  message = "",
   variant = "dashboard",
   className,
+  embedded = false,
   classroomCopy = defaultClassroomCopy,
 }: PageLoadingStateProps) {
   return (
     <div
-      className={cn("relative min-h-screen overflow-hidden bg-background", className)}
+      className={cn(
+        "relative overflow-hidden bg-background",
+        embedded ? "min-h-[640px]" : "min-h-screen",
+        className,
+      )}
       role="status"
       aria-busy="true"
       aria-live="polite"
     >
       <LoadingTopBar />
       {variant === "course" ? (
-        <CourseLoading message={message} />
+        <CourseLoading message={message} embedded={embedded} />
       ) : variant === "classroom" ? (
         <ClassroomLoading message={message} copy={classroomCopy} />
       ) : (

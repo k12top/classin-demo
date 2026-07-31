@@ -31,6 +31,11 @@ export const ms = {
     teachingTeachers: "Teaching teachers",
     added: "Added",
     makeLeadTeacher: "Make lead",
+    language: "Bahasa",
+    dismiss: "Tutup",
+    pleaseConfirm: "Sila sahkan",
+    switchToDarkMode: "Tukar ke mod gelap",
+    switchToLightMode: "Tukar ke mod cerah",
   },
   login: {
     title: "Kelas Dalam Talian",
@@ -58,6 +63,17 @@ export const ms = {
     exit: "Keluar",
     verifyingAccess: "Mengesahkan hak akses...",
     initializing: "Menginisialisasi kelas...",
+    v3: {
+      roleLead: "Guru utama", roleAssistant: "Pembantu pengajar", roleStudent: "Pelajar", me: "Saya",
+      connected: "Disambungkan", reconnecting: "Menyambung semula", liveClass: "Kelas langsung",
+      classEndedLabel: "Kelas telah tamat", readyRoom: "Bilik sedia", classDuration: "Tempoh kelas",
+      startClass: "Mulakan kelas", endClass: "Tamatkan kelas", screenShare: "Kongsi skrin",
+      whiteboard: "Papan putih interaktif", members: "Ahli", chat: "Sembang", captions: "Sari kata",
+      courseware: "Bahan pembelajaran", tools: "Alat", raiseHand: "Angkat tangan", cancelHand: "Turunkan tangan",
+      backToCourse: "Kembali ke kelas", leave: "Keluar", waitingForSharedContent: "Menunggu kandungan dikongsi",
+      cameraOff: "Kamera dimatikan", muted: "Disenyapkan", screenSharing: "Berkongsi skrin",
+      online: "Dalam talian", offline: "Luar talian", speaking: "Sedang bercakap",
+    },
   },
   accessDenied: {
     title: "Akses Terhad",
@@ -80,6 +96,11 @@ export const ms = {
     hlsUnsupported: "Pelayar ini tidak menyokong main balik HLS/M3U8. Cuba pelayar lain.",
     browserHint: "Jika video tidak dimainkan, pastikan pautan boleh diakses dan pelayan menyokong main balik dalam pelayar.",
     teacher: "Guru pengajar",
+  },
+  portal: {
+    workspace: "Ruang kerja pengajaran", navigation: "Ruang kerja", today: "Hari ini", courses: "Kursus", students: "Pelajar & kumpulan", settings: "Tetapan", teacherPortal: "Portal guru", studentPortal: "Portal pelajar", liveSystem: "Sistem pengajaran langsung", logout: "Log keluar", account: "Akaun", language: "Bahasa", appearance: "Paparan",
+    command: "Pusat pengajaran hari ini", next: "Kelas seterusnya", noNext: "Tiada lagi kelas hari ini", noNextDescription: "Cipta kelas atau buka pustaka kursus untuk menyemak jadual seterusnya.", enter: "Masuk kelas", details: "Lihat butiran", create: "Cipta kursus", countdown: "Bermula dalam", live: "Kelas sedang berlangsung", ended: "Kelas tamat", todayCount: "Hari ini", liveCount: "Langsung", totalCount: "Semua kursus", timeline: "Jadual hari ini", timelineHint: "Diisih mengikut masa · pilih kelas untuk melihat butiran", emptyTimeline: "Tiada kelas dijadualkan hari ini",
+    library: "Pustaka kursus", libraryDescription: "Cari setiap kelas mengikut status, guru dan jadual.", search: "Cari kursus atau guru…", all: "Semua", courseGroups: "Kumpulan kursus", standaloneCourses: "Kursus kendiri", courseGroup: "Kumpulan kursus", standaloneCourse: "Kursus kendiri", lessonCount: "{count} sesi", upcoming: "Akan datang", finished: "Tamat", cancelled: "Dibatalkan", noCourses: "Tiada kursus sepadan", noCoursesHint: "Cuba ubah kata kunci atau penapis status.", teacher: "Guru", publicClass: "Kelas terbuka", bigClass: "Kelas besar", smallClass: "Kelas kecil", oneToOne: "1 lawan 1", ready: "Sedia", liveNow: "LANGSUNG · SEKARANG",
   },
   studentDashboard: {
     learningCenter: "Pusat Pembelajaran",

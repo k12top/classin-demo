@@ -271,6 +271,7 @@ export type ClassroomSessionResponse = {
   mediaProfile: ClassroomMediaProfile;
   course: {
     id: string;
+    sessionId: string;
     name: string;
     roomType: number;
     teacherName: string;

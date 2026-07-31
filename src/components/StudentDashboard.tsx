@@ -18,6 +18,7 @@ import TimeDisplay, { CourseTimeRangeDisplay } from "@/components/TimeDisplay";
 import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
 import { CourseTeacherAvatarGroup, type CourseTeacherAvatarItem } from "@/components/CourseTeacherAvatarGroup";
 import { getPlaybackTarget } from "@/lib/playback-url";
+import { prefetchCourseDetail } from "@/lib/course-detail-client-cache";
 import {
   PortalShell,
   type PortalPage,
@@ -327,6 +328,10 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                 void handleEnterClassroomDirect(course as Course)
               }
               onOpen={(course) => router.push(`/courses/${course.id}`)}
+              onPrefetch={(course) => {
+                router.prefetch(`/courses/${course.id}`);
+                void prefetchCourseDetail(course.id);
+              }}
             />
             {/* Breathable Join Public Course Card */}
             <Card className="border border-border/80 bg-card/60 p-6 flex flex-col sm:flex-row gap-4 items-center justify-between shadow-sm rounded-2xl">
@@ -529,6 +534,10 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                 void handleEnterClassroomDirect(course as Course)
               }
               onOpen={(course) => router.push(`/courses/${course.id}`)}
+              onPrefetch={(course) => {
+                router.prefetch(`/courses/${course.id}`);
+                void prefetchCourseDetail(course.id);
+              }}
             />
           </div>
         )}
@@ -584,7 +593,9 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                     <div className="flex items-start gap-2 bg-muted/20 border border-border/40 rounded-xl p-3">
                       <Clock className="h-4.5 w-4.5 text-primary mt-0.5" />
                       <div className="space-y-0.5 flex-1">
-                        <span className="text-xs text-muted-foreground font-medium block">Class Time</span>
+                        <span className="text-xs text-muted-foreground font-medium block">
+                          {t("teacherDashboard.classSchedule")}
+                        </span>
                         <div className="font-semibold text-foreground text-sm">
                           <TimeDisplay isoString={selectedDetailCourse.startTime} options={{ month: "long", day: "numeric", weekday: "long", hour: "2-digit", minute: "2-digit" }} />
                         </div>
@@ -593,9 +604,11 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                     </div>
 
                     <div className="space-y-1">
-                      <span className="text-xs text-muted-foreground font-medium">Description</span>
+                      <span className="text-xs text-muted-foreground font-medium">
+                        {t("teacherDashboard.fieldDesc")}
+                      </span>
                       <p className="text-foreground/80 leading-relaxed bg-muted/10 p-3.5 border border-border/40 rounded-xl">
-                        {selectedDetailCourse.description || "No description provided."}
+                        {selectedDetailCourse.description || t("courseDetail.noDescription")}
                       </p>
                     </div>
                   </div>
@@ -605,7 +618,11 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                   {loadingCourseware ? (
                     <div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
                   ) : detailCourseware.length === 0 ? (
-                    <div className="text-center p-8 border border-dashed border-border/60 rounded-xl"><p className="text-xs text-muted-foreground">No courseware uploaded for this class.</p></div>
+                    <div className="text-center p-8 border border-dashed border-border/60 rounded-xl">
+                      <p className="text-xs text-muted-foreground">
+                        {t("courseDetail.noCoursewareDescStudent")}
+                      </p>
+                    </div>
                   ) : (
                     <div className="space-y-2">
                       {detailCourseware.map((cw) => (
@@ -616,7 +633,7 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                             <Badge variant="outline" className="text-[9px] uppercase border-border/80">{cw.ext}</Badge>
                           </div>
                           <Button size="sm" variant="ghost" className="h-7 text-xs rounded-md flex items-center gap-1 text-primary hover:text-primary-foreground hover:bg-primary" onClick={() => window.open(cw.url, "_blank")}>
-                            <span>View</span>
+                            <span>{t("courseDetail.openFile")}</span>
                             <ExternalLink className="h-3 w-3" />
                           </Button>
                         </div>
@@ -626,7 +643,9 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                 </TabsContent>
 
                 <TabsContent value="remarks" className="space-y-3 pt-3 outline-none">
-                  <span className="text-xs text-muted-foreground font-medium">My Remarks & Learning Requests</span>
+                  <span className="text-xs text-muted-foreground font-medium">
+                    {t("courseDetail.requirementsTitle")}
+                  </span>
                   <textarea
                     rows={4}
                     className="w-full bg-background border border-border/80 rounded-xl p-3 text-xs leading-relaxed focus:ring-2 focus:ring-primary/40 focus:outline-none"
@@ -646,7 +665,7 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
               <DialogFooter className="pt-4 border-t border-border/40 gap-2 sm:gap-0 mt-4 flex items-center justify-between w-full">
                 <Button variant="ghost" size="sm" className="text-xs text-muted-foreground rounded-lg h-9" onClick={() => router.push(`/courses/${selectedDetailCourse.id}`)}>
                   <ExternalLink className="h-3.5 w-3.5 mr-1" />
-                  Dedicated Page
+                  {t("teacherDashboard.btnDetails")}
                 </Button>
                 
                 <div className="flex gap-2">
@@ -739,7 +758,7 @@ function SettingsPanel({ user, onLogout }: { user: DashboardUser; onLogout: () =
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500">
       <PortalSectionHeader
-        eyebrow="Account"
+        eyebrow={t("portal.account")}
         title={t("settingsPanel.title")}
         description={t("settingsPanel.desc")}
       />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, use } from "react";
+import { useState, useEffect, useCallback, use, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
@@ -15,6 +15,10 @@ import TeacherCourseDetail from "@/components/TeacherCourseDetail";
 import StudentCourseDetail from "@/components/StudentCourseDetail";
 import { PageLoadingState } from "@/components/ui/page-loading-state";
 import { useTranslation } from "@/lib/i18n/context";
+import {
+  readCourseDetailCache,
+  writeCourseDetailCache,
+} from "@/lib/course-detail-client-cache";
 import {
   PortalShell,
   type PortalPage,
@@ -55,11 +59,14 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   const { user, loading: authLoading, logout } = useAuth();
   const { t } = useTranslation();
   const router = useRouter();
-  const [course, setCourse] = useState<CourseDetail | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [course, setCourse] = useState<CourseDetail | null>(() =>
+    readCourseDetailCache<CourseDetail>(id),
+  );
+  const [loading, setLoading] = useState(() => !readCourseDetailCache<CourseDetail>(id));
   const [redirecting, setRedirecting] = useState(false);
   const [enterLoading, setEnterLoading] = useState(false);
   const [error, setError] = useState("");
+  const requestedCourseRef = useRef("");
 
   const fetchCourse = useCallback(async () => {
     let keepLoadingForRedirect = false;
@@ -76,7 +83,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
       }
       if (res.ok) {
         const data = await res.json();
-        setCourse(data.course);
+        setCourse(writeCourseDetailCache(id, data.course));
       } else {
         setError("not_found");
       }
@@ -97,9 +104,13 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
       });
       return;
     }
-    queueMicrotask(() => {
-      void fetchCourse();
-    });
+    if (requestedCourseRef.current === id) return;
+    const cachedCourse = readCourseDetailCache<CourseDetail>(id);
+    setError("");
+    setCourse(cachedCourse);
+    setLoading(!cachedCourse);
+    requestedCourseRef.current = id;
+    void fetchCourse();
   }, [authLoading, fetchCourse, id, user]);
 
   const isTeacher = Boolean(user && course?.canTeach);
@@ -143,12 +154,33 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
     }
   };
 
-  if (authLoading || loading || redirectingToLogin) {
+  if (authLoading || redirectingToLogin) {
     return (
       <PageLoadingState
         message={redirectingToLogin ? t("login.redirecting") : t("common.loading")}
         variant="course"
       />
+    );
+  }
+
+
+  if (loading && user) {
+    return (
+      <PortalShell
+        role={user.role}
+        user={user}
+        activePage="courses"
+        onPageChange={(page: PortalPage) =>
+          router.push(`/?view=${encodeURIComponent(page)}`)
+        }
+        onLogout={logout}
+      >
+        <PageLoadingState
+          message={t("common.loading")}
+          variant="course"
+          embedded
+        />
+      </PortalShell>
     );
   }
 

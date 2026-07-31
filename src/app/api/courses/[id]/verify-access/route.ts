@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
-import { resolveCourseAccess } from "@/lib/course-access";
+import { resolveCourseSessionAccess } from "@/lib/course-session-access";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +23,7 @@ export async function GET(
 
   const { id: courseId } = await params;
   const shareAccess = request.nextUrl.searchParams.get("shareAccess");
-  const access = await resolveCourseAccess(courseId, session.userId, {
+  const access = await resolveCourseSessionAccess(courseId, session.userId, {
     shareAccessToken: shareAccess,
     userIdAliases: [session.name],
   });
@@ -42,10 +42,7 @@ export async function GET(
   }
 
   const qs = new URLSearchParams({
-    roomUuid: access.roomUuid,
-    roomType: String(access.roomType),
-    roomName: access.roomName,
-    courseId,
+    sessionId: access.sessionId,
   });
   if (shareAccess) {
     qs.set("shareAccess", shareAccess);
