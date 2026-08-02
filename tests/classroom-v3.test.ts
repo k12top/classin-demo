@@ -10,14 +10,16 @@ import {
   classroomModePolicy,
 } from "../src/lib/classroom/mode";
 import {
+  CourseStatus,
   isFinishedDue,
   isTooEarlyToEnterClassroom,
+  resolveManualFinishedStatus,
 } from "../src/lib/course-status";
 import { planLargeClassAssignments } from "../src/lib/classroom/space-planner";
 
 const teacher = classroomCapabilities("teacher");
 assert.equal(teacher.canStartClass, true);
-assert.equal(teacher.canEndClass, false);
+assert.equal(teacher.canEndClass, true);
 assert.equal(teacher.canControlRecording, true);
 assert.equal(teacher.canManageStage, true);
 assert.equal(teacher.canManageInterpretation, true);
@@ -149,6 +151,18 @@ assert.equal(
     60,
   ),
   false,
+);
+assert.equal(
+  resolveManualFinishedStatus(
+    CourseStatus.LIVE,
+    new Date(Date.now() + 30 * 60_000),
+    false,
+  ),
+  CourseStatus.AFTER_CLASS,
+);
+assert.equal(
+  resolveManualFinishedStatus(CourseStatus.LIVE, null, true),
+  CourseStatus.FINISHED,
 );
 
 assert.deepEqual(classroomVideoPresets.hd.camera.low, {

@@ -311,6 +311,7 @@ export const en: typeof zhCN = {
       requestScreenShare: "Request student screen",
       screenShareRequested: "Waiting for student",
       screenShareAccepted: "Student accepted sharing",
+      screenShareDeclined: "Student declined sharing",
       stopStudentScreenShare: "Stop student sharing",
       screenShareRequestEyebrow: "Screen-share request",
       screenShareRequestTitle: "Your teacher asked you to share your screen",

@@ -16,9 +16,7 @@ export function classroomCapabilities(
   const interactive = mode?.mode !== "publicLive";
   return {
     canStartClass: teacher,
-    // Ending a lesson is an outer course-management action. The live room only
-    // exposes leave/cleanup, so no in-room role receives this capability.
-    canEndClass: false,
+    canEndClass: teacher,
     canControlRecording: teacher,
     canManageStage: teachingRole,
     canManageMembers: teachingRole,

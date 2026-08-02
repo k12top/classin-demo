@@ -55,10 +55,11 @@ export async function requestRecordingStart(
   });
   if (!lesson) throw new Error("Course session not found");
   if (
+    lesson.status === CourseStatus.AFTER_CLASS ||
     lesson.status === CourseStatus.FINISHED ||
     lesson.status === CourseStatus.CANCELLED
   ) {
-    throw new Error("Recording cannot start for a finished or cancelled lesson");
+    throw new Error("Recording cannot start after a lesson has ended");
   }
   const latest = lesson.recordings[0];
   if (latest && ACTIVE_RECORDING_STATUSES.includes(latest.status)) return latest;

@@ -309,6 +309,7 @@ export const zhCN = {
       requestScreenShare: "请求学生共享",
       screenShareRequested: "等待学生应答",
       screenShareAccepted: "学生已接受共享",
+      screenShareDeclined: "学生已拒绝共享",
       stopStudentScreenShare: "结束学生共享",
       screenShareRequestEyebrow: "屏幕共享请求",
       screenShareRequestTitle: "老师希望你共享屏幕",

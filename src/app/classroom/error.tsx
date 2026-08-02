@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { AlertCircle, ArrowLeft, RefreshCw } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
 
 export default function ClassroomError({
@@ -11,35 +11,43 @@ export default function ClassroomError({
   reset: () => void;
 }) {
   const { t } = useTranslation();
+  const retry = () => {
+    if (/loading chunk|chunkloaderror/i.test(error.message)) {
+      window.location.reload();
+      return;
+    }
+    reset();
+  };
 
   return (
-    <div className="classroom-v2-shell items-center justify-center gap-4 p-6 text-center">
-      <div className="max-w-md rounded-3xl border border-rose-300/20 bg-white/5 p-8 shadow-2xl backdrop-blur-xl">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-rose-300">
-          Classroom interrupted
-        </p>
-        <h2 className="text-xl font-semibold text-white">
+    <main className="classroom-v3-shell is-error-page">
+      <section className="classroom-v3-error-card" role="alert">
+        <AlertCircle />
+        <small>{t("classroom.v3.unavailableEyebrow")}</small>
+        <h1>
           {t("classroom.v3.classroomInterrupted")}
-        </h2>
-        <p className="mt-3 text-sm leading-6 text-slate-300">
+        </h1>
+        <p>
           {error.message || t("classroom.v3.unexpectedError")}
         </p>
-        <div className="mt-6 flex justify-center gap-3">
+        <div className="classroom-v3-error-actions">
           <button
             type="button"
-            onClick={reset}
-            className="rounded-xl bg-violet-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-400"
+            className="is-primary"
+            onClick={retry}
           >
+            <RefreshCw />
             {t("classroom.v3.retry")}
           </button>
-          <Link
-            href="/"
-            className="rounded-xl border border-white/15 px-5 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-white/10"
+          <button
+            type="button"
+            onClick={() => window.location.assign("/")}
           >
+            <ArrowLeft />
             {t("common.backToHome")}
-          </Link>
+          </button>
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

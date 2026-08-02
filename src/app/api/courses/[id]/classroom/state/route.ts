@@ -61,7 +61,9 @@ export async function GET(
   });
   const mode = classroomModePolicy(lesson?.roomType ?? 4);
   const [runtimeSnapshot, engagement, courseware, captions, spaces, questions] = await Promise.all([
-    getClassroomRuntimeSnapshot(resolvedCourseId, sessionId),
+    getClassroomRuntimeSnapshot(resolvedCourseId, sessionId, {
+      ensure: false,
+    }),
     getClassroomEngagementSnapshot(sessionId),
     getClassroomCourseware(resolvedCourseId, resolved.access.role, sessionId),
     getClassroomCaptions(resolvedCourseId, 100, sessionId),

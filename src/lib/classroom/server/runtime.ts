@@ -28,6 +28,7 @@ import {
 import { classroomSelectorCycle } from "@/lib/classroom/engagement";
 
 const ONLINE_WINDOW_MS = 45_000;
+const SCREEN_SHARE_REQUEST_TTL_MS = 2 * 60_000;
 
 export class ClassroomRevisionConflictError extends Error {
   constructor(public readonly actualRevision: number) {
@@ -193,9 +194,16 @@ function publicMember(
     member.stageState === "invited" || member.stageState === "accepted"
       ? member.stageState
       : "offstage";
-  const screenShareState =
-    member.screenShareState === "requested" ||
-    member.screenShareState === "accepted"
+  const requestExpired =
+    member.screenShareState === "requested" &&
+    (!member.screenShareRequestedAt ||
+      now - member.screenShareRequestedAt.getTime() >
+        SCREEN_SHARE_REQUEST_TTL_MS);
+  const screenShareState = requestExpired
+    ? "idle"
+    : member.screenShareState === "requested" ||
+        member.screenShareState === "accepted" ||
+        member.screenShareState === "declined"
       ? member.screenShareState
       : "idle";
   return {
@@ -209,8 +217,9 @@ function publicMember(
     onStage: member.onStage,
     stageState,
     screenShareState,
-    screenShareRequestedAt:
-      member.screenShareRequestedAt?.toISOString() ?? null,
+    screenShareRequestedAt: requestExpired
+      ? null
+      : member.screenShareRequestedAt?.toISOString() ?? null,
     microphoneAllowed: member.microphoneAllowed,
     cameraAllowed: member.cameraAllowed,
     chatMuted: member.chatMuted,
@@ -448,7 +457,7 @@ export async function applyClassroomAction(input: {
   await touchClassroomMember(courseId, session, role, mode, sessionId);
 
   if (action.type === "heartbeat") {
-    return getClassroomRuntimeSnapshot(courseId, sessionId);
+    return getClassroomRuntimeSnapshot(courseId, sessionId, { ensure: false });
   }
   if (action.type === "raiseHand" && !mode.showHandRaise) {
     throw new ClassroomActionError("当前课堂模式无需举手", 409);
@@ -474,6 +483,9 @@ export async function applyClassroomAction(input: {
       input.expectedRevision !== runtime.revision
     ) {
       throw new ClassroomRevisionConflictError(runtime.revision);
+    }
+    if (runtime.status === "ended") {
+      throw new ClassroomActionError("课堂已经结束", 409);
     }
     if (engagementAction && runtime.status !== "live") {
       throw new ClassroomActionError("开始上课后才能使用互动工具", 409);
@@ -634,6 +646,13 @@ export async function applyClassroomAction(input: {
         if (member.screenShareState !== "requested") {
           throw new ClassroomActionError("屏幕共享请求已失效", 409);
         }
+        if (
+          !member.screenShareRequestedAt ||
+          Date.now() - member.screenShareRequestedAt.getTime() >
+            SCREEN_SHARE_REQUEST_TTL_MS
+        ) {
+          throw new ClassroomActionError("屏幕共享请求已超时，请老师重新发起", 409);
+        }
         if (!member.onStage) {
           const stageCount = await tx.classroomMemberState.count({
             where: { sessionId, role: "student", onStage: true },
@@ -653,18 +672,24 @@ export async function applyClassroomAction(input: {
         });
         break;
       }
-      case "declineScreenShare":
+      case "declineScreenShare": {
         if (role !== "student") {
           throw new ClassroomActionError("只有学生需要处理共享请求", 409);
         }
+        const member = await tx.classroomMemberState.findUniqueOrThrow({
+          where: actorWhere,
+          select: { screenShareState: true },
+        });
         await tx.classroomMemberState.update({
           where: actorWhere,
           data: {
-            screenShareState: "idle",
+            screenShareState:
+              member.screenShareState === "requested" ? "declined" : "idle",
             screenShareRequestedAt: null,
           },
         });
         break;
+      }
       case "stopScreenShare":
         requireTeachingRole(role);
         await tx.classroomMemberState.update({
@@ -1025,5 +1050,5 @@ export async function applyClassroomAction(input: {
     });
   });
 
-  return getClassroomRuntimeSnapshot(courseId, sessionId);
+  return getClassroomRuntimeSnapshot(courseId, sessionId, { ensure: false });
 }

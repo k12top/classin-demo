@@ -67,6 +67,41 @@ export type CourseSessionAccessResult =
       reason: string;
     };
 
+const ACCESS_CACHE_TTL_MS = 15_000;
+const accessCache = new Map<
+  string,
+  { expiresAt: number; value: Extract<CourseSessionAccessResult, { ok: true }> }
+>();
+
+function accessCacheKey(
+  referenceId: string,
+  userId: string,
+  userIdAliases: readonly string[] | undefined,
+) {
+  return JSON.stringify([referenceId, userId, userIdAliases || []]);
+}
+
+function cacheSuccessfulAccess(
+  key: string | null,
+  value: CourseSessionAccessResult,
+) {
+  if (!key || !value.ok) return value;
+  const now = Date.now();
+  if (accessCache.size >= 500) {
+    for (const [cachedKey, entry] of accessCache) {
+      if (entry.expiresAt <= now) accessCache.delete(cachedKey);
+    }
+    // Do not let a busy process retain one lesson roster per active viewer.
+    // Map iteration is insertion ordered, so the first entry is the oldest.
+    if (accessCache.size >= 500) {
+      const oldestKey = accessCache.keys().next().value;
+      if (oldestKey) accessCache.delete(oldestKey);
+    }
+  }
+  accessCache.set(key, { expiresAt: now + ACCESS_CACHE_TTL_MS, value });
+  return value;
+}
+
 export async function resolveCourseSessionAccess(
   referenceId: string,
   userId: string,
@@ -74,6 +109,34 @@ export async function resolveCourseSessionAccess(
     userIdAliases?: readonly string[];
     shareAccessToken?: string | null;
   } = {},
+): Promise<CourseSessionAccessResult> {
+  // Share-token authorization is intentionally never cached: revocation must
+  // take effect on the next request. Normal cookie-authenticated classroom
+  // calls make several requests in quick succession (state, heartbeat and
+  // whiteboard), so reusing the verified access result avoids reloading the
+  // full lesson roster for each one.
+  const cacheKey = options.shareAccessToken?.trim()
+    ? null
+    : accessCacheKey(referenceId, userId, options.userIdAliases);
+  const cached = cacheKey ? accessCache.get(cacheKey) : undefined;
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  if (cached) accessCache.delete(cacheKey!);
+
+  const result = await resolveCourseSessionAccessUncached(
+    referenceId,
+    userId,
+    options,
+  );
+  return cacheSuccessfulAccess(cacheKey, result);
+}
+
+async function resolveCourseSessionAccessUncached(
+  referenceId: string,
+  userId: string,
+  options: {
+    userIdAliases?: readonly string[];
+    shareAccessToken?: string | null;
+  },
 ): Promise<CourseSessionAccessResult> {
   const initial = await resolveCourseSessionReference(referenceId);
   if (!initial) {

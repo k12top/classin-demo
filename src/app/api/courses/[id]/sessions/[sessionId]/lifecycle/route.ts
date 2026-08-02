@@ -9,6 +9,7 @@ import {
   stopClassroomTranscription,
   syncClassroomTranscription,
 } from "@/lib/classroom/server/transcription-orchestrator";
+import { getClassroomRuntimeSnapshot } from "@/lib/classroom/server/runtime";
 import { casdoorUserIdCandidates } from "@/lib/course-teacher";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import {
@@ -16,8 +17,13 @@ import {
   rosterContainsUser,
 } from "@/lib/course-session-roster";
 import { serializeCourseSession } from "@/lib/course-session-service";
-import { CourseStatus, getFinishedDelayMinutes } from "@/lib/course-status";
+import {
+  CourseStatus,
+  getFinishedDelayMinutes,
+  resolveManualFinishedStatus,
+} from "@/lib/course-status";
 import { prisma } from "@/lib/db";
+import { databaseUnavailableResponse } from "@/lib/database-response";
 import { getSessionFromRequest } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -74,7 +80,7 @@ async function manageableLesson(request: NextRequest, context: Context) {
   return { identity, courseId, sessionId, lesson };
 }
 
-export async function POST(request: NextRequest, context: Context) {
+async function handlePost(request: NextRequest, context: Context) {
   const resolved = await manageableLesson(request, context);
   if ("error" in resolved) return resolved.error;
   const body = (await request.json().catch(() => null)) as {
@@ -89,6 +95,17 @@ export async function POST(request: NextRequest, context: Context) {
 
   const now = new Date();
   if (body.action === "end") {
+    const nextStatus = resolveManualFinishedStatus(
+      resolved.lesson.status,
+      resolved.lesson.endTime,
+      false,
+    );
+    if (!nextStatus) {
+      return NextResponse.json(
+        { error: "Cancelled lessons cannot be ended" },
+        { status: 409 },
+      );
+    }
     const updated = await prisma.$transaction(async (transaction) => {
       const openAttendances = await transaction.courseAttendance.findMany({
         where: { sessionId: resolved.sessionId, leftAt: null },
@@ -126,7 +143,10 @@ export async function POST(request: NextRequest, context: Context) {
       });
       return transaction.courseSession.update({
         where: { id: resolved.sessionId },
-        data: { status: CourseStatus.FINISHED, endedAt: now },
+        // Keep a manually ended lesson in AFTER_CLASS during its grace window.
+        // Existing classroom members can then receive the terminal runtime
+        // snapshot before normal entry is closed when it becomes FINISHED.
+        data: { status: nextStatus, endedAt: now },
         include: {
           series: true,
           teachers: true,
@@ -154,7 +174,14 @@ export async function POST(request: NextRequest, context: Context) {
         }
       }
     });
-    return NextResponse.json({ session: serializeCourseSession(updated) });
+    return NextResponse.json({
+      session: serializeCourseSession(updated),
+      runtime: await getClassroomRuntimeSnapshot(
+        resolved.courseId,
+        resolved.sessionId,
+        { ensure: false },
+      ),
+    });
   }
 
   if (resolved.lesson.status !== CourseStatus.FINISHED) {
@@ -210,4 +237,14 @@ export async function POST(request: NextRequest, context: Context) {
     ]);
   });
   return NextResponse.json({ session: serializeCourseSession(updated) });
+}
+
+export async function POST(request: NextRequest, context: Context) {
+  try {
+    return await handlePost(request, context);
+  } catch (error) {
+    const unavailable = databaseUnavailableResponse(error);
+    if (unavailable) return unavailable;
+    throw error;
+  }
 }

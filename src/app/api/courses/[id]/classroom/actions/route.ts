@@ -132,7 +132,11 @@ export async function POST(
             error: error instanceof Error ? error.message : String(error),
           });
         }));
-      runtimeSnapshot = await getClassroomRuntimeSnapshot(resolvedCourseId, sessionId);
+      runtimeSnapshot = await getClassroomRuntimeSnapshot(
+        resolvedCourseId,
+        sessionId,
+        { ensure: false },
+      );
     }
     if (
       body.action.type === "setInterpretation" &&
@@ -144,7 +148,11 @@ export async function POST(
           error: error instanceof Error ? error.message : String(error),
         });
       });
-      runtimeSnapshot = await getClassroomRuntimeSnapshot(resolvedCourseId, sessionId);
+      runtimeSnapshot = await getClassroomRuntimeSnapshot(
+        resolvedCourseId,
+        sessionId,
+        { ensure: false },
+      );
     }
     return NextResponse.json({
       runtime: runtimeSnapshot,

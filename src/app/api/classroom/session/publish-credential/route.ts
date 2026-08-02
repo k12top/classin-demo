@@ -10,16 +10,24 @@ export const runtime = "nodejs";
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as {
     courseId?: unknown;
+    sessionId?: unknown;
     shareAccess?: unknown;
   } | null;
-  const courseId =
-    typeof body?.courseId === "string" ? body.courseId.trim() : "";
-  if (!courseId) {
-    return NextResponse.json({ error: "courseId is required" }, { status: 400 });
+  const referenceId =
+    typeof body?.sessionId === "string" && body.sessionId.trim()
+      ? body.sessionId.trim()
+      : typeof body?.courseId === "string"
+        ? body.courseId.trim()
+        : "";
+  if (!referenceId) {
+    return NextResponse.json(
+      { error: "sessionId or courseId is required" },
+      { status: 400 },
+    );
   }
   const resolved = await resolveClassroomRequestAccess(
     request,
-    courseId,
+    referenceId,
     typeof body?.shareAccess === "string" ? body.shareAccess : null,
   );
   if (!resolved.ok) {

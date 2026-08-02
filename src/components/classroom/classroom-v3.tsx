@@ -831,7 +831,9 @@ function MemberPanel({
                   ? ` · ${t("classroom.v3.screenShareRequested")}`
                   : member.screenShareState === "accepted"
                     ? ` · ${t("classroom.v3.screenShareAccepted")}`
-                    : ""}
+                    : member.screenShareState === "declined"
+                      ? ` · ${t("classroom.v3.screenShareDeclined")}`
+                      : ""}
               </small>
             </span>
             {member.role === "student" && canManage && (
@@ -847,7 +849,8 @@ function MemberPanel({
                   }
                   onClick={() =>
                     onAction(
-                      member.screenShareState === "idle"
+                      member.screenShareState === "idle" ||
+                        member.screenShareState === "declined"
                         ? {
                             type: "requestScreenShare",
                             targetUserId: member.userId,
@@ -859,7 +862,8 @@ function MemberPanel({
                     )
                   }
                   title={
-                    member.screenShareState === "idle"
+                    member.screenShareState === "idle" ||
+                    member.screenShareState === "declined"
                       ? t("classroom.v3.requestScreenShare")
                       : t("classroom.v3.stopStudentScreenShare")
                   }
@@ -2357,6 +2361,7 @@ export function ClassroomV3({
   const [recordingStatus, setRecordingStatus] = useState<string | null>(null);
   const [recordingMode, setRecordingMode] = useState<"web" | "mix" | null>(null);
   const [recordingFallback, setRecordingFallback] = useState<string | null>(null);
+  const [endClassConfirming, setEndClassConfirming] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const publishEnabledRef = useRef(false);
   const captionIngestAtRef = useRef(new Map<string, number>());
@@ -2847,6 +2852,21 @@ export function ClassroomV3({
   const currentMember = sessionData?.runtime.members.find(
     (member) => member.userId === currentUserId,
   );
+  const classEnded = sessionData?.runtime.status === "ended";
+
+  useEffect(() => {
+    if (!classEnded) return;
+    publishEnabledRef.current = false;
+    void providerRef.current?.disconnect().catch(() => undefined);
+    const settleEndedState = window.setTimeout(() => {
+      void disconnectRoom();
+      setActivePanel(null);
+      setEndClassConfirming(false);
+      setStudentPublishReady(false);
+      setMedia(EMPTY_MEDIA);
+    }, 0);
+    return () => window.clearTimeout(settleEndedState);
+  }, [classEnded, disconnectRoom]);
 
   useEffect(() => {
     if (
@@ -3152,7 +3172,7 @@ export function ClassroomV3({
           }),
         },
       );
-      const payload = (await response.json()) as {
+      const payload = (await response.json().catch(() => ({}))) as {
         error?: string;
         message?: ClassroomMessageSnapshot;
         revision?: number;
@@ -3406,6 +3426,76 @@ export function ClassroomV3({
         error instanceof Error
           ? error.message
           : t("classroom.v3.recordingActionFailed"),
+      );
+    } finally {
+      setActionBusy(null);
+    }
+  }, [
+    actionBusy,
+    courseId,
+    isRecorder,
+    publishInvalidation,
+    recordingStatus,
+    t,
+  ]);
+
+  const endClass = useCallback(async () => {
+    const current = sessionRef.current;
+    if (
+      !courseId ||
+      !current ||
+      current.credential.role !== "teacher" ||
+      current.runtime.status !== "live" ||
+      actionBusy ||
+      isRecorder
+    ) {
+      return;
+    }
+    setActionBusy("endClass");
+    setActionError("");
+    try {
+      const response = await fetch(
+        `/api/courses/${encodeURIComponent(current.course.id)}/sessions/${encodeURIComponent(courseId)}/lifecycle`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "end" }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        session?: { status?: string };
+        runtime?: ClassroomRuntimeSnapshot;
+      };
+      if (!response.ok || !payload.runtime) {
+        throw new Error(
+          payload.error || t("classroom.v3.classroomActionFailed"),
+        );
+      }
+      setSessionData((value) =>
+        value
+          ? {
+              ...value,
+              runtime: payload.runtime!,
+              course: {
+                ...value.course,
+                status: payload.session?.status || value.course.status,
+              },
+            }
+          : value,
+      );
+      if (
+        ["starting", "recording", "stopping"].includes(recordingStatus || "")
+      ) {
+        setRecordingStatus("stopping");
+      }
+      publishInvalidation(payload.runtime.revision, "runtime");
+      setEndClassConfirming(false);
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : t("classroom.v3.classroomActionFailed"),
       );
     } finally {
       setActionBusy(null);
@@ -3815,7 +3905,7 @@ export function ClassroomV3({
               <span>{roleLabel(sessionData.credential.role, t)}</span>
             </span>
             {sessionData.capabilities.canStartClass &&
-              sessionData.runtime.status !== "live" && (
+              sessionData.runtime.status === "waiting" && (
                 <button
                   type="button"
                   className="is-start"
@@ -3828,6 +3918,37 @@ export function ClassroomV3({
                   <Radio />
                   {t("classroom.v3.startClass")}
                 </button>
+              )}
+            {sessionData.capabilities.canEndClass &&
+              sessionData.runtime.status === "live" && (
+                <>
+                  {endClassConfirming && (
+                    <button
+                      type="button"
+                      disabled={Boolean(actionBusy)}
+                      onClick={() => setEndClassConfirming(false)}
+                    >
+                      {t("common.cancel")}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="is-end"
+                    disabled={Boolean(actionBusy)}
+                    onClick={() => {
+                      if (endClassConfirming) {
+                        void endClass();
+                      } else {
+                        setEndClassConfirming(true);
+                      }
+                    }}
+                  >
+                    {actionBusy === "endClass" ? <Loader2 /> : <CircleStop />}
+                    {endClassConfirming
+                      ? `${t("common.pleaseConfirm")} · ${t("classroom.v3.endClass")}`
+                      : t("classroom.v3.endClass")}
+                  </button>
+                </>
               )}
             <button
               type="button"
@@ -3968,7 +4089,19 @@ export function ClassroomV3({
           </header>
           <div className="classroom-v3-stage-content">
             <AnimatePresence mode="wait">
-              {!screenParticipant &&
+              {classEnded ? (
+                <motion.div
+                  key="ended"
+                  className="classroom-v3-stage-empty"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                >
+                  <span><CircleStop /></span>
+                  <small>{t("classroom.v3.classEndedLabel")}</small>
+                  <h2>{t("classroom.v3.classEnded")}</h2>
+                  <p>{t("classroom.v3.playbackHint")}</p>
+                </motion.div>
+              ) : !screenParticipant &&
               !showWhiteboard &&
               layoutMode !== "focus" &&
               galleryParticipants.length > 1 ? (
@@ -4050,7 +4183,8 @@ export function ClassroomV3({
                 </motion.div>
               )}
             </AnimatePresence>
-            {captionDisplayMode !== "off" &&
+            {!classEnded &&
+              captionDisplayMode !== "off" &&
               sessionData.runtime.interpretation.enabled &&
               latestCaption ? (
                 <motion.div
@@ -4093,7 +4227,8 @@ export function ClassroomV3({
                 </span>
               </motion.button>
             ) : null}
-            {!isRecorder &&
+            {!classEnded &&
+            !isRecorder &&
             sessionData.engagement.activeBuzz &&
             (sessionData.engagement.activeBuzz.status === "active" ||
               sessionData.engagement.activeBuzz.winnerUserId) ? (
@@ -4147,7 +4282,9 @@ export function ClassroomV3({
               </motion.button>
             ) : null}
             <AnimatePresence>
-              {timerRemaining !== null && sessionData.runtime.timerDurationSec ? (
+              {!classEnded &&
+              timerRemaining !== null &&
+              sessionData.runtime.timerDurationSec ? (
                 <StageTimerOverlay
                   durationSec={sessionData.runtime.timerDurationSec}
                   remainingSec={timerRemaining}
@@ -4177,7 +4314,7 @@ export function ClassroomV3({
         <section
           className={`classroom-v3-side ${activePanel ? "is-open" : ""}`}
         >
-          {!isRecorder && (
+          {!isRecorder && !classEnded && (
             <DrawerNavigation
               active={activePanel}
               onChange={setActivePanel}
@@ -4368,7 +4505,7 @@ export function ClassroomV3({
         </motion.div>
       )}
 
-      {!isRecorder && (
+      {!isRecorder && !classEnded && (
         <footer className="classroom-v3-dock-wrap">
           <div className="classroom-v3-dock">
             {canUseMedia && (

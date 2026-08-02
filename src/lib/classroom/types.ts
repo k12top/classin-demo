@@ -128,7 +128,7 @@ export type ClassroomMemberSnapshot = {
   online: boolean;
   onStage: boolean;
   stageState: "offstage" | "invited" | "accepted";
-  screenShareState: "idle" | "requested" | "accepted";
+  screenShareState: "idle" | "requested" | "accepted" | "declined";
   screenShareRequestedAt: string | null;
   microphoneAllowed: boolean;
   cameraAllowed: boolean;
