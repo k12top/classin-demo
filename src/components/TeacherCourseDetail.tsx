@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw, AlertCircle, Upload } from "lucide-react";
+import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw, AlertCircle, Upload, Film } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import {
   CourseStatusSelect,
@@ -93,6 +93,17 @@ type AttendanceApiResponse = {
   error?: string;
   code?: string;
 };
+
+interface PlaybackProgressRecord {
+  studentId: string;
+  studentName: string;
+  studentAvatar?: string;
+  sessionCount: number;
+  firstViewedAt: string;
+  lastViewedAt: string;
+  totalDurationSec: number;
+  active: boolean;
+}
 
 const ATTENDANCE_REQUEST_TIMEOUT_MS = 12_000;
 const ATTENDANCE_RETRY_DELAYS_MS = [350, 900];
@@ -290,6 +301,9 @@ export default function TeacherCourseDetail({
   const [attendanceError, setAttendanceError] = useState("");
   const attendanceRequestIdRef = useRef(0);
   const attendanceAbortRef = useRef<AbortController | null>(null);
+  const [playbackProgress, setPlaybackProgress] = useState<PlaybackProgressRecord[]>([]);
+  const [playbackProgressLoading, setPlaybackProgressLoading] = useState(false);
+  const [playbackProgressError, setPlaybackProgressError] = useState("");
 
   const sameTeacherId = (a: string, b: string) => {
     if (a === b) return true;
@@ -886,6 +900,55 @@ export default function TeacherCourseDetail({
     window.location.href = `/api/courses/${course.id}/attendance?format=csv`;
   };
 
+  const fetchPlaybackProgress = useCallback(async () => {
+    setPlaybackProgressLoading(true);
+    setPlaybackProgressError("");
+    try {
+      let res = await fetch(`/api/courses/${course.id}/playback-progress`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      if (res.status === 401 && (await tryOAuthRefresh())) {
+        res = await fetch(`/api/courses/${course.id}/playback-progress`, {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+      }
+      if (res.status === 401) {
+        redirectToSsoLogin();
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !Array.isArray(data.playback)) {
+        throw new Error(
+          res.status === 403
+            ? locale === "zh-CN"
+              ? "您没有查看该课程回放统计的权限。"
+              : "You do not have permission to view playback statistics."
+            : data.error ||
+                (locale === "zh-CN"
+                  ? "回放统计暂时加载失败，请稍后重试。"
+                  : "Playback statistics could not be loaded. Please try again.")
+        );
+      }
+      setPlaybackProgress(data.playback);
+    } catch (error) {
+      setPlaybackProgressError(
+        error instanceof Error
+          ? error.message
+          : locale === "zh-CN"
+            ? "回放统计暂时加载失败，请稍后重试。"
+            : "Playback statistics could not be loaded. Please try again."
+      );
+    } finally {
+      setPlaybackProgressLoading(false);
+    }
+  }, [course.id, locale]);
+
+  const exportPlaybackProgressCsv = () => {
+    window.location.href = `/api/courses/${course.id}/playback-progress?format=csv`;
+  };
+
   const handleAddStudent = async (student: UserSearchResult) => {
     try {
       const res = await fetch(`/api/courses/${course.id}/students`, {
@@ -1454,6 +1517,13 @@ export default function TeacherCourseDetail({
             onClick={() => void fetchAttendance()}
           >
             <Clock className="mr-2 h-4 w-4" /> {locale === "zh-CN" ? "考勤" : "Attendance"}
+          </TabsTrigger>
+          <TabsTrigger
+            value="playback-progress"
+            className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap"
+            onClick={() => void fetchPlaybackProgress()}
+          >
+            <Film className="mr-2 h-4 w-4" /> {locale === "zh-CN" ? "回放统计" : "Playback"}
           </TabsTrigger>
           {isCourseOwner && (
             <TabsTrigger value="sharing" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
@@ -2307,6 +2377,127 @@ export default function TeacherCourseDetail({
                                 : "Left"}
                           </Badge>
                         </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="playback-progress" className="mt-0">
+          <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
+            <CardHeader className="border-b border-border/40">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-lg font-bold">
+                    <Film className="h-5 w-5 text-primary" />
+                    {locale === "zh-CN" ? "回放观看统计" : "Playback Statistics"}
+                  </CardTitle>
+                  <CardDescription className="mt-1 text-xs">
+                    {locale === "zh-CN"
+                      ? "仅统计站内 MP4/HLS 的有效播放时长；暂停、拖动、切出页面和异常心跳不计时。"
+                      : "Counts verified in-app MP4/HLS playback only; pauses, seeking, hidden tabs, and invalid heartbeats are excluded."}
+                  </CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 rounded-xl text-xs"
+                    disabled={playbackProgressLoading}
+                    onClick={() => void fetchPlaybackProgress()}
+                  >
+                    {playbackProgressLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    {locale === "zh-CN" ? "刷新" : "Refresh"}
+                  </Button>
+                  <Button
+                    type="button"
+                    className="h-9 rounded-xl bg-primary text-xs text-white hover:bg-primary/95"
+                    onClick={exportPlaybackProgressCsv}
+                  >
+                    <FileText className="h-4 w-4" />
+                    {locale === "zh-CN" ? "导出 CSV" : "Export CSV"}
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-6">
+              {playbackProgressError && (
+                <div role="alert" className="mb-4 flex flex-col gap-3 rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-destructive sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    <p className="text-xs font-medium">{playbackProgressError}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 shrink-0 rounded-lg border-destructive/25 bg-background text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    disabled={playbackProgressLoading}
+                    onClick={() => void fetchPlaybackProgress()}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    {locale === "zh-CN" ? "重试" : "Try again"}
+                  </Button>
+                </div>
+              )}
+
+              {playbackProgress.length === 0 && !playbackProgressError ? (
+                <div className="rounded-xl border border-dashed border-border/60 bg-muted/10 p-10 text-center">
+                  <Film className="mx-auto mb-3 h-10 w-10 text-muted-foreground/40" />
+                  <p className="text-sm font-medium text-muted-foreground">
+                    {playbackProgressLoading
+                      ? t("common.loading")
+                      : locale === "zh-CN"
+                        ? "暂无回放观看记录"
+                        : "No playback activity yet"}
+                  </p>
+                </div>
+              ) : playbackProgress.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <div className="min-w-[820px] divide-y divide-border/50 rounded-xl border border-border/60">
+                    <div className="grid grid-cols-[1.6fr_0.7fr_1.2fr_1.2fr_0.9fr_0.7fr] gap-3 bg-muted/30 px-4 py-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      <span>{locale === "zh-CN" ? "学生" : "Student"}</span>
+                      <span>{locale === "zh-CN" ? "观看次数" : "Sessions"}</span>
+                      <span>{locale === "zh-CN" ? "首次观看" : "First viewed"}</span>
+                      <span>{locale === "zh-CN" ? "最后观看" : "Last viewed"}</span>
+                      <span>{locale === "zh-CN" ? "有效时长" : "Watch time"}</span>
+                      <span>{locale === "zh-CN" ? "状态" : "Status"}</span>
+                    </div>
+                    {playbackProgress.map((record) => (
+                      <div key={record.studentId} className="grid grid-cols-[1.6fr_0.7fr_1.2fr_1.2fr_0.9fr_0.7fr] items-center gap-3 px-4 py-3 text-xs">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Avatar className="h-7 w-7 border border-border/70">
+                            <AvatarImage src={record.studentAvatar || ""} />
+                            <AvatarFallback className="bg-primary/10 text-[10px] font-bold text-primary">
+                              {(record.studentName || record.studentId || "S").slice(0, 1).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-foreground">{record.studentName || record.studentId}</p>
+                            <p className="truncate text-[11px] text-muted-foreground">{record.studentId}</p>
+                          </div>
+                        </div>
+                        <span className="font-semibold text-foreground">{record.sessionCount}</span>
+                        <span className="text-muted-foreground">{new Date(record.firstViewedAt).toLocaleString(locale)}</span>
+                        <span className="text-muted-foreground">{new Date(record.lastViewedAt).toLocaleString(locale)}</span>
+                        <span className="font-mono font-semibold">{formatAttendanceDuration(record.totalDurationSec)}</span>
+                        <Badge
+                          variant="outline"
+                          className={record.active
+                            ? "w-fit border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
+                            : "w-fit border-border/60 bg-muted/20 text-muted-foreground"}
+                        >
+                          {record.active
+                            ? locale === "zh-CN" ? "观看中" : "Watching"
+                            : locale === "zh-CN" ? "已暂停" : "Inactive"}
+                        </Badge>
                       </div>
                     ))}
                   </div>

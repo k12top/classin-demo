@@ -53,6 +53,7 @@ model Course {
   courseware   Courseware[]
   teachers     CourseTeacher[]
   attendances  CourseAttendance[]
+  playbackProgresses CoursePlaybackProgress[]
 
   @@index([ownerId])
   @@index([teacherId])
@@ -152,6 +153,34 @@ model CourseAttendance {
   @@index([studentId])
   @@index([courseId, studentId])
   @@index([courseId, enteredAt])
+}
+
+// ── Student playback progress (one server-authoritative aggregate per course/student) ──
+model CoursePlaybackProgress {
+  id                 String    @id @default(uuid())
+  courseId           String
+  studentId          String
+  studentName        String    @default("")
+  studentAvatar      String    @default("")
+  firstViewedAt      DateTime  @default(now())
+  lastViewedAt       DateTime  @default(now())
+  totalDurationSec   Int       @default(0)
+  sessionCount       Int       @default(0)
+  activeSessionId    String?
+  heartbeatNonceHash String?
+  lastHeartbeatAt    DateTime?
+  lastPositionSec    Float?
+  lastPlaybackRate   Float?
+  lastPlaybackState  String    @default("inactive")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, studentId])
+  @@index([courseId])
+  @@index([studentId])
+  @@index([courseId, lastViewedAt])
 }
 
 // ── Course ↔ StudentGroup (group assignment) ──
