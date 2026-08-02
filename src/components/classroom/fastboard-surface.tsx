@@ -38,7 +38,7 @@ export function FastboardSurface({
   credential: ClassroomWhiteboardCredential;
   courseware: ClassroomCoursewareSnapshot | null;
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<FastboardApp | null>(null);
   const insertedRef = useRef(new Set<string>());
@@ -96,7 +96,35 @@ export function FastboardSurface({
           return;
         }
         appRef.current = createdApp;
-        ui = fastboard.mount(createdApp, mountTarget);
+        ui = fastboard.mount(createdApp, mountTarget, {
+          theme: "dark",
+          language: locale.toLowerCase().startsWith("zh") ? "zh-CN" : "en",
+          force_show_toolbar: credential.writable,
+          force_show_redo_undo: credential.writable,
+          force_show_zoom_control: true,
+          force_show_page_control: true,
+          config: {
+            toolbar: {
+              enable: credential.writable,
+              placement: "right",
+              items: [
+                "clicker",
+                "selector",
+                "pencil",
+                "text",
+                "shapes",
+                "eraser",
+                "hand",
+                "laserPointer",
+                "clear",
+              ],
+              apps: { enable: false },
+            },
+            redo_undo: { enable: credential.writable },
+            zoom_control: { enable: true },
+            page_control: { enable: true },
+          },
+        });
         setReady(true);
       } catch (launchError) {
         if (cancelled) return;
@@ -112,12 +140,23 @@ export function FastboardSurface({
       cancelled = true;
       setReady(false);
       void enqueueFastboardLifecycle(async () => {
-        ui?.destroy();
+        try {
+          ui?.destroy();
+        } catch (destroyUiError) {
+          console.warn(
+            "[ClassroomWhiteboard] Failed to destroy Fastboard UI",
+            destroyUiError,
+          );
+        }
         ui = null;
         const mountedApp = app;
         app = null;
         if (appRef.current === mountedApp) appRef.current = null;
-        await mountedApp?.destroy();
+        try {
+          await mountedApp?.destroy();
+        } finally {
+          if (mountTarget.isConnected) mountTarget.replaceChildren();
+        }
       }).catch((destroyError: unknown) => {
         console.warn("[ClassroomWhiteboard] Failed to destroy Fastboard", destroyError);
       });
@@ -129,6 +168,7 @@ export function FastboardSurface({
     credential.roomToken,
     credential.roomUuid,
     credential.writable,
+    locale,
   ]);
 
   useEffect(() => {
@@ -197,11 +237,24 @@ export function FastboardSurface({
   }, [courseware, credential.writable, ready]);
 
   if (!credential.enabled) {
+    const pending = credential.error === "whiteboard_pending";
     return (
       <div className="classroom-v3-board-state">
-        <span className="classroom-v3-board-mark">W</span>
-        <strong>{t("classroom.v3.whiteboardDisconnected")}</strong>
-        <p>{credential.error || t("classroom.v3.whiteboardConfigureHint")}</p>
+        {pending ? (
+          <span className="classroom-v3-board-loader" />
+        ) : (
+          <span className="classroom-v3-board-mark">W</span>
+        )}
+        <strong>
+          {t(
+            pending
+              ? "classroom.v3.enteringWhiteboard"
+              : "classroom.v3.whiteboardDisconnected",
+          )}
+        </strong>
+        {!pending && (
+          <p>{credential.error || t("classroom.v3.whiteboardConfigureHint")}</p>
+        )}
       </div>
     );
   }

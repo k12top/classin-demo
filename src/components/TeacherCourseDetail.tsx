@@ -210,6 +210,8 @@ function formatAttendanceDuration(totalSeconds: number): string {
 
 export default function TeacherCourseDetail({ 
   course, 
+  user,
+  onEnterClassroom,
   enterLoading,
   fetchCourse
 }: { 
@@ -1263,12 +1265,18 @@ export default function TeacherCourseDetail({
                 <Button
                   size="lg"
                   className={`w-full rounded-xl font-medium active:scale-[0.98] transition-all ${workspaceStyles.primaryAction}`}
-                  onClick={() => router.push(`/classroom?sessionId=${encodeURIComponent(nextSession!.id)}`)}
+                  onClick={onEnterClassroom}
                   disabled={enterLoading}
                 >
                   <span className="flex items-center gap-2">
-                    <PlayCircle className="h-5 w-5" />
-                    {t("courseSessions.enterLive")}
+                    {enterLoading ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <PlayCircle className="h-5 w-5" />
+                    )}
+                    {enterLoading
+                      ? t("teacherDashboard.btnEntering")
+                      : t("courseSessions.enterLive")}
                   </span>
                 </Button>
               ) : null}
@@ -1354,6 +1362,11 @@ export default function TeacherCourseDetail({
             courseKind={course.courseKind}
             roomType={course.roomType}
             canManage={Boolean(course.canTeach)}
+            canManageCourseLifecycle={Boolean(
+              course.isCourseOwner ||
+                (user && casdoorUserIdsMatch(course.teacherId, user.userId)),
+            )}
+            currentUserIds={[user?.userId || "", user?.name || ""].filter(Boolean)}
             leadTeacherId={course.teacherId}
             teachers={selectedTeachers}
             students={course.students}

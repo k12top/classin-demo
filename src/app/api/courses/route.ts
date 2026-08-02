@@ -5,7 +5,8 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
-import { prisma } from "@/lib/db";
+import { prisma, withDatabaseReadRetry } from "@/lib/db";
+import { databaseUnavailableResponse } from "@/lib/database-response";
 import { buildCourseShareUrl, buildJoinUrl, joinLinkStatus } from "@/lib/join-link";
 import { serializeCourse, serializeCourses } from "@/lib/course-serialize";
 import { promoteCoursesIfDue } from "@/lib/course-promote";
@@ -36,7 +37,7 @@ function sessionStudentIdCandidates(session: { userId: string; name?: string }):
   return Array.from(new Set(values.filter(Boolean)));
 }
 
-export async function GET(request: NextRequest) {
+async function getCoursesOnce(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -56,12 +57,6 @@ export async function GET(request: NextRequest) {
   const statusWhere = courseListStatusWhere(statusParsed);
 
   try {
-    // Auto-promote any overdue course statuses before listing
-    // The minute-level cron owns provider reconciliation. A dashboard read only
-    // needs the cheap database status promotion and must never wait for external
-    // recording APIs.
-    await promoteCoursesIfDue(undefined, { reconcileRecordings: false });
-
     if (session.role === "teacher") {
       // A platform teacher can also join another teacher's course as a student.
       // Keep both teaching courses and student-enrolled courses visible here.
@@ -340,8 +335,26 @@ export async function GET(request: NextRequest) {
       );
     }
   } catch (error) {
+    throw error;
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    // Status promotion is an idempotent write, so keep it outside the read-only
+    // retry boundary. Provider reconciliation remains owned by the minute cron.
+    await promoteCoursesIfDue(undefined, { reconcileRecordings: false }).catch(
+      (error) => {
+        console.warn("Course status promotion was deferred:", error);
+      },
+    );
+    return await withDatabaseReadRetry(() => getCoursesOnce(request));
+  } catch (error) {
     console.error("Failed to fetch courses:", error);
-    return NextResponse.json({ error: "Failed to fetch courses" }, { status: 500 });
+    return (
+      databaseUnavailableResponse(error) ||
+      NextResponse.json({ error: "Failed to fetch courses" }, { status: 500 })
+    );
   }
 }
 
@@ -353,6 +366,11 @@ export async function POST(request: NextRequest) {
   if (session.role !== "teacher") {
     return NextResponse.json({ error: "Only teachers can create courses" }, { status: 403 });
   }
+
+  const creationRequestId = request.headers
+    .get("idempotency-key")
+    ?.trim()
+    .slice(0, 160) || null;
 
   try {
     const body = await request.json();
@@ -460,6 +478,22 @@ export async function POST(request: NextRequest) {
     }
     const leadTeacher = normalizedTeachers[0] ?? fallbackTeacher;
 
+    if (creationRequestId) {
+      const existingRequest = await prisma.course.findUnique({
+        where: { creationRequestId },
+        include: {
+          teachers: { orderBy: { createdAt: "asc" } },
+          sessions: { orderBy: { position: "asc" } },
+        },
+      });
+      if (existingRequest) {
+        return NextResponse.json({
+          course: serializeCourse(existingRequest),
+          duplicate: true,
+        });
+      }
+    }
+
     // Backend double-submit protection: check if a course with same owner, name, startTime, and endTime was created within the last 5 seconds
     const existing = await prisma.course.findFirst({
       where: {
@@ -489,6 +523,7 @@ export async function POST(request: NextRequest) {
         teacherId: leadTeacher.teacherId,
         teacherName: leadTeacher.teacherName,
         teacherAvatar: leadTeacher.teacherAvatar,
+        creationRequestId,
         courseKind: normalizedCourseKind,
         lifecycleStatus: parsedStartTime ? "active" : "draft",
         startTime: parsedStartTime,
@@ -529,6 +564,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ course: serializeCourse(course) }, { status: 201 });
   } catch (error) {
     console.error("Failed to create course:", error);
+    if (creationRequestId) {
+      const existingRequest = await prisma.course
+        .findUnique({
+          where: { creationRequestId },
+          include: {
+            teachers: { orderBy: { createdAt: "asc" } },
+            sessions: { orderBy: { position: "asc" } },
+          },
+        })
+        .catch(() => null);
+      if (existingRequest) {
+        return NextResponse.json({
+          course: serializeCourse(existingRequest),
+          duplicate: true,
+        });
+      }
+    }
+    const unavailable = databaseUnavailableResponse(error);
+    if (unavailable) return unavailable;
     return NextResponse.json({ error: "Failed to create course" }, { status: 500 });
   }
 }

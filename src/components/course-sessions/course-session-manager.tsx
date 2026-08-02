@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import {
   CalendarClock,
   ChevronRight,
@@ -13,6 +14,8 @@ import {
   Network,
   Pencil,
   Repeat2,
+  RotateCcw,
+  Square,
   Trash2,
   Users,
   X,
@@ -93,6 +96,8 @@ type Props = {
   courseKind?: "series" | "standalone";
   roomType: number;
   canManage: boolean;
+  canManageCourseLifecycle?: boolean;
+  currentUserIds?: string[];
   leadTeacherId: string;
   teachers: Teacher[];
   students: Student[];
@@ -133,6 +138,8 @@ export function CourseSessionManager({
   courseKind = "series",
   roomType,
   canManage,
+  canManageCourseLifecycle = false,
+  currentUserIds = [],
   leadTeacherId,
   teachers,
   students,
@@ -191,6 +198,8 @@ export function CourseSessionManager({
   const [searchingStudents, setSearchingStudents] = useState(false);
   const [searchingTeachers, setSearchingTeachers] = useState(false);
   const [breakoutSessionId, setBreakoutSessionId] = useState<string | null>(null);
+  const [lifecycleBusy, setLifecycleBusy] = useState<string | null>(null);
+  const [enteringSessionId, setEnteringSessionId] = useState<string | null>(null);
   const isStandalone = courseKind === "standalone";
   const canCreateSession = canManage && (!isStandalone || sessions.length === 0);
 
@@ -249,6 +258,8 @@ export function CourseSessionManager({
   }, [duration, startTime]);
 
   const enterSession = (sessionId: string) => {
+    if (enteringSessionId) return;
+    setEnteringSessionId(sessionId);
     router.push(`/classroom?sessionId=${encodeURIComponent(sessionId)}`);
   };
 
@@ -550,6 +561,44 @@ export function CourseSessionManager({
     await loadSessions();
   };
 
+  const updateLifecycle = async (
+    session: CourseSessionItem,
+    action: "end" | "reopen",
+  ) => {
+    const confirmationKey =
+      action === "end"
+        ? "courseSessions.endConfirm"
+        : "courseSessions.reopenConfirm";
+    if (!window.confirm(t(confirmationKey, { title: session.title }))) return;
+    setLifecycleBusy(session.id);
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/courses/${courseId}/sessions/${session.id}/lifecycle`,
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        },
+      );
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || t("courseSessions.lifecycleFailed"));
+      }
+      await loadSessions();
+      router.refresh();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : t("courseSessions.lifecycleFailed"),
+      );
+    } finally {
+      setLifecycleBusy(null);
+    }
+  };
+
   const formatDate = (value: string) =>
     new Intl.DateTimeFormat(locale, {
       month: "short",
@@ -589,6 +638,14 @@ export function CourseSessionManager({
           {sessions.map((session) => {
             const isLive = session.status === "live" || session.status === "afterClass";
             const canEnter = !["cancelled", "finished"].includes(session.status);
+            const canManageLifecycle =
+              canManageCourseLifecycle ||
+              Boolean(
+                session.leadTeacherId &&
+                  currentUserIds.some((candidate) =>
+                    casdoorUserIdsMatch(session.leadTeacherId!, candidate),
+                  ),
+              );
             return (
               <article className={styles.sessionRow} key={session.id}>
                 <div className={styles.rail}>
@@ -629,15 +686,58 @@ export function CourseSessionManager({
                       <Copy className="h-4 w-4" />
                     </button>
                   ) : null}
+                  {canManageLifecycle && isLive ? (
+                    <button
+                      type="button"
+                      className={styles.endAction}
+                      disabled={lifecycleBusy === session.id}
+                      onClick={() => void updateLifecycle(session, "end")}
+                      title={t("courseSessions.end")}
+                    >
+                      {lifecycleBusy === session.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Square className="h-4 w-4" />
+                      )}
+                    </button>
+                  ) : null}
+                  {canManageLifecycle && session.status === "finished" ? (
+                    <button
+                      type="button"
+                      disabled={lifecycleBusy === session.id}
+                      onClick={() => void updateLifecycle(session, "reopen")}
+                      title={t("courseSessions.reopen")}
+                    >
+                      {lifecycleBusy === session.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RotateCcw className="h-4 w-4" />
+                      )}
+                    </button>
+                  ) : null}
                   {canManage ? (
                     <button type="button" onClick={() => void deleteSession(session)} title={t("common.delete")}>
                       <Trash2 className="h-4 w-4" />
                     </button>
                   ) : null}
                   {canEnter ? (
-                    <button className={styles.enterButton} type="button" onClick={() => enterSession(session.id)}>
-                      {isLive ? t("courseSessions.enterLive") : t("courseSessions.enter")}
-                      <ChevronRight className="h-4 w-4" />
+                    <button
+                      className={styles.enterButton}
+                      type="button"
+                      disabled={Boolean(enteringSessionId)}
+                      onClick={() => enterSession(session.id)}
+                    >
+                      {enteringSessionId === session.id ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          {t("teacherDashboard.btnEntering")}
+                        </>
+                      ) : (
+                        <>
+                          {isLive ? t("courseSessions.enterLive") : t("courseSessions.enter")}
+                          <ChevronRight className="h-4 w-4" />
+                        </>
+                      )}
                     </button>
                   ) : null}
                 </div>

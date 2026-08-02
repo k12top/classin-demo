@@ -1,8 +1,11 @@
 import "server-only";
 
+import { randomInt } from "node:crypto";
+
 import type {
   ClassroomAction,
   ClassroomCoursewareSnapshot,
+  ClassroomEngagementSnapshot,
   ClassroomMemberSnapshot,
   ClassroomRole,
   ClassroomRuntimeSnapshot,
@@ -22,6 +25,7 @@ import {
   normalizeClassroomLanguage,
   normalizeTargetLanguages,
 } from "@/lib/classroom/languages";
+import { classroomSelectorCycle } from "@/lib/classroom/engagement";
 
 const ONLINE_WINDOW_MS = 45_000;
 
@@ -169,6 +173,8 @@ function publicMember(
     presence: string;
     onStage: boolean;
     stageState: string;
+    screenShareState: string;
+    screenShareRequestedAt: Date | null;
     microphoneAllowed: boolean;
     cameraAllowed: boolean;
     chatMuted: boolean;
@@ -177,6 +183,7 @@ function publicMember(
     lastSeenAt: Date;
   },
   now = Date.now(),
+  rewardCount = 0,
 ): ClassroomMemberSnapshot {
   const role: ClassroomRole =
     member.role === "teacher" || member.role === "assistant"
@@ -186,6 +193,11 @@ function publicMember(
     member.stageState === "invited" || member.stageState === "accepted"
       ? member.stageState
       : "offstage";
+  const screenShareState =
+    member.screenShareState === "requested" ||
+    member.screenShareState === "accepted"
+      ? member.screenShareState
+      : "idle";
   return {
     userId: member.userId,
     displayName: member.displayName || member.userId,
@@ -196,32 +208,49 @@ function publicMember(
       now - member.lastSeenAt.getTime() <= ONLINE_WINDOW_MS,
     onStage: member.onStage,
     stageState,
+    screenShareState,
+    screenShareRequestedAt:
+      member.screenShareRequestedAt?.toISOString() ?? null,
     microphoneAllowed: member.microphoneAllowed,
     cameraAllowed: member.cameraAllowed,
     chatMuted: member.chatMuted,
     whiteboardWritable: member.whiteboardWritable,
     handRaisedAt: member.handRaisedAt?.toISOString() ?? null,
+    rewardCount,
   };
 }
 
 export async function getClassroomRuntimeSnapshot(
   courseId: string,
   sessionId = courseId,
+  options: { ensure?: boolean } = {},
 ): Promise<ClassroomRuntimeSnapshot> {
-  await ensureClassroomRuntime(courseId, sessionId);
-  const runtime = await prisma.classroomRuntime.findUniqueOrThrow({
-    where: { sessionId },
-    include: {
-      members: {
-        orderBy: [
-          { role: "asc" },
-          { onStage: "desc" },
-          { handRaisedAt: "asc" },
-          { joinedAt: "asc" },
-        ],
+  if (options.ensure !== false) {
+    await ensureClassroomRuntime(courseId, sessionId);
+  }
+  const [runtime, rewardTotals] = await Promise.all([
+    prisma.classroomRuntime.findUniqueOrThrow({
+      where: { sessionId },
+      include: {
+        members: {
+          orderBy: [
+            { role: "asc" },
+            { onStage: "desc" },
+            { handRaisedAt: "asc" },
+            { joinedAt: "asc" },
+          ],
+        },
       },
-    },
-  });
+    }),
+    prisma.classroomRewardEvent.groupBy({
+      by: ["recipientId"],
+      where: { sessionId },
+      _sum: { points: true },
+    }),
+  ]);
+  const rewardCountByUserId = new Map(
+    rewardTotals.map((item) => [item.recipientId, item._sum.points ?? 0]),
+  );
   return {
     revision: runtime.revision,
     status:
@@ -252,12 +281,80 @@ export async function getClassroomRuntimeSnapshot(
       status:
         runtime.transcriptionStatus === "starting" ||
         runtime.transcriptionStatus === "running" ||
+        runtime.transcriptionStatus === "recovering" ||
+        runtime.transcriptionStatus === "stopping" ||
         runtime.transcriptionStatus === "failed"
           ? runtime.transcriptionStatus
           : "stopped",
       error: runtime.transcriptionError,
     },
-    members: runtime.members.map((member) => publicMember(member)),
+    members: runtime.members.map((member) =>
+      publicMember(member, Date.now(), rewardCountByUserId.get(member.userId) ?? 0),
+    ),
+  };
+}
+
+function engagementUserIds(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+export async function getClassroomEngagementSnapshot(
+  sessionId: string,
+): Promise<ClassroomEngagementSnapshot> {
+  const [buzz, selector] = await Promise.all([
+    prisma.classroomEngagementRound.findFirst({
+      where: { sessionId, kind: "buzz" },
+      orderBy: { createdAt: "desc" },
+      include: { _count: { select: { responses: true } } },
+    }),
+    prisma.classroomEngagementRound.findFirst({
+      where: { sessionId, kind: "selector", status: "active" },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+  const userIds = Array.from(
+    new Set(
+      [buzz?.winnerUserId, selector?.winnerUserId].filter(
+        (value): value is string => Boolean(value),
+      ),
+    ),
+  );
+  const members = userIds.length
+    ? await prisma.classroomMemberState.findMany({
+        where: { sessionId, userId: { in: userIds } },
+        select: { userId: true, displayName: true },
+      })
+    : [];
+  const nameByUserId = new Map(
+    members.map((member) => [member.userId, member.displayName || member.userId]),
+  );
+
+  return {
+    activeBuzz: buzz
+      ? {
+          id: buzz.id,
+          status: buzz.status === "active" ? "active" : "closed",
+          startedAt: buzz.startedAt.toISOString(),
+          winnerUserId: buzz.winnerUserId,
+          winnerName: buzz.winnerUserId
+            ? nameByUserId.get(buzz.winnerUserId) ?? buzz.winnerUserId
+            : null,
+          responseCount: buzz._count.responses,
+        }
+      : null,
+    selector: selector
+      ? {
+          id: selector.id,
+          selectedUserId: selector.winnerUserId,
+          selectedUserName: selector.winnerUserId
+            ? nameByUserId.get(selector.winnerUserId) ?? selector.winnerUserId
+            : null,
+          selectedUserIds: engagementUserIds(selector.resultUserIds),
+          startedAt: selector.startedAt.toISOString(),
+        }
+      : null,
   };
 }
 
@@ -356,16 +453,30 @@ export async function applyClassroomAction(input: {
   if (action.type === "raiseHand" && !mode.showHandRaise) {
     throw new ClassroomActionError("当前课堂模式无需举手", 409);
   }
+  const engagementAction =
+    action.type === "giveReward" ||
+    action.type === "startBuzz" ||
+    action.type === "submitBuzz" ||
+    action.type === "closeBuzz" ||
+    action.type === "startRandomSelector" ||
+    action.type === "resetRandomSelector";
+  if (engagementAction && mode.mode === "publicLive") {
+    throw new ClassroomActionError("公开直播不支持该互动工具", 409);
+  }
 
   await prisma.$transaction(async (tx) => {
     const runtime = await tx.classroomRuntime.findUniqueOrThrow({
       where: { sessionId },
     });
     if (
+      action.type !== "submitBuzz" &&
       input.expectedRevision !== undefined &&
       input.expectedRevision !== runtime.revision
     ) {
       throw new ClassroomRevisionConflictError(runtime.revision);
+    }
+    if (engagementAction && runtime.status !== "live") {
+      throw new ClassroomActionError("开始上课后才能使用互动工具", 409);
     }
 
     const actorWhere = {
@@ -401,17 +512,6 @@ export async function applyClassroomAction(input: {
         });
         return;
       }
-      case "endClass":
-        requireLeadTeacher(role);
-        await tx.courseSession.update({
-          where: { id: sessionId },
-          data: { status: CourseStatus.AFTER_CLASS, endedAt: new Date() },
-        });
-        await tx.classroomRuntime.update({
-          where: { id: runtime.id },
-          data: { status: "ended", revision: { increment: 1 } },
-        });
-        return;
       case "raiseHand":
         if (role !== "student") {
           throw new ClassroomActionError("教师无需举手", 409);
@@ -491,6 +591,92 @@ export async function applyClassroomAction(input: {
             microphoneAllowed: false,
             cameraAllowed: false,
             whiteboardWritable: false,
+            screenShareState: "idle",
+            screenShareRequestedAt: null,
+          },
+        });
+        break;
+      case "requestScreenShare": {
+        requireTeachingRole(role);
+        const target = await tx.classroomMemberState.findUnique({
+          where: {
+            sessionId_userId: {
+              sessionId,
+              userId: action.targetUserId,
+            },
+          },
+          select: { role: true },
+        });
+        if (!target || target.role !== "student") {
+          throw new ClassroomActionError("只能向当前课堂的学生发起共享请求", 409);
+        }
+        await tx.classroomMemberState.update({
+          where: {
+            sessionId_userId: {
+              sessionId,
+              userId: action.targetUserId,
+            },
+          },
+          data: {
+            screenShareState: "requested",
+            screenShareRequestedAt: new Date(),
+          },
+        });
+        break;
+      }
+      case "acceptScreenShare": {
+        if (role !== "student") {
+          throw new ClassroomActionError("只有学生需要处理共享请求", 409);
+        }
+        const member = await tx.classroomMemberState.findUniqueOrThrow({
+          where: actorWhere,
+        });
+        if (member.screenShareState !== "requested") {
+          throw new ClassroomActionError("屏幕共享请求已失效", 409);
+        }
+        if (!member.onStage) {
+          const stageCount = await tx.classroomMemberState.count({
+            where: { sessionId, role: "student", onStage: true },
+          });
+          if (stageCount >= mode.maxStageStudents) {
+            throw new ClassroomActionError("学生席位已满，暂时无法共享屏幕", 409);
+          }
+        }
+        await tx.classroomMemberState.update({
+          where: actorWhere,
+          data: {
+            screenShareState: "accepted",
+            stageState: "accepted",
+            onStage: true,
+            handRaisedAt: null,
+          },
+        });
+        break;
+      }
+      case "declineScreenShare":
+        if (role !== "student") {
+          throw new ClassroomActionError("只有学生需要处理共享请求", 409);
+        }
+        await tx.classroomMemberState.update({
+          where: actorWhere,
+          data: {
+            screenShareState: "idle",
+            screenShareRequestedAt: null,
+          },
+        });
+        break;
+      case "stopScreenShare":
+        requireTeachingRole(role);
+        await tx.classroomMemberState.update({
+          where: {
+            sessionId_userId: {
+              sessionId,
+              userId: action.targetUserId,
+            },
+          },
+          data: {
+            screenShareState: "idle",
+            screenShareRequestedAt: null,
           },
         });
         break;
@@ -630,6 +816,35 @@ export async function applyClassroomAction(input: {
           },
         });
         break;
+      case "pauseTimer": {
+        requireTeachingRole(role);
+        if (!runtime.timerStartedAt || !runtime.timerDurationSec) {
+          throw new ClassroomActionError("当前没有可暂停的计时器");
+        }
+        if (runtime.timerPausedAt) break;
+        const elapsedSeconds = Math.max(
+          0,
+          Math.floor((Date.now() - runtime.timerStartedAt.getTime()) / 1000),
+        );
+        await tx.classroomRuntime.update({
+          where: { id: runtime.id },
+          data: {
+            timerDurationSec: Math.max(0, runtime.timerDurationSec - elapsedSeconds),
+            timerPausedAt: new Date(),
+          },
+        });
+        break;
+      }
+      case "resumeTimer":
+        requireTeachingRole(role);
+        if (!runtime.timerStartedAt || !runtime.timerDurationSec) {
+          throw new ClassroomActionError("当前没有可继续的计时器");
+        }
+        await tx.classroomRuntime.update({
+          where: { id: runtime.id },
+          data: { timerStartedAt: new Date(), timerPausedAt: null },
+        });
+        break;
       case "resetTimer":
         requireTeachingRole(role);
         await tx.classroomRuntime.update({
@@ -639,6 +854,167 @@ export async function applyClassroomAction(input: {
             timerDurationSec: null,
             timerPausedAt: null,
           },
+        });
+        break;
+      case "giveReward": {
+        requireTeachingRole(role);
+        const requestedTargetUserIds = Array.isArray(action.targetUserIds)
+          ? action.targetUserIds
+          : [];
+        const targetUserIds = Array.from(
+          new Set(
+            requestedTargetUserIds.filter(
+              (userId): userId is string =>
+                typeof userId === "string" && Boolean(userId.trim()),
+            ),
+          ),
+        ).slice(0, mode.maxStageStudents + 1);
+        if (targetUserIds.length === 0) {
+          throw new ClassroomActionError("请选择要奖励的学生");
+        }
+        const targets = await tx.classroomMemberState.findMany({
+          where: { sessionId, userId: { in: targetUserIds }, role: "student" },
+          select: { userId: true },
+        });
+        if (targets.length !== targetUserIds.length) {
+          throw new ClassroomActionError("奖励对象已不在当前课堂", 409);
+        }
+        await tx.classroomRewardEvent.createMany({
+          data: targets.map((target) => ({
+            runtimeId: runtime.id,
+            courseId,
+            sessionId,
+            giverId: session.userId,
+            recipientId: target.userId,
+            points: 1,
+          })),
+        });
+        break;
+      }
+      case "startBuzz":
+        requireTeachingRole(role);
+        await tx.classroomEngagementRound.updateMany({
+          where: { sessionId, kind: "buzz", status: "active" },
+          data: { status: "closed", endedAt: new Date() },
+        });
+        await tx.classroomEngagementRound.create({
+          data: {
+            runtimeId: runtime.id,
+            courseId,
+            sessionId,
+            kind: "buzz",
+            startedById: session.userId,
+          },
+        });
+        break;
+      case "submitBuzz": {
+        if (role !== "student") {
+          throw new ClassroomActionError("只有学生可以参与抢答", 409);
+        }
+        const round = await tx.classroomEngagementRound.findFirst({
+          where: { sessionId, kind: "buzz", status: "active" },
+          orderBy: { createdAt: "desc" },
+        });
+        if (!round) {
+          throw new ClassroomActionError("当前没有进行中的抢答", 409);
+        }
+        const existing = await tx.classroomEngagementResponse.findUnique({
+          where: { roundId_userId: { roundId: round.id, userId: session.userId } },
+        });
+        if (existing) break;
+        const claimed = await tx.classroomEngagementRound.updateMany({
+          where: { id: round.id, status: "active", winnerUserId: null },
+          data: {
+            winnerUserId: session.userId,
+            status: "closed",
+            endedAt: new Date(),
+          },
+        });
+        await tx.classroomEngagementResponse.createMany({
+          data: [{
+            roundId: round.id,
+            sessionId,
+            userId: session.userId,
+            isWinner: claimed.count === 1,
+          }],
+          skipDuplicates: true,
+        });
+        break;
+      }
+      case "closeBuzz":
+        requireTeachingRole(role);
+        await tx.classroomEngagementRound.updateMany({
+          where: { sessionId, kind: "buzz", status: "active" },
+          data: { status: "closed", endedAt: new Date() },
+        });
+        break;
+      case "startRandomSelector": {
+        requireTeachingRole(role);
+        const onlineSince = new Date(Date.now() - ONLINE_WINDOW_MS);
+        const candidates = await tx.classroomMemberState.findMany({
+          where: {
+            sessionId,
+            role: "student",
+            presence: "online",
+            lastSeenAt: { gte: onlineSince },
+          },
+          select: { userId: true },
+          orderBy: { joinedAt: "asc" },
+        });
+        if (candidates.length === 0) {
+          throw new ClassroomActionError("当前没有在线学生可供点名", 409);
+        }
+        let selector = await tx.classroomEngagementRound.findFirst({
+          where: { sessionId, kind: "selector", status: "active" },
+          orderBy: { createdAt: "desc" },
+        });
+        const previousSelectedIds = selector
+          ? engagementUserIds(selector.resultUserIds)
+          : [];
+        const cycle = classroomSelectorCycle(
+          candidates.map((candidate) => candidate.userId),
+          previousSelectedIds,
+        );
+        if (cycle.restarted && selector) {
+          await tx.classroomEngagementRound.update({
+            where: { id: selector.id },
+            data: { status: "closed", endedAt: new Date() },
+          });
+          selector = null;
+        }
+        const selectedUserId =
+          cycle.availableUserIds[randomInt(cycle.availableUserIds.length)];
+        if (!selectedUserId) {
+          throw new ClassroomActionError("随机点名失败，请重试", 409);
+        }
+        if (selector) {
+          await tx.classroomEngagementRound.update({
+            where: { id: selector.id },
+            data: {
+              winnerUserId: selectedUserId,
+              resultUserIds: [...cycle.selectedUserIds, selectedUserId],
+            },
+          });
+        } else {
+          await tx.classroomEngagementRound.create({
+            data: {
+              runtimeId: runtime.id,
+              courseId,
+              sessionId,
+              kind: "selector",
+              startedById: session.userId,
+              winnerUserId: selectedUserId,
+              resultUserIds: [selectedUserId],
+            },
+          });
+        }
+        break;
+      }
+      case "resetRandomSelector":
+        requireTeachingRole(role);
+        await tx.classroomEngagementRound.updateMany({
+          where: { sessionId, kind: "selector", status: "active" },
+          data: { status: "closed", endedAt: new Date() },
         });
         break;
     }

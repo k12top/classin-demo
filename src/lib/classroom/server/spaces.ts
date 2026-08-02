@@ -44,6 +44,14 @@ type SpaceRecord = {
   members: SpaceMemberRecord[];
 };
 
+// Breakout actions often coincide with a classroom state refresh. Give the
+// controlled database pool a short window to hand over a connection instead
+// of failing immediately with Prisma's default interactive-transaction wait.
+const SPACE_TRANSACTION_OPTIONS = {
+  maxWait: 8_000,
+  timeout: 20_000,
+} as const;
+
 function breakoutChannelName(sessionId: string, position: number): string {
   const courseDigest = createHash("sha256")
     .update(sessionId)
@@ -197,7 +205,7 @@ export async function ensureClassroomSpaceAssignment(input: {
       where: { sessionId },
       data: { revision: { increment: 1 } },
     }),
-  ]);
+  ], SPACE_TRANSACTION_OPTIONS);
   return target.space.id;
 }
 
@@ -278,7 +286,7 @@ export async function createClassroomBreakouts(input: {
       data: { revision: { increment: existing.length === 0 ? 1 : 0 } },
       select: { revision: true },
     });
-  });
+  }, SPACE_TRANSACTION_OPTIONS);
 
   return {
     spaces: await getClassroomSpaces({
@@ -375,7 +383,7 @@ export async function autoAssignClassroomSpaces(input: {
       where: { sessionId },
       data: { revision: { increment: 1 } },
     });
-  });
+  }, SPACE_TRANSACTION_OPTIONS);
   return {
     spaces: await getClassroomSpaces({
       courseId: input.courseId,
@@ -444,7 +452,7 @@ export async function assignClassroomSpaceMember(input: {
       where: { sessionId },
       data: { revision: { increment: 1 } },
     });
-  });
+  }, SPACE_TRANSACTION_OPTIONS);
   return getClassroomSpaces({
     courseId: input.courseId,
     sessionId,
@@ -564,7 +572,7 @@ export async function deleteClassroomBreakouts(input: {
       where: { sessionId },
       data: { revision: { increment: 1 } },
     }),
-  ]);
+  ], SPACE_TRANSACTION_OPTIONS);
 }
 
 export async function getClassroomSpaceCredentialAccess(input: {

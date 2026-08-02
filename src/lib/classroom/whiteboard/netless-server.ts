@@ -9,7 +9,7 @@ import { ensureClassroomRuntime } from "@/lib/classroom/server/runtime";
 import { prisma } from "@/lib/db";
 
 const API_BASE = "https://api.netless.link/v5";
-const REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 5_000;
 const TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
 const VALID_REGIONS = new Set(["cn-hz", "us-sv", "sg", "in-mum", "eu"]);
 
@@ -69,8 +69,12 @@ async function requestNetless(
   return payload;
 }
 
-async function ensureRoom(courseId: string, config: NetlessConfig) {
-  const runtime = await ensureClassroomRuntime(courseId);
+async function ensureRoom(
+  courseId: string,
+  sessionId: string,
+  config: NetlessConfig,
+) {
+  const runtime = await ensureClassroomRuntime(courseId, sessionId);
   if (runtime.whiteboardRoomUuid) return runtime.whiteboardRoomUuid;
 
   const created = (await requestNetless(
@@ -78,7 +82,7 @@ async function ensureRoom(courseId: string, config: NetlessConfig) {
     {
       method: "POST",
       body: JSON.stringify({
-        name: `classroom-${courseId}`,
+        name: `classroom-${sessionId}`,
         isRecord: true,
         limit: 0,
       }),
@@ -124,7 +128,11 @@ export class NetlessWhiteboardProvider
     }
 
     try {
-      const roomUuid = await ensureRoom(input.courseId, config);
+      const roomUuid = await ensureRoom(
+        input.courseId,
+        input.sessionId,
+        config,
+      );
       const writable =
         input.role === "teacher" ||
         input.role === "assistant" ||
@@ -155,6 +163,7 @@ export class NetlessWhiteboardProvider
     } catch (error) {
       console.error("[classroom:whiteboard] credential failed", {
         courseId: input.courseId,
+        sessionId: input.sessionId,
         message: error instanceof Error ? error.message : String(error),
       });
       return {

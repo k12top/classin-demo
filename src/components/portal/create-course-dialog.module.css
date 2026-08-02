@@ -1,4 +1,8 @@
 .dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   width: min(1080px, calc(100vw - 32px)) !important;
   max-width: none !important;
   height: min(860px, calc(100svh - 32px));
@@ -36,6 +40,63 @@
 .dialog > button:hover {
   color: #15171c;
   transform: rotate(4deg);
+}
+
+.dialog.isSubmitting > button {
+  pointer-events: none;
+  opacity: 0.34;
+}
+
+.submittingOverlay {
+  position: absolute;
+  z-index: 12;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  padding: 32px;
+  background: rgba(9, 10, 13, 0.72);
+  color: #f4f6f8;
+  text-align: center;
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+}
+
+.submittingOverlay strong {
+  margin-top: 15px;
+  font-size: 16px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+}
+
+.submittingOverlay p {
+  max-width: 310px;
+  margin: 7px 0 0;
+  color: #a7afbd;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.submittingOrb {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid rgba(167, 158, 255, 0.42);
+  border-radius: 16px;
+  color: #c8c1ff;
+  background: rgba(123, 111, 242, 0.2);
+  box-shadow: 0 0 0 9px rgba(123, 111, 242, 0.08);
+}
+
+.submittingOrb svg {
+  width: 21px;
+  height: 21px;
+  animation: submitSpin 900ms linear infinite;
+}
+
+@keyframes submitSpin {
+  to { transform: rotate(360deg); }
 }
 
 .preview {

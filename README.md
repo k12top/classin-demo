@@ -97,6 +97,8 @@ CLASSROOM_RECORDING_PROVIDER=agora
 CLASSROOM_UI_VERSION=v3
 # Used only when CLASSROOM_UI_VERSION=rollout.
 CLASSROOM_V3_ROLLOUT_PERCENT=0
+# classin (default) or legacy; this only changes the V3 classroom layout.
+CLASSROOM_V3_LAYOUT=classin
 
 AGORA_APP_ID=your-agora-app-id
 AGORA_APP_CERTIFICATE=your-agora-app-certificate
@@ -105,10 +107,21 @@ AGORA_REST_CUSTOMER_SECRET=your-agora-rest-customer-secret
 
 # Numeric Agora Cloud Recording storage-region ID for Alibaba Cloud OSS.
 # This is not the OSS endpoint string such as oss-ap-southeast-1.
-AGORA_RECORDING_STORAGE_REGION=your-numeric-region-id
+AGORA_RECORDING_STORAGE_REGION=10
+AGORA_RECORDING_API_REGION=ap
+AGORA_RECORDING_REGION_AFFINITY=2
+AGORA_RECORDING_STORAGE_ENDPOINT=https://your-bucket.oss-ap-southeast-1.aliyuncs.com
+AGORA_RECORDING_WEBHOOK_SECRET=use-the-secret-configured-in-agora-ncs
 # Optional defaults:
 AGORA_RECORDING_MAX_IDLE_SECONDS=300
 AGORA_RECORDING_PREFIX=recordings
+
+# Server-side PostgreSQL pool. Keep this deliberately small for remote or
+# serverless deployments and place PgBouncer in front of PostgreSQL at scale.
+DATABASE_POOL_MAX=3
+DATABASE_CONNECT_TIMEOUT_MS=3000
+DATABASE_IDLE_TIMEOUT_MS=300000
+DATABASE_READ_RETRIES=1
 
 # Live captions. Shengwang ASR is used for speech recognition in both modes.
 AGORA_STT_ENABLED=true
@@ -142,7 +155,11 @@ NEXT_PUBLIC_CLASSROOM_VIDEO_PRESET=hd
 Cloud recording reuses the private Alibaba Cloud OSS bucket and credentials
 from the courseware section. The RAM policy must also allow read/write access
 to `recordings/*`. Agora's REST customer credentials are different from the
-App ID/App Certificate and are created in the Agora console.
+App ID/App Certificate and are created in the Agora console. Alibaba Cloud
+Singapore (`oss-ap-southeast-1`) must use Agora storage region `10`; startup
+validation rejects a known mismatched numeric region before recording begins.
+Configure Agora NCS to post recording events to
+`/api/webhooks/agora/recording` and use the same webhook secret on both sides.
 
 `WORDLY_INTERNAL_TOKEN` must exactly match the Wordly service's
 `BRIDGE_INTERNAL_TOKEN`. `AGORA_STT_ENABLED=false` disables live captions

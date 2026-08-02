@@ -128,11 +128,14 @@ export type ClassroomMemberSnapshot = {
   online: boolean;
   onStage: boolean;
   stageState: "offstage" | "invited" | "accepted";
+  screenShareState: "idle" | "requested" | "accepted";
+  screenShareRequestedAt: string | null;
   microphoneAllowed: boolean;
   cameraAllowed: boolean;
   chatMuted: boolean;
   whiteboardWritable: boolean;
   handRaisedAt: string | null;
+  rewardCount: number;
 };
 
 export type ClassroomMessageSnapshot = {
@@ -218,6 +221,27 @@ export type ClassroomCapabilities = {
   canManageWhiteboard: boolean;
   canManageInterpretation: boolean;
   canShareScreen: boolean;
+  canGiveReward: boolean;
+  canRunEngagement: boolean;
+  canParticipateInEngagement: boolean;
+};
+
+export type ClassroomEngagementSnapshot = {
+  activeBuzz: {
+    id: string;
+    status: "active" | "closed";
+    startedAt: string;
+    winnerUserId: string | null;
+    winnerName: string | null;
+    responseCount: number;
+  } | null;
+  selector: {
+    id: string;
+    selectedUserId: string | null;
+    selectedUserName: string | null;
+    selectedUserIds: string[];
+    startedAt: string;
+  } | null;
 };
 
 export type ClassroomRuntimeSnapshot = {
@@ -238,7 +262,13 @@ export type ClassroomRuntimeSnapshot = {
     provider: "shengwang" | "wordly";
     sourceLanguage: string;
     targetLanguages: string[];
-    status: "stopped" | "starting" | "running" | "failed";
+    status:
+      | "stopped"
+      | "starting"
+      | "running"
+      | "recovering"
+      | "stopping"
+      | "failed";
     error: string | null;
   };
   members: ClassroomMemberSnapshot[];
@@ -280,6 +310,7 @@ export type ClassroomSessionResponse = {
     status: string;
   };
   runtime: ClassroomRuntimeSnapshot;
+  engagement: ClassroomEngagementSnapshot;
   capabilities: ClassroomCapabilities;
   signaling: ClassroomSignalingCredential | null;
   whiteboard: ClassroomWhiteboardCredential;
@@ -288,6 +319,10 @@ export type ClassroomSessionResponse = {
   spaces: ClassroomSpaceSnapshot[];
   questions: ClassroomQuestionSnapshot[];
   captions: ClassroomCaptionSnapshot[];
+  interpretationAvailability: {
+    shengwang: boolean;
+    wordly: boolean;
+  };
   recording: {
     enabled: boolean;
     status: string | null;
@@ -309,13 +344,16 @@ export function credentialCanPublish(
 export type ClassroomAction =
   | { type: "heartbeat" }
   | { type: "startClass" }
-  | { type: "endClass" }
   | { type: "raiseHand" }
   | { type: "lowerHand" }
   | { type: "inviteStage"; targetUserId: string }
   | { type: "acceptStage" }
   | { type: "declineStage" }
   | { type: "removeStage"; targetUserId: string }
+  | { type: "requestScreenShare"; targetUserId: string }
+  | { type: "acceptScreenShare" }
+  | { type: "declineScreenShare" }
+  | { type: "stopScreenShare"; targetUserId: string }
   | { type: "setMemberMuted"; targetUserId: string; muted: boolean }
   | {
       type: "setMediaAllowed";
@@ -345,7 +383,15 @@ export type ClassroomAction =
       targetLanguages: string[];
     }
   | { type: "startTimer"; durationSec: number }
-  | { type: "resetTimer" };
+  | { type: "pauseTimer" }
+  | { type: "resumeTimer" }
+  | { type: "resetTimer" }
+  | { type: "giveReward"; targetUserIds: string[] }
+  | { type: "startBuzz" }
+  | { type: "submitBuzz" }
+  | { type: "closeBuzz" }
+  | { type: "startRandomSelector" }
+  | { type: "resetRandomSelector" };
 
 export function isClassroomRole(value: unknown): value is ClassroomRole {
   return value === "teacher" || value === "assistant" || value === "student";

@@ -6,6 +6,13 @@ import {
   buildAgoraSttJoinPayload,
   buildAgoraSttUpdatePayload,
 } from "@/lib/classroom/transcription/agora-stt-payload";
+import {
+  normalizeAgoraTranscriptionStatus,
+  type AgoraTranscriptionStatus,
+} from "@/lib/classroom/transcription/agora-stt-status";
+
+export { normalizeAgoraTranscriptionStatus };
+export type { AgoraTranscriptionStatus };
 
 const REQUEST_TIMEOUT_MS = 20_000;
 
@@ -165,7 +172,20 @@ export async function startAgoraTranscription(input: AgoraTranscriptionInput) {
         ? result.taskId
         : "";
   if (!agentId) throw new Error("Shengwang ASR response is missing agent_id");
-  return { agentId, publisherUid: String(publisherUid) };
+  let status = normalizeAgoraTranscriptionStatus(result);
+  if (status === "unknown") {
+    status = normalizeAgoraTranscriptionStatus(
+      await queryAgoraTranscription(agentId),
+    );
+  }
+  if (["failed", "stopped", "stopping"].includes(status)) {
+    throw new Error(`Shengwang ASR agent entered ${status} during startup`);
+  }
+  return {
+    agentId,
+    publisherUid: String(publisherUid),
+    status: status === "unknown" ? "starting" : status,
+  };
 }
 
 export async function queryAgoraTranscription(agentId: string) {

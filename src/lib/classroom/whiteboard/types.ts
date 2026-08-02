@@ -5,6 +5,7 @@ import type {
 
 export type WhiteboardJoinInput = {
   courseId: string;
+  sessionId: string;
   userId: string;
   role: ClassroomRole;
   writable: boolean;

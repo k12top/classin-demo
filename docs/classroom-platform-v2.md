@@ -76,9 +76,19 @@ AGORA_REST_CUSTOMER_ID=
 AGORA_REST_CUSTOMER_SECRET=
 
 # 声网云录制 storageConfig 的数字区域 ID；不要直接填 oss-ap-southeast-1。
-AGORA_RECORDING_STORAGE_REGION=
+AGORA_RECORDING_STORAGE_REGION=10
+AGORA_RECORDING_API_REGION=ap
+AGORA_RECORDING_REGION_AFFINITY=2
+AGORA_RECORDING_STORAGE_ENDPOINT=https://your-bucket.oss-ap-southeast-1.aliyuncs.com
+AGORA_RECORDING_WEBHOOK_SECRET=
 AGORA_RECORDING_MAX_IDLE_SECONDS=300
 AGORA_RECORDING_PREFIX=recordings
+
+# 服务端数据库连接池
+DATABASE_POOL_MAX=3
+DATABASE_CONNECT_TIMEOUT_MS=3000
+DATABASE_IDLE_TIMEOUT_MS=30000
+DATABASE_READ_RETRIES=1
 
 # 课堂实时转写（声网 ASR）
 AGORA_STT_ENABLED=true
@@ -97,7 +107,7 @@ ALIYUN_OSS_ACCESS_KEY_ID=
 ALIYUN_OSS_ACCESS_KEY_SECRET=
 ```
 
-`AGORA_RECORDING_STORAGE_REGION` 必须按声网“第三方云存储地区说明”配置，供应商不同，数字映射也不同。
+`AGORA_RECORDING_STORAGE_REGION` 必须按声网“第三方云存储地区说明”配置，供应商不同，数字映射也不同。阿里云新加坡 `oss-ap-southeast-1` 对应声网区域值 `10`，不是上海的 `1`。声网 NCS 回调地址配置为 `/api/webhooks/agora/recording`，回调密钥必须与 `AGORA_RECORDING_WEBHOOK_SECRET` 一致。
 声网与 Wordly 两种同传模式都使用声网 ASR；声网模式单堂课最多配置 10
 个目标语言，Wordly 模式只把最终句发送到 Bridge。ASR 或翻译失败只影响字幕，
 不会阻止教师和学生进入课堂。
@@ -117,14 +127,16 @@ ALIYUN_OSS_ACCESS_KEY_SECRET=
 | 互动白板 | WhiteboardProvider | 第二阶段 |
 | 课件下载 | 现有 OSS 课件库 | 保留 |
 | 课件上白板 | PPT 转码 + WhiteboardProvider | 可选 |
-| 课堂测验、计时器 | 平台 Widget 接口 | 第三阶段 |
+| 抢答、随机选人、课堂奖励 | 平台互动事件 + SignalingProvider | 第二阶段 |
+| 课堂计时器 | 平台 Widget 接口 | 第二阶段 |
+| 课堂测验 | 平台 Widget 接口 | 第三阶段 |
 | 录制布局动态切换 | RecordingProvider.updateLayout | 第三阶段 |
 
 ## UI 方向
 
-课堂使用“教学控制台”而不是会议软件模板：主舞台承担屏幕/主讲内容，右侧是一条可折叠成员胶片，底部是一条明确的授课控制轨。深墨蓝背景、冷白内容面和紫色课堂状态光带延续现有品牌；唯一强调元素是舞台顶部的“课堂脉冲线”，只表达连接、发言和录制状态，不增加无意义装饰。
+课堂使用“教学控制台”而不是会议软件模板：互动课堂以中央黑板为默认工作区，教师与上台学生横向排列在顶部席位，右侧纵向工具栏集中白板、共享、课件、成员、聊天和互动工具。桌面端不再保留会议式底部工具坞，自己的麦克风和摄像头控制直接位于席位下方；共享屏幕或教师聚焦成员时才替换中央黑板。
 
-移动端把成员胶片变为底部横向列表，控制条允许水平滚动；所有控制有文本标签、键盘焦点和明确错误反馈。
+移动端保留顶部横向席位，并将高频控制放入可水平滚动的底部工具坞；右侧面板改为底部抽屉。所有控制有文本标签、键盘焦点和明确错误反馈。`CLASSROOM_V3_LAYOUT=legacy` 可只回退布局而不回退课堂协议和互动数据。
 
 ## 迁移与回退
 

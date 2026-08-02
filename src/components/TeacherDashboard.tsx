@@ -336,6 +336,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const handleEnterClassroomFromList = async (course: Course) => {
     if (!canEnterClassroom(course.status)) return;
     setEnteringCourseId(course.id);
+    let navigating = false;
     try {
       const res = await fetch(`/api/courses/${course.id}/verify-access`, {
         credentials: "same-origin",
@@ -350,10 +351,11 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         return;
       }
       router.push(data.classroomUrl);
+      navigating = true;
     } catch {
       notify(t("classroom.launchError"), "error");
     } finally {
-      setEnteringCourseId(null);
+      if (!navigating) setEnteringCourseId(null);
     }
   };
 
@@ -525,10 +527,14 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     createLockRef.current = true;
     setCreateLoading(true);
     setCreateError("");
+    let navigating = false;
     try {
       const res = await fetch("/api/courses", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": crypto.randomUUID(),
+        },
         body: JSON.stringify({
           name: createName,
           description: createDesc,
@@ -547,15 +553,17 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         throw new Error(data.error || t("common.failed"));
       }
       const { course } = await res.json();
-      setCreateOpen(false);
       setCreateName(""); setCreateDesc(""); setCreateKind("series"); setCreateStartTime(defaultCourseStartValue()); setCreateDuration(60); setCreateRoomType(0); setCreateRequirePasscode(true); setCreatePasscode("");
       resetCreateTeacherSelection();
       router.push(`/courses/${course.id}`);
+      navigating = true;
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : t("common.failed"));
     } finally {
-      createLockRef.current = false;
-      setCreateLoading(false);
+      if (!navigating) {
+        createLockRef.current = false;
+        setCreateLoading(false);
+      }
     }
   };
 
@@ -1202,8 +1210,23 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         )}
 
         {/* ──── Create Course Dialog ──── */}
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogContent className={createCourseStyles.dialog}>
+        <Dialog
+          open={createOpen}
+          onOpenChange={(open) => {
+            if (!createLoading) setCreateOpen(open);
+          }}
+        >
+          <DialogContent
+            className={`${createCourseStyles.dialog} ${
+              createLoading ? createCourseStyles.isSubmitting : ""
+            }`}
+            onEscapeKeyDown={(event) => {
+              if (createLoading) event.preventDefault();
+            }}
+            onPointerDownOutside={(event) => {
+              if (createLoading) event.preventDefault();
+            }}
+          >
             <aside className={createCourseStyles.preview} aria-label={t("teacherDashboard.coursePreview")}>
               <span className={createCourseStyles.previewGlow} aria-hidden="true" />
               <div className={createCourseStyles.previewContent}>
@@ -1724,7 +1747,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 )}
               </p>
               <div className={createCourseStyles.footerActions}>
-                <Button variant="ghost" className="rounded-xl text-xs" onClick={() => setCreateOpen(false)}>{t("common.cancel")}</Button>
+                <Button variant="ghost" className="rounded-xl text-xs" disabled={createLoading} onClick={() => setCreateOpen(false)}>{t("common.cancel")}</Button>
                 <Button
                   className={createCourseStyles.createButton}
                   onClick={handleCreateCourse}
@@ -1748,6 +1771,25 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 </Button>
               </div>
             </DialogFooter>
+            {createLoading ? (
+              <div
+                className={createCourseStyles.submittingOverlay}
+                role="status"
+                aria-live="polite"
+              >
+                <span className={createCourseStyles.submittingOrb}>
+                  <Loader2 aria-hidden="true" />
+                </span>
+                <strong>{t("common.submitting")}</strong>
+                <p>
+                  {t(
+                    createKind === "series"
+                      ? "teacherDashboard.courseGroupAfterCreateHint"
+                      : "teacherDashboard.standaloneAfterCreateHint",
+                  )}
+                </p>
+              </div>
+            ) : null}
           </DialogContent>
         </Dialog>
       </main>

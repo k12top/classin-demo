@@ -61,7 +61,10 @@
         "canManageChat": { "type": "boolean" },
         "canManageWhiteboard": { "type": "boolean" },
         "canManageInterpretation": { "type": "boolean" },
-        "canShareScreen": { "type": "boolean" }
+        "canShareScreen": { "type": "boolean" },
+        "canGiveReward": { "type": "boolean" },
+        "canRunEngagement": { "type": "boolean" },
+        "canParticipateInEngagement": { "type": "boolean" }
       },
       "additionalProperties": false
     },
@@ -85,7 +88,7 @@
     },
     "member": {
       "type": "object",
-      "required": ["userId", "displayName", "avatar", "role", "online", "onStage", "stageState", "microphoneAllowed", "cameraAllowed", "chatMuted", "whiteboardWritable", "handRaisedAt"],
+      "required": ["userId", "displayName", "avatar", "role", "online", "onStage", "stageState", "screenShareState", "screenShareRequestedAt", "microphoneAllowed", "cameraAllowed", "chatMuted", "whiteboardWritable", "handRaisedAt"],
       "properties": {
         "userId": { "type": "string" },
         "displayName": { "type": "string" },
@@ -94,11 +97,14 @@
         "online": { "type": "boolean" },
         "onStage": { "type": "boolean" },
         "stageState": { "enum": ["offstage", "invited", "accepted"] },
+        "screenShareState": { "enum": ["idle", "requested", "accepted"] },
+        "screenShareRequestedAt": { "type": ["string", "null"], "format": "date-time" },
         "microphoneAllowed": { "type": "boolean" },
         "cameraAllowed": { "type": "boolean" },
         "chatMuted": { "type": "boolean" },
         "whiteboardWritable": { "type": "boolean" },
-        "handRaisedAt": { "type": ["string", "null"], "format": "date-time" }
+        "handRaisedAt": { "type": ["string", "null"], "format": "date-time" },
+        "rewardCount": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": false
     },
@@ -115,12 +121,21 @@
       },
       "additionalProperties": false
     },
+    "engagement": {
+      "type": "object",
+      "required": ["activeBuzz", "selector"],
+      "properties": {
+        "activeBuzz": { "type": ["object", "null"] },
+        "selector": { "type": ["object", "null"] }
+      },
+      "additionalProperties": false
+    },
     "action": {
       "type": "object",
       "required": ["type"],
       "properties": {
         "type": {
-          "enum": ["heartbeat", "startClass", "endClass", "raiseHand", "lowerHand", "inviteStage", "acceptStage", "declineStage", "removeStage", "setMemberMuted", "setMediaAllowed", "muteAll", "setWhiteboardWritable", "setSpotlight", "setStage", "setChatEnabled", "setInterpretation", "startTimer", "resetTimer"]
+          "enum": ["heartbeat", "startClass", "raiseHand", "lowerHand", "inviteStage", "acceptStage", "declineStage", "removeStage", "requestScreenShare", "acceptScreenShare", "declineScreenShare", "stopScreenShare", "setMemberMuted", "setMediaAllowed", "muteAll", "setWhiteboardWritable", "setSpotlight", "setStage", "setChatEnabled", "setInterpretation", "startTimer", "pauseTimer", "resumeTimer", "resetTimer", "giveReward", "startBuzz", "submitBuzz", "closeBuzz", "startRandomSelector", "resetRandomSelector"]
         }
       },
       "additionalProperties": true
@@ -163,6 +178,7 @@
           }
         },
         "runtime": { "$ref": "#/$defs/runtime" },
+        "engagement": { "$ref": "#/$defs/engagement" },
         "capabilities": { "$ref": "#/$defs/capabilities" },
         "signaling": { "type": ["object", "null"] },
         "whiteboard": { "type": "object" },
@@ -192,7 +208,7 @@
         "version": { "const": 1 },
         "sessionId": { "type": "string", "minLength": 1 },
         "revision": { "type": "integer", "minimum": 0 },
-        "topic": { "enum": ["runtime.changed", "message.created", "caption.created", "space.changed", "question.changed"] }
+        "topic": { "enum": ["runtime.changed", "message.created", "caption.created", "space.changed", "question.changed", "engagement.changed"] }
       },
       "additionalProperties": false
     }

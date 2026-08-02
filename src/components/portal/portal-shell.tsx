@@ -71,13 +71,21 @@ export function PortalShell({
 }: PortalShellProps) {
   const { t, locale } = useTranslation();
   const copy = portalCopy(t);
-  const [now, setNow] = useState(() => new Date());
+  // Keep the first server and client render identical; start the live clock
+  // only after hydration so a minute boundary cannot force a full remount.
+  const [now, setNow] = useState<Date | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Schedule the first client-only clock update after hydration. Keeping the
+    // initial render empty prevents a server/client minute-boundary mismatch.
+    const firstTick = window.setTimeout(() => setNow(new Date()), 0);
     const timer = window.setInterval(() => setNow(new Date()), 30_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearTimeout(firstTick);
+      window.clearInterval(timer);
+    };
   }, []);
 
   const navItems = useMemo(() => {
@@ -215,18 +223,22 @@ export function PortalShell({
           <div className={styles.utility}>
             <span className={styles.clock}>
               <strong>
-                {new Intl.DateTimeFormat(locale, {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  hour12: false,
-                }).format(now)}
+                {now
+                  ? new Intl.DateTimeFormat(locale, {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: false,
+                    }).format(now)
+                  : "--:--"}
               </strong>
               <small>
-                {new Intl.DateTimeFormat(locale, {
-                  month: "short",
-                  day: "numeric",
-                  weekday: "short",
-                }).format(now)}
+                {now
+                  ? new Intl.DateTimeFormat(locale, {
+                      month: "short",
+                      day: "numeric",
+                      weekday: "short",
+                    }).format(now)
+                  : "—"}
               </small>
             </span>
             <div className={styles.account} ref={accountRef}>

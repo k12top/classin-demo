@@ -119,6 +119,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   const handleEnterClassroom = async () => {
     if (!course || !user) return;
     setEnterLoading(true);
+    let navigating = false;
 
     try {
       const res = await fetch(`/api/courses/${id}/verify-access`);
@@ -148,9 +149,11 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
         return;
       }
       router.push(data.classroomUrl);
+      navigating = true;
     } catch {
       setError("verify_failed");
-      setEnterLoading(false);
+    } finally {
+      if (!navigating) setEnterLoading(false);
     }
   };
 

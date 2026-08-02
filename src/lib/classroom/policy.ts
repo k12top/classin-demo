@@ -13,9 +13,12 @@ export function classroomCapabilities(
 ): ClassroomCapabilities {
   const teacher = role === "teacher";
   const teachingRole = teacher || role === "assistant";
+  const interactive = mode?.mode !== "publicLive";
   return {
     canStartClass: teacher,
-    canEndClass: teacher,
+    // Ending a lesson is an outer course-management action. The live room only
+    // exposes leave/cleanup, so no in-room role receives this capability.
+    canEndClass: false,
     canControlRecording: teacher,
     canManageStage: teachingRole,
     canManageMembers: teachingRole,
@@ -25,6 +28,9 @@ export function classroomCapabilities(
     canShareScreen:
       teachingRole ||
       (role === "student" && mode?.defaultStudentOnStage === true),
+    canGiveReward: teachingRole && interactive,
+    canRunEngagement: teachingRole && interactive,
+    canParticipateInEngagement: role === "student" && interactive,
   };
 }
 

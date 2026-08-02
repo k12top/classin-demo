@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
 import { listDirectoryUsers } from "@/lib/user-directory";
+import { withDatabaseReadRetry } from "@/lib/db";
+import { databaseUnavailableResponse } from "@/lib/database-response";
 
 export const dynamic = "force-dynamic";
 
@@ -20,12 +22,14 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const teachers = await listDirectoryUsers({
-      query: request.nextUrl.searchParams.get("q") || "",
-      role: "teacher",
-      excludeUserId: session.userId,
-      limit: Number(request.nextUrl.searchParams.get("limit") || 100),
-    });
+    const teachers = await withDatabaseReadRetry(() =>
+      listDirectoryUsers({
+        query: request.nextUrl.searchParams.get("q") || "",
+        role: "teacher",
+        excludeUserId: session.userId,
+        limit: Number(request.nextUrl.searchParams.get("limit") || 100),
+      }),
+    );
 
     return NextResponse.json(
       { teachers, users: teachers },
@@ -37,6 +41,8 @@ export async function GET(request: NextRequest) {
     );
   } catch (error) {
     console.error("Failed to list teachers:", error);
+    const unavailable = databaseUnavailableResponse(error);
+    if (unavailable) return unavailable;
     return NextResponse.json({ error: "Failed to list teachers" }, { status: 500 });
   }
 }

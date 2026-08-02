@@ -51,34 +51,61 @@ const TextMessage = root.lookupType("Agora.SpeechToText.Text");
 export function decodeClassroomSttCaption(
   payload: Uint8Array,
 ): ClassroomCaptionInput | null {
-  const raw = decodeProtobuf(payload) || decodeJson(payload);
-  if (!raw) return null;
-  const original = recordValue(raw.originalTranscript);
+  const decoded = decodeProtobuf(payload) || decodeJson(payload);
+  if (!decoded) return null;
+  const transcript = recordValue(decoded.transcript);
+  const translation = recordValue(decoded.translation);
+  const raw = translation || transcript || decoded;
+  const original = recordValue(
+    raw.originalTranscript || raw.original_transcript,
+  );
   const words = arrayValue(original?.words).length
     ? arrayValue(original?.words)
     : arrayValue(raw.words);
-  const text = wordsToText(words) || stringValue(raw.text);
+  const text =
+    wordsToText(words) ||
+    stringValue(original?.text) ||
+    stringValue(raw.text || raw.transcript);
   const translations = translationsFrom(raw);
   if (!text && !Object.keys(translations).length) return null;
   const speakerId = longString(raw.uid || raw.userId || raw.speakerId);
-  const occurredAtMs = timestampMillis(raw.textTs || raw.time || raw.timestamp);
-  const sequence = longString(raw.sentenceId || raw.textTs || raw.time);
+  const occurredAtMs = timestampMillis(
+    raw.textTs || raw.text_ts || raw.time || raw.timestamp,
+  );
+  const sequence = longString(
+    raw.sentenceId ||
+      raw.sentence_id ||
+      raw.textTs ||
+      raw.text_ts ||
+      raw.offset ||
+      raw.time,
+  );
   const sourceLanguage = stringValue(
-    raw.culture || original?.culture || raw.sourceLanguage,
+    raw.culture ||
+      raw.language ||
+      original?.culture ||
+      original?.language ||
+      raw.sourceLanguage ||
+      raw.source_language,
   );
   const flags = [
+    raw,
+    ...(original ? [original] : []),
     ...words,
     ...arrayValue(raw.trans),
+    ...translationResults(raw),
   ]
-    .map((item) => recordValue(item)?.isFinal)
+    .map((item) => {
+      const record = recordValue(item);
+      return record?.isFinal ?? record?.is_final;
+    })
     .filter((value): value is boolean => typeof value === "boolean");
   return {
-    id: [
-      "stt",
-      sequence || String(occurredAtMs),
-      speakerId,
-      stringValue(raw.dataType) || "text",
-    ].filter(Boolean).join("_"),
+    // sentence_id is shared by the transcribe and translate deliveries. Do
+    // not include data_type here or the two halves can never upsert together.
+    id: ["stt", sequence || String(occurredAtMs), speakerId]
+      .filter(Boolean)
+      .join("_"),
     text,
     sourceLanguage,
     detectedLanguage: sourceLanguage,
@@ -131,7 +158,28 @@ function translationsFrom(raw: Record<string, unknown>) {
       stringValue(translation?.text || translation?.content);
     if (language && text) translations[language] = text;
   }
+  for (const item of translationResults(raw)) {
+    const translation = recordValue(item);
+    const language = stringValue(
+      translation?.lang || translation?.language || translation?.target,
+    );
+    const text =
+      arrayValue(translation?.texts).map(stringValue).filter(Boolean).join("") ||
+      stringValue(translation?.text || translation?.content);
+    if (language && text) translations[language] = text;
+  }
   return translations;
+}
+
+function translationResults(raw: Record<string, unknown>) {
+  const results = [...arrayValue(raw.results)];
+  for (const [key, value] of Object.entries(raw)) {
+    if (/^results?\d+$/i.test(key)) {
+      if (Array.isArray(value)) results.push(...value);
+      else if (recordValue(value)) results.push(value);
+    }
+  }
+  return results;
 }
 
 function wordsToText(words: unknown[]) {

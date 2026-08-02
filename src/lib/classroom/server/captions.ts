@@ -74,7 +74,10 @@ export async function ingestClassroomCaption(
   });
   const externalId = input.id.trim().slice(0, 240);
   const text = input.text.trim().slice(0, 20_000);
-  if (!externalId || !text) throw new Error("Caption id and text are required");
+  const suppliedTranslations = translationsRecord(input.translations);
+  if (!externalId || (!text && !Object.keys(suppliedTranslations).length)) {
+    throw new Error("Caption id and content are required");
+  }
 
   return prisma.$transaction(
     async (transaction) => {
@@ -94,7 +97,8 @@ export async function ingestClassroomCaption(
       const existingTranslations = translationsRecord(
         existingCaption?.translations,
       );
-      const incomingTranslations = translationsRecord(input.translations);
+      const incomingTranslations = suppliedTranslations;
+      const effectiveText = text || existingCaption?.text || "";
       const wordlyTargets = normalizeTargetLanguages(
         runtime.targetLanguages,
         runtime.sourceLanguage,
@@ -111,7 +115,7 @@ export async function ingestClassroomCaption(
           existingText: existingCaption.text,
           existingTranslations,
           incomingIsFinal: input.isFinal,
-          incomingText: text,
+          incomingText: effectiveText,
           incomingTranslations,
           provider: wordlyFinal ? "wordly" : "shengwang",
           targetLanguages: wordlyTargets,
@@ -136,15 +140,23 @@ export async function ingestClassroomCaption(
       let normalized: ClassroomCaptionInput = {
         ...input,
         id: externalId,
-        text,
-        speakerId: input.speakerId.slice(0, 240),
+        text: effectiveText,
+        speakerId:
+          input.speakerId.slice(0, 240) || existingCaption?.speakerId || "",
         speakerName: (
           input.speakerName ||
           member?.displayName ||
+          existingCaption?.speakerName ||
           "Speaker"
         ).slice(0, 240),
-        sourceLanguage: input.sourceLanguage.slice(0, 32),
-        detectedLanguage: input.detectedLanguage.slice(0, 32),
+        sourceLanguage:
+          input.sourceLanguage.slice(0, 32) ||
+          existingCaption?.sourceLanguage ||
+          "",
+        detectedLanguage:
+          input.detectedLanguage.slice(0, 32) ||
+          existingCaption?.detectedLanguage ||
+          "",
         translations: {
           ...existingTranslations,
           ...incomingTranslations,
@@ -201,7 +213,7 @@ export async function ingestClassroomCaption(
           detectedLanguage: normalized.detectedLanguage,
           text: normalized.text,
           translations: normalized.translations,
-          isFinal: normalized.isFinal,
+          isFinal: normalized.isFinal || existingCaption?.isFinal || false,
           occurredAt: safeOccurredAt,
         },
         update: {
@@ -212,7 +224,7 @@ export async function ingestClassroomCaption(
           detectedLanguage: normalized.detectedLanguage,
           text: normalized.text,
           translations: normalized.translations,
-          isFinal: normalized.isFinal,
+          isFinal: normalized.isFinal || existingCaption?.isFinal || false,
           occurredAt: safeOccurredAt,
         },
       });

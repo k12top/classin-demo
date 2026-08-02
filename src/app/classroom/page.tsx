@@ -32,6 +32,10 @@ function shouldUseV3(courseId: string): boolean {
   return stableRolloutBucket(courseId || "anonymous") < percentage;
 }
 
+function shouldUseClassinLayout(): boolean {
+  return (process.env.CLASSROOM_V3_LAYOUT || "classin").toLowerCase() !== "legacy";
+}
+
 export default async function ClassroomPage({
   searchParams,
 }: ClassroomPageProps) {
@@ -42,7 +46,7 @@ export default async function ClassroomPage({
 
   return (
     <Suspense fallback={<ClassroomLoading />}>
-      <ClassroomV3 />
+      <ClassroomV3 classinLayout={shouldUseClassinLayout()} />
     </Suspense>
   );
 }

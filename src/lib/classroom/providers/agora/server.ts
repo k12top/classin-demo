@@ -19,8 +19,11 @@ import type {
   RecordingStopResult,
 } from "@/lib/classroom/server/types";
 import type { ClassroomJoinCredential } from "@/lib/classroom/types";
+import {
+  expectedAgoraRecordingStorageRegion,
+  validateAgoraRecordingStorageRegion,
+} from "@/lib/classroom/recording-storage";
 
-const AGORA_RECORDING_API_BASE = "https://api.sd-rtn.com/v1/apps";
 const AGORA_ALIYUN_VENDOR_ID = 2;
 const AGORA_REQUEST_TIMEOUT_MS = 15_000;
 
@@ -149,17 +152,39 @@ function recordingConfiguration() {
     "AGORA_REST_CUSTOMER_ID",
     "AGORA_REST_CUSTOMER_SECRET",
     "AGORA_RECORDING_STORAGE_REGION",
+    "ALIYUN_OSS_REGION",
     "ALIYUN_OSS_BUCKET",
     "ALIYUN_OSS_ACCESS_KEY_ID",
     "ALIYUN_OSS_ACCESS_KEY_SECRET",
   ]);
 
+  const apiOrigin = (process.env.AGORA_API_BASE_URL || "https://api.sd-rtn.com")
+    .trim()
+    .replace(/\/+$/, "");
+  const apiRegion = (process.env.AGORA_RECORDING_API_REGION || "")
+    .trim()
+    .replace(/^\/+|\/+$/g, "");
+  const storageRegion = positiveIntegerEnv("AGORA_RECORDING_STORAGE_REGION");
+  if (!validateAgoraRecordingStorageRegion(env.ALIYUN_OSS_REGION, storageRegion)) {
+    const expected = expectedAgoraRecordingStorageRegion(env.ALIYUN_OSS_REGION);
+    throw new ClassroomProviderConfigurationError(
+      `AGORA_RECORDING_STORAGE_REGION must be ${expected} for ${env.ALIYUN_OSS_REGION}`,
+      [],
+    );
+  }
+  const storageEndpoint = (
+    process.env.AGORA_RECORDING_STORAGE_ENDPOINT ||
+    `https://${env.ALIYUN_OSS_BUCKET}.${env.ALIYUN_OSS_REGION}.aliyuncs.com`
+  ).trim();
   return {
     appId: env.AGORA_APP_ID,
     appCertificate: env.AGORA_APP_CERTIFICATE,
     customerId: env.AGORA_REST_CUSTOMER_ID,
     customerSecret: env.AGORA_REST_CUSTOMER_SECRET,
-    storageRegion: positiveIntegerEnv("AGORA_RECORDING_STORAGE_REGION"),
+    storageRegion,
+    apiBase: `${apiOrigin}${apiRegion ? `/${apiRegion}` : ""}/v1/apps`,
+    regionAffinity: positiveIntegerEnv("AGORA_RECORDING_REGION_AFFINITY", 2),
+    storageEndpoint,
     bucket: env.ALIYUN_OSS_BUCKET,
     accessKey: env.ALIYUN_OSS_ACCESS_KEY_ID,
     secretKey: env.ALIYUN_OSS_ACCESS_KEY_SECRET,
@@ -191,7 +216,7 @@ async function agoraRecordingRequest(
   config: ReturnType<typeof recordingConfiguration>,
 ): Promise<AgoraRecordingResponse> {
   const response = await fetch(
-    `${AGORA_RECORDING_API_BASE}/${encodeURIComponent(config.appId)}${path}`,
+    `${config.apiBase}/${encodeURIComponent(config.appId)}${path}`,
     {
       method: "POST",
       headers: {
@@ -241,10 +266,10 @@ function fileNameOf(value: unknown): string | null {
     : null;
 }
 
-function selectPlaybackObjectKey(
+export function selectAgoraRecordingPlayback(
   files: unknown[],
   prefixSegments: string[],
-): string | null {
+): { objectKey: string | null; format: "mp4" | "hls" | null } {
   const candidates = files
     .map((file) => ({
       file,
@@ -261,17 +286,23 @@ function selectPlaybackObjectKey(
         playable: boolean;
       } => Boolean(candidate.name),
     );
-  const selected =
-    candidates.find(
-      (candidate) =>
-        candidate.playable && candidate.name.toLowerCase().endsWith(".mp4"),
-    );
-  if (!selected) return null;
+  const selected = candidates.find(
+    (candidate) =>
+      candidate.playable && candidate.name.toLowerCase().endsWith(".mp4"),
+  ) ?? candidates.find(
+    (candidate) =>
+      candidate.playable && candidate.name.toLowerCase().endsWith(".m3u8"),
+  );
+  if (!selected) return { objectKey: null, format: null };
 
   const prefix = prefixSegments.filter(Boolean).join("/");
-  return selected.name.startsWith(`${prefix}/`)
+  const objectKey = selected.name.startsWith(`${prefix}/`)
     ? selected.name
     : `${prefix}/${selected.name}`;
+  return {
+    objectKey,
+    format: selected.name.toLowerCase().endsWith(".mp4") ? "mp4" : "hls",
+  };
 }
 
 function responseFiles(payload: AgoraRecordingResponse): unknown[] {
@@ -352,6 +383,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
         uid: recorderUid,
         clientRequest: {
           resourceExpiredHour: 1,
+          regionAffinity: config.regionAffinity,
           ...(web ? { scene: 1 } : {}),
         },
       },
@@ -447,6 +479,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
       providerState: {
         mode: "mix",
         fileNamePrefix,
+        storageEndpoint: config.storageEndpoint,
         acquire,
         started,
       },
@@ -526,6 +559,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
       providerState: {
         mode: "web",
         fileNamePrefix,
+        storageEndpoint: config.storageEndpoint,
         acquire,
         started,
       },
@@ -536,7 +570,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
   async query(input: RecordingStopInput): Promise<RecordingQueryResult> {
     const config = recordingConfiguration();
     const response = await fetch(
-      `${AGORA_RECORDING_API_BASE}/${encodeURIComponent(
+      `${config.apiBase}/${encodeURIComponent(
         config.appId,
       )}/cloud_recording/resourceid/${encodeURIComponent(
         input.resourceId,
@@ -568,8 +602,18 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
     }
 
     const status = payload.serverResponse?.status;
+    const files = responseFiles(payload);
+    const prefixSegments = Array.isArray(input.providerState?.fileNamePrefix)
+      ? input.providerState.fileNamePrefix.filter(
+          (segment): segment is string => typeof segment === "string",
+        )
+      : [];
+    const playback = selectAgoraRecordingPlayback(files, prefixSegments);
     return {
       active: status === 4 || status === 5,
+      files,
+      playbackObjectKey: playback.objectKey,
+      playbackFormat: playback.format,
       providerState: payload,
     };
   }
@@ -600,8 +644,10 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
         )
       : [];
 
+    const playback = selectAgoraRecordingPlayback(files, prefixSegments);
     return {
-      playbackObjectKey: selectPlaybackObjectKey(files, prefixSegments),
+      playbackObjectKey: playback.objectKey,
+      playbackFormat: playback.format,
       files,
       providerState: stopped,
     };

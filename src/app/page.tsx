@@ -44,6 +44,17 @@ interface Course {
 
 let dashboardCourseCache: Course[] | null = null;
 let dashboardCourseRequest: Promise<Course[]> | null = null;
+const DASHBOARD_CACHE_KEY = "classroom:dashboard:courses:v1";
+
+function storedCourses(): Course[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const value = JSON.parse(sessionStorage.getItem(DASHBOARD_CACHE_KEY) || "[]");
+    return Array.isArray(value) ? (value as Course[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 function LoadingView({ message }: { message: string }) {
   return <PageLoadingState message={message} variant="dashboard" />;
@@ -51,10 +62,9 @@ function LoadingView({ message }: { message: string }) {
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
-  const [courses, setCourses] = useState<Course[]>(
-    () => dashboardCourseCache ?? [],
-  );
+  const [courses, setCourses] = useState<Course[]>(() => dashboardCourseCache ?? []);
   const [loading, setLoading] = useState(() => !dashboardCourseCache);
+  const [offline, setOffline] = useState(false);
 
   const fetchCourses = useCallback(async () => {
     try {
@@ -75,9 +85,14 @@ export default function DashboardPage() {
       })();
       const nextCourses = await dashboardCourseRequest;
       dashboardCourseCache = nextCourses;
+      sessionStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(nextCourses));
       setCourses(nextCourses);
+      setOffline(false);
     } catch (err) {
       console.error("Failed to fetch courses:", err);
+      const cached = dashboardCourseCache ?? storedCourses();
+      if (cached.length) setCourses(cached);
+      setOffline(true);
     } finally {
       dashboardCourseRequest = null;
       setLoading(false);
@@ -86,7 +101,13 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!authLoading && user) {
+      const cached = dashboardCourseCache ?? storedCourses();
       queueMicrotask(() => {
+        if (cached.length) {
+          dashboardCourseCache = cached;
+          setCourses(cached);
+          setLoading(false);
+        }
         void fetchCourses();
       });
     }
@@ -109,8 +130,42 @@ export default function DashboardPage() {
   }
 
   if (user.role === "teacher") {
-    return <TeacherDashboard courses={courses} user={user} fetchCourses={fetchCourses} />;
+    return (
+      <>
+        {offline ? <OfflineStatus /> : null}
+        <TeacherDashboard courses={courses} user={user} fetchCourses={fetchCourses} />
+      </>
+    );
   }
 
-  return <StudentDashboard courses={courses} user={user} fetchCourses={fetchCourses} />;
+  return (
+    <>
+      {offline ? <OfflineStatus /> : null}
+      <StudentDashboard courses={courses} user={user} fetchCourses={fetchCourses} />
+    </>
+  );
+}
+
+function OfflineStatus() {
+  const { t } = useTranslation();
+  return (
+    <div
+      role="status"
+      style={{
+        position: "fixed",
+        zIndex: 80,
+        insetInlineEnd: "1rem",
+        bottom: "1rem",
+        border: "1px solid hsl(var(--border))",
+        borderRadius: "999px",
+        background: "hsl(var(--background) / .92)",
+        color: "hsl(var(--muted-foreground))",
+        padding: ".45rem .75rem",
+        fontSize: ".72rem",
+        backdropFilter: "blur(18px)",
+      }}
+    >
+      {t("common.offlineCached")}
+    </div>
+  );
 }

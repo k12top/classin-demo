@@ -48,12 +48,16 @@ export type RecordingStopInput = {
 
 export type RecordingStopResult = {
   playbackObjectKey: string | null;
+  playbackFormat: "mp4" | "hls" | null;
   files: unknown[];
   providerState: Record<string, unknown>;
 };
 
 export type RecordingQueryResult = {
   active: boolean;
+  files: unknown[];
+  playbackObjectKey: string | null;
+  playbackFormat: "mp4" | "hls" | null;
   providerState: Record<string, unknown>;
 };
 

@@ -11,6 +11,7 @@ import {
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
 import { classroomModePolicy } from "@/lib/classroom/mode";
 import { prisma } from "@/lib/db";
+import { databaseUnavailableResponse } from "@/lib/database-response";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -41,16 +42,31 @@ async function resolveRequest(
   return { ...resolved, modePolicy: classroomModePolicy(lesson.roomType) };
 }
 
+async function resolveRequestOrDatabaseUnavailable(
+  request: NextRequest,
+  courseId: string,
+  shareAccess?: string | null,
+) {
+  try {
+    return await resolveRequest(request, courseId, shareAccess);
+  } catch (error) {
+    const unavailable = databaseUnavailableResponse(error);
+    if (unavailable) return unavailable;
+    throw error;
+  }
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: courseId } = await params;
-  const resolved = await resolveRequest(
+  const resolved = await resolveRequestOrDatabaseUnavailable(
     request,
     courseId,
     request.nextUrl.searchParams.get("shareAccess"),
   );
+  if (resolved instanceof NextResponse) return resolved;
   if (!resolved.ok) {
     return NextResponse.json(
       { error: resolved.error, code: resolved.code },
@@ -79,11 +95,12 @@ export async function POST(
     capacity?: unknown;
     shareAccess?: unknown;
   } | null;
-  const resolved = await resolveRequest(
+  const resolved = await resolveRequestOrDatabaseUnavailable(
     request,
     courseId,
     typeof body?.shareAccess === "string" ? body.shareAccess : null,
   );
+  if (resolved instanceof NextResponse) return resolved;
   if (!resolved.ok) {
     return NextResponse.json(
       { error: resolved.error, code: resolved.code },
@@ -106,6 +123,8 @@ export async function POST(
     });
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
+    const unavailable = databaseUnavailableResponse(error);
+    if (unavailable) return unavailable;
     if (error instanceof ClassroomSpaceError) {
       return NextResponse.json(
         { error: error.message },
@@ -136,11 +155,12 @@ export async function PATCH(
     screenShareAllowed?: unknown;
     shareAccess?: unknown;
   } | null;
-  const resolved = await resolveRequest(
+  const resolved = await resolveRequestOrDatabaseUnavailable(
     request,
     courseId,
     typeof body?.shareAccess === "string" ? body.shareAccess : null,
   );
+  if (resolved instanceof NextResponse) return resolved;
   if (!resolved.ok) {
     return NextResponse.json(
       { error: resolved.error, code: resolved.code },
@@ -208,6 +228,8 @@ export async function PATCH(
       }),
     );
   } catch (error) {
+    const unavailable = databaseUnavailableResponse(error);
+    if (unavailable) return unavailable;
     if (error instanceof ClassroomSpaceError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
@@ -224,11 +246,12 @@ export async function DELETE(
   const body = (await request.json().catch(() => null)) as {
     shareAccess?: unknown;
   } | null;
-  const resolved = await resolveRequest(
+  const resolved = await resolveRequestOrDatabaseUnavailable(
     request,
     courseId,
     typeof body?.shareAccess === "string" ? body.shareAccess : null,
   );
+  if (resolved instanceof NextResponse) return resolved;
   if (!resolved.ok) {
     return NextResponse.json(
       { error: resolved.error, code: resolved.code },
@@ -243,6 +266,8 @@ export async function DELETE(
     });
     return NextResponse.json({ ok: true });
   } catch (error) {
+    const unavailable = databaseUnavailableResponse(error);
+    if (unavailable) return unavailable;
     if (error instanceof ClassroomSpaceError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }

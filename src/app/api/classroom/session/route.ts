@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { classroomMediaProfile } from "@/lib/classroom/config";
 import type {
   ClassroomMessageSnapshot,
   ClassroomRole,
+  ClassroomWhiteboardCredential,
 } from "@/lib/classroom/types";
 import { ClassroomProviderConfigurationError } from "@/lib/classroom/server/errors";
 import {
@@ -13,6 +14,7 @@ import { closeOpenAttendanceSessionsForLesson } from "@/lib/course-attendance";
 import { resolveCourseSessionAccess } from "@/lib/course-session-access";
 import {
   getClassroomCourseware,
+  getClassroomEngagementSnapshot,
   getClassroomRuntimeSnapshot,
   touchClassroomMember,
 } from "@/lib/classroom/server/runtime";
@@ -22,13 +24,11 @@ import { verifyRecorderToken } from "@/lib/classroom/server/recorder-token";
 import { issueAgoraSignalingCredential } from "@/lib/classroom/signaling/agora-server";
 import { getWhiteboardProvider } from "@/lib/classroom/whiteboard/provider-factory";
 import { prisma } from "@/lib/db";
+import { databaseUnavailableResponse } from "@/lib/database-response";
 import { getSessionFromRequest } from "@/lib/session";
 import { getClassroomCaptions } from "@/lib/classroom/server/captions";
-import { getClassroomQuestions } from "@/lib/classroom/server/questions";
-import {
-  ensureClassroomSpaceAssignment,
-  getClassroomSpaces,
-} from "@/lib/classroom/server/spaces";
+import { ensureClassroomSpaceAssignment } from "@/lib/classroom/server/spaces";
+import { classroomInterpretationAvailability } from "@/lib/classroom/server/transcription-orchestrator";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -70,6 +70,7 @@ function publicMessage(message: {
 }
 
 export async function POST(request: NextRequest) {
+  const bootstrapStartedAt = performance.now();
   try {
     const body = (await request.json()) as {
       courseId?: unknown;
@@ -154,8 +155,9 @@ export async function POST(request: NextRequest) {
     const userId = recorder
       ? `recorder-${courseId.replace(/-/g, "").slice(0, 40)}`
       : session!.userId;
+    let member: Awaited<ReturnType<typeof touchClassroomMember>> | null = null;
     if (!recorder) {
-      await touchClassroomMember(
+      member = await touchClassroomMember(
         courseId,
         session!,
         role,
@@ -174,15 +176,10 @@ export async function POST(request: NextRequest) {
         });
       }
     }
-    const runtimeSnapshot = await getClassroomRuntimeSnapshot(courseId, sessionId);
-    const member = recorder
-      ? null
-      : await prisma.classroomMemberState.findUnique({
-          where: {
-            sessionId_userId: { sessionId, userId },
-          },
-          select: { whiteboardWritable: true },
-        });
+    const [runtimeSnapshot, engagementSnapshot] = await Promise.all([
+      getClassroomRuntimeSnapshot(courseId, sessionId, { ensure: false }),
+      getClassroomEngagementSnapshot(sessionId),
+    ]);
 
     const classroomProvider = getClassroomServerProvider(
       lesson.classroomProvider,
@@ -207,17 +204,35 @@ export async function POST(request: NextRequest) {
     });
 
     if (!recorder && role === "student") {
-      await closeOpenAttendanceSessionsForLesson(sessionId, session!.userId);
-      await prisma.courseAttendance.create({
-        data: {
-          courseId,
-          sessionId,
-          studentId: session!.userId,
-          studentName:
-            session!.displayName || session!.name || session!.userId,
-          studentAvatar: session!.avatar || "",
-          enteredAt: new Date(),
-        },
+      const attendanceSession = session!;
+      after(async () => {
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 1_500));
+          await closeOpenAttendanceSessionsForLesson(
+            sessionId,
+            attendanceSession.userId,
+          );
+          await prisma.courseAttendance.create({
+            data: {
+              courseId,
+              sessionId,
+              studentId: attendanceSession.userId,
+              studentName:
+                attendanceSession.displayName ||
+                attendanceSession.name ||
+                attendanceSession.userId,
+              studentAvatar: attendanceSession.avatar || "",
+              enteredAt: new Date(),
+            },
+          });
+        } catch (error) {
+          console.warn("[classroom:attendance] deferred entry failed", {
+            courseId,
+            sessionId,
+            userId: attendanceSession.userId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
       });
     }
 
@@ -244,26 +259,47 @@ export async function POST(request: NextRequest) {
             },
           ],
         };
-    const [courseware, whiteboard, messages, captions, spaces, questions] = await Promise.all([
-      getClassroomCourseware(courseId, role, sessionId),
-      getWhiteboardProvider().issueJoinCredential({
-        courseId: sessionId,
-        userId,
-        role,
-        writable: member?.whiteboardWritable ?? false,
-      }),
-      prisma.classroomMessage.findMany({
-        where: visibleMessageWhere,
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      }),
-      getClassroomCaptions(courseId, 100, sessionId),
-      !recorder && modePolicy.allowBreakouts
-        ? getClassroomSpaces({ courseId, sessionId, viewerId: userId, role })
+    const whiteboardProvider = getWhiteboardProvider();
+    const deferredWhiteboard: ClassroomWhiteboardCredential = {
+      enabled: false,
+      provider: "netless",
+      writable: false,
+      error: "whiteboard_pending",
+    };
+    const [
+      courseware,
+      whiteboard,
+      messages,
+      captions,
+      spaces,
+      questions,
+      interpretationAvailability,
+    ] = await Promise.all([
+      recorder
+        ? getClassroomCourseware(courseId, role, sessionId)
         : Promise.resolve([]),
-      !recorder && modePolicy.showPublicQuestions
-        ? getClassroomQuestions({ courseId, sessionId, viewerId: userId, role })
+      recorder
+        ? whiteboardProvider.issueJoinCredential({
+            courseId,
+            sessionId,
+            userId,
+            role,
+            writable: member?.whiteboardWritable ?? false,
+          })
+        : Promise.resolve(deferredWhiteboard),
+      recorder
+        ? prisma.classroomMessage.findMany({
+            where: visibleMessageWhere,
+            orderBy: { createdAt: "desc" },
+            take: 100,
+          })
         : Promise.resolve([]),
+      recorder
+        ? getClassroomCaptions(courseId, 100, sessionId)
+        : Promise.resolve([]),
+      Promise.resolve([]),
+      Promise.resolve([]),
+      classroomInterpretationAvailability(),
     ]);
 
     return NextResponse.json(
@@ -283,6 +319,7 @@ export async function POST(request: NextRequest) {
           endTime: lesson.endTime.toISOString(),
         },
         runtime: runtimeSnapshot,
+        engagement: engagementSnapshot,
         capabilities: recorder
           ? {
               canStartClass: false,
@@ -294,6 +331,9 @@ export async function POST(request: NextRequest) {
               canManageWhiteboard: false,
               canManageInterpretation: false,
               canShareScreen: false,
+              canGiveReward: false,
+              canRunEngagement: false,
+              canParticipateInEngagement: false,
             }
           : classroomCapabilities(role, modePolicy),
         signaling: recorder
@@ -305,6 +345,7 @@ export async function POST(request: NextRequest) {
         spaces,
         questions,
         captions,
+        interpretationAvailability,
         recording: {
           enabled: recordingProvider.isConfigured(),
           status: lesson.recordings[0]?.status ?? null,
@@ -320,10 +361,16 @@ export async function POST(request: NextRequest) {
       {
         headers: {
           "Cache-Control": "no-store, max-age=0, must-revalidate",
+          "Server-Timing": `classroom-bootstrap;dur=${(
+            performance.now() - bootstrapStartedAt
+          ).toFixed(1)}`,
         },
       },
     );
   } catch (error) {
+    const unavailable = databaseUnavailableResponse(error);
+    if (unavailable) return unavailable;
+
     if (error instanceof ClassroomProviderConfigurationError) {
       console.error("[classroom:session] provider configuration", {
         message: error.message,

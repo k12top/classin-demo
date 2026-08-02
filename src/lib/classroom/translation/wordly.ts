@@ -3,6 +3,8 @@ import "server-only";
 import type { ClassroomCaptionInput } from "@/lib/classroom/types";
 
 const REQUEST_TIMEOUT_MS = 12_000;
+const HEALTH_CACHE_MS = 30_000;
+let healthCache: { checkedAt: number; healthy: boolean } | null = null;
 
 type WordlyRoomInput = {
   courseId: string;
@@ -22,6 +24,33 @@ function configuration() {
 export function isWordlyConfigured() {
   const config = configuration();
   return Boolean(config.baseUrl && config.token);
+}
+
+export async function isWordlyHealthy() {
+  if (!isWordlyConfigured()) return false;
+  if (
+    healthCache &&
+    Date.now() - healthCache.checkedAt < HEALTH_CACHE_MS
+  ) {
+    return healthCache.healthy;
+  }
+  const config = configuration();
+  try {
+    const response = await fetch(`${config.baseUrl}/health`, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${config.token}`,
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(4_000),
+    });
+    const healthy = response.ok;
+    healthCache = { checkedAt: Date.now(), healthy };
+    return healthy;
+  } catch {
+    healthCache = { checkedAt: Date.now(), healthy: false };
+    return false;
+  }
 }
 
 async function requestWordly<T>(path: string, body: unknown): Promise<T> {

@@ -28,7 +28,93 @@ test("decodes Shengwang-compatible JSON caption payloads", () => {
   assert.equal(caption.translations["en-US"], "Hello");
   assert.equal(caption.translations["zh-CN"], "你好");
   assert.equal(caption.isFinal, true);
-  assert.match(caption.id, /^stt_42_1001_/);
+  assert.equal(caption.id, "stt_42_1001");
+});
+
+test("merges official transcript and translation wrappers by sentence id", () => {
+  const transcript = decodeClassroomSttCaption(
+    new TextEncoder().encode(
+      JSON.stringify({
+        transcript: {
+          uid: "1001",
+          sentence_id: "77",
+          offset: 1_800_000_000_010,
+          textTs: 1_800_000_000_100,
+          language: "zh-CN",
+          text: "欢迎上课",
+          isFinal: true,
+        },
+      }),
+    ),
+  );
+  const translation = decodeClassroomSttCaption(
+    new TextEncoder().encode(
+      JSON.stringify({
+        translation: {
+          uid: "1001",
+          sentence_id: "77",
+          offset: 1_800_000_000_080,
+          textTs: 1_800_000_000_100,
+          isFinal: true,
+          original_transcript: {
+            language: "zh-CN",
+            text: "欢迎上课",
+          },
+          results0: {
+            language: "en-US",
+            texts: ["Welcome to class"],
+            isFinal: true,
+          },
+        },
+      }),
+    ),
+  );
+  assert.ok(transcript);
+  assert.ok(translation);
+  assert.equal(transcript.id, translation.id);
+  assert.equal(translation.text, "欢迎上课");
+  assert.equal(translation.translations["en-US"], "Welcome to class");
+  assert.equal(translation.isFinal, true);
+});
+
+test("uses textTs to align legacy JSON wrappers when offsets differ", () => {
+  const transcript = decodeClassroomSttCaption(
+    new TextEncoder().encode(
+      JSON.stringify({
+        transcript: {
+          uid: 222,
+          language: "zh-CN",
+          text: "欢迎上课",
+          isFinal: true,
+          offset: 1_751_438_272_384,
+          textTs: 1_751_438_273_939,
+        },
+      }),
+    ),
+  );
+  const translation = decodeClassroomSttCaption(
+    new TextEncoder().encode(
+      JSON.stringify({
+        translation: {
+          uid: 222,
+          isFinal: true,
+          offset: 1_751_438_270_274,
+          textTs: 1_751_438_273_939,
+          results0: {
+            language: "en-US",
+            texts: ["Welcome to class"],
+          },
+          original_transcript: {
+            language: "zh-CN",
+            text: "欢迎上课",
+          },
+        },
+      }),
+    ),
+  );
+  assert.ok(transcript);
+  assert.ok(translation);
+  assert.equal(transcript.id, translation.id);
 });
 
 test("ignores malformed caption payloads", () => {

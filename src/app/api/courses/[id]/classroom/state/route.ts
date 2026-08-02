@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getClassroomCourseware,
+  getClassroomEngagementSnapshot,
   getClassroomRuntimeSnapshot,
   touchClassroomMember,
 } from "@/lib/classroom/server/runtime";
@@ -9,6 +10,7 @@ import { getClassroomCaptions } from "@/lib/classroom/server/captions";
 import { getClassroomQuestions } from "@/lib/classroom/server/questions";
 import { getClassroomSpaces } from "@/lib/classroom/server/spaces";
 import { classroomModePolicy } from "@/lib/classroom/mode";
+import { getRecordingProvider } from "@/lib/classroom/server/provider-factory";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -43,11 +45,24 @@ export async function GET(
   );
   const lesson = await prisma.courseSession.findUnique({
     where: { id: sessionId },
-    select: { roomType: true },
+    select: {
+      roomType: true,
+      recordingProvider: true,
+      recordings: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: {
+          status: true,
+          mode: true,
+          fallbackFrom: true,
+        },
+      },
+    },
   });
   const mode = classroomModePolicy(lesson?.roomType ?? 4);
-  const [runtimeSnapshot, courseware, captions, spaces, questions] = await Promise.all([
+  const [runtimeSnapshot, engagement, courseware, captions, spaces, questions] = await Promise.all([
     getClassroomRuntimeSnapshot(resolvedCourseId, sessionId),
+    getClassroomEngagementSnapshot(sessionId),
     getClassroomCourseware(resolvedCourseId, resolved.access.role, sessionId),
     getClassroomCaptions(resolvedCourseId, 100, sessionId),
     mode.allowBreakouts
@@ -67,8 +82,32 @@ export async function GET(
         })
       : Promise.resolve([]),
   ]);
+  const recordingProvider = getRecordingProvider(
+    lesson?.recordingProvider ?? "agora",
+  );
+  const latestRecording = lesson?.recordings[0];
+  const recording = {
+    enabled: recordingProvider.isConfigured(),
+    status: latestRecording?.status ?? null,
+    mode:
+      latestRecording?.mode === "web"
+        ? ("web" as const)
+        : latestRecording?.mode === "mix"
+          ? ("mix" as const)
+          : null,
+    fallbackFrom: latestRecording?.fallbackFrom ?? null,
+  };
+
   return NextResponse.json(
-    { runtime: runtimeSnapshot, courseware, captions, spaces, questions },
+    {
+      runtime: runtimeSnapshot,
+      engagement,
+      courseware,
+      captions,
+      spaces,
+      questions,
+      recording,
+    },
     {
       headers: {
         "Cache-Control": "no-store, max-age=0, must-revalidate",

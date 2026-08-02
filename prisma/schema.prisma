@@ -43,52 +43,55 @@ model TeacherScheduleBlock {
 
 // ── Course ──
 model Course {
-  id             String    @id @default(uuid())
-  roomUuid       String?   @unique // Provider channel ID; name retained for backward-compatible migration
-  classroomProvider String @default("agora")
-  recordingProvider String @default("agora")
-  name           String
-  description    String    @default("")
-  roomType       Int       @default(0) // 0=一对一, 4=小班, 2=大班, 10=公开课
-  passcode       String?   // 6-digit passcode for public course
-  ownerId        String    // Course owner Casdoor user ID
-  ownerName      String
-  ownerAvatar    String    @default("")
-  teacherId      String    // Casdoor user ID
-  teacherName    String
-  teacherAvatar  String    @default("")
-  status         String    @default("scheduled") // scheduled | live | afterClass | cancelled | finished
-  lifecycleStatus String   @default("active") // draft | active | archived
-  courseKind     String    @default("series") // series | standalone
-  startTime      DateTime?
-  endTime        DateTime?
-  endedAt        DateTime? // Platform after-class time; scheduled endTime controls auto-finish
-  studentRemarks String    @default("")
-  recordUrl      String?   // Authenticated internal or external recording playback URL
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                String    @id @default(uuid())
+  roomUuid          String?   @unique // Provider channel ID; name retained for backward-compatible migration
+  classroomProvider String    @default("agora")
+  recordingProvider String    @default("agora")
+  name              String
+  description       String    @default("")
+  roomType          Int       @default(0) // 0=一对一, 4=小班, 2=大班, 10=公开课
+  passcode          String? // 6-digit passcode for public course
+  ownerId           String // Course owner Casdoor user ID
+  ownerName         String
+  ownerAvatar       String    @default("")
+  teacherId         String // Casdoor user ID
+  teacherName       String
+  teacherAvatar     String    @default("")
+  status            String    @default("scheduled") // scheduled | live | afterClass | cancelled | finished
+  lifecycleStatus   String    @default("active") // draft | active | archived
+  courseKind        String    @default("series") // series | standalone
+  startTime         DateTime?
+  endTime           DateTime?
+  endedAt           DateTime? // Platform after-class time; scheduled endTime controls auto-finish
+  studentRemarks    String    @default("")
+  recordUrl         String? // Authenticated internal or external recording playback URL
+  creationRequestId String?   @unique // Client-generated idempotency key for create
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   // Relations
-  students     CourseStudent[]
-  groupLinks   CourseGroupLink[]
-  joinLinks    CourseJoinLink[]
-  courseware   Courseware[]
-  teachers     CourseTeacher[]
-  attendances  CourseAttendance[]
-  recordings   ClassroomRecording[]
-  classroomRuntimes ClassroomRuntime[]
-  classroomMembers ClassroomMemberState[]
-  classroomMessages ClassroomMessage[]
-  classroomCaptions ClassroomCaption[]
-  classroomSpaces ClassroomSpace[]
-  classroomSpaceMembers ClassroomSpaceMember[]
-  classroomQuestions ClassroomQuestion[]
-  sessions      CourseSession[]
-  sessionSeries CourseSessionSeries[]
-  sessionTeacherRules CourseSessionTeacher[]
-  sessionStudentRules CourseSessionStudent[]
-  sessionGroupRules CourseSessionGroupLink[]
-  sessionCoursewareRules CourseSessionCourseware[]
+  students                  CourseStudent[]
+  groupLinks                CourseGroupLink[]
+  joinLinks                 CourseJoinLink[]
+  courseware                Courseware[]
+  teachers                  CourseTeacher[]
+  attendances               CourseAttendance[]
+  recordings                ClassroomRecording[]
+  classroomRuntimes         ClassroomRuntime[]
+  classroomMembers          ClassroomMemberState[]
+  classroomMessages         ClassroomMessage[]
+  classroomCaptions         ClassroomCaption[]
+  classroomSpaces           ClassroomSpace[]
+  classroomSpaceMembers     ClassroomSpaceMember[]
+  classroomQuestions        ClassroomQuestion[]
+  classroomRewardEvents     ClassroomRewardEvent[]
+  classroomEngagementRounds ClassroomEngagementRound[]
+  sessions                  CourseSession[]
+  sessionSeries             CourseSessionSeries[]
+  sessionTeacherRules       CourseSessionTeacher[]
+  sessionStudentRules       CourseSessionStudent[]
+  sessionGroupRules         CourseSessionGroupLink[]
+  sessionCoursewareRules    CourseSessionCourseware[]
 
   @@index([ownerId])
   @@index([teacherId])
@@ -122,23 +125,25 @@ model CourseSession {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  course          Course                     @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  series          CourseSessionSeries?       @relation(fields: [seriesId], references: [id], onDelete: SetNull)
-  teachers        CourseSessionTeacher[]
-  students        CourseSessionStudent[]
-  groupLinks      CourseSessionGroupLink[]
-  coursewareRules CourseSessionCourseware[]
-  joinLinks       CourseJoinLink[]
-  courseware      Courseware[]
-  recordings      ClassroomRecording[]
-  attendances     CourseAttendance[]
-  classroomRuntime ClassroomRuntime?
-  classroomMembers ClassroomMemberState[]
-  classroomMessages ClassroomMessage[]
-  classroomCaptions ClassroomCaption[]
-  classroomSpaces ClassroomSpace[]
-  classroomSpaceMembers ClassroomSpaceMember[]
-  classroomQuestions ClassroomQuestion[]
+  course                    Course                     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  series                    CourseSessionSeries?       @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  teachers                  CourseSessionTeacher[]
+  students                  CourseSessionStudent[]
+  groupLinks                CourseSessionGroupLink[]
+  coursewareRules           CourseSessionCourseware[]
+  joinLinks                 CourseJoinLink[]
+  courseware                Courseware[]
+  recordings                ClassroomRecording[]
+  attendances               CourseAttendance[]
+  classroomRuntime          ClassroomRuntime?
+  classroomMembers          ClassroomMemberState[]
+  classroomMessages         ClassroomMessage[]
+  classroomCaptions         ClassroomCaption[]
+  classroomSpaces           ClassroomSpace[]
+  classroomSpaceMembers     ClassroomSpaceMember[]
+  classroomQuestions        ClassroomQuestion[]
+  classroomRewardEvents     ClassroomRewardEvent[]
+  classroomEngagementRounds ClassroomEngagementRound[]
 
   @@unique([courseId, position])
   @@index([courseId, startTime])
@@ -232,28 +237,34 @@ model CourseSessionCourseware {
 
 // ── Provider-neutral classroom recording attempts ──
 model ClassroomRecording {
-  id                String    @id @default(uuid())
-  courseId          String
-  sessionId         String
-  provider          String
-  channelName       String
-  recorderUserId    String
-  status            String    @default("starting") // starting | recording | stopping | completed | failed
-  resourceId        String?
-  providerSessionId String?   // Agora sid or another provider's recording session ID
-  playbackObjectKey String?
-  files             Json?
-  providerState     Json?
-  errorMessage      String?
-  mode              String    @default("mix") // web | mix
-  fallbackFrom      String?
-  retryCount        Int       @default(0)
-  startedAt         DateTime?
-  stoppedAt         DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id                  String    @id @default(uuid())
+  courseId            String
+  sessionId           String
+  provider            String
+  channelName         String
+  recorderUserId      String
+  status              String    @default("starting") // starting | recording | stopping | processing | completed | failed
+  resourceId          String?
+  providerSessionId   String? // Agora sid or another provider's recording session ID
+  playbackObjectKey   String?
+  files               Json?
+  providerState       Json?
+  errorMessage        String?
+  mode                String    @default("mix") // web | mix
+  fallbackFrom        String?
+  retryCount          Int       @default(0)
+  startRetryCount     Int       @default(0)
+  stopRetryCount      Int       @default(0)
+  stopRequestedAt     DateTime?
+  lastProviderCheckAt DateTime?
+  failureStage        String?
+  playbackFormat      String?
+  startedAt           DateTime?
+  stoppedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course  Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
   session CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([courseId])
@@ -262,14 +273,30 @@ model ClassroomRecording {
   @@index([providerSessionId])
 }
 
+// Provider callbacks are persisted before processing so duplicate or out-of-
+// order webhook deliveries remain harmless.
+model ClassroomProviderEvent {
+  id          String    @id @default(uuid())
+  noticeId    String    @unique
+  provider    String
+  category    String
+  recordingId String?
+  payload     Json
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([recordingId, createdAt])
+  @@index([provider, category, createdAt])
+}
+
 // ── Course ↔ Teacher (lecturers; includes the lead teacher) ──
 model CourseTeacher {
-  id          String   @id @default(uuid())
-  courseId    String
-  teacherId   String   // Casdoor user ID
-  teacherName String   @default("")
-  teacherAvatar String @default("")
-  createdAt   DateTime @default(now())
+  id            String   @id @default(uuid())
+  courseId      String
+  teacherId     String // Casdoor user ID
+  teacherName   String   @default("")
+  teacherAvatar String   @default("")
+  createdAt     DateTime @default(now())
 
   course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
@@ -285,7 +312,7 @@ model CourseJoinLink {
   sessionId  String?
   token      String    @unique
   purpose    String    @default("live") // live | course
-  passcode   String?   // Optional 6-digit passcode required before using this share link
+  passcode   String? // Optional 6-digit passcode required before using this share link
   label      String    @default("")
   createdBy  String
   expiresAt  DateTime?
@@ -294,7 +321,7 @@ model CourseJoinLink {
   useCount   Int       @default(0)
   createdAt  DateTime  @default(now())
 
-  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course  Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
   session CourseSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([courseId])
@@ -307,8 +334,8 @@ model CourseJoinLink {
 model StudentGroup {
   id        String   @id @default(uuid())
   name      String
-  parentId  String?  // null = root group
-  createdBy String   // Teacher Casdoor user ID
+  parentId  String? // null = root group
+  createdBy String // Teacher Casdoor user ID
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -317,8 +344,8 @@ model StudentGroup {
   children StudentGroup[] @relation("GroupHierarchy")
 
   // Relations
-  members    GroupMember[]
-  courseLinks CourseGroupLink[]
+  members      GroupMember[]
+  courseLinks  CourseGroupLink[]
   sessionLinks CourseSessionGroupLink[]
 
   @@index([parentId])
@@ -327,12 +354,12 @@ model StudentGroup {
 
 // ── Course ↔ Student (direct assignment) ──
 model CourseStudent {
-  id        String   @id @default(uuid())
-  courseId   String
-  studentId String   // Casdoor user ID
-  studentName String @default("")
-  studentAvatar String @default("")
-  joinedAt  DateTime @default(now())
+  id            String   @id @default(uuid())
+  courseId      String
+  studentId     String // Casdoor user ID
+  studentName   String   @default("")
+  studentAvatar String   @default("")
+  joinedAt      DateTime @default(now())
 
   course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
@@ -354,7 +381,7 @@ model CourseAttendance {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course  Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
   session CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([courseId])
@@ -366,8 +393,8 @@ model CourseAttendance {
 
 // ── Course ↔ StudentGroup (group assignment) ──
 model CourseGroupLink {
-  id       String @id @default(uuid())
-  courseId  String
+  id       String   @id @default(uuid())
+  courseId String
   groupId  String
   linkedAt DateTime @default(now())
 
@@ -379,12 +406,12 @@ model CourseGroupLink {
 
 // ── Group ↔ Member ──
 model GroupMember {
-  id        String   @id @default(uuid())
-  groupId   String
-  userId    String   // Casdoor user ID
-  userName  String   @default("")
-  userAvatar String  @default("")
-  joinedAt  DateTime @default(now())
+  id         String   @id @default(uuid())
+  groupId    String
+  userId     String // Casdoor user ID
+  userName   String   @default("")
+  userAvatar String   @default("")
+  joinedAt   DateTime @default(now())
 
   group StudentGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
@@ -394,26 +421,26 @@ model GroupMember {
 
 // ── Courseware (Whiteboard materials / slides) ──
 model Courseware {
-  id          String   @id @default(uuid())
-  courseId    String
-  sessionId   String?
-  name        String
-  ext         String   // pdf, ppt, pptx, doc, docx, mp3, mp4, png, jpg, gif
-  size        Int      @default(0) // size in bytes
-  url         String   // Original or converted entry URL
-  taskUuid    String?  // Agora projector task UUID
-  taskStatus  String   @default("Pending") // Pending | Converting | Finished | Failed
-  type        String   @default("static") // static | dynamic
-  conversion  Json?    // Store full Agora conversion JSON response (scenes/pages)
+  id                 String   @id @default(uuid())
+  courseId           String
+  sessionId          String?
+  name               String
+  ext                String // pdf, ppt, pptx, doc, docx, mp3, mp4, png, jpg, gif
+  size               Int      @default(0) // size in bytes
+  url                String // Original or converted entry URL
+  taskUuid           String? // Agora projector task UUID
+  taskStatus         String   @default("Pending") // Pending | Converting | Finished | Failed
+  type               String   @default("static") // static | dynamic
+  conversion         Json? // Store full Agora conversion JSON response (scenes/pages)
   studentCanView     Boolean  @default(true)
   studentCanDownload Boolean  @default(true)
   whiteboardEnabled  Boolean  @default(false)
   conversionError    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  session CourseSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  course       Course                    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session      CourseSession?            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   sessionRules CourseSessionCourseware[]
 
   @@index([courseId])
@@ -422,64 +449,70 @@ model Courseware {
 
 // ── Authoritative live classroom state ──
 model ClassroomRuntime {
-  id                 String    @id @default(uuid())
-  courseId           String
-  sessionId          String    @unique
-  status             String    @default("waiting") // waiting | live | ended
-  revision           Int       @default(1)
-  startedAt          DateTime?
-  graceEndsAt        DateTime?
-  stageMode          String    @default("auto") // auto | screen | whiteboard | spotlight
-  stageLocked        Boolean   @default(false)
-  spotlightUserId    String?
-  activeCoursewareId String?
-  chatEnabled        Boolean   @default(true)
-  timerStartedAt     DateTime?
-  timerDurationSec   Int?
-  timerPausedAt      DateTime?
-  interpretationEnabled  Boolean   @default(false)
-  interpretationProvider String    @default("shengwang") // shengwang | wordly
-  sourceLanguage         String    @default("zh-CN")
-  targetLanguages        Json      @default("[]")
-  transcriptionStatus    String    @default("stopped") // stopped | starting | running | failed
-  transcriptionAgentId   String?
-  transcriptionError     String?
-  whiteboardProvider String    @default("netless")
-  whiteboardRoomUuid String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id                         String    @id @default(uuid())
+  courseId                   String
+  sessionId                  String    @unique
+  status                     String    @default("waiting") // waiting | live | ended
+  revision                   Int       @default(1)
+  startedAt                  DateTime?
+  graceEndsAt                DateTime?
+  stageMode                  String    @default("auto") // auto | screen | whiteboard | spotlight
+  stageLocked                Boolean   @default(false)
+  spotlightUserId            String?
+  activeCoursewareId         String?
+  chatEnabled                Boolean   @default(true)
+  timerStartedAt             DateTime?
+  timerDurationSec           Int?
+  timerPausedAt              DateTime?
+  interpretationEnabled      Boolean   @default(false)
+  interpretationProvider     String    @default("shengwang") // shengwang | wordly
+  sourceLanguage             String    @default("zh-CN")
+  targetLanguages            Json      @default("[]")
+  transcriptionStatus        String    @default("stopped") // stopped | starting | running | recovering | stopping | failed
+  transcriptionAgentId       String?
+  transcriptionError         String?
+  transcriptionRetryCount    Int       @default(0)
+  transcriptionLastCheckedAt DateTime?
+  whiteboardProvider         String    @default("netless")
+  whiteboardRoomUuid         String?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
 
-  course   Course                 @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  session  CourseSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  members  ClassroomMemberState[]
-  messages ClassroomMessage[]
-  captions ClassroomCaption[]
+  course           Course                     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session          CourseSession              @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  members          ClassroomMemberState[]
+  messages         ClassroomMessage[]
+  captions         ClassroomCaption[]
+  rewardEvents     ClassroomRewardEvent[]
+  engagementRounds ClassroomEngagementRound[]
 
   @@index([status])
   @@index([graceEndsAt])
 }
 
 model ClassroomMemberState {
-  id                 String    @id @default(uuid())
-  runtimeId          String
-  courseId           String
-  sessionId          String
-  userId             String
-  displayName        String    @default("")
-  avatar             String    @default("")
-  role               String    @default("student") // teacher | assistant | student
-  presence           String    @default("offline") // online | offline
-  stageState         String    @default("offstage") // offstage | invited | accepted
-  onStage            Boolean   @default(false)
-  microphoneAllowed  Boolean   @default(false)
-  cameraAllowed      Boolean   @default(false)
-  chatMuted          Boolean   @default(false)
-  whiteboardWritable Boolean   @default(false)
-  handRaisedAt       DateTime?
-  joinedAt           DateTime  @default(now())
-  lastSeenAt         DateTime  @default(now())
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id                     String    @id @default(uuid())
+  runtimeId              String
+  courseId               String
+  sessionId              String
+  userId                 String
+  displayName            String    @default("")
+  avatar                 String    @default("")
+  role                   String    @default("student") // teacher | assistant | student
+  presence               String    @default("offline") // online | offline
+  stageState             String    @default("offstage") // offstage | invited | accepted
+  screenShareState       String    @default("idle") // idle | requested | accepted
+  screenShareRequestedAt DateTime?
+  onStage                Boolean   @default(false)
+  microphoneAllowed      Boolean   @default(false)
+  cameraAllowed          Boolean   @default(false)
+  chatMuted              Boolean   @default(false)
+  whiteboardWritable     Boolean   @default(false)
+  handRaisedAt           DateTime?
+  joinedAt               DateTime  @default(now())
+  lastSeenAt             DateTime  @default(now())
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   runtime ClassroomRuntime @relation(fields: [runtimeId], references: [id], onDelete: Cascade)
   course  Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
@@ -490,25 +523,26 @@ model ClassroomMemberState {
   @@index([runtimeId, presence])
   @@index([courseId, handRaisedAt])
   @@index([courseId, onStage])
+  @@index([sessionId, screenShareState])
 }
 
 model ClassroomMessage {
-  id         String    @id @default(uuid())
-  runtimeId  String
-  courseId   String
-  sessionId  String
-  senderId   String
-  senderName String
-  senderRole String
-  spaceId    String?
-  scope      String    @default("classroom") // classroom | room | staff | direct
+  id          String    @id @default(uuid())
+  runtimeId   String
+  courseId    String
+  sessionId   String
+  senderId    String
+  senderName  String
+  senderRole  String
+  spaceId     String?
+  scope       String    @default("classroom") // classroom | room | staff | direct
   recipientId String?
-  kind       String    @default("text") // text | system
-  content    String
-  deletedAt  DateTime?
-  deletedBy  String?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  kind        String    @default("text") // text | system
+  content     String
+  deletedAt   DateTime?
+  deletedBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   runtime ClassroomRuntime @relation(fields: [runtimeId], references: [id], onDelete: Cascade)
   course  Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
@@ -552,27 +586,27 @@ model ClassroomSpace {
 }
 
 model ClassroomSpaceMember {
-  id          String    @id @default(uuid())
-  courseId    String
-  sessionId   String
-  spaceId     String
-  userId      String
-  displayName String    @default("")
-  avatar      String    @default("")
-  role        String    @default("student") // assistant | student
-  active      Boolean   @default(true)
-  microphoneAllowed Boolean @default(true)
-  cameraAllowed     Boolean @default(true)
-  screenShareAllowed Boolean @default(false)
-  assignedAt  DateTime  @default(now())
-  joinedAt    DateTime?
-  leftAt      DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                 String    @id @default(uuid())
+  courseId           String
+  sessionId          String
+  spaceId            String
+  userId             String
+  displayName        String    @default("")
+  avatar             String    @default("")
+  role               String    @default("student") // assistant | student
+  active             Boolean   @default(true)
+  microphoneAllowed  Boolean   @default(true)
+  cameraAllowed      Boolean   @default(true)
+  screenShareAllowed Boolean   @default(false)
+  assignedAt         DateTime  @default(now())
+  joinedAt           DateTime?
+  leftAt             DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  course Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  session CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  space  ClassroomSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  course  Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  space   ClassroomSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
 
   @@unique([spaceId, userId])
   @@index([courseId, userId])
@@ -581,48 +615,107 @@ model ClassroomSpaceMember {
 }
 
 model ClassroomQuestion {
-  id          String    @id @default(uuid())
-  courseId    String
-  sessionId   String
-  spaceId     String?
-  askerId     String
-  askerName   String    @default("")
-  content     String
-  status      String    @default("open") // open | promoted | answered | dismissed
-  promotedBy  String?
-  answeredBy  String?
-  answer      String?
-  createdAt   DateTime  @default(now())
-  resolvedAt  DateTime?
-  updatedAt   DateTime  @updatedAt
+  id         String    @id @default(uuid())
+  courseId   String
+  sessionId  String
+  spaceId    String?
+  askerId    String
+  askerName  String    @default("")
+  content    String
+  status     String    @default("open") // open | promoted | answered | dismissed
+  promotedBy String?
+  answeredBy String?
+  answer     String?
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+  updatedAt  DateTime  @updatedAt
 
-  course Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  session CourseSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  space  ClassroomSpace? @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  course  Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  space   ClassroomSpace? @relation(fields: [spaceId], references: [id], onDelete: Cascade)
 
   @@index([courseId, status, createdAt])
   @@index([sessionId, status, createdAt])
   @@index([spaceId, status, createdAt])
 }
 
+// ── In-class engagement ──
+// Reward events remain immutable so lesson reports can aggregate the exact
+// teaching activity later.
+model ClassroomRewardEvent {
+  id          String   @id @default(uuid())
+  runtimeId   String
+  courseId    String
+  sessionId   String
+  giverId     String
+  recipientId String
+  points      Int      @default(1)
+  createdAt   DateTime @default(now())
+
+  runtime ClassroomRuntime @relation(fields: [runtimeId], references: [id], onDelete: Cascade)
+  course  Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, recipientId])
+  @@index([runtimeId, createdAt])
+}
+
+model ClassroomEngagementRound {
+  id            String    @id @default(uuid())
+  runtimeId     String
+  courseId      String
+  sessionId     String
+  kind          String // buzz | selector
+  status        String    @default("active") // active | closed
+  startedById   String
+  winnerUserId  String?
+  resultUserIds Json      @default("[]")
+  startedAt     DateTime  @default(now())
+  endedAt       DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  runtime   ClassroomRuntime              @relation(fields: [runtimeId], references: [id], onDelete: Cascade)
+  course    Course                        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session   CourseSession                 @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  responses ClassroomEngagementResponse[]
+
+  @@index([sessionId, kind, status])
+  @@index([runtimeId, createdAt])
+}
+
+model ClassroomEngagementResponse {
+  id          String   @id @default(uuid())
+  roundId     String
+  sessionId   String
+  userId      String
+  isWinner    Boolean  @default(false)
+  respondedAt DateTime @default(now())
+
+  round ClassroomEngagementRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, userId])
+  @@index([sessionId, respondedAt])
+}
+
 // ── Provider-neutral ASR captions and translated text ──
 model ClassroomCaption {
-  id             String    @id @default(uuid())
-  runtimeId      String
-  courseId       String
-  sessionId      String
-  externalId     String
-  provider       String    @default("shengwang")
-  speakerId      String    @default("")
-  speakerName    String    @default("")
-  sourceLanguage String    @default("")
-  detectedLanguage String  @default("")
-  text           String
-  translations   Json      @default("{}")
-  isFinal        Boolean   @default(false)
-  occurredAt     DateTime  @default(now())
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id               String   @id @default(uuid())
+  runtimeId        String
+  courseId         String
+  sessionId        String
+  externalId       String
+  provider         String   @default("shengwang")
+  speakerId        String   @default("")
+  speakerName      String   @default("")
+  sourceLanguage   String   @default("")
+  detectedLanguage String   @default("")
+  text             String
+  translations     Json     @default("{}")
+  isFinal          Boolean  @default(false)
+  occurredAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   runtime ClassroomRuntime @relation(fields: [runtimeId], references: [id], onDelete: Cascade)
   course  Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)

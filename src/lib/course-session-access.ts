@@ -16,24 +16,34 @@ import {
 import type { ClassroomRole } from "@/lib/classroom/types";
 import { verifyShareAccessToken } from "@/lib/join-link";
 
-export async function promoteCourseSessionIfDue(sessionId: string) {
+type ResolvedCourseSession = NonNullable<
+  Awaited<ReturnType<typeof resolveCourseSessionReference>>
+>;
+
+export async function promoteCourseSessionIfDue(
+  lesson: ResolvedCourseSession,
+) {
   const now = new Date();
   const finishThreshold = new Date(
     now.getTime() - getFinishedDelayMinutes() * 60_000,
   );
-  await prisma.courseSession.updateMany({
-    where: {
-      id: sessionId,
-      status: { in: [CourseStatus.SCHEDULED, CourseStatus.LIVE, CourseStatus.AFTER_CLASS] },
-      endTime: { lte: finishThreshold },
-    },
-    data: { status: CourseStatus.FINISHED },
+  const shouldFinish =
+    (lesson.status === CourseStatus.SCHEDULED ||
+      lesson.status === CourseStatus.LIVE ||
+      lesson.status === CourseStatus.AFTER_CLASS) &&
+    lesson.endTime <= finishThreshold;
+  const shouldStart =
+    lesson.status === CourseStatus.SCHEDULED && lesson.startTime <= now;
+  const status = shouldFinish
+    ? CourseStatus.FINISHED
+    : shouldStart
+      ? CourseStatus.LIVE
+      : lesson.status;
+  if (status === lesson.status) return lesson;
+  return prisma.courseSession.update({
+    where: { id: lesson.id },
+    data: { status },
   });
-  await prisma.courseSession.updateMany({
-    where: { id: sessionId, status: CourseStatus.SCHEDULED, startTime: { lte: now } },
-    data: { status: CourseStatus.LIVE },
-  });
-  return prisma.courseSession.findUnique({ where: { id: sessionId } });
 }
 
 export type CourseSessionAccessResult =
@@ -69,7 +79,7 @@ export async function resolveCourseSessionAccess(
   if (!initial) {
     return { ok: false, httpStatus: 404, code: "not_found", reason: "课次不存在" };
   }
-  const lesson = await promoteCourseSessionIfDue(initial.id);
+  const lesson = await promoteCourseSessionIfDue(initial);
   if (!lesson) {
     return { ok: false, httpStatus: 404, code: "not_found", reason: "课次不存在" };
   }

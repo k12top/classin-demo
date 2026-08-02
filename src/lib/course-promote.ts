@@ -5,6 +5,8 @@ import {
 } from "@/lib/course-attendance";
 import { stopRecordingAttempt } from "@/lib/classroom/server/recording-orchestrator";
 import { retryFailedLiveRecordings } from "@/lib/classroom/server/recording-orchestrator";
+import { reconcilePendingRecordings } from "@/lib/classroom/server/recording-orchestrator";
+import { reconcileActiveClassroomTranscriptions } from "@/lib/classroom/server/transcription-orchestrator";
 import { prisma } from "@/lib/db";
 
 function courseAttendanceCloseTime(
@@ -281,7 +283,11 @@ export async function promoteCoursesIfDue(
   // retries belong to the minute-level global reconciliation only, otherwise
   // a 5-second client poll would repeatedly attempt provider startup.
   if (reconcileRecordings && !courseIds?.length) {
-    await retryFailedLiveRecordings();
+    await Promise.all([
+      reconcilePendingRecordings(),
+      retryFailedLiveRecordings(),
+      reconcileActiveClassroomTranscriptions(),
+    ]);
   }
 
   return (

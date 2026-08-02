@@ -17,7 +17,7 @@ import { planLargeClassAssignments } from "../src/lib/classroom/space-planner";
 
 const teacher = classroomCapabilities("teacher");
 assert.equal(teacher.canStartClass, true);
-assert.equal(teacher.canEndClass, true);
+assert.equal(teacher.canEndClass, false);
 assert.equal(teacher.canControlRecording, true);
 assert.equal(teacher.canManageStage, true);
 assert.equal(teacher.canManageInterpretation, true);
@@ -44,6 +44,9 @@ assert.deepEqual(student, {
   canManageWhiteboard: false,
   canManageInterpretation: false,
   canShareScreen: false,
+  canGiveReward: false,
+  canRunEngagement: false,
+  canParticipateInEngagement: true,
 });
 assert.equal(classroomStageSeatLimit, 6);
 
@@ -60,6 +63,15 @@ assert.equal(classroomModePolicy(10).showMemberRoster, false);
 assert.equal(
   classroomCapabilities("student", classroomModePolicy(0)).canShareScreen,
   true,
+);
+assert.equal(
+  classroomCapabilities("teacher", classroomModePolicy(10)).canRunEngagement,
+  false,
+);
+assert.equal(
+  classroomCapabilities("student", classroomModePolicy(10))
+    .canParticipateInEngagement,
+  false,
 );
 
 const largeClassAssignments = planLargeClassAssignments(

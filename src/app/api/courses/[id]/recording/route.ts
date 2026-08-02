@@ -1,13 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
+import { after, NextRequest, NextResponse } from "next/server";
 import {
   ClassroomProviderConfigurationError,
   ClassroomProviderRequestError,
 } from "@/lib/classroom/server/errors";
 import { getRecordingProvider } from "@/lib/classroom/server/provider-factory";
 import {
-  startRecordingForCourse,
-  stopRecordingAttempt,
+  processRecordingStart,
+  processRecordingStop,
+  reconcileRecordingAttempt,
+  requestRecordingStart,
+  requestRecordingStop,
 } from "@/lib/classroom/server/recording-orchestrator";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
@@ -15,10 +17,6 @@ import { resolveCourseSessionAccess } from "@/lib/course-session-access";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-function inputJson(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
-}
 
 async function teacherCourse(request: NextRequest, courseId: string) {
   const session = await getSessionFromRequest(request);
@@ -49,6 +47,7 @@ async function teacherCourse(request: NextRequest, courseId: string) {
 
 function publicRecording(recording: {
   id: string;
+  sessionId: string;
   provider: string;
   status: string;
   startedAt: Date | null;
@@ -56,6 +55,9 @@ function publicRecording(recording: {
   errorMessage: string | null;
   mode: string;
   fallbackFrom: string | null;
+  playbackFormat?: string | null;
+  playbackObjectKey?: string | null;
+  failureStage?: string | null;
 }) {
   return {
     id: recording.id,
@@ -66,6 +68,11 @@ function publicRecording(recording: {
     errorMessage: recording.errorMessage,
     mode: recording.mode,
     fallbackFrom: recording.fallbackFrom,
+    playbackFormat: recording.playbackFormat ?? null,
+    playbackUrl: recording.playbackObjectKey
+      ? `/api/sessions/${encodeURIComponent(recording.sessionId)}/recordings/${encodeURIComponent(recording.id)}/play`
+      : null,
+    failureStage: recording.failureStage ?? null,
   };
 }
 
@@ -82,7 +89,7 @@ export async function GET(
     );
   }
 
-  const latest = resolved.lesson.recordings[0];
+  let latest = resolved.lesson.recordings[0];
   if (!latest) {
     return NextResponse.json({
       enabled: getRecordingProvider(
@@ -92,31 +99,14 @@ export async function GET(
     });
   }
 
-  let providerState: unknown = latest.providerState;
-  if (
-    latest.status === "recording" &&
-    latest.resourceId &&
-    latest.providerSessionId
-  ) {
+  const shouldReconcile =
+    ["starting", "stopping", "processing"].includes(latest.status) ||
+    (latest.status === "recording" &&
+      (!latest.lastProviderCheckAt ||
+        Date.now() - latest.lastProviderCheckAt.getTime() >= 2_000));
+  if (shouldReconcile) {
     try {
-      const provider = getRecordingProvider(latest.provider);
-      const queried = await provider.query({
-        channelName: latest.channelName,
-        recorderUserId: latest.recorderUserId,
-        resourceId: latest.resourceId,
-        providerSessionId: latest.providerSessionId,
-        providerState:
-          latest.providerState &&
-          typeof latest.providerState === "object" &&
-          !Array.isArray(latest.providerState)
-            ? (latest.providerState as Record<string, unknown>)
-            : null,
-      });
-      providerState = queried.providerState;
-      await prisma.classroomRecording.update({
-        where: { id: latest.id },
-        data: { providerState: inputJson(queried.providerState) },
-      });
+      latest = (await reconcileRecordingAttempt(latest.id)) || latest;
     } catch (error) {
       console.warn("[classroom:recording] query failed", {
         recordingId: latest.id,
@@ -131,7 +121,7 @@ export async function GET(
     ).isConfigured(),
     recording: {
       ...publicRecording(latest),
-      providerState,
+      providerState: latest.providerState,
     },
   });
 }
@@ -164,10 +154,16 @@ export async function POST(
   const latest = lesson.recordings[0];
   try {
     if (action === "start") {
-      const recording = await startRecordingForCourse(course.id, lesson.id);
+      const recording = await requestRecordingStart(course.id, lesson.id);
+      after(() => processRecordingStart(recording.id).catch((error) => {
+        console.error("[classroom:recording] deferred start failed", {
+          recordingId: recording.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }));
       return NextResponse.json(
         { recording: publicRecording(recording) },
-        { status: 201 },
+        { status: 202 },
       );
     }
 
@@ -176,19 +172,17 @@ export async function POST(
         recording: latest ? publicRecording(latest) : null,
       });
     }
-    if (
-      !latest.resourceId ||
-      !latest.providerSessionId ||
-      latest.recorderUserId === "pending"
-    ) {
-      return NextResponse.json(
-        { error: "录制尚未完成启动，暂时不能停止" },
-        { status: 409 },
-      );
-    }
-
-    const recording = await stopRecordingAttempt(latest);
-    return NextResponse.json({ recording: publicRecording(recording) });
+    const recording = await requestRecordingStop(latest);
+    after(() => processRecordingStop(recording.id).catch((error) => {
+      console.error("[classroom:recording] deferred stop failed", {
+        recordingId: recording.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }));
+    return NextResponse.json(
+      { recording: publicRecording(recording) },
+      { status: 202 },
+    );
   } catch (error) {
     console.error("[classroom:recording] action failed", {
       courseId: id,
@@ -212,6 +206,15 @@ export async function POST(
           code: "recording_provider_failed",
         },
         { status: 502 },
+      );
+    }
+    if (
+      error instanceof Error &&
+      error.message.includes("not configured")
+    ) {
+      return NextResponse.json(
+        { error: "云端录制配置不完整", code: "recording_not_configured" },
+        { status: 503 },
       );
     }
     return NextResponse.json(

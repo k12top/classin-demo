@@ -1,20 +1,19 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import type { ClassroomAction } from "@/lib/classroom/types";
 import {
   applyClassroomAction,
   ClassroomActionError,
   ClassroomRevisionConflictError,
+  getClassroomEngagementSnapshot,
   getClassroomRuntimeSnapshot,
 } from "@/lib/classroom/server/runtime";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
 import {
-  startRecordingForCourse,
-  stopActiveRecordingsForCourse,
+  processRecordingStart,
+  requestRecordingStart,
 } from "@/lib/classroom/server/recording-orchestrator";
-import {
-  stopClassroomTranscription,
-  syncClassroomTranscription,
-} from "@/lib/classroom/server/transcription-orchestrator";
+import { syncClassroomTranscription } from "@/lib/classroom/server/transcription-orchestrator";
+import { databaseUnavailableResponse } from "@/lib/database-response";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,13 +21,16 @@ export const runtime = "nodejs";
 const ACTION_TYPES = new Set<ClassroomAction["type"]>([
   "heartbeat",
   "startClass",
-  "endClass",
   "raiseHand",
   "lowerHand",
   "inviteStage",
   "acceptStage",
   "declineStage",
   "removeStage",
+  "requestScreenShare",
+  "acceptScreenShare",
+  "declineScreenShare",
+  "stopScreenShare",
   "setMemberMuted",
   "setMediaAllowed",
   "muteAll",
@@ -38,7 +40,15 @@ const ACTION_TYPES = new Set<ClassroomAction["type"]>([
   "setChatEnabled",
   "setInterpretation",
   "startTimer",
+  "pauseTimer",
+  "resumeTimer",
   "resetTimer",
+  "giveReward",
+  "startBuzz",
+  "submitBuzz",
+  "closeBuzz",
+  "startRandomSelector",
+  "resetRandomSelector",
 ]);
 
 export async function POST(
@@ -60,11 +70,18 @@ export async function POST(
   }
   const shareAccess =
     typeof body.shareAccess === "string" ? body.shareAccess : "";
-  const resolved = await resolveClassroomRequestAccess(
-    request,
-    courseId,
-    shareAccess,
-  );
+  let resolved;
+  try {
+    resolved = await resolveClassroomRequestAccess(
+      request,
+      courseId,
+      shareAccess,
+    );
+  } catch (error) {
+    const unavailable = databaseUnavailableResponse(error);
+    if (unavailable) return unavailable;
+    throw error;
+  }
   if (!resolved.ok) {
     return NextResponse.json(
       { error: resolved.error, code: resolved.code },
@@ -90,36 +107,31 @@ export async function POST(
       body.action.type === "startClass" &&
       resolved.access.role === "teacher"
     ) {
-      await startRecordingForCourse(resolvedCourseId, sessionId).catch((error) => {
+      const recording = await requestRecordingStart(
+        resolvedCourseId,
+        sessionId,
+      ).catch((error) => {
         console.error("[classroom:actions] auto recording failed", {
           courseId,
           error: error instanceof Error ? error.message : String(error),
         });
+        return null;
       });
-      await syncClassroomTranscription(resolvedCourseId, { sessionId }).catch((error) => {
-        console.error("[classroom:actions] auto transcription failed", {
-          courseId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
-      runtimeSnapshot = await getClassroomRuntimeSnapshot(resolvedCourseId, sessionId);
-    }
-    if (
-      body.action.type === "endClass" &&
-      resolved.access.role === "teacher"
-    ) {
-      await stopActiveRecordingsForCourse(resolvedCourseId, sessionId).catch((error) => {
-        console.error("[classroom:actions] stop recording failed", {
-          courseId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
-      await stopClassroomTranscription(resolvedCourseId, sessionId).catch((error) => {
-        console.error("[classroom:actions] stop transcription failed", {
-          courseId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
+      if (recording) {
+        after(() => processRecordingStart(recording.id).catch((error) => {
+          console.error("[classroom:actions] auto recording failed", {
+            courseId,
+            recordingId: recording.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }));
+      }
+      after(() => syncClassroomTranscription(resolvedCourseId, { sessionId }).catch((error) => {
+          console.error("[classroom:actions] auto transcription failed", {
+            courseId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }));
       runtimeSnapshot = await getClassroomRuntimeSnapshot(resolvedCourseId, sessionId);
     }
     if (
@@ -134,14 +146,22 @@ export async function POST(
       });
       runtimeSnapshot = await getClassroomRuntimeSnapshot(resolvedCourseId, sessionId);
     }
-    return NextResponse.json({ runtime: runtimeSnapshot });
+    return NextResponse.json({
+      runtime: runtimeSnapshot,
+      engagement: await getClassroomEngagementSnapshot(sessionId),
+    });
   } catch (error) {
+    const unavailable = databaseUnavailableResponse(error);
+    if (unavailable) return unavailable;
     if (error instanceof ClassroomRevisionConflictError) {
       return NextResponse.json(
         {
           error: "课堂状态已更新，请重试",
           runtime: await getClassroomRuntimeSnapshot(
             resolved.access.courseId,
+            resolved.access.sessionId,
+          ),
+          engagement: await getClassroomEngagementSnapshot(
             resolved.access.sessionId,
           ),
         },
