@@ -113,6 +113,8 @@ type DrawerPanel =
 type ClassroomLayoutMode = "focus" | "split" | "grid";
 type CaptionDisplayMode = "off" | "original" | "bilingual" | "translated";
 
+const TEACHER_PIP_HIDDEN_STORAGE_KEY = "classroom_teacher_pip_hidden";
+
 const EMPTY_MEDIA: ClassroomMediaSnapshot = {
   connectionState: "idle",
   participants: [],
@@ -1639,8 +1641,10 @@ function CaptionsPanel({
   availability,
   canManage,
   displayMode,
+  overlayVisible,
   preferredLanguage,
   onDisplayModeChange,
+  onOverlayVisibleChange,
   onPreferredLanguageChange,
   onAction,
 }: {
@@ -1649,8 +1653,10 @@ function CaptionsPanel({
   availability: { shengwang: boolean; wordly: boolean };
   canManage: boolean;
   displayMode: CaptionDisplayMode;
+  overlayVisible: boolean;
   preferredLanguage: string;
   onDisplayModeChange: (mode: CaptionDisplayMode) => void;
+  onOverlayVisibleChange: (visible: boolean) => void;
   onPreferredLanguageChange: (language: string) => void;
   onAction: (action: ClassroomAction) => void;
 }) {
@@ -1740,6 +1746,24 @@ function CaptionsPanel({
               : t("classroom.v3.captionOverlayHint")}
           </small>
         </span>
+      </div>
+
+      <div className="classroom-v3-caption-overlay-control">
+        <span>
+          <strong>{t("classroom.v3.captionOverlay")}</strong>
+          <small>{t("classroom.v3.captionOverlayHint")}</small>
+        </span>
+        <button
+          type="button"
+          className={overlayVisible ? "is-on" : ""}
+          aria-pressed={overlayVisible}
+          onClick={() => onOverlayVisibleChange(!overlayVisible)}
+        >
+          <i />
+          {overlayVisible
+            ? t("classroom.v3.enabled")
+            : t("classroom.v3.disabled")}
+        </button>
       </div>
 
       {canManage ? (
@@ -2350,6 +2374,14 @@ export function ClassroomV3({
         : "bilingual";
     },
   );
+  const [captionOverlayVisible, setCaptionOverlayVisible] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("classroom_caption_overlay_visible") !== "0";
+  });
+  const [teacherPiPHidden, setTeacherPiPHidden] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(TEACHER_PIP_HIDDEN_STORAGE_KEY) === "1";
+  });
   const [captionLanguage, setCaptionLanguage] = useState(() => {
     return initialCaptionLanguage(
       typeof window === "undefined"
@@ -2364,6 +2396,7 @@ export function ClassroomV3({
   const [endClassConfirming, setEndClassConfirming] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const publishEnabledRef = useRef(false);
+  const teacherCameraAutostartedRef = useRef(false);
   const captionIngestAtRef = useRef(new Map<string, number>());
   const [studentPublishReady, setStudentPublishReady] = useState(false);
   const now = useNow();
@@ -2375,6 +2408,20 @@ export function ClassroomV3({
   useEffect(() => {
     window.localStorage.setItem("classroom_caption_mode", captionDisplayMode);
   }, [captionDisplayMode]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "classroom_caption_overlay_visible",
+      captionOverlayVisible ? "1" : "0",
+    );
+  }, [captionOverlayVisible]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      TEACHER_PIP_HIDDEN_STORAGE_KEY,
+      teacherPiPHidden ? "1" : "0",
+    );
+  }, [teacherPiPHidden]);
 
   useEffect(() => {
     window.localStorage.setItem(CAPTION_LANGUAGE_STORAGE_KEY, captionLanguage);
@@ -2867,6 +2914,40 @@ export function ClassroomV3({
     }, 0);
     return () => window.clearTimeout(settleEndedState);
   }, [classEnded, disconnectRoom]);
+
+  // The teacher camera is the default classroom presence. Starting it here
+  // keeps the teaching stage useful on first entry, while the ref ensures a
+  // teacher who deliberately turns it off is never switched back on.
+  useEffect(() => {
+    if (
+      isRecorder ||
+      classEnded ||
+      !sessionData ||
+      !mediaProvider ||
+      sessionData.credential.role !== "teacher" ||
+      media.connectionState !== "connected" ||
+      media.local.cameraOn ||
+      teacherCameraAutostartedRef.current
+    ) {
+      return;
+    }
+    teacherCameraAutostartedRef.current = true;
+    void mediaProvider.toggleCamera().catch((error: unknown) => {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : t("classroom.v3.mediaActionFailed"),
+      );
+    });
+  }, [
+    classEnded,
+    isRecorder,
+    media.connectionState,
+    media.local.cameraOn,
+    mediaProvider,
+    sessionData,
+    t,
+  ]);
 
   useEffect(() => {
     if (
@@ -3511,6 +3592,7 @@ export function ClassroomV3({
 
   const parentCourseId = sessionData?.course.id || null;
   const classroomRole = sessionData?.credential.role || null;
+  const isStudentViewer = classroomRole === "student";
   const leaveClassroom = useCallback(() => {
     if (isLeaving) return;
     setIsLeaving(true);
@@ -3586,6 +3668,9 @@ export function ClassroomV3({
       participantOwnerId(participant.id) ===
       sessionData?.runtime.spotlightUserId,
   );
+  const leadTeacher = sessionData?.runtime.members.find(
+    (member) => member.role === "teacher",
+  );
   const teacherParticipant = decoratedParticipants.find(({ participant }) => {
     const member = sessionData?.runtime.members.find(
       (candidate) =>
@@ -3627,8 +3712,11 @@ export function ClassroomV3({
           sessionData?.mode !== "publicLive" &&
           !spotlightParticipant)),
   );
-  const leadTeacher = sessionData?.runtime.members.find(
-    (member) => member.role === "teacher",
+  const useMediaGallery = Boolean(
+    !screenParticipant &&
+      !showWhiteboard &&
+      layoutMode !== "focus" &&
+      galleryParticipants.length > 1,
   );
   const stageActor = screenParticipant?.member || stageParticipant?.member;
   const stageSourceTitle = screenParticipant
@@ -3662,7 +3750,30 @@ export function ClassroomV3({
       ? PenTool
       : stageParticipant?.participant.hasVideo
         ? Video
-        : VideoOff;
+      : VideoOff;
+  const teacherIsOnMainStage = Boolean(
+    !useMediaGallery &&
+      !screenParticipant &&
+      !showWhiteboard &&
+      teacherParticipant &&
+      stageParticipant?.participant.id === teacherParticipant.participant.id,
+  );
+  const teacherIsVisibleInGallery = Boolean(
+    useMediaGallery &&
+      teacherParticipant &&
+      galleryParticipants.some(
+        (item) => item.participant.id === teacherParticipant.participant.id,
+      ),
+  );
+  const canShowTeacherPictureInPicture = Boolean(
+    !classEnded &&
+      leadTeacher &&
+      isStudentViewer &&
+      !teacherIsOnMainStage &&
+      !teacherIsVisibleInGallery,
+  );
+  const showTeacherPictureInPicture =
+    canShowTeacherPictureInPicture && !teacherPiPHidden;
   const elapsedSeconds = sessionData?.runtime.startedAt
     ? (now - new Date(sessionData.runtime.startedAt).getTime()) / 1000
     : 0;
@@ -4102,9 +4213,7 @@ export function ClassroomV3({
                   <p>{t("classroom.v3.playbackHint")}</p>
                 </motion.div>
               ) : !screenParticipant &&
-              !showWhiteboard &&
-              layoutMode !== "focus" &&
-              galleryParticipants.length > 1 ? (
+              useMediaGallery ? (
                 <motion.div
                   key={`layout-${layoutMode}`}
                   className={`classroom-v3-stage-layer classroom-v3-media-layout is-${layoutMode}`}
@@ -4183,7 +4292,52 @@ export function ClassroomV3({
                 </motion.div>
               )}
             </AnimatePresence>
+            {showTeacherPictureInPicture ? (
+              <motion.div
+                className="classroom-v3-teacher-pip"
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.18 }}
+              >
+                {teacherParticipant ? (
+                  <MediaSurface
+                    participant={teacherParticipant.participant}
+                    provider={mediaProvider}
+                    displayName={teacherParticipant.displayName}
+                  />
+                ) : (
+                  <div className="classroom-v3-teacher-pip-unavailable">
+                    <span>{initialOf(leadTeacher?.displayName || t("classroom.v3.teacher"))}</span>
+                    <div>
+                      <strong>{leadTeacher?.displayName || t("classroom.v3.teacher")}</strong>
+                      <small>{t("classroom.v3.cameraOff")}</small>
+                    </div>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="classroom-v3-teacher-pip-hide"
+                  onClick={() => setTeacherPiPHidden(true)}
+                  title={t("classroom.v3.hideTeacherCamera")}
+                  aria-label={t("classroom.v3.hideTeacherCamera")}
+                >
+                  <EyeOff />
+                </button>
+              </motion.div>
+            ) : null}
+            {canShowTeacherPictureInPicture && teacherPiPHidden ? (
+              <button
+                type="button"
+                className="classroom-v3-teacher-pip-restore"
+                onClick={() => setTeacherPiPHidden(false)}
+                title={t("classroom.v3.showTeacherCamera")}
+                aria-label={t("classroom.v3.showTeacherCamera")}
+              >
+                <Eye />
+              </button>
+            ) : null}
             {!classEnded &&
+              captionOverlayVisible &&
               captionDisplayMode !== "off" &&
               sessionData.runtime.interpretation.enabled &&
               latestCaption ? (
@@ -4442,8 +4596,10 @@ export function ClassroomV3({
                       sessionData.capabilities.canManageInterpretation && !isRecorder
                     }
                     displayMode={captionDisplayMode}
+                    overlayVisible={captionOverlayVisible}
                     preferredLanguage={effectiveCaptionLanguage}
                     onDisplayModeChange={setCaptionDisplayMode}
+                    onOverlayVisibleChange={setCaptionOverlayVisible}
                     onPreferredLanguageChange={setCaptionLanguage}
                     onAction={(action) => void performAction(action)}
                   />

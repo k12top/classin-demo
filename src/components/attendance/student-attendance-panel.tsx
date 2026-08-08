@@ -35,6 +35,7 @@ type AttendanceSummary = {
   completedLessonCount: number;
   attendedLessonCount: number;
   absentLessonCount: number;
+  excusedLessonCount: number;
   lateLessonCount: number;
   attendanceRate: number;
   punctualRate: number;
@@ -55,6 +56,7 @@ const EMPTY_SUMMARY: AttendanceSummary = {
   completedLessonCount: 0,
   attendedLessonCount: 0,
   absentLessonCount: 0,
+  excusedLessonCount: 0,
   lateLessonCount: 0,
   attendanceRate: 0,
   punctualRate: 0,
@@ -88,7 +90,10 @@ function buildCalendarDays(today = new Date()) {
 
 function dayTone(lessons: AttendanceLesson[]) {
   if (!lessons.length) return "empty";
-  const active = lessons.filter((lesson) => lesson.status !== "cancelled");
+  const active = lessons.filter(
+    (lesson) => lesson.status !== "cancelled" && lesson.status !== "excused",
+  );
+  if (!active.length && lessons.some((lesson) => lesson.status === "excused")) return "excused";
   if (!active.length) return "cancelled";
   const completed = active.filter((lesson) => lesson.completed);
   const attended = completed.filter((lesson) => lesson.status !== "absent");
@@ -250,7 +255,7 @@ export function StudentAttendancePanel({
             <p>{t("studentAttendance.wallDescription")}</p>
           </div>
           <div className={styles.legend} aria-label={t("studentAttendance.legend")}> 
-            {(["present", "late", "absent", "upcoming"] as const).map((tone) => (
+            {(["present", "late", "absent", "excused", "upcoming"] as const).map((tone) => (
               <span key={tone}><i data-tone={tone} />{t(`studentAttendance.legend${tone[0].toUpperCase()}${tone.slice(1)}`)}</span>
             ))}
           </div>

@@ -17,6 +17,7 @@ import {
   rosterContainsUser,
 } from "@/lib/course-session-roster";
 import { serializeCourseSession } from "@/lib/course-session-service";
+import { clearCourseSessionAccessCache } from "@/lib/course-session-access";
 import {
   CourseStatus,
   getFinishedDelayMinutes,
@@ -25,6 +26,7 @@ import {
 import { prisma } from "@/lib/db";
 import { databaseUnavailableResponse } from "@/lib/database-response";
 import { getSessionFromRequest } from "@/lib/session";
+import { syncCourseStatusFromSessions } from "@/lib/course-session-status";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -86,14 +88,77 @@ async function handlePost(request: NextRequest, context: Context) {
   const body = (await request.json().catch(() => null)) as {
     action?: unknown;
   } | null;
-  if (body?.action !== "end" && body?.action !== "reopen") {
+  if (
+    body?.action !== "end" &&
+    body?.action !== "reopen" &&
+    body?.action !== "cancel" &&
+    body?.action !== "restore"
+  ) {
     return NextResponse.json(
-      { error: 'action must be "end" or "reopen"' },
+      { error: 'action must be "end", "reopen", "cancel", or "restore"' },
       { status: 400 },
     );
   }
 
   const now = new Date();
+  if (body.action === "cancel") {
+    if (resolved.lesson.status !== CourseStatus.SCHEDULED) {
+      return NextResponse.json(
+        { error: "Only a scheduled lesson can be cancelled" },
+        { status: 409 },
+      );
+    }
+    const updated = await prisma.courseSession.update({
+      where: { id: resolved.sessionId },
+      data: { status: CourseStatus.CANCELLED, endedAt: now },
+      include: {
+        series: true,
+        teachers: true,
+        students: true,
+        groupLinks: true,
+        _count: { select: { attendances: true, recordings: true } },
+      },
+    });
+    clearCourseSessionAccessCache();
+    await syncCourseStatusFromSessions(resolved.courseId);
+    return NextResponse.json({ session: serializeCourseSession(updated) });
+  }
+
+  if (body.action === "restore") {
+    if (resolved.lesson.status !== CourseStatus.CANCELLED) {
+      return NextResponse.json(
+        { error: "Only a cancelled lesson can be restored" },
+        { status: 409 },
+      );
+    }
+    const restoreDeadline = new Date(
+      resolved.lesson.endTime.getTime() + getFinishedDelayMinutes() * 60_000,
+    );
+    if (now > restoreDeadline) {
+      return NextResponse.json(
+        { error: "This lesson is past its restore window; schedule a new lesson instead" },
+        { status: 409 },
+      );
+    }
+    const status = now < resolved.lesson.startTime
+      ? CourseStatus.SCHEDULED
+      : CourseStatus.LIVE;
+    const updated = await prisma.courseSession.update({
+      where: { id: resolved.sessionId },
+      data: { status, endedAt: null },
+      include: {
+        series: true,
+        teachers: true,
+        students: true,
+        groupLinks: true,
+        _count: { select: { attendances: true, recordings: true } },
+      },
+    });
+    clearCourseSessionAccessCache();
+    await syncCourseStatusFromSessions(resolved.courseId);
+    return NextResponse.json({ session: serializeCourseSession(updated) });
+  }
+
   if (body.action === "end") {
     const nextStatus = resolveManualFinishedStatus(
       resolved.lesson.status,
@@ -156,6 +221,8 @@ async function handlePost(request: NextRequest, context: Context) {
         },
       });
     });
+    clearCourseSessionAccessCache();
+    await syncCourseStatusFromSessions(resolved.courseId);
     after(async () => {
       const results = await Promise.allSettled([
         stopActiveRecordingsForCourse(resolved.courseId, resolved.sessionId),
@@ -184,7 +251,10 @@ async function handlePost(request: NextRequest, context: Context) {
     });
   }
 
-  if (resolved.lesson.status !== CourseStatus.FINISHED) {
+  if (
+    resolved.lesson.status !== CourseStatus.FINISHED &&
+    !(resolved.lesson.status === CourseStatus.AFTER_CLASS && resolved.lesson.endedAt)
+  ) {
     return NextResponse.json(
       { error: "Only a finished lesson can be reopened" },
       { status: 409 },
@@ -218,6 +288,8 @@ async function handlePost(request: NextRequest, context: Context) {
       },
     });
   });
+  clearCourseSessionAccessCache();
+  await syncCourseStatusFromSessions(resolved.courseId);
   const recording = await requestRecordingStart(
     resolved.courseId,
     resolved.sessionId,

@@ -135,5 +135,23 @@ export function courseListStatusWhere(
   status: CourseStatusValue | null
 ): Prisma.CourseWhereInput | undefined {
   if (!status) return undefined;
+  if (status === CourseStatus.FINISHED) {
+    return {
+      sessions: {
+        some: {
+          OR: [
+            { status: CourseStatus.FINISHED },
+            {
+              endedAt: { not: null },
+              status: { not: CourseStatus.CANCELLED },
+            },
+          ],
+        },
+      },
+    };
+  }
+  if (UPCOMING_STATUSES.has(status)) {
+    return { sessions: { some: { status, endedAt: null } } };
+  }
   return { sessions: { some: { status } } };
 }

@@ -13,7 +13,6 @@ import {
   getFinishedDelayMinutes,
   isValidCourseStatus,
 } from "@/lib/course-status";
-import { closeOpenAttendanceSessionsForCourse } from "@/lib/course-attendance";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
 import { stopActiveRecordingsForCourse } from "@/lib/classroom/server/recording-orchestrator";
 import { getSessionFromRequest } from "@/lib/session";
@@ -30,13 +29,6 @@ import {
 } from "@/lib/course-session-roster";
 
 export const dynamic = "force-dynamic";
-
-function courseAttendanceCloseTime(
-  endTime: Date | null | undefined,
-  now = new Date()
-): Date {
-  return endTime && endTime <= now ? endTime : now;
-}
 
 const courseDetailInclude = {
   teachers: { orderBy: { createdAt: "asc" } },
@@ -55,7 +47,12 @@ const courseDetailInclude = {
           teachers: true,
           students: true,
           attendances: true,
-          recordings: true,
+          recordings: {
+            where: {
+              status: "completed",
+              playbackObjectKey: { not: null },
+            },
+          },
         },
       },
     },
@@ -177,7 +174,11 @@ export async function GET(
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
     }
-    const visibleSessions = isTeacher || isCourseStudent
+    // A learner can belong to the course while being excluded from a specific
+    // lesson through its roster override. Keep the detail payload aligned with
+    // the classroom authorization rule so lesson titles, times and recordings
+    // do not leak across those overrides.
+    const visibleSessions = isTeacher
       ? course.sessions
       : course.sessions.filter((lesson) => visibleSessionIds.has(lesson.id));
     type SerializedCourse = Omit<typeof course, "passcode"> & {
@@ -489,71 +490,15 @@ export async function PATCH(
   }
 
   try {
-    const body = await request.json();
-    const { status, studentRemarks } = body;
-
-    const dataToUpdate: Record<string, unknown> = {};
-
-    if (status !== undefined) {
-      if (typeof status !== "string" || !isValidCourseStatus(status)) {
-        return NextResponse.json({ error: "Invalid status" }, { status: 400 });
-      }
-
-      if (isTeacher) {
-        dataToUpdate.status = status;
-        if (status === CourseStatus.AFTER_CLASS && !existing.endedAt) {
-          dataToUpdate.endedAt = new Date();
-        }
-        if (status === CourseStatus.SCHEDULED || status === CourseStatus.LIVE) {
-          dataToUpdate.endedAt = null;
-        }
-      } else if (status === CourseStatus.CANCELLED) {
-        dataToUpdate.status = status;
-      } else {
-        return NextResponse.json(
-          { error: "Only teachers can correct course status" },
-          { status: 403 }
-        );
-      }
-    }
-    
-    // Students can update remarks. Teachers could theoretically update it too but usually they read it.
-    if (studentRemarks !== undefined) {
-      dataToUpdate.studentRemarks = studentRemarks.trim();
-    }
-
-    const course = await prisma.course.update({
-      where: { id },
-      data: dataToUpdate,
-    });
-
-    if (
-      typeof dataToUpdate.status === "string" &&
-      dataToUpdate.status !== existing.status
-    ) {
-      console.info(
-        "[course-status]",
-        JSON.stringify({
-          action: "applied",
-          source: "manual-course-patch",
-          courseId: id,
-          previousStatus: existing.status,
-          nextStatus: dataToUpdate.status,
-          occurredAt: new Date().toISOString(),
-        }),
-      );
-    }
-
-    if (dataToUpdate.status === CourseStatus.FINISHED) {
-      await closeOpenAttendanceSessionsForCourse(
-        id,
-        courseAttendanceCloseTime(course.endTime)
-      );
-    }
-
-    const promoted = await promoteCourseIfDueById(id);
-
-    return NextResponse.json({ course: serializeCourse(promoted ?? course) });
+    await request.json().catch(() => ({}));
+    return NextResponse.json(
+      {
+        error:
+          "课程状态和学生要求必须按课次更新，请使用课次状态或课次学生反馈接口",
+        code: "SESSION_SCOPED_OPERATION_REQUIRED",
+      },
+      { status: 409 },
+    );
   } catch (error) {
     console.error("Failed to patch course:", error);
     return NextResponse.json({ error: "Failed to patch course" }, { status: 500 });

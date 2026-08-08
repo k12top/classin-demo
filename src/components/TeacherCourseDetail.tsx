@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, type WheelEvent } from "react";
-import { useRouter } from "next/navigation";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
@@ -12,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw, AlertCircle, Upload, CalendarClock, ChevronLeft, ChevronRight, Share2, Send } from "lucide-react";
+import { PlayCircle, Clock, Users, Link as LinkIcon, Search, Trash2, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw, AlertCircle, Upload, CalendarClock, ChevronLeft, ChevronRight, Share2, Send } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { useTranslation } from "@/lib/i18n/context";
 import TimeDisplay from "@/components/TimeDisplay";
@@ -77,12 +76,14 @@ interface AttendanceRecord {
   studentName: string;
   studentAvatar?: string;
   sessionCount: number;
-  firstEnteredAt: string;
-  latestEnteredAt: string;
+  firstEnteredAt: string | null;
+  latestEnteredAt: string | null;
   lastActivityAt: string | null;
   totalDurationSec: number;
   online: boolean;
   closedByCourseEnd: boolean;
+  status: "attended" | "excused";
+  leaveReason: string;
 }
 
 type AttendanceApiResponse = {
@@ -221,7 +222,6 @@ export default function TeacherCourseDetail({
   enterLoading: boolean;
   fetchCourse: () => void | Promise<void>;
 }) {
-  const router = useRouter();
   const { t, locale } = useTranslation();
   const { notify, confirmAction } = usePortalFeedback();
   const isCourseOwner = Boolean(course.isCourseOwner);
@@ -289,6 +289,9 @@ export default function TeacherCourseDetail({
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceError, setAttendanceError] = useState("");
+  const [attendanceSessionId, setAttendanceSessionId] = useState(
+    course.nextSession?.id || course.sessions?.at(-1)?.id || "",
+  );
   const attendanceRequestIdRef = useRef(0);
   const attendanceAbortRef = useRef<AbortController | null>(null);
 
@@ -800,7 +803,9 @@ export default function TeacherCourseDetail({
     const requestController = new AbortController();
     attendanceAbortRef.current = requestController;
     const requestId = ++attendanceRequestIdRef.current;
-    const requestUrl = `/api/courses/${course.id}/attendance`;
+    const requestUrl = `/api/courses/${course.id}/attendance${
+      attendanceSessionId ? `?sessionId=${encodeURIComponent(attendanceSessionId)}` : ""
+    }`;
     const unavailableMessage = t("courseDetail.attendanceUnavailable");
 
     setAttendanceLoading(true);
@@ -886,10 +891,17 @@ export default function TeacherCourseDetail({
         attendanceAbortRef.current = null;
       }
     }
-  }, [course.id, t]);
+  }, [attendanceSessionId, course.id, t]);
+
+  useEffect(() => {
+    if (activeTab !== "attendance") return;
+    queueMicrotask(() => void fetchAttendance());
+  }, [activeTab, fetchAttendance]);
 
   const exportAttendanceCsv = () => {
-    window.location.href = `/api/courses/${course.id}/attendance?format=csv`;
+    const params = new URLSearchParams({ format: "csv" });
+    if (attendanceSessionId) params.set("sessionId", attendanceSessionId);
+    window.location.href = `/api/courses/${course.id}/attendance?${params.toString()}`;
   };
 
   const handleAddStudent = async (student: UserSearchResult) => {
@@ -1120,10 +1132,9 @@ export default function TeacherCourseDetail({
   );
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 pt-4">
+    <div className={`${workspaceStyles.workspace} max-w-6xl mx-auto space-y-4 pb-10 pt-3`}>
       {/* Header Card */}
       <Card className={workspaceStyles.hero}>
-        <div className="absolute top-[-50%] right-[-10%] w-[400px] h-[400px] bg-primary/5 rounded-full blur-[120px] pointer-events-none" />
         <CardContent className={workspaceStyles.heroContent}>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
             <div className="space-y-4 flex-1">
@@ -1213,7 +1224,7 @@ export default function TeacherCourseDetail({
                     type="button"
                     size="icon"
                     variant="ghost"
-                    className="mt-1 h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:text-primary"
+                    className={`mt-1 h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:text-primary ${workspaceStyles.heroHoverAction}`}
                     onClick={() => {
                       setCourseNameDraft(course.name || "");
                       setCourseNameError("");
@@ -1319,7 +1330,6 @@ export default function TeacherCourseDetail({
           <TabsTrigger
             value="attendance"
             className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap"
-            onClick={() => void fetchAttendance()}
           >
             <Clock className="mr-2 h-4 w-4" /> {t("courseDetail.attendance")}
           </TabsTrigger>
@@ -1328,9 +1338,6 @@ export default function TeacherCourseDetail({
               <LinkIcon className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.sharing")}
             </TabsTrigger>
           )}
-          <TabsTrigger value="requirements" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
-            <MessageSquare className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.requirementsStudent")}
-          </TabsTrigger>
         </TabsList>
           </div>
           <button
@@ -2090,6 +2097,21 @@ export default function TeacherCourseDetail({
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
+                  <Select value={attendanceSessionId} onValueChange={(value) => {
+                    setAttendanceSessionId(value);
+                    setAttendance([]);
+                  }}>
+                    <SelectTrigger className="h-9 min-w-[12rem] rounded-xl text-xs" aria-label={t("courseDetail.attendanceLesson")}>
+                      <SelectValue placeholder={t("courseDetail.attendanceLesson")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(course.sessions || []).map((lesson) => (
+                        <SelectItem key={lesson.id} value={lesson.id}>
+                          {lesson.title || new Date(lesson.startTime).toLocaleString(locale)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Button
                     type="button"
                     variant="outline"
@@ -2184,7 +2206,9 @@ export default function TeacherCourseDetail({
                           {record.sessionCount}
                         </span>
                         <span className="text-muted-foreground">
-                          {new Date(record.firstEnteredAt).toLocaleString(locale)}
+                          {record.firstEnteredAt
+                            ? new Date(record.firstEnteredAt).toLocaleString(locale)
+                            : t("courseDetail.noActivity")}
                         </span>
                         <span className="text-muted-foreground">
                           {record.online
@@ -2200,17 +2224,26 @@ export default function TeacherCourseDetail({
                           <Badge
                             variant="outline"
                             className={
-                              record.online
+                              record.status === "excused"
+                                ? "border-sky-500/25 bg-sky-500/10 text-sky-600"
+                                : record.online
                                 ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
                                 : "border-border/60 bg-muted/20 text-muted-foreground"
                             }
                           >
-                            {record.online
+                            {record.status === "excused"
+                              ? t("courseDetail.excused")
+                              : record.online
                               ? t("courseDetail.online")
                               : record.closedByCourseEnd
                                 ? t("courseDetail.classEnded")
                                 : t("courseDetail.left")}
                           </Badge>
+                          {record.status === "excused" && record.leaveReason ? (
+                            <small className="mt-1 block max-w-[11rem] truncate text-muted-foreground" title={record.leaveReason}>
+                              {record.leaveReason}
+                            </small>
+                          ) : null}
                         </span>
                       </div>
                     ))}
@@ -2221,30 +2254,6 @@ export default function TeacherCourseDetail({
           </Card>
         </TabsContent>
 
-        <TabsContent value="requirements" className="mt-0">
-          <Card className="border border-border/60 bg-card rounded-2xl shadow-sm max-w-3xl">
-            <CardHeader>
-              <CardTitle className="text-lg font-bold">{t("courseDetail.tabs.requirementsStudent")}</CardTitle>
-              <CardDescription className="text-xs">{t("courseDetail.studentRemarksDesc")}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {course.studentRemarks ? (
-                <div className="relative p-6 rounded-xl bg-primary/5 border border-primary/10">
-                  <div className="absolute top-4 left-4 text-4xl text-primary/10 font-serif leading-none">&quot;</div>
-                  <p className="relative z-10 text-base text-foreground/95 leading-relaxed indent-4 px-2 font-medium">
-                    {course.studentRemarks}
-                  </p>
-                  <div className="absolute bottom-[-10px] right-4 text-4xl text-primary/10 font-serif leading-none rotate-180">&quot;</div>
-                </div>
-              ) : (
-                <div className="p-12 text-center border border-dashed border-border/60 rounded-xl bg-muted/10">
-                  <Info className="h-8 w-8 text-muted-foreground/50 mx-auto mb-3" />
-                  <p className="text-muted-foreground text-sm font-medium">{t("courseDetail.studentRemarksEmpty")}</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
     </div>
   );

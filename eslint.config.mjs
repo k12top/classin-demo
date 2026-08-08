@@ -16,6 +16,7 @@ const eslintConfig = defineConfig([
     ".agents/**",
     ".codex/**",
     "scratch/**",
+    "public/vendor/**",
     // Standalone Electron, Flutter and HarmonyOS projects use their own
     // platform toolchains and lint configurations.
     "clients/**",

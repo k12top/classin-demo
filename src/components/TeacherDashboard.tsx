@@ -13,14 +13,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowRight, Calendar as CalendarIcon, CheckCircle2, Users, LogOut, ChevronLeft, ChevronRight, PlayCircle, Search, Trash2, UserPlus, Info, Globe, Key, Loader2, User, BookOpen, RefreshCw, Sparkles, Layers3, Video } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
-import {
-  CourseStatusSelect,
-  getCourseStatusLabel,
-} from "@/components/CourseStatusSelect";
 import { canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
 import { prefetchCourseDetail } from "@/lib/course-detail-client-cache";
-import { getPlaybackTarget } from "@/lib/playback-url";
+import { playbackPagePath } from "@/lib/playback-url";
 import {
   getTeacherDirectory,
   type TeacherDirectoryEntry,
@@ -66,6 +62,7 @@ interface Course {
   endTime: string | null;
   studentRemarks: string;
   recordUrl?: string | null;
+  hasPlayback?: boolean;
   createdAt: string;
   updatedAt: string;
   students?: { studentId: string; studentName: string; studentAvatar?: string }[];
@@ -116,6 +113,7 @@ const ROOM_TYPE_KEYS: Record<number, string> = {
 type SidebarPage = "schedule" | "courses" | "students" | "settings";
 
 const CREATE_SUBMIT_DEBOUNCE_MS = 1200;
+const CREATE_REQUEST_REUSE_MS = 2 * 60_000;
 
 function defaultCourseStartValue() {
   const date = new Date();
@@ -147,7 +145,6 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     }
   }, []);
   const [enteringCourseId, setEnteringCourseId] = useState<string | null>(null);
-  const [statusUpdatingCourseId, setStatusUpdatingCourseId] = useState<string | null>(null);
   const { t, locale } = useTranslation();
   const { notify, confirmAction } = usePortalFeedback();
 
@@ -170,6 +167,11 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const [createPrimaryTeacherId, setCreatePrimaryTeacherId] = useState("");
   const createLockRef = useRef(false);
   const lastCreateSubmitAtRef = useRef(0);
+  const createRequestRef = useRef<{
+    fingerprint: string;
+    key: string;
+    createdAt: number;
+  } | null>(null);
 
   const currentTeacher = useMemo<CourseTeacherSummary>(
     () => ({
@@ -265,38 +267,6 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     }
   }, [activePage, fetchMyGroups]);
 
-  const handleStatusChange = async (courseId: string, status: string) => {
-    const statusLabel = getCourseStatusLabel(t, status);
-    if (
-      !(await confirmAction({
-        title: statusLabel,
-        description: t("teacherDashboard.confirmFinishCancel", {
-          status: statusLabel,
-        }),
-        tone: "danger",
-      }))
-    ) return;
-    setStatusUpdatingCourseId(courseId);
-    try {
-      const res = await fetch(`/api/courses/${courseId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        fetchCourses();
-      } else {
-        notify(data.error || t("common.failed"), "error");
-      }
-    } catch (err) {
-      console.error(err);
-      notify(t("common.failed"), "error");
-    } finally {
-      setStatusUpdatingCourseId(null);
-    }
-  };
-
   const isSameDay = (d1: Date, d2: Date) => {
     return d1.getFullYear() === d2.getFullYear() &&
            d1.getMonth() === d2.getMonth() &&
@@ -343,7 +313,18 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.allowed) {
-        notify(data.reason || t("classroom.launchError"), "error");
+        if (
+          data.code === "course_finished" ||
+          data.code === "course_cancelled"
+        ) {
+          await fetchCourses();
+        }
+        notify(
+          data.reason || t("classroom.launchError"),
+          data.code === "course_finished" || data.code === "course_cancelled"
+            ? "info"
+            : "error",
+        );
         return;
       }
       if (typeof data.classroomUrl !== "string" || !data.classroomUrl) {
@@ -528,31 +509,50 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     setCreateLoading(true);
     setCreateError("");
     let navigating = false;
+    const createPayload = {
+      name: createName,
+      description: createDesc,
+      courseKind: createKind,
+      startTime: standaloneStart?.toISOString(),
+      endTime: standaloneEnd?.toISOString(),
+      roomType: createRoomType,
+      requirePasscode: createRoomType === 10 ? createRequirePasscode : undefined,
+      passcode: createRoomType === 10 && createRequirePasscode ? createPasscode : undefined,
+      primaryTeacher: selectedPrimaryTeacher,
+      teachers: createTeachers.length ? createTeachers : [currentTeacher],
+    };
+    const fingerprint = JSON.stringify(createPayload);
+    const previousRequest = createRequestRef.current;
+    const requestId =
+      previousRequest &&
+      previousRequest.fingerprint === fingerprint &&
+      now - previousRequest.createdAt < CREATE_REQUEST_REUSE_MS
+        ? previousRequest.key
+        : crypto.randomUUID();
+    createRequestRef.current = { fingerprint, key: requestId, createdAt: now };
+    const submitCreateRequest = () => fetch("/api/courses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": requestId,
+      },
+      body: JSON.stringify(createPayload),
+    });
     try {
-      const res = await fetch("/api/courses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": crypto.randomUUID(),
-        },
-        body: JSON.stringify({
-          name: createName,
-          description: createDesc,
-          courseKind: createKind,
-          startTime: standaloneStart?.toISOString(),
-          endTime: standaloneEnd?.toISOString(),
-          roomType: createRoomType,
-          requirePasscode: createRoomType === 10 ? createRequirePasscode : undefined,
-          passcode: createRoomType === 10 && createRequirePasscode ? createPasscode : undefined,
-          primaryTeacher: selectedPrimaryTeacher,
-          teachers: createTeachers.length ? createTeachers : [currentTeacher],
-        }),
-      });
+      let res = await submitCreateRequest();
+      // The server marks transient database failures as retryable. Reusing the
+      // same key makes this safe even if PostgreSQL completed the write before
+      // the connection was severed.
+      if (res.status === 503 && res.headers.get("Retry-After")) {
+        await new Promise((resolve) => window.setTimeout(resolve, 450));
+        res = await submitCreateRequest();
+      }
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || t("common.failed"));
       }
       const { course } = await res.json();
+      createRequestRef.current = null;
       setCreateName(""); setCreateDesc(""); setCreateKind("series"); setCreateStartTime(defaultCourseStartValue()); setCreateDuration(60); setCreateRoomType(0); setCreateRequirePasscode(true); setCreatePasscode("");
       resetCreateTeacherSelection();
       router.push(`/courses/${course.id}`);
@@ -731,6 +731,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 void handleEnterClassroomFromList(course as Course)
               }
               onOpen={(course) => router.push(`/courses/${course.id}`)}
+              onPlayback={(course) => router.push(playbackPagePath(course.id))}
               onPrefetch={(course) => {
                 router.prefetch(`/courses/${course.id}`);
                 void prefetchCourseDetail(course.id);
@@ -940,27 +941,16 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                               <Button
                                 disabled={
                                   enteringCourseId === course.id ||
-                                  (course.status === "finished"
-                                    ? !course.recordUrl
-                                    : !canEnterClassroom(course.status))
+                                  (course.status !== "finished" &&
+                                    !canEnterClassroom(course.status))
                                 }
                                 className={scheduleStyles.enterButton}
                                 onMouseEnter={() => router.prefetch("/classroom")}
                                 onClick={() => {
-                                  if (course.status === "finished") {
-                                    const target = getPlaybackTarget(
-                                      course.id,
-                                      course.recordUrl,
-                                    );
-                                    if (target?.kind === "internal") {
-                                      router.push(target.href);
-                                    } else if (target) {
-                                      window.open(
-                                        target.href,
-                                        "_blank",
-                                        "noopener,noreferrer",
-                                      );
-                                    }
+                                  if (course.status === "finished" && course.hasPlayback) {
+                                    router.push(playbackPagePath(course.id));
+                                  } else if (course.status === "finished") {
+                                    router.push(`/courses/${course.id}`);
                                   } else {
                                     void handleEnterClassroomFromList(course);
                                   }
@@ -975,24 +965,13 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                                   {enteringCourseId === course.id
                                     ? t("teacherDashboard.btnEntering")
                                     : course.status === "finished"
-                                      ? course.recordUrl
+                                      ? course.hasPlayback
                                         ? t("studentDashboard.viewPlayback")
-                                        : t("studentDashboard.livePlayback")
+                                        : t("teacherDashboard.btnDetails")
                                       : t("teacherDashboard.btnEnterClass")}
                                 </span>
                               </Button>
                               <div className={scheduleStyles.subActions}>
-                                {canTeachCourse && (
-                                  <CourseStatusSelect
-                                    value={course.status}
-                                    onValueChange={(status) =>
-                                      handleStatusChange(course.id, status)
-                                    }
-                                    disabled={
-                                      statusUpdatingCourseId === course.id
-                                    }
-                                  />
-                                )}
                                 <Button
                                   variant="ghost"
                                   size="icon"

@@ -5,23 +5,27 @@ import { useRouter } from "next/navigation";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import {
   CalendarClock,
+  CalendarOff,
   ChevronRight,
   CirclePlus,
   Clock3,
   Copy,
   DoorOpen,
   Loader2,
+  MessageSquare,
   Network,
   Pencil,
+  PlayCircle,
   Repeat2,
   RotateCcw,
+  Save,
   Square,
-  Trash2,
   Users,
   X,
 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useTranslation } from "@/lib/i18n/context";
+import { usePortalFeedback } from "@/components/portal/portal-feedback";
 import { LargeClassBreakoutManager } from "@/components/classroom/large-class-breakout-manager";
 import { useTeacherSchedules } from "@/hooks/use-teacher-schedules";
 import {
@@ -74,6 +78,7 @@ export type CourseSessionItem = {
   status: string;
   startTime: string;
   endTime: string;
+  endedAt: string | null;
   teacherMode: string;
   studentMode: string;
   leadTeacherId: string | null;
@@ -88,6 +93,23 @@ export type CourseSessionItem = {
     attendances?: number;
     recordings?: number;
   };
+  submissionSummary?: { leaveCount: number; requirementsCount: number };
+  mySubmission?: StudentSubmissionSnapshot;
+};
+
+type StudentSubmissionSnapshot = {
+  requirements: string;
+  leaveStatus: "none" | "active" | "withdrawn";
+  leaveReason: string;
+  leaveRequestedAt: string | null;
+  leaveWithdrawnAt: string | null;
+  updatedAt: string | null;
+};
+
+type TeacherStudentSubmission = StudentSubmissionSnapshot & {
+  studentId: string;
+  studentName: string;
+  studentAvatar: string;
 };
 
 type Props = {
@@ -149,6 +171,7 @@ export function CourseSessionManager({
 }: Props) {
   const router = useRouter();
   const { t, locale } = useTranslation();
+  const { notify, confirmAction } = usePortalFeedback();
   const [sessions, setSessions] = useState<CourseSessionItem[]>(initialSessions ?? []);
   const [loading, setLoading] = useState(initialSessions === undefined);
   const [error, setError] = useState("");
@@ -200,6 +223,16 @@ export function CourseSessionManager({
   const [breakoutSessionId, setBreakoutSessionId] = useState<string | null>(null);
   const [lifecycleBusy, setLifecycleBusy] = useState<string | null>(null);
   const [enteringSessionId, setEnteringSessionId] = useState<string | null>(null);
+  const [submissionSession, setSubmissionSession] = useState<CourseSessionItem | null>(null);
+  const [submissionLoading, setSubmissionLoading] = useState(false);
+  const [submissionSaving, setSubmissionSaving] = useState(false);
+  const [submissionError, setSubmissionError] = useState("");
+  const [requirementsDraft, setRequirementsDraft] = useState("");
+  const [leaveReasonDraft, setLeaveReasonDraft] = useState("");
+  const [studentSubmission, setStudentSubmission] = useState<StudentSubmissionSnapshot | null>(null);
+  const [teacherSubmissions, setTeacherSubmissions] = useState<TeacherStudentSubmission[]>([]);
+  const [legacyStudentRemarks, setLegacyStudentRemarks] = useState("");
+  const [submissionEditable, setSubmissionEditable] = useState(false);
   const isStandalone = courseKind === "standalone";
   const canCreateSession = canManage && (!isStandalone || sessions.length === 0);
 
@@ -211,7 +244,7 @@ export function CourseSessionManager({
         cache: "no-store",
         credentials: "same-origin",
       });
-      const payload = (await response.json()) as {
+      const payload = (await response.json().catch(() => ({}))) as {
         sessions?: CourseSessionItem[];
         error?: string;
       };
@@ -225,9 +258,100 @@ export function CourseSessionManager({
   }, [courseId, t]);
 
   useEffect(() => {
-    if (initialSessions !== undefined) return;
     queueMicrotask(() => void loadSessions());
-  }, [initialSessions, loadSessions]);
+  }, [loadSessions]);
+
+  const openSubmission = async (lesson: CourseSessionItem) => {
+    setSubmissionSession(lesson);
+    setSubmissionLoading(true);
+    setSubmissionError("");
+    setTeacherSubmissions([]);
+    setLegacyStudentRemarks("");
+    try {
+      const response = await fetch(
+        canManage
+          ? `/api/sessions/${encodeURIComponent(lesson.id)}/student-submissions`
+          : `/api/sessions/${encodeURIComponent(lesson.id)}/student-submission`,
+        { cache: "no-store", credentials: "same-origin" },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        editable?: boolean;
+        submission?: StudentSubmissionSnapshot;
+        submissions?: TeacherStudentSubmission[];
+        legacyStudentRemarks?: string;
+      };
+      if (!response.ok) throw new Error(payload.error || t("courseSessions.submissionLoadFailed"));
+      if (canManage) {
+        setTeacherSubmissions(payload.submissions || []);
+        setLegacyStudentRemarks(payload.legacyStudentRemarks || "");
+      } else {
+        const next = payload.submission || lesson.mySubmission || {
+          requirements: "",
+          leaveStatus: "none" as const,
+          leaveReason: "",
+          leaveRequestedAt: null,
+          leaveWithdrawnAt: null,
+          updatedAt: null,
+        };
+        setStudentSubmission(next);
+        setRequirementsDraft(next.requirements);
+        setLeaveReasonDraft(next.leaveReason);
+        setSubmissionEditable(Boolean(payload.editable));
+      }
+    } catch (cause) {
+      setSubmissionError(
+        cause instanceof Error ? cause.message : t("courseSessions.submissionLoadFailed"),
+      );
+    } finally {
+      setSubmissionLoading(false);
+    }
+  };
+
+  const saveStudentSubmission = async (
+    leaveAction?: "request" | "withdraw",
+  ) => {
+    if (!submissionSession || submissionSaving) return;
+    setSubmissionSaving(true);
+    setSubmissionError("");
+    try {
+      const response = await fetch(
+        `/api/sessions/${encodeURIComponent(submissionSession.id)}/student-submission`,
+        {
+          method: "PATCH",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requirements: requirementsDraft,
+            ...(leaveAction ? { leaveAction, leaveReason: leaveReasonDraft } : {}),
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        submission?: StudentSubmissionSnapshot;
+      };
+      if (!response.ok || !payload.submission) {
+        throw new Error(payload.error || t("courseSessions.submissionSaveFailed"));
+      }
+      setStudentSubmission(payload.submission);
+      setLeaveReasonDraft(payload.submission.leaveReason);
+      setSessions((current) =>
+        current.map((item) =>
+          item.id === submissionSession.id
+            ? { ...item, mySubmission: payload.submission }
+            : item,
+        ),
+      );
+      notify(t("courseSessions.submissionSaved"), "success");
+    } catch (cause) {
+      setSubmissionError(
+        cause instanceof Error ? cause.message : t("courseSessions.submissionSaveFailed"),
+      );
+    } finally {
+      setSubmissionSaving(false);
+    }
+  };
 
   const availableTeachers = useMemo(() => {
     const map = new Map(teachers.map((teacher) => [teacher.teacherId, teacher]));
@@ -377,7 +501,7 @@ export function CourseSessionManager({
         `/api/users/search?role=teacher&limit=12&q=${encodeURIComponent(query)}`,
         { credentials: "same-origin" },
       );
-      const payload = (await response.json()) as {
+      const payload = (await response.json().catch(() => ({}))) as {
         users?: Array<{ id: string; displayName: string; name: string; avatar?: string }>;
         error?: string;
       };
@@ -423,7 +547,7 @@ export function CourseSessionManager({
         `/api/users/search?role=student&limit=12&q=${encodeURIComponent(query)}`,
         { credentials: "same-origin" },
       );
-      const payload = (await response.json()) as {
+      const payload = (await response.json().catch(() => ({}))) as {
         users?: Array<{ id: string; displayName: string; name: string; avatar?: string }>;
         error?: string;
       };
@@ -534,7 +658,7 @@ export function CourseSessionManager({
           groups: groupRules,
         }),
       });
-      const payload = (await response.json()) as { error?: string };
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
       if (!response.ok) throw new Error(payload.error || t("courseSessions.createFailed"));
       setDialogOpen(false);
       setEditingSession(null);
@@ -547,29 +671,35 @@ export function CourseSessionManager({
     }
   };
 
-  const deleteSession = async (session: CourseSessionItem) => {
-    if (!window.confirm(t("courseSessions.deleteConfirm", { title: session.title }))) return;
-    const response = await fetch(`/api/courses/${courseId}/sessions/${session.id}`, {
-      method: "DELETE",
-      credentials: "same-origin",
-    });
-    const payload = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(payload.error || t("courseSessions.deleteFailed"));
-      return;
+  const copySessionLink = async (sessionId: string) => {
+    try {
+      await navigator.clipboard.writeText(
+        `${window.location.origin}/classroom?sessionId=${sessionId}`,
+      );
+      notify(t("courseDetail.copySuccess"), "success");
+    } catch {
+      notify(t("courseDetail.copyFailed"), "error");
     }
-    await loadSessions();
   };
 
   const updateLifecycle = async (
     session: CourseSessionItem,
-    action: "end" | "reopen",
+    action: "end" | "reopen" | "cancel" | "restore",
   ) => {
     const confirmationKey =
       action === "end"
         ? "courseSessions.endConfirm"
-        : "courseSessions.reopenConfirm";
-    if (!window.confirm(t(confirmationKey, { title: session.title }))) return;
+        : action === "reopen"
+          ? "courseSessions.reopenConfirm"
+          : action === "cancel"
+            ? "courseSessions.cancelConfirm"
+            : "courseSessions.restoreConfirm";
+    if (
+      !(await confirmAction({
+        description: t(confirmationKey, { title: session.title }),
+        tone: action === "end" || action === "cancel" ? "danger" : "default",
+      }))
+    ) return;
     setLifecycleBusy(session.id);
     setError("");
     try {
@@ -582,18 +712,19 @@ export function CourseSessionManager({
           body: JSON.stringify({ action }),
         },
       );
-      const payload = (await response.json()) as { error?: string };
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
       if (!response.ok) {
         throw new Error(payload.error || t("courseSessions.lifecycleFailed"));
       }
       await loadSessions();
       router.refresh();
     } catch (cause) {
-      setError(
+      const message =
         cause instanceof Error
           ? cause.message
-          : t("courseSessions.lifecycleFailed"),
-      );
+          : t("courseSessions.lifecycleFailed");
+      setError(message);
+      notify(message, "error");
     } finally {
       setLifecycleBusy(null);
     }
@@ -628,16 +759,28 @@ export function CourseSessionManager({
       {loading ? (
         <div className={styles.loading}><Loader2 className="h-4 w-4 animate-spin" />{t("common.loading")}</div>
       ) : sessions.length === 0 ? (
-        <button className={styles.empty} type="button" onClick={() => canCreateSession && openCreateDialog()}>
+        canCreateSession ? (
+        <button className={styles.empty} type="button" onClick={openCreateDialog}>
           <CalendarClock />
           <strong>{t("courseSessions.empty")}</strong>
           <span>{t(isStandalone ? "courseSessions.standaloneEmptyHint" : "courseSessions.emptyHint")}</span>
         </button>
+        ) : (
+          <div className={styles.empty} role="status">
+            <CalendarClock />
+            <strong>{t("courseSessions.empty")}</strong>
+            <span>{t(isStandalone ? "courseSessions.standaloneEmptyHint" : "courseSessions.emptyHint")}</span>
+          </div>
+        )
       ) : (
         <div className={styles.timeline}>
           {sessions.map((session) => {
-            const isLive = session.status === "live" || session.status === "afterClass";
-            const canEnter = !["cancelled", "finished"].includes(session.status);
+            const effectiveStatus =
+              session.endedAt && session.status !== "cancelled"
+                ? "finished"
+                : session.status;
+            const isLive = effectiveStatus === "live" || effectiveStatus === "afterClass";
+            const canEnter = !["cancelled", "finished"].includes(effectiveStatus);
             const canManageLifecycle =
               canManageCourseLifecycle ||
               Boolean(
@@ -649,7 +792,7 @@ export function CourseSessionManager({
             return (
               <article className={styles.sessionRow} key={session.id}>
                 <div className={styles.rail}>
-                  <span className={`${styles.dot} ${statusTone(session.status)}`} />
+                  <span className={`${styles.dot} ${statusTone(effectiveStatus)}`} />
                 </div>
                 <time>
                   <strong>{formatDate(session.startTime)}</strong>
@@ -658,8 +801,8 @@ export function CourseSessionManager({
                 <div className={styles.sessionMain}>
                   <div className={styles.sessionTitle}>
                     <h3>{session.title || `${courseName} · ${session.position}`}</h3>
-                    <span className={`${styles.status} ${statusTone(session.status)}`}>
-                      {t(`courseSessions.status.${session.status}`)}
+                    <span className={`${styles.status} ${statusTone(effectiveStatus)}`}>
+                      {t(`courseSessions.status.${effectiveStatus}`)}
                     </span>
                     {session.seriesId ? <Repeat2 className="h-3.5 w-3.5" /> : null}
                   </div>
@@ -668,7 +811,39 @@ export function CourseSessionManager({
                     <span>{session.leadTeacherName}</span>
                     <span><Users className="h-3.5 w-3.5" />{session.studentMode === "inherit" ? t("courseSessions.inheritsStudents") : t("courseSessions.customStudents")}</span>
                     {session._count?.recordings ? <span>{session._count.recordings} {t("courseSessions.recordings")}</span> : null}
+                    {canManage && session.submissionSummary?.leaveCount ? (
+                      <button type="button" className={styles.signalButton} onClick={() => void openSubmission(session)}>
+                        <CalendarOff className="h-3.5 w-3.5" />
+                        {t("courseSessions.leaveCount", { count: session.submissionSummary.leaveCount })}
+                      </button>
+                    ) : null}
+                    {canManage && session.submissionSummary?.requirementsCount ? (
+                      <button type="button" className={styles.signalButton} onClick={() => void openSubmission(session)}>
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        {t("courseSessions.requirementsCount", { count: session.submissionSummary.requirementsCount })}
+                      </button>
+                    ) : null}
                   </div>
+                  {!canManage ? (
+                    <div className={styles.studentActions}>
+                      <button type="button" onClick={() => void openSubmission(session)}>
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        {session.mySubmission?.requirements
+                          ? t("courseSessions.editRequirements")
+                          : t("courseSessions.addRequirements")}
+                      </button>
+                      <button
+                        type="button"
+                        data-active={session.mySubmission?.leaveStatus === "active"}
+                        onClick={() => void openSubmission(session)}
+                      >
+                        <CalendarOff className="h-3.5 w-3.5" />
+                        {session.mySubmission?.leaveStatus === "active"
+                          ? t("courseSessions.leaveActive")
+                          : t("courseSessions.requestLeave")}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 <div className={styles.rowActions}>
                   {canManage && session.status === "scheduled" ? (
@@ -682,7 +857,7 @@ export function CourseSessionManager({
                     </button>
                   ) : null}
                   {canManage ? (
-                    <button type="button" onClick={() => void navigator.clipboard.writeText(`${window.location.origin}/classroom?sessionId=${session.id}`)} title={t("courseSessions.copyLink")}>
+                    <button type="button" onClick={() => void copySessionLink(session.id)} title={t("courseSessions.copyLink")} aria-label={t("courseSessions.copyLink")}>
                       <Copy className="h-4 w-4" />
                     </button>
                   ) : null}
@@ -701,7 +876,28 @@ export function CourseSessionManager({
                       )}
                     </button>
                   ) : null}
-                  {canManageLifecycle && session.status === "finished" ? (
+                  {canManageLifecycle && effectiveStatus === "scheduled" ? (
+                    <button
+                      type="button"
+                      className={styles.endAction}
+                      disabled={lifecycleBusy === session.id}
+                      onClick={() => void updateLifecycle(session, "cancel")}
+                      title={t("courseSessions.cancelSession")}
+                    >
+                      {lifecycleBusy === session.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                    </button>
+                  ) : null}
+                  {canManageLifecycle && effectiveStatus === "cancelled" ? (
+                    <button
+                      type="button"
+                      disabled={lifecycleBusy === session.id}
+                      onClick={() => void updateLifecycle(session, "restore")}
+                      title={t("courseSessions.restore")}
+                    >
+                      {lifecycleBusy === session.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                    </button>
+                  ) : null}
+                  {canManageLifecycle && effectiveStatus === "finished" ? (
                     <button
                       type="button"
                       disabled={lifecycleBusy === session.id}
@@ -715,9 +911,13 @@ export function CourseSessionManager({
                       )}
                     </button>
                   ) : null}
-                  {canManage ? (
-                    <button type="button" onClick={() => void deleteSession(session)} title={t("common.delete")}>
-                      <Trash2 className="h-4 w-4" />
+                  {effectiveStatus === "finished" && (session._count?.recordings || 0) > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/courses/${encodeURIComponent(courseId)}/playback?sessionId=${encodeURIComponent(session.id)}`)}
+                      title={t("studentDashboard.viewPlayback")}
+                    >
+                      <PlayCircle className="h-4 w-4" />
                     </button>
                   ) : null}
                   {canEnter ? (
@@ -915,6 +1115,111 @@ export function CourseSessionManager({
             <button type="button" onClick={() => setDialogOpen(false)}>{t("common.cancel")}</button>
             <button type="button" disabled={saving} onClick={() => void submit()}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}{editingSession ? t("common.save") : scheduleType === "recurring" ? t("courseSessions.createSeries") : t("courseSessions.create")}</button>
           </footer>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(submissionSession)}
+        onOpenChange={(open) => {
+          if (!open && !submissionSaving) setSubmissionSession(null);
+        }}
+      >
+        <DialogContent className={styles.submissionDialog}>
+          <header className={styles.dialogHeader}>
+            <span>{t("courseSessions.studentRequests")}</span>
+            <h2>{submissionSession?.title}</h2>
+            <p>
+              {canManage
+                ? t("courseSessions.teacherSubmissionHint")
+                : t("courseSessions.studentSubmissionHint")}
+            </p>
+          </header>
+          {submissionLoading ? (
+            <div className={styles.loading} role="status">
+              <Loader2 className="h-4 w-4 animate-spin" />{t("common.loading")}
+            </div>
+          ) : submissionError ? (
+            <div className={styles.submissionError} role="alert">{submissionError}</div>
+          ) : canManage ? (
+            <div className={styles.submissionList}>
+              {teacherSubmissions.some(
+                (item) => item.leaveStatus === "active" || item.requirements,
+              ) ? (
+                teacherSubmissions
+                  .filter((item) => item.leaveStatus === "active" || item.requirements)
+                  .map((item) => (
+                    <article key={item.studentId}>
+                      <div className={styles.submissionPerson}>
+                        <span className={styles.avatar}>{initials(item.studentName)}</span>
+                        <strong>{item.studentName || item.studentId}</strong>
+                        {item.leaveStatus === "active" ? (
+                          <span className={styles.leaveBadge}>{t("courseSessions.leaveActive")}</span>
+                        ) : null}
+                      </div>
+                      {item.leaveReason ? (
+                        <p><b>{t("courseSessions.leaveReason")}</b>{item.leaveReason}</p>
+                      ) : null}
+                      {item.requirements ? (
+                        <p><b>{t("courseSessions.requirementsLabel")}</b>{item.requirements}</p>
+                      ) : null}
+                    </article>
+                  ))
+              ) : (
+                <div className={styles.submissionEmpty}>{t("courseSessions.noStudentSubmissions")}</div>
+              )}
+              {legacyStudentRemarks ? (
+                <aside className={styles.legacyNote}>
+                  <strong>{t("courseSessions.legacyRemarks")}</strong>
+                  <p>{legacyStudentRemarks}</p>
+                </aside>
+              ) : null}
+            </div>
+          ) : (
+            <div className={styles.submissionForm}>
+              {!submissionEditable ? (
+                <div className={styles.closedNotice}>{t("courseSessions.submissionClosed")}</div>
+              ) : null}
+              <label>
+                <span>{t("courseSessions.requirementsLabel")}</span>
+                <textarea
+                  value={requirementsDraft}
+                  maxLength={1000}
+                  disabled={!submissionEditable || submissionSaving}
+                  onChange={(event) => setRequirementsDraft(event.target.value)}
+                  placeholder={t("courseSessions.requirementsPlaceholder")}
+                />
+                <small>{requirementsDraft.length}/1000</small>
+              </label>
+              <label>
+                <span>{t("courseSessions.leaveReasonOptional")}</span>
+                <textarea
+                  value={leaveReasonDraft}
+                  maxLength={500}
+                  disabled={!submissionEditable || submissionSaving}
+                  onChange={(event) => setLeaveReasonDraft(event.target.value)}
+                  placeholder={t("courseSessions.leaveReasonPlaceholder")}
+                />
+                <small>{leaveReasonDraft.length}/500</small>
+              </label>
+              {submissionEditable ? (
+                <footer className={styles.submissionFooter}>
+                  {studentSubmission?.leaveStatus === "active" ? (
+                    <button type="button" disabled={submissionSaving} onClick={() => void saveStudentSubmission("withdraw")}>
+                      {t("courseSessions.withdrawLeave")}
+                    </button>
+                  ) : (
+                    <button type="button" disabled={submissionSaving} onClick={() => void saveStudentSubmission("request")}>
+                      <CalendarOff className="h-4 w-4" />{t("courseSessions.requestLeave")}
+                    </button>
+                  )}
+                  <button type="button" disabled={submissionSaving} onClick={() => void saveStudentSubmission()}>
+                    {submissionSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    {t("courseSessions.saveRequirements")}
+                  </button>
+                </footer>
+              ) : null}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </section>

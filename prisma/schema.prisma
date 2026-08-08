@@ -92,6 +92,7 @@ model Course {
   sessionStudentRules       CourseSessionStudent[]
   sessionGroupRules         CourseSessionGroupLink[]
   sessionCoursewareRules    CourseSessionCourseware[]
+  sessionStudentSubmissions CourseSessionStudentSubmission[]
 
   @@index([ownerId])
   @@index([teacherId])
@@ -144,6 +145,7 @@ model CourseSession {
   classroomQuestions        ClassroomQuestion[]
   classroomRewardEvents     ClassroomRewardEvent[]
   classroomEngagementRounds ClassroomEngagementRound[]
+  studentSubmissions        CourseSessionStudentSubmission[]
 
   @@unique([courseId, position])
   @@index([courseId, startTime])
@@ -201,6 +203,32 @@ model CourseSessionStudent {
 
   @@unique([sessionId, studentId])
   @@index([courseId, studentId])
+}
+
+// Per-student, per-lesson requests. This is intentionally separate from
+// CourseSessionStudent: roster rules control access, while a submission must
+// never grant or preserve lesson membership.
+model CourseSessionStudentSubmission {
+  id                String    @id @default(uuid())
+  courseId          String
+  sessionId         String
+  studentId         String
+  studentName       String    @default("")
+  studentAvatar     String    @default("")
+  requirements      String    @default("")
+  leaveStatus       String    @default("none") // none | active | withdrawn
+  leaveReason       String    @default("")
+  leaveRequestedAt  DateTime?
+  leaveWithdrawnAt  DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  course  Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, studentId])
+  @@index([courseId, studentId])
+  @@index([sessionId, leaveStatus])
 }
 
 model CourseSessionGroupLink {

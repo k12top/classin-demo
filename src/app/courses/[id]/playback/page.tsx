@@ -3,7 +3,7 @@
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Hls from "hls.js";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ChevronLeft, Loader2, PlayCircle } from "lucide-react";
+import { AlertTriangle, ChevronLeft, Loader2, PlayCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +27,25 @@ interface PlaybackCourse {
   recordUrl?: string | null;
 }
 
+type PlaybackSession = {
+  id: string;
+  title: string;
+  status: string;
+  startTime: string;
+  endTime: string;
+  _count?: { recordings?: number };
+};
+
+type PlaybackRecording = {
+  id: string;
+  segment: number;
+  status: string;
+  startedAt: string | null;
+  stoppedAt: string | null;
+  playbackFormat: "hls" | "mp4" | null;
+  playbackUrl: string | null;
+};
+
 export default function CoursePlaybackPage({
   params,
 }: {
@@ -38,7 +57,14 @@ export default function CoursePlaybackPage({
   const { t } = useTranslation();
   const [course, setCourse] = useState<PlaybackCourse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [sessions, setSessions] = useState<PlaybackSession[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState("");
+  const [recordings, setRecordings] = useState<PlaybackRecording[]>([]);
+  const [recordingsLoading, setRecordingsLoading] = useState(false);
+  const [recordingsError, setRecordingsError] = useState("");
+  const [recordingsRevision, setRecordingsRevision] = useState(0);
 
   const copy = useMemo(() => {
     return {
@@ -52,6 +78,7 @@ export default function CoursePlaybackPage({
       hlsUnsupported: t("playback.hlsUnsupported"),
       browserHint: t("playback.browserHint"),
       teacher: t("playback.teacher"),
+      retry: t("playback.retry"),
     };
   }, [t]);
 
@@ -80,6 +107,36 @@ export default function CoursePlaybackPage({
     }
   }, [copy.loadFailed, id]);
 
+  const fetchSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    setRecordingsError("");
+    try {
+      const response = await fetch(`/api/courses/${encodeURIComponent(id)}/sessions`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        sessions?: PlaybackSession[];
+        error?: string;
+      };
+      if (!response.ok) throw new Error(payload.error || copy.loadFailed);
+      const nextSessions = payload.sessions || [];
+      setSessions(nextSessions);
+      const requestedId = new URLSearchParams(window.location.search).get("sessionId") || "";
+      const sessionWithRecording = nextSessions.find(
+        (session) => session.id === requestedId && (session._count?.recordings || 0) > 0,
+      );
+      const fallbackSession = nextSessions.find(
+        (session) => (session._count?.recordings || 0) > 0,
+      );
+      setSelectedSessionId(sessionWithRecording?.id || fallbackSession?.id || "");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : copy.loadFailed);
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, [copy.loadFailed, id]);
+
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
@@ -88,28 +145,70 @@ export default function CoursePlaybackPage({
     }
     queueMicrotask(() => {
       void fetchCourse();
+      void fetchSessions();
     });
-  }, [authLoading, fetchCourse, user]);
+  }, [authLoading, fetchCourse, fetchSessions, user]);
+
+  useEffect(() => {
+    if (!selectedSessionId) {
+      queueMicrotask(() => setRecordings([]));
+      return;
+    }
+    const controller = new AbortController();
+    queueMicrotask(() => {
+      if (!controller.signal.aborted) {
+        setRecordingsLoading(true);
+        setRecordingsError("");
+      }
+    });
+    void fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}/recordings`, {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = (await response.json().catch(() => ({}))) as {
+          recordings?: PlaybackRecording[];
+          error?: string;
+        };
+        if (!response.ok) throw new Error(payload.error || copy.loadFailed);
+        if (!controller.signal.aborted) setRecordings(payload.recordings || []);
+      })
+      .catch((cause) => {
+        if (controller.signal.aborted) return;
+        setRecordingsError(cause instanceof Error ? cause.message : copy.loadFailed);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setRecordingsLoading(false);
+      });
+    return () => controller.abort();
+  }, [copy.loadFailed, recordingsRevision, selectedSessionId]);
 
   const recordUrl = course?.recordUrl?.trim() || "";
   const canPlayMp4 = course?.status === "finished" && isMp4PlaybackUrl(recordUrl);
   const canPlayHls = course?.status === "finished" && isHlsPlaybackUrl(recordUrl);
-  const canPlayInApp = canPlayMp4 || canPlayHls;
+  const selectedSession = sessions.find((session) => session.id === selectedSessionId) || null;
+  const playableRecordings = recordings.filter(
+    (recording) => recording.status === "completed" && Boolean(recording.playbackUrl),
+  );
+  const canPlaySessionRecording = playableRecordings.length > 0;
+  const canPlayInApp = canPlaySessionRecording || canPlayMp4 || canPlayHls;
+  const hasRecordedSession = sessions.some(
+    (session) => (session._count?.recordings || 0) > 0,
+  );
   const isTeacher = Boolean(course?.canTeach);
 
-  if (authLoading || loading) {
+  if (authLoading || loading || sessionsLoading) {
     return <PageLoadingState message={copy.loading} variant="course" />;
   }
 
   const message =
     error ||
-    (course?.status !== "finished"
+    (!selectedSessionId && course?.status !== "finished"
       ? copy.notFinished
-      : !recordUrl
+      : !canPlayInApp
         ? copy.noUrl
-        : !canPlayInApp
-          ? copy.playableOnly
-          : "");
+        : "");
 
   return (
     <PortalShell
@@ -146,7 +245,45 @@ export default function CoursePlaybackPage({
               </div>
             </div>
 
-            {canPlayInApp ? (
+            {hasRecordedSession && (
+              <div className="flex gap-2 overflow-x-auto border-b border-border/60 px-5 py-3">
+                {sessions
+                  .filter((session) => (session._count?.recordings || 0) > 0)
+                  .map((session) => (
+                    <Button
+                      key={session.id}
+                      type="button"
+                      size="sm"
+                      variant={session.id === selectedSessionId ? "default" : "outline"}
+                      className="shrink-0 rounded-lg"
+                      onClick={() => setSelectedSessionId(session.id)}
+                    >
+                      <PlayCircle className="mr-1.5 h-3.5 w-3.5" />
+                      {session.title || copy.title}
+                    </Button>
+                  ))}
+              </div>
+            )}
+
+            {selectedSessionId && recordingsError ? (
+              <div className="flex min-h-[220px] flex-col items-center justify-center gap-3 p-8 text-center text-sm text-destructive" role="alert">
+                <span>{recordingsError}</span>
+                <Button type="button" variant="outline" size="sm" onClick={() => setRecordingsRevision((value) => value + 1)}>
+                  <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                  {copy.retry}
+                </Button>
+              </div>
+            ) : recordingsLoading ? (
+              <div className="flex min-h-[220px] items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                {copy.loading}
+              </div>
+            ) : canPlaySessionRecording ? (
+              <SessionRecordingPlayer
+                recordings={playableRecordings}
+                hlsUnsupportedMessage={copy.hlsUnsupported}
+              />
+            ) : canPlayMp4 || canPlayHls ? (
               <div className="bg-black">
                 {canPlayHls ? (
                   <HlsVideo
@@ -165,7 +302,7 @@ export default function CoursePlaybackPage({
                 )}
               </div>
             ) : (
-              <div className="flex min-h-[360px] flex-col items-center justify-center gap-4 p-8 text-center">
+              <div className="flex min-h-[300px] flex-col items-center justify-center gap-3 p-8 text-center">
                 <div className="rounded-full bg-amber-500/10 p-4 text-amber-500">
                   {message ? <AlertTriangle className="h-8 w-8" /> : <PlayCircle className="h-8 w-8" />}
                 </div>
@@ -173,7 +310,11 @@ export default function CoursePlaybackPage({
                   <p className="text-base font-semibold text-foreground">
                     {message || copy.loadFailed}
                   </p>
-                  <p className="text-sm text-muted-foreground">{copy.browserHint}</p>
+                  {selectedSession && hasRecordedSession && (
+                    <p className="text-sm text-muted-foreground">
+                      {selectedSession.title || copy.title}
+                    </p>
+                  )}
                 </div>
                 {loading && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
               </div>
@@ -182,6 +323,58 @@ export default function CoursePlaybackPage({
         </Card>
       </main>
     </PortalShell>
+  );
+}
+
+function SessionRecordingPlayer({
+  recordings,
+  hlsUnsupportedMessage,
+}: {
+  recordings: PlaybackRecording[];
+  hlsUnsupportedMessage: string;
+}) {
+  const [selectedRecordingId, setSelectedRecordingId] = useState(recordings[0]?.id || "");
+  const selectedRecording = recordings.find(
+    (recording) => recording.id === selectedRecordingId,
+  ) || recordings[0];
+
+  if (!selectedRecording?.playbackUrl) return null;
+  const isHls = selectedRecording.playbackFormat === "hls";
+
+  return (
+    <div className="bg-black">
+      {isHls ? (
+        <HlsVideo
+          src={selectedRecording.playbackUrl}
+          className="aspect-video w-full bg-black"
+          unsupportedMessage={hlsUnsupportedMessage}
+        />
+      ) : (
+        <video
+          className="aspect-video w-full bg-black"
+          src={selectedRecording.playbackUrl}
+          controls
+          playsInline
+          preload="metadata"
+        />
+      )}
+      {recordings.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto border-t border-white/15 bg-black px-4 py-3">
+          {recordings.map((recording) => (
+            <Button
+              key={recording.id}
+              type="button"
+              size="sm"
+              variant={recording.id === selectedRecording.id ? "default" : "secondary"}
+              className="shrink-0 rounded-lg"
+              onClick={() => setSelectedRecordingId(recording.id)}
+            >
+              {recording.segment}
+            </Button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

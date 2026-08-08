@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { AlertTriangle, Check, Info, X } from "lucide-react";
 import styles from "./portal-feedback.module.css";
 import { useTranslation } from "@/lib/i18n/context";
@@ -126,32 +127,31 @@ export function PortalFeedbackProvider({ children }: { children: ReactNode }) {
         })}
       </div>
 
-      {confirmation ? (
-        <div
-          className={styles.backdrop}
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) settleConfirmation(false);
-          }}
-        >
-          <section
-            className={styles.dialog}
-            data-tone={confirmation.options.tone || "default"}
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="portal-confirm-title"
-            aria-describedby="portal-confirm-description"
-          >
+      <DialogPrimitive.Root
+        open={Boolean(confirmation)}
+        onOpenChange={(open) => {
+          if (!open && confirmation) settleConfirmation(false);
+        }}
+      >
+        {confirmation ? (
+          <DialogPrimitive.Portal>
+            <DialogPrimitive.Overlay className={styles.backdrop} />
+            <DialogPrimitive.Content
+              className={styles.dialog}
+              data-tone={confirmation.options.tone || "default"}
+              role="alertdialog"
+              aria-describedby="portal-confirm-description"
+            >
             <div className={styles.dialogBody}>
               <span className={styles.dialogIcon}>
                 <AlertTriangle aria-hidden="true" />
               </span>
-              <h2 id="portal-confirm-title">
+              <DialogPrimitive.Title id="portal-confirm-title">
                 {confirmation.options.title || t("common.pleaseConfirm")}
-              </h2>
-              <p id="portal-confirm-description">
+              </DialogPrimitive.Title>
+              <DialogPrimitive.Description id="portal-confirm-description">
                 {confirmation.options.description}
-              </p>
+              </DialogPrimitive.Description>
             </div>
             <div className={styles.dialogActions}>
               <button
@@ -169,9 +169,10 @@ export function PortalFeedbackProvider({ children }: { children: ReactNode }) {
                 {confirmation.options.confirmLabel || t("common.confirm")}
               </button>
             </div>
-          </section>
-        </div>
-      ) : null}
+            </DialogPrimitive.Content>
+          </DialogPrimitive.Portal>
+        ) : null}
+      </DialogPrimitive.Root>
     </PortalFeedbackContext.Provider>
   );
 }

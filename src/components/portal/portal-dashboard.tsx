@@ -5,10 +5,13 @@ import {
   ArrowRight,
   BookOpen,
   CalendarClock,
+  ChevronLeft,
+  ChevronRight,
   DoorOpen,
   GraduationCap,
   Layers3,
   Loader2,
+  PlayCircle,
   Plus,
   Search,
   Users,
@@ -31,6 +34,7 @@ export type PortalCourse = {
   endTime: string | null;
   teacherName: string;
   canTeach?: boolean;
+  hasPlayback?: boolean;
   students?: Array<unknown>;
 };
 
@@ -40,6 +44,7 @@ type DashboardProps = {
   enteringCourseId?: string | null;
   onEnter: (course: PortalCourse) => void;
   onOpen: (course: PortalCourse) => void;
+  onPlayback?: (course: PortalCourse) => void;
   onPrefetch?: (course: PortalCourse) => void;
   onCreate?: () => void;
 };
@@ -85,6 +90,7 @@ function copyFor(t: ReturnType<typeof useTranslation>["t"]) {
     noNextDesc: t("portal.noNextDescription"),
     enter: t("portal.enter"),
     details: t("portal.details"),
+    viewPlayback: t("studentDashboard.viewPlayback"),
     create: t("portal.create"),
     countdown: t("portal.countdown"),
     live: t("portal.live"),
@@ -139,6 +145,27 @@ function roomTypeLabel(roomType: number, copy: ReturnType<typeof copyFor>) {
   if (roomType === 2) return copy.bigClass;
   if (roomType === 4) return copy.smallClass;
   return copy.oneToOne;
+}
+
+function paginationPages(pageCount: number, currentPage: number) {
+  const visiblePages = new Set([
+    1,
+    pageCount,
+    currentPage - 1,
+    currentPage,
+    currentPage + 1,
+  ]);
+  const pages = [...visiblePages]
+    .filter((page) => page >= 1 && page <= pageCount)
+    .sort((left, right) => left - right);
+
+  return pages.flatMap((page, index) => {
+    const previousPage = pages[index - 1];
+    if (previousPage && page - previousPage > 1) {
+      return ["ellipsis", page] as const;
+    }
+    return [page] as const;
+  });
 }
 
 function getNextCourse(courses: PortalCourse[], now: Date) {
@@ -384,6 +411,7 @@ export function PortalCourseLibrary({
   enteringCourseId,
   onEnter,
   onOpen,
+  onPlayback,
   onPrefetch,
 }: Omit<DashboardProps, "role" | "onCreate">) {
   const { locale, t } = useTranslation();
@@ -391,6 +419,7 @@ export function PortalCourseLibrary({
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const [kind, setKind] = useState<"all" | "series" | "standalone">("all");
+  const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -415,6 +444,19 @@ export function PortalCourseLibrary({
     standalone: courses.filter((course) => course.courseKind === "standalone").length,
   }), [courses]);
 
+  const pageSize = 8;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const visibleCourses = filtered.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+  const firstCourseIndex = filtered.length ? (currentPage - 1) * pageSize + 1 : 0;
+  const lastCourseIndex = Math.min(currentPage * pageSize, filtered.length);
+  const pageItems = paginationPages(pageCount, currentPage);
+
+  const resetPage = () => setPage(1);
+
   return (
     <section className={styles.library}>
       <header className={styles.libraryIntro}>
@@ -436,7 +478,10 @@ export function PortalCourseLibrary({
             role="tab"
             aria-selected={kind === value}
             data-active={kind === value}
-            onClick={() => setKind(value)}
+            onClick={() => {
+              setKind(value);
+              resetPage();
+            }}
           >
             <Icon aria-hidden="true" />
             <span>{label}</span>
@@ -450,7 +495,10 @@ export function PortalCourseLibrary({
           <Search aria-hidden="true" />
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              resetPage();
+            }}
             placeholder={copy.search}
             aria-label={copy.search}
           />
@@ -466,7 +514,10 @@ export function PortalCourseLibrary({
               key={value}
               type="button"
               data-active={status === value}
-              onClick={() => setStatus(value)}
+              onClick={() => {
+                setStatus(value);
+                resetPage();
+              }}
             >
               {label}
             </button>
@@ -476,7 +527,7 @@ export function PortalCourseLibrary({
 
       <div className={styles.courseList}>
         {filtered.length ? (
-          filtered.map((course) => (
+          visibleCourses.map((course) => (
             <article key={course.id} className={styles.courseRow}>
               <span
                 className={styles.dateBlock}
@@ -545,23 +596,32 @@ export function PortalCourseLibrary({
                   {copy.details}
                   <ArrowRight aria-hidden="true" />
                 </button>
-                <button
-                  type="button"
-                  data-primary="true"
-                  disabled={
-                    enteringCourseId === course.id ||
-                    !course.nextSession ||
-                    !canEnterClassroom(course.status)
-                  }
-                  onClick={() => onEnter(course)}
-                >
-                  {enteringCourseId === course.id ? (
-                    <Loader2 className="animate-spin" aria-hidden="true" />
-                  ) : (
-                    <DoorOpen aria-hidden="true" />
-                  )}
-                  {enteringCourseId === course.id ? copy.live : copy.enter}
-                </button>
+                {course.status === "finished" && course.hasPlayback ? (
+                  <button
+                    type="button"
+                    data-primary="true"
+                    onClick={() => (onPlayback ? onPlayback(course) : onOpen(course))}
+                  >
+                    <PlayCircle aria-hidden="true" />
+                    {copy.viewPlayback}
+                  </button>
+                ) : canEnterClassroom(course.status) ? (
+                  <button
+                    type="button"
+                    data-primary="true"
+                    disabled={
+                      enteringCourseId === course.id || !course.nextSession
+                    }
+                    onClick={() => onEnter(course)}
+                  >
+                    {enteringCourseId === course.id ? (
+                      <Loader2 className="animate-spin" aria-hidden="true" />
+                    ) : (
+                      <DoorOpen aria-hidden="true" />
+                    )}
+                    {enteringCourseId === course.id ? copy.live : copy.enter}
+                  </button>
+                ) : null}
               </span>
             </article>
           ))
@@ -575,6 +635,53 @@ export function PortalCourseLibrary({
           </div>
         )}
       </div>
+
+      {filtered.length > pageSize ? (
+        <nav className={styles.pagination} aria-label="Course library pages">
+          <p className={styles.paginationSummary} aria-live="polite">
+            {firstCourseIndex}–{lastCourseIndex} / {filtered.length}
+          </p>
+          <div className={styles.paginationControls}>
+            <button
+              type="button"
+              className={styles.paginationStep}
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={currentPage === 1}
+              aria-label="Previous page"
+            >
+              <ChevronLeft aria-hidden="true" />
+            </button>
+            {pageItems.map((pageItem, index) =>
+              pageItem === "ellipsis" ? (
+                <span key={`ellipsis-${index}`} className={styles.paginationEllipsis} aria-hidden="true">
+                  …
+                </span>
+              ) : (
+                <button
+                  key={pageItem}
+                  type="button"
+                  className={styles.paginationPage}
+                  data-active={pageItem === currentPage}
+                  onClick={() => setPage(pageItem)}
+                  aria-label={`Page ${pageItem}`}
+                  aria-current={pageItem === currentPage ? "page" : undefined}
+                >
+                  {pageItem}
+                </button>
+              ),
+            )}
+            <button
+              type="button"
+              className={styles.paginationStep}
+              onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+              disabled={currentPage === pageCount}
+              aria-label="Next page"
+            >
+              <ChevronRight aria-hidden="true" />
+            </button>
+          </div>
+        </nav>
+      ) : null}
     </section>
   );
 }

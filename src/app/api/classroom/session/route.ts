@@ -29,6 +29,7 @@ import { getSessionFromRequest } from "@/lib/session";
 import { getClassroomCaptions } from "@/lib/classroom/server/captions";
 import { ensureClassroomSpaceAssignment } from "@/lib/classroom/server/spaces";
 import { classroomInterpretationAvailability } from "@/lib/classroom/server/transcription-orchestrator";
+import { casdoorUserIdCandidates } from "@/lib/course-teacher";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -208,6 +209,24 @@ export async function POST(request: NextRequest) {
       after(async () => {
         try {
           await new Promise((resolve) => setTimeout(resolve, 1_500));
+          const attendanceAliases = Array.from(
+            new Set(
+              [attendanceSession.userId, attendanceSession.name || ""]
+                .flatMap(casdoorUserIdCandidates)
+                .filter(Boolean),
+            ),
+          );
+          await prisma.courseSessionStudentSubmission.updateMany({
+            where: {
+              sessionId,
+              studentId: { in: attendanceAliases },
+              leaveStatus: "active",
+            },
+            data: {
+              leaveStatus: "withdrawn",
+              leaveWithdrawnAt: new Date(),
+            },
+          });
           await closeOpenAttendanceSessionsForLesson(
             sessionId,
             attendanceSession.userId,

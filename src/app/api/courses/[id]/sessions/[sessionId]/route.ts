@@ -8,6 +8,7 @@ import {
   rosterContainsUser,
 } from "@/lib/course-session-roster";
 import { casdoorUserIdCandidates } from "@/lib/course-teacher";
+import { syncCourseStatusFromSessions } from "@/lib/course-session-status";
 
 export const dynamic = "force-dynamic";
 
@@ -304,8 +305,10 @@ export async function DELETE(request: NextRequest, context: Context) {
       where: { id: resolved.lesson.id },
       data: { status: "cancelled", endedAt: new Date() },
     });
+    await syncCourseStatusFromSessions(resolved.courseId);
     return NextResponse.json({ session: serializeCourseSession(cancelled), cancelled: true });
   }
   await prisma.courseSession.delete({ where: { id: resolved.lesson.id } });
+  await syncCourseStatusFromSessions(resolved.courseId);
   return NextResponse.json({ deleted: true });
 }

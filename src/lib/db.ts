@@ -7,7 +7,7 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 /** Bump when adding models so dev HMR does not keep a stale singleton. */
-const PRISMA_SCHEMA_GENERATION = 16;
+const PRISMA_SCHEMA_GENERATION = 17;
 
 const globalForPrismaMeta = globalThis as unknown as {
   prismaSchemaGeneration?: number;
@@ -22,12 +22,25 @@ function createPrisma(): PrismaClient {
   }
   const poolConfig: PoolConfig = {
     connectionString,
-    max: positiveIntegerEnv("DATABASE_POOL_MAX", 3),
+    // Development commonly combines the web server, HMR and a remote database
+    // in one process. Three connections are easily exhausted by a course
+    // creation dialog (directory + schedule) while a classroom bootstraps.
+    // Production retains the conservative default unless a pooler is used.
+    max: positiveIntegerEnv(
+      "DATABASE_POOL_MAX",
+      process.env.NODE_ENV === "production" ? 3 : 6,
+    ),
     connectionTimeoutMillis: positiveIntegerEnv(
       "DATABASE_CONNECT_TIMEOUT_MS",
       3_000,
     ),
     idleTimeoutMillis: positiveIntegerEnv("DATABASE_IDLE_TIMEOUT_MS", 300_000),
+    // Rotate long-lived remote TCP connections before infrastructure such as a
+    // NAT, proxy or managed PostgreSQL service closes them underneath pg.
+    maxLifetimeSeconds: positiveIntegerEnv(
+      "DATABASE_CONNECTION_MAX_LIFETIME_SECONDS",
+      900,
+    ),
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,
     allowExitOnIdle: process.env.NODE_ENV !== "production",
@@ -66,7 +79,12 @@ const TRANSIENT_DATABASE_CODES = new Set([
   "ECONNREFUSED",
   "ECONNRESET",
   "EPIPE",
+  "EAI_AGAIN",
   "ETIMEDOUT",
+  "53300",
+  "57P01",
+  "57P02",
+  "57P03",
 ]);
 
 const TRANSIENT_DATABASE_MESSAGES = [
@@ -77,6 +95,9 @@ const TRANSIENT_DATABASE_MESSAGES = [
   "connection refused",
   "connection timeout",
   "connection timed out",
+  "connection is closed",
+  "can't reach database",
+  "too many clients",
   "socket hang up",
   "broken pipe",
   "pool timeout",
@@ -183,7 +204,8 @@ function hasCourseSessionDelegate(client: PrismaClient): boolean {
   return (
     "courseSession" in client &&
     "courseSessionSeries" in client &&
-    "courseSessionTeacher" in client
+    "courseSessionTeacher" in client &&
+    "courseSessionStudentSubmission" in client
   );
 }
 

@@ -3,6 +3,7 @@ export type StudentAttendanceStatus =
   | "late"
   | "partial"
   | "absent"
+  | "excused"
   | "upcoming"
   | "live"
   | "cancelled";
@@ -20,6 +21,11 @@ export type StudentAttendanceRowInput = {
   enteredAt: Date;
   leftAt: Date | null;
   durationSec: number;
+};
+
+export type StudentAttendanceLeaveInput = {
+  sessionId: string;
+  active: boolean;
 };
 
 export type StudentAttendanceLesson = {
@@ -43,6 +49,7 @@ export type StudentAttendanceSummary = {
   completedLessonCount: number;
   attendedLessonCount: number;
   absentLessonCount: number;
+  excusedLessonCount: number;
   lateLessonCount: number;
   attendanceRate: number;
   punctualRate: number;
@@ -85,9 +92,13 @@ function lessonIsCompleted(lesson: StudentAttendanceLessonInput, now: Date) {
 export function summarizeStudentAttendance(
   lessons: StudentAttendanceLessonInput[],
   rows: StudentAttendanceRowInput[],
+  leaves: StudentAttendanceLeaveInput[] = [],
   now = new Date(),
 ): { lessons: StudentAttendanceLesson[]; summary: StudentAttendanceSummary } {
   const rowsByLesson = new Map<string, StudentAttendanceRowInput[]>();
+  const excusedSessionIds = new Set(
+    leaves.filter((leave) => leave.active).map((leave) => leave.sessionId),
+  );
   for (const row of rows) {
     const bucket = rowsByLesson.get(row.sessionId) || [];
     bucket.push(row);
@@ -126,6 +137,7 @@ export function summarizeStudentAttendance(
 
       let status: StudentAttendanceStatus;
       if (lesson.status === "cancelled") status = "cancelled";
+      else if (!lessonRows.length && excusedSessionIds.has(lesson.id)) status = "excused";
       else if (!lessonRows.length && (lesson.status === "live" || lesson.status === "afterClass")) {
         status = "live";
       } else if (!lessonRows.length && !completed) status = "upcoming";
@@ -152,7 +164,9 @@ export function summarizeStudentAttendance(
     })
     .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
 
-  const eligible = lessonResults.filter((lesson) => lesson.status !== "cancelled");
+  const eligible = lessonResults.filter(
+    (lesson) => lesson.status !== "cancelled" && lesson.status !== "excused",
+  );
   const completed = eligible.filter((lesson) => lesson.completed);
   const attended = completed.filter((lesson) => lesson.status !== "absent");
   const punctual = attended.filter((lesson) => !lesson.late);
@@ -172,6 +186,7 @@ export function summarizeStudentAttendance(
       completedLessonCount: completed.length,
       attendedLessonCount: attended.length,
       absentLessonCount: completed.length - attended.length,
+      excusedLessonCount: lessonResults.filter((lesson) => lesson.status === "excused").length,
       lateLessonCount: attended.filter((lesson) => lesson.late).length,
       attendanceRate: completed.length ? attended.length / completed.length : 0,
       punctualRate: attended.length ? punctual.length / attended.length : 0,

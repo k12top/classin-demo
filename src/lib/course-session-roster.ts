@@ -38,9 +38,33 @@ export async function resolveCourseSessionReference(referenceId: string) {
     where: { id: referenceId },
   });
   if (direct) return direct;
+
+  // A course is a container for many independent classrooms. Legacy callers
+  // may still provide a course ID, so select the lesson a user can reasonably
+  // enter now instead of always returning lesson #1 (which is often already
+  // finished after a series has started).
+  const live = await prisma.courseSession.findFirst({
+    where: {
+      courseId: referenceId,
+      status: { in: ["live", "afterClass"] },
+    },
+    orderBy: [{ startTime: "asc" }, { position: "asc" }],
+  });
+  if (live) return live;
+
+  const upcoming = await prisma.courseSession.findFirst({
+    where: {
+      courseId: referenceId,
+      status: "scheduled",
+      endTime: { gte: new Date() },
+    },
+    orderBy: [{ startTime: "asc" }, { position: "asc" }],
+  });
+  if (upcoming) return upcoming;
+
   return prisma.courseSession.findFirst({
     where: { courseId: referenceId },
-    orderBy: [{ position: "asc" }, { startTime: "asc" }],
+    orderBy: [{ startTime: "desc" }, { position: "desc" }],
   });
 }
 

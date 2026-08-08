@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
@@ -10,14 +10,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { LogOut, Calendar, Clock, User, Pencil, PlayCircle, Loader2, Info, FileText, MessageSquare, ExternalLink, Key } from "lucide-react";
+import { LogOut, Calendar, Clock, User, PlayCircle, Loader2, Info, FileText, MessageSquare, ExternalLink, Key, RefreshCw } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { CourseStatus, isUpcomingStatus, canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
 import TimeDisplay, { CourseTimeRangeDisplay } from "@/components/TimeDisplay";
 import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
 import { CourseTeacherAvatarGroup, type CourseTeacherAvatarItem } from "@/components/CourseTeacherAvatarGroup";
-import { getPlaybackTarget } from "@/lib/playback-url";
+import { playbackPagePath } from "@/lib/playback-url";
 import { prefetchCourseDetail } from "@/lib/course-detail-client-cache";
 import {
   PortalShell,
@@ -46,6 +46,7 @@ interface Course {
   createdAt: string;
   updatedAt: string;
   recordUrl?: string | null;
+  hasPlayback?: boolean;
   requiresPasscode?: boolean;
   publicListing?: boolean;
 }
@@ -89,10 +90,6 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
   const [activePage, setActivePage] = useState<SidebarPage>("learning");
   const [activeTab, setActiveTab] = useState<CourseTab>("upcoming");
   
-  // Inline remarks edit on dashboard
-  const [editingRemarks, setEditingRemarks] = useState<string | null>(null);
-  const [remarksValue, setRemarksValue] = useState("");
-  
   // Dashboard join inputs
   const [joinCourseId, setJoinCourseId] = useState("");
   const [joining, setJoining] = useState(false);
@@ -104,11 +101,10 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
   const [selectedDetailCourse, setSelectedDetailCourse] = useState<Course | null>(null);
   const [detailCourseware, setDetailCourseware] = useState<CoursewareItem[]>([]);
   const [loadingCourseware, setLoadingCourseware] = useState(false);
-  const [dialogRemarksValue, setDialogRemarksValue] = useState("");
-  const [savingDialogRemarks, setSavingDialogRemarks] = useState(false);
+  const [detailCoursewareError, setDetailCoursewareError] = useState("");
 
   const { t } = useTranslation();
-  const { notify, confirmAction } = usePortalFeedback();
+  const { notify } = usePortalFeedback();
 
   useEffect(() => {
     const requestedPage = new URLSearchParams(window.location.search).get("view");
@@ -185,52 +181,23 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
     }
   }, [courses, activeTab]);
 
-  const handleStatusChange = async (courseId: string, status: string) => {
-    if (
-      !(await confirmAction({
-        description: t("studentDashboard.confirmCancelCourse"),
-        tone: "danger",
-      }))
-    ) return;
+  const loadDetailCourseware = useCallback(async (courseId: string) => {
+    setLoadingCourseware(true);
+    setDetailCoursewareError("");
     try {
-      const res = await fetch(`/api/courses/${courseId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status })
-      });
-      if (res.ok) {
-        fetchCourses();
-        if (selectedDetailCourse?.id === courseId) {
-          setSelectedDetailCourse(prev => prev ? { ...prev, status } : null);
-        }
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleSaveRemarks = async (courseId: string, remarksVal: string, isFromDialog = false) => {
-    if (isFromDialog) setSavingDialogRemarks(true);
-    try {
-      const res = await fetch(`/api/courses/${courseId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentRemarks: remarksVal })
-      });
-      if (res.ok) {
-        setEditingRemarks(null);
-        fetchCourses();
-        if (isFromDialog && selectedDetailCourse) {
-          setSelectedDetailCourse({ ...selectedDetailCourse, studentRemarks: remarksVal });
-          notify(t("courseDetail.updateRemarksSuccess"), "success");
-        }
-      }
-    } catch (err) {
-      console.error(err);
+      const res = await fetch(`/api/courses/${courseId}/courseware`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || t("common.failed"));
+      setDetailCourseware(data.courseware ?? []);
+    } catch (error) {
+      console.error(error);
+      setDetailCoursewareError(
+        error instanceof Error ? error.message : t("common.failed"),
+      );
     } finally {
-      if (isFromDialog) setSavingDialogRemarks(false);
+      setLoadingCourseware(false);
     }
-  };
+  }, [t]);
 
   // Direct joining logic
   const handleEnterClassroomDirect = async (course: Course) => {
@@ -243,12 +210,21 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
 
     try {
       const res = await fetch(`/api/courses/${course.id}/verify-access`);
+      const data = await res.json().catch(() => ({}));
+      if (
+        data.code === "course_finished" ||
+        data.code === "course_cancelled"
+      ) {
+        await fetchCourses();
+        notify(data.reason || t("classroom.verifyFailed"));
+        setEnteringCourseId(null);
+        return;
+      }
       if (!res.ok) {
         notify(t("classroom.verifyFailed"), "error");
         setEnteringCourseId(null);
         return;
       }
-      const data = await res.json();
 
       if (!data.allowed) {
         router.push(
@@ -284,29 +260,8 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
       });
       return;
     }
-    queueMicrotask(() => {
-      setDialogRemarksValue(selectedDetailCourse.studentRemarks || "");
-    });
-    let active = true;
-    const loadCw = async () => {
-      setLoadingCourseware(true);
-      try {
-        const res = await fetch(`/api/courses/${selectedDetailCourse.id}/courseware`);
-        if (res.ok && active) {
-          const data = await res.json();
-          setDetailCourseware(data.courseware ?? []);
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        if (active) setLoadingCourseware(false);
-      }
-    };
-    loadCw();
-    return () => {
-      active = false;
-    };
-  }, [selectedDetailCourse]);
+    queueMicrotask(() => void loadDetailCourseware(selectedDetailCourse.id));
+  }, [loadDetailCourseware, selectedDetailCourse]);
 
   return (
     <PortalShell
@@ -328,6 +283,7 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                 void handleEnterClassroomDirect(course as Course)
               }
               onOpen={(course) => router.push(`/courses/${course.id}`)}
+              onPlayback={(course) => router.push(playbackPagePath(course.id))}
               onPrefetch={(course) => {
                 router.prefetch(`/courses/${course.id}`);
                 void prefetchCourseDetail(course.id);
@@ -425,44 +381,16 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                                   />
                                 </div>
                                 
-                                {activeTab === 'upcoming' && (
-                                  <Button 
-                                    variant="ghost" 
-                                    size="sm" 
-                                    className="text-destructive hover:bg-destructive/10 hover:text-destructive rounded-lg h-8 px-2.5 text-xs font-medium active:scale-95" 
-                                    onClick={(e) => { e.stopPropagation(); handleStatusChange(course.id, "cancelled"); }}
-                                  >
-                                    {t("studentDashboard.askForLeave")}
-                                  </Button>
-                                )}
                               </div>
                               
-                              {/* Remarks */}
-                              <div className="mt-3 bg-muted/20 border border-border/40 rounded-xl p-3 text-xs">
-                                <div className="flex items-center gap-1.5 font-medium text-foreground mb-1">
-                                  <Pencil className="h-3.5 w-3.5 text-primary" />
-                                  <span>{t("studentDashboard.myRemarks")}</span>
-                                </div>
-                                {editingRemarks === course.id ? (
-                                  <div className="flex gap-2 mt-1.5">
-                                    <Input 
-                                      className="h-8 bg-background border-border/60 text-xs rounded-lg" 
-                                      value={remarksValue} 
-                                      onChange={(e) => setRemarksValue(e.target.value)} 
-                                      placeholder={t("studentDashboard.remarksPlaceholder")}
-                                    />
-                                    <Button size="sm" className="h-8 text-xs rounded-lg px-3" onClick={() => handleSaveRemarks(course.id, remarksValue)}>{t("common.save")}</Button>
-                                    <Button size="sm" variant="ghost" className="h-8 text-xs rounded-lg px-2" onClick={() => setEditingRemarks(null)}>{t("common.cancel")}</Button>
-                                  </div>
-                                ) : (
-                                  <div className="flex justify-between items-center group/remark">
-                                    <span className="text-muted-foreground italic truncate w-[90%]">{course.studentRemarks || t("studentDashboard.remarksEmpty")}</span>
-                                    <Button size="icon" variant="ghost" className="h-6 w-6 opacity-0 group-hover/remark:opacity-100 transition-opacity rounded-md" onClick={(e) => { e.stopPropagation(); setEditingRemarks(course.id); setRemarksValue(course.studentRemarks); }}>
-                                      <Pencil className="h-3 w-3 text-muted-foreground" />
-                                    </Button>
-                                  </div>
-                                )}
-                              </div>
+                              <button
+                                type="button"
+                                className="mt-3 flex w-full items-center gap-2 rounded-xl border border-border/50 bg-muted/15 p-3 text-left text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                                onClick={() => router.push(`/courses/${course.id}`)}
+                              >
+                                <MessageSquare className="h-3.5 w-3.5 text-primary" />
+                                <span>{t("studentDashboard.lessonFeedbackHint")}</span>
+                              </button>
                             </div>
 
                             {/* Footer triggers */}
@@ -478,20 +406,13 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                               </Button>
 
                               <Button 
-                                disabled={isEntering || (course.status === "finished" ? !course.recordUrl : !joinable)}
-                                className={`rounded-xl px-5 py-2.5 font-medium shadow-sm text-sm active:scale-[0.98] transition-all flex items-center gap-1.5 ${
-                                  course.status === "finished" && !course.recordUrl
-                                    ? "bg-muted text-foreground border border-border/80 hover:bg-muted/80"
-                                    : "bg-primary hover:bg-primary/95 text-white"
-                                }`}
+                                disabled={isEntering || (course.status !== "finished" && !joinable)}
+                                className="rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-primary/95 active:scale-[0.98] flex items-center gap-1.5"
                                 onClick={() => {
-                                  if (course.status === "finished") {
-                                    const target = getPlaybackTarget(course.id, course.recordUrl);
-                                    if (target?.kind === "internal") {
-                                      router.push(target.href);
-                                    } else if (target) {
-                                      window.open(target.href, "_blank", "noopener,noreferrer");
-                                    }
+                                  if (course.status === "finished" && course.hasPlayback) {
+                                    router.push(playbackPagePath(course.id));
+                                  } else if (course.status === "finished") {
+                                    router.push(`/courses/${course.id}`);
                                   } else {
                                     handleEnterClassroomDirect(course);
                                   }
@@ -507,7 +428,9 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                                     <PlayCircle className="h-4.5 w-4.5 text-current" />
                                     <span>
                                       {course.status === "finished"
-                                        ? (course.recordUrl ? t("studentDashboard.viewPlayback") : t("studentDashboard.livePlayback"))
+                                        ? course.hasPlayback
+                                          ? t("studentDashboard.viewPlayback")
+                                          : t("teacherDashboard.btnDetails")
                                         : t("studentDashboard.enterClassroom")}
                                     </span>
                                   </>
@@ -585,7 +508,6 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                 <TabsList className="bg-muted/50 border border-border/40 p-0.5 rounded-lg w-full flex">
                   <TabsTrigger value="info" className="flex-1 text-xs rounded-md py-1.5"><Info className="h-3.5 w-3.5 mr-1" />{t("courseDetail.tabs.info")}</TabsTrigger>
                   <TabsTrigger value="courseware" className="flex-1 text-xs rounded-md py-1.5"><FileText className="h-3.5 w-3.5 mr-1" />{t("courseDetail.tabs.courseware")}</TabsTrigger>
-                  <TabsTrigger value="remarks" className="flex-1 text-xs rounded-md py-1.5"><MessageSquare className="h-3.5 w-3.5 mr-1" />{t("courseDetail.tabs.requirements")}</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="info" className="space-y-4 pt-3 outline-none text-sm">
@@ -617,6 +539,14 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                 <TabsContent value="courseware" className="pt-3 outline-none max-h-56 overflow-y-auto custom-scrollbar">
                   {loadingCourseware ? (
                     <div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+                  ) : detailCoursewareError ? (
+                    <div className="text-center p-8 border border-dashed border-destructive/40 rounded-xl" role="alert">
+                      <p className="text-xs text-destructive mb-3">{detailCoursewareError}</p>
+                      <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void loadDetailCourseware(selectedDetailCourse.id)}>
+                        <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                        {t("classroom.v3.retry")}
+                      </Button>
+                    </div>
                   ) : detailCourseware.length === 0 ? (
                     <div className="text-center p-8 border border-dashed border-border/60 rounded-xl">
                       <p className="text-xs text-muted-foreground">
@@ -632,7 +562,7 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                             <span className="text-xs font-semibold text-foreground truncate max-w-xs">{cw.name}</span>
                             <Badge variant="outline" className="text-[9px] uppercase border-border/80">{cw.ext}</Badge>
                           </div>
-                          <Button size="sm" variant="ghost" className="h-7 text-xs rounded-md flex items-center gap-1 text-primary hover:text-primary-foreground hover:bg-primary" onClick={() => window.open(cw.url, "_blank")}>
+                          <Button size="sm" variant="ghost" className="h-7 text-xs rounded-md flex items-center gap-1 text-primary hover:text-primary-foreground hover:bg-primary" onClick={() => window.open(cw.url, "_blank", "noopener,noreferrer")}>
                             <span>{t("courseDetail.openFile")}</span>
                             <ExternalLink className="h-3 w-3" />
                           </Button>
@@ -642,24 +572,6 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                   )}
                 </TabsContent>
 
-                <TabsContent value="remarks" className="space-y-3 pt-3 outline-none">
-                  <span className="text-xs text-muted-foreground font-medium">
-                    {t("courseDetail.requirementsTitle")}
-                  </span>
-                  <textarea
-                    rows={4}
-                    className="w-full bg-background border border-border/80 rounded-xl p-3 text-xs leading-relaxed focus:ring-2 focus:ring-primary/40 focus:outline-none"
-                    placeholder={t("studentDashboard.remarksPlaceholder")}
-                    value={dialogRemarksValue}
-                    onChange={(e) => setDialogRemarksValue(e.target.value)}
-                  />
-                  <div className="flex justify-end">
-                    <Button size="sm" className="rounded-lg h-8 px-4 text-xs font-medium active:scale-95" disabled={savingDialogRemarks || dialogRemarksValue === selectedDetailCourse.studentRemarks} onClick={() => handleSaveRemarks(selectedDetailCourse.id, dialogRemarksValue, true)}>
-                      {savingDialogRemarks ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-                      {t("common.save")}
-                    </Button>
-                  </div>
-                </TabsContent>
               </Tabs>
 
               <DialogFooter className="pt-4 border-t border-border/40 gap-2 sm:gap-0 mt-4 flex items-center justify-between w-full">
@@ -673,18 +585,15 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                     {t("common.cancel")}
                   </Button>
                   <Button 
-                    disabled={enteringCourseId === selectedDetailCourse.id || (selectedDetailCourse.status === "finished" ? !selectedDetailCourse.recordUrl : !canEnterClassroom(selectedDetailCourse.status))}
+                    disabled={enteringCourseId === selectedDetailCourse.id || (selectedDetailCourse.status !== "finished" && !canEnterClassroom(selectedDetailCourse.status))}
                     className="bg-primary hover:bg-primary/95 text-white rounded-xl h-9 text-xs font-semibold shadow-sm active:scale-[0.98]"
                     onClick={() => {
                       const course = selectedDetailCourse;
                       setSelectedDetailCourse(null);
-                      if (course.status === "finished") {
-                        const target = getPlaybackTarget(course.id, course.recordUrl);
-                        if (target?.kind === "internal") {
-                          router.push(target.href);
-                        } else if (target) {
-                          window.open(target.href, "_blank", "noopener,noreferrer");
-                        }
+                      if (course.status === "finished" && course.hasPlayback) {
+                        router.push(playbackPagePath(course.id));
+                      } else if (course.status === "finished") {
+                        router.push(`/courses/${course.id}`);
                       } else {
                         handleEnterClassroomDirect(course);
                       }
@@ -696,7 +605,9 @@ export default function StudentDashboard({ courses, user, fetchCourses }: { cour
                       <PlayCircle className="h-3.5 w-3.5 mr-1" />
                     )}
                     {selectedDetailCourse.status === "finished"
-                      ? (selectedDetailCourse.recordUrl ? t("studentDashboard.viewPlayback") : t("studentDashboard.livePlayback"))
+                      ? selectedDetailCourse.hasPlayback
+                        ? t("studentDashboard.viewPlayback")
+                        : t("teacherDashboard.btnDetails")
                       : t("studentDashboard.enterClassroom")}
                   </Button>
                 </div>

@@ -31,7 +31,7 @@ export async function promoteCourseSessionIfDue(
     (lesson.status === CourseStatus.SCHEDULED ||
       lesson.status === CourseStatus.LIVE ||
       lesson.status === CourseStatus.AFTER_CLASS) &&
-    lesson.endTime <= finishThreshold;
+    (Boolean(lesson.endedAt) || lesson.endTime <= finishThreshold);
   const shouldStart =
     lesson.status === CourseStatus.SCHEDULED && lesson.startTime <= now;
   const status = shouldFinish
@@ -72,6 +72,10 @@ const accessCache = new Map<
   string,
   { expiresAt: number; value: Extract<CourseSessionAccessResult, { ok: true }> }
 >();
+
+export function clearCourseSessionAccessCache() {
+  accessCache.clear();
+}
 
 function accessCacheKey(
   referenceId: string,

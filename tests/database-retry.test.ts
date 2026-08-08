@@ -38,3 +38,15 @@ test("does not replay non-transient failures", async () => {
   );
   assert.equal(attempts, 1);
 });
+
+test("recognizes managed PostgreSQL connection eviction errors", async () => {
+  const { isTransientDatabaseError } = await import("../src/lib/db");
+  assert.equal(
+    isTransientDatabaseError({ code: "57P01", message: "admin shutdown" }),
+    true,
+  );
+  assert.equal(
+    isTransientDatabaseError(new Error("too many clients already")),
+    true,
+  );
+});

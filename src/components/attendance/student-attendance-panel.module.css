@@ -4,6 +4,7 @@
   --attendance-late: #f0b85a;
   --attendance-partial: #8f83f4;
   --attendance-absent: #ff6b75;
+  --attendance-excused: #55a7e8;
   padding: clamp(1.1rem, 2.4vw, 2rem) 0 2rem;
   color: var(--foreground);
 }
@@ -107,6 +108,7 @@
 .legend i[data-tone="present"], .lesson > i[data-tone="present"] { background: var(--attendance-present); }
 .legend i[data-tone="late"], .lesson > i[data-tone="late"] { background: var(--attendance-late); }
 .legend i[data-tone="absent"], .lesson > i[data-tone="absent"] { background: var(--attendance-absent); }
+.legend i[data-tone="excused"], .lesson > i[data-tone="excused"] { background: var(--attendance-excused); }
 .legend i[data-tone="upcoming"], .lesson > i[data-tone="upcoming"] { background: var(--attendance-partial); }
 .lesson > i[data-tone="partial"] { background: var(--attendance-partial); }
 .lesson > i[data-tone="live"] { background: #65d8f4; }
@@ -152,6 +154,7 @@
 .day[data-tone="late"] { background: var(--attendance-late); }
 .day[data-tone="partial"] { background: var(--attendance-partial); }
 .day[data-tone="absent"] { background: var(--attendance-absent); }
+.day[data-tone="excused"] { background: var(--attendance-excused); }
 .day[data-tone="live"] { background: #65d8f4; }
 .day[data-tone="upcoming"] { background: color-mix(in srgb, var(--attendance-partial) 38%, transparent); }
 .day[data-tone="cancelled"] { background: color-mix(in srgb, var(--muted-foreground) 24%, transparent); }
@@ -193,6 +196,7 @@
 .lessonMeta > span[data-tone="present"] { color: var(--attendance-present); }
 .lessonMeta > span[data-tone="late"] { color: var(--attendance-late); }
 .lessonMeta > span[data-tone="absent"] { color: var(--attendance-absent); }
+.lessonMeta > span[data-tone="excused"] { color: var(--attendance-excused); }
 .lessonMeta > span[data-tone="partial"] { color: var(--attendance-partial); }
 .noLessons { margin: 0; color: var(--muted-foreground); font-size: .8rem; }
 

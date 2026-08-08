@@ -2016,12 +2016,15 @@ button.classroom-v3-seat-preview:focus-visible::after {
 }
 
 .classroom-v3-seat-copy strong em {
-  padding: 1px 4px;
-  border-radius: 5px;
-  color: #bdb6ff;
-  background: rgb(123 111 242 / 0.13);
+  margin-left: 1px;
+  padding: 0 3px;
+  border-radius: 999px;
+  color: rgb(213 208 255 / 0.72);
+  background: rgb(123 111 242 / 0.09);
   font-size: 7px;
   font-style: normal;
+  font-weight: 560;
+  line-height: 13px;
 }
 
 .classroom-v3-seat-copy small {
@@ -2507,8 +2510,8 @@ button.classroom-v3-seat-preview:focus-visible::after {
 .classroom-v3-stage-warning {
   position: absolute;
   z-index: 5;
-  right: 12px;
-  bottom: 12px;
+  top: 12px;
+  left: 12px;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -2518,6 +2521,142 @@ button.classroom-v3-seat-preview:focus-visible::after {
   color: #ffd38e;
   background: rgb(61 43 18 / 0.88);
   font-size: 10px;
+}
+
+.classroom-v3-teacher-pip {
+  position: absolute;
+  z-index: 8;
+  top: 12px;
+  right: 12px;
+  width: clamp(168px, 18vw, 252px);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid rgb(213 225 255 / 0.28);
+  border-radius: 12px;
+  background: #182333;
+  box-shadow: 0 6px 14px rgb(4 9 17 / 0.28);
+}
+
+.classroom-v3-teacher-pip .classroom-v3-media-caption {
+  right: 7px;
+  bottom: 7px;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: rgb(7 12 20 / 0.26);
+  box-shadow: none;
+  opacity: 0.42;
+  backdrop-filter: blur(4px);
+  font-size: 8px;
+  transition: opacity 180ms ease, background 180ms ease;
+}
+
+.classroom-v3-teacher-pip .classroom-v3-media-caption span:last-child {
+  display: none;
+}
+
+.classroom-v3-teacher-pip:hover .classroom-v3-media-caption,
+.classroom-v3-teacher-pip:focus-within .classroom-v3-media-caption {
+  background: rgb(7 12 20 / 0.58);
+  opacity: 0.94;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .classroom-v3-teacher-pip .classroom-v3-media-caption {
+    transition: none;
+  }
+}
+
+.classroom-v3-teacher-pip-hide,
+.classroom-v3-teacher-pip-restore {
+  position: absolute;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: #f5f6f8;
+  background: rgb(8 10 13 / 0.76);
+  cursor: pointer;
+}
+
+.classroom-v3-teacher-pip-hide {
+  z-index: 3;
+  top: 6px;
+  right: 6px;
+}
+
+.classroom-v3-teacher-pip-restore {
+  z-index: 8;
+  top: 12px;
+  right: 12px;
+  border: 1px solid rgb(213 225 255 / 0.2);
+  color: #dbe7f8;
+  background: rgb(24 35 51 / 0.9);
+}
+
+.classroom-v3-teacher-pip-hide:hover,
+.classroom-v3-teacher-pip-hide:focus-visible,
+.classroom-v3-teacher-pip-restore:hover,
+.classroom-v3-teacher-pip-restore:focus-visible {
+  background: rgb(123 111 242 / 0.76);
+}
+
+.classroom-v3-teacher-pip-hide svg,
+.classroom-v3-teacher-pip-restore svg {
+  width: 13px;
+  height: 13px;
+}
+
+.classroom-v3-teacher-pip-unavailable {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 12px;
+  color: #dfe8f8;
+  background:
+    radial-gradient(circle at 14% 14%, rgb(154 180 255 / 0.2), transparent 42%),
+    #182333;
+}
+
+.classroom-v3-teacher-pip-unavailable > span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 12px;
+  color: #e8edff;
+  background: rgb(137 122 255 / 0.25);
+  font-size: 14px;
+  font-weight: 720;
+}
+
+.classroom-v3-teacher-pip-unavailable > div {
+  min-width: 0;
+}
+
+.classroom-v3-teacher-pip-unavailable strong,
+.classroom-v3-teacher-pip-unavailable small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.classroom-v3-teacher-pip-unavailable strong {
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.classroom-v3-teacher-pip-unavailable small {
+  margin-top: 4px;
+  color: #aab9cd;
+  font-size: 9px;
 }
 
 .classroom-v3-caption-overlay {
@@ -2604,6 +2743,62 @@ button.classroom-v3-seat-preview:focus-visible::after {
   color: #8f97a7;
   font-size: 9px;
   line-height: 1.45;
+}
+
+.classroom-v3-caption-overlay-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 9px;
+  background: rgb(255 255 255 / 0.025);
+}
+
+.classroom-v3-caption-overlay-control > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.classroom-v3-caption-overlay-control strong {
+  color: #dfe2e8;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.classroom-v3-caption-overlay-control small {
+  color: #9098a5;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.classroom-v3-caption-overlay-control button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 6px;
+  color: #8f97a5;
+  background: rgb(255 255 255 / 0.06);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.classroom-v3-caption-overlay-control button i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.classroom-v3-caption-overlay-control button.is-on {
+  color: #bfb8ff;
+  background: rgb(123 111 242 / 0.2);
 }
 
 .classroom-v3-stage-warning svg {
@@ -4622,11 +4817,17 @@ html[lang="de"] .classroom-v3-dock button > span {
 /* Classroom V3: ClassIn-style teaching canvas. The legacy V3 layout remains
    available through CLASSROOM_V3_LAYOUT=legacy. */
 .classroom-v3-shell.is-classin-layout {
-  --classroom-obsidian: #0b0d10;
-  --classroom-graphite: #12151a;
-  --classroom-panel: #181c22;
+  --classroom-obsidian: #101722;
+  --classroom-graphite: #182231;
+  --classroom-panel: #202c3a;
+  --classroom-panel-raised: #273547;
+  --classroom-frost: #f4f7fc;
+  --classroom-mist: #b8c5d8;
   grid-template-rows: 52px 112px minmax(0, 1fr);
-  background: #0b0d10;
+  background:
+    radial-gradient(circle at 82% -16%, rgb(137 122 255 / 0.2), transparent 30rem),
+    radial-gradient(circle at -12% 112%, rgb(90 205 182 / 0.12), transparent 28rem),
+    var(--classroom-obsidian);
 }
 
 .classroom-v3-shell.is-classin-layout::before {
@@ -4645,8 +4846,8 @@ html[lang="de"] .classroom-v3-dock button > span {
 
 .is-classin-layout .classroom-v3-topbar {
   padding: 6px 12px;
-  border-color: rgb(255 255 255 / 0.07);
-  background: #111419;
+  border-color: rgb(210 224 255 / 0.1);
+  background: #16202d;
   box-shadow: none;
   backdrop-filter: none;
 }
@@ -4676,9 +4877,10 @@ html[lang="de"] .classroom-v3-dock button > span {
   margin: 0;
   padding: 6px 48px;
   overflow: hidden;
+  border-color: rgb(210 224 255 / 0.1);
   border-width: 0 0 1px;
   border-radius: 0;
-  background: #0e1115;
+  background: #121c28;
   box-shadow: none;
   backdrop-filter: none;
 }
@@ -4706,21 +4908,21 @@ html[lang="de"] .classroom-v3-dock button > span {
   width: clamp(124px, 12vw, 158px);
   height: 98px;
   flex: 0 0 clamp(124px, 12vw, 158px);
-  border-color: rgb(255 255 255 / 0.09);
-  border-radius: 8px;
-  background: #171a20;
+  border-color: rgb(210 224 255 / 0.12);
+  border-radius: 11px;
+  background: #1d2937;
   box-shadow: none;
 }
 
 .is-classin-layout .classroom-v3-seat.is-teacher {
-  border-color: rgb(255 194 92 / 0.58);
-  box-shadow: 0 0 0 1px rgb(255 194 92 / 0.08);
+  border-color: rgb(174 159 255 / 0.68);
+  box-shadow: 0 0 0 1px rgb(174 159 255 / 0.1);
 }
 
 .is-classin-layout .classroom-v3-seat-preview {
   height: 66px;
   min-height: 66px;
-  border-radius: 7px 7px 0 0;
+  border-radius: 10px 10px 0 0;
 }
 
 .is-classin-layout .classroom-v3-seat > footer {
@@ -4740,7 +4942,7 @@ html[lang="de"] .classroom-v3-dock button > span {
 .is-classin-layout .classroom-v3-seat-controls button {
   width: 23px;
   height: 23px;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
 .is-classin-layout .classroom-v3-seat-controls button.is-reward,
@@ -4761,6 +4963,72 @@ html[lang="de"] .classroom-v3-dock button > span {
   border-radius: 999px;
   font-size: 8px;
   font-weight: 750;
+}
+
+/* Every stage seat uses the same full-preview footprint.  The name and
+   controls are an on-demand overlay, including when the camera is off. */
+.classroom-v3-seat {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.classroom-v3-seat .classroom-v3-seat-preview,
+.is-classin-layout .classroom-v3-seat .classroom-v3-seat-preview {
+  grid-row: 1;
+  height: auto;
+  min-height: 0;
+  border-radius: inherit;
+}
+
+.classroom-v3-seat > footer,
+.is-classin-layout .classroom-v3-seat > footer {
+  position: absolute;
+  z-index: 4;
+  right: 5px;
+  bottom: 5px;
+  left: 5px;
+  min-height: 0;
+  height: auto;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: rgb(7 12 20 / 0.68);
+  backdrop-filter: blur(5px);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .classroom-v3-seat > footer,
+  .is-classin-layout .classroom-v3-seat > footer,
+  .classroom-v3-seat.has-video .classroom-v3-seat-role,
+  .classroom-v3-seat.has-video .classroom-v3-seat-media-state,
+  .classroom-v3-seat.has-video .classroom-v3-seat-reward {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(2px);
+    transition: opacity 180ms ease, transform 180ms ease;
+  }
+
+  .classroom-v3-seat:hover > footer,
+  .classroom-v3-seat:focus-within > footer,
+  .classroom-v3-seat.has-video:hover .classroom-v3-seat-role,
+  .classroom-v3-seat.has-video:focus-within .classroom-v3-seat-role,
+  .classroom-v3-seat.has-video:hover .classroom-v3-seat-media-state,
+  .classroom-v3-seat.has-video:focus-within .classroom-v3-seat-media-state,
+  .classroom-v3-seat.has-video:hover .classroom-v3-seat-reward,
+  .classroom-v3-seat.has-video:focus-within .classroom-v3-seat-reward {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .classroom-v3-seat > footer,
+  .is-classin-layout .classroom-v3-seat > footer,
+  .classroom-v3-seat.has-video .classroom-v3-seat-role,
+  .classroom-v3-seat.has-video .classroom-v3-seat-media-state,
+  .classroom-v3-seat.has-video .classroom-v3-seat-reward {
+    transition: none;
+  }
 }
 
 .is-classin-layout .classroom-v3-seat-reward svg {
@@ -4789,24 +5057,24 @@ html[lang="de"] .classroom-v3-dock button > span {
 
 .is-classin-layout .classroom-v3-workspace {
   min-height: 0;
-  gap: 0;
-  padding: 8px;
-  background: #090b0e;
+  gap: 8px;
+  padding: 10px;
+  background: transparent;
 }
 
 .is-classin-layout .classroom-v3-stage {
   min-width: 0;
-  border-color: rgb(255 255 255 / 0.08);
-  border-radius: 9px 0 0 9px;
-  background: #111419;
+  border-color: rgb(210 224 255 / 0.14);
+  border-radius: 14px 0 0 14px;
+  background: #182231;
   box-shadow: none;
 }
 
 .is-classin-layout .classroom-v3-stage-bar {
   min-height: 38px;
   padding: 5px 8px 5px 12px;
-  border-color: rgb(255 255 255 / 0.065);
-  background: #15181e;
+  border-color: rgb(210 224 255 / 0.1);
+  background: #202c3a;
 }
 
 .is-classin-layout .classroom-v3-stage-source {
@@ -4814,13 +5082,15 @@ html[lang="de"] .classroom-v3-dock button > span {
 }
 
 .is-classin-layout .classroom-v3-stage-content {
-  background: #0d1014;
+  background:
+    radial-gradient(circle at 70% 0, rgb(142 128 255 / 0.09), transparent 42%),
+    #141e2a;
 }
 
 .is-classin-layout .classroom-v3-board,
 .is-classin-layout .classroom-v3-board-canvas,
 .is-classin-layout .classroom-v3-board-canvas > div {
-  border-radius: 0 0 0 8px;
+  border-radius: 0 0 0 13px;
 }
 
 .is-classin-layout .classroom-v3-side,
@@ -4828,10 +5098,10 @@ html[lang="de"] .classroom-v3-dock button > span {
   position: relative;
   width: 56px;
   flex: 0 0 56px;
-  border: 1px solid rgb(255 255 255 / 0.08);
+  border: 1px solid rgb(210 224 255 / 0.14);
   border-left: 0;
-  border-radius: 0 9px 9px 0;
-  background: #15181e;
+  border-radius: 0 14px 14px 0;
+  background: #202c3a;
 }
 
 .is-classin-layout .classroom-v3-tool-rail {
@@ -4857,12 +5127,12 @@ html[lang="de"] .classroom-v3-dock button > span {
   width: 47px;
   height: 43px;
   min-height: 43px;
-  border-radius: 7px;
+  border-radius: 10px;
 }
 
 .is-classin-layout .classroom-v3-tool-rail button.is-active {
   color: #d8d4ff;
-  background: #39345e;
+  background: #423d73;
 }
 
 .is-classin-layout .classroom-v3-tool-rail button > span {
@@ -4880,10 +5150,10 @@ html[lang="de"] .classroom-v3-dock button > span {
   width: min(340px, calc(100vw - 150px));
   height: 100%;
   max-height: 100%;
-  border: 1px solid rgb(255 255 255 / 0.09);
-  border-radius: 10px;
-  background: rgb(24 28 34 / 0.98);
-  box-shadow: -14px 18px 48px rgb(0 0 0 / 0.45);
+  border: 1px solid rgb(210 224 255 / 0.14);
+  border-radius: 14px;
+  background: #202c3a;
+  box-shadow: -8px 12px 14px rgb(4 9 17 / 0.24);
 }
 
 .is-classin-layout .classroom-v3-dock-wrap {
@@ -5233,6 +5503,26 @@ html[lang="de"] .classroom-v3-dock button > span {
     flex-basis: 30px;
   }
 
+  .classroom-v3-teacher-pip {
+    top: 8px;
+    right: 8px;
+    width: min(38vw, 152px);
+    border-radius: 7px;
+  }
+
+  .classroom-v3-teacher-pip-restore {
+    top: 8px;
+    right: 8px;
+  }
+
+  .classroom-v3-stage-warning {
+    top: 8px;
+    left: 8px;
+    max-width: min(52vw, 260px);
+    padding: 6px 8px;
+    font-size: 9px;
+  }
+
   .is-classin-layout .classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-rail-title {
     display: none;
   }
@@ -5246,5 +5536,10 @@ html[lang="de"] .classroom-v3-dock button > span {
     overflow-x: auto;
     opacity: 1;
     pointer-events: auto;
+  }
+
+  .is-classin-layout .classroom-v3-seat > footer {
+    height: auto;
+    min-height: 0;
   }
 }

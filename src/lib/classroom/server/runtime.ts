@@ -20,6 +20,10 @@ import {
 } from "@/lib/classroom/mode";
 import { CourseStatus } from "@/lib/course-status";
 import { prisma } from "@/lib/db";
+import {
+  SCREEN_SHARE_REQUEST_TTL_MS,
+  screenShareStateAfter,
+} from "@/lib/classroom/screen-share-state";
 import type { SessionPayload } from "@/lib/session";
 import {
   normalizeClassroomLanguage,
@@ -28,7 +32,6 @@ import {
 import { classroomSelectorCycle } from "@/lib/classroom/engagement";
 
 const ONLINE_WINDOW_MS = 45_000;
-const SCREEN_SHARE_REQUEST_TTL_MS = 2 * 60_000;
 
 export class ClassroomRevisionConflictError extends Error {
   constructor(public readonly actualRevision: number) {
@@ -630,7 +633,7 @@ export async function applyClassroomAction(input: {
             },
           },
           data: {
-            screenShareState: "requested",
+            screenShareState: screenShareStateAfter("idle", "request"),
             screenShareRequestedAt: new Date(),
           },
         });
@@ -664,7 +667,7 @@ export async function applyClassroomAction(input: {
         await tx.classroomMemberState.update({
           where: actorWhere,
           data: {
-            screenShareState: "accepted",
+            screenShareState: screenShareStateAfter("requested", "accept"),
             stageState: "accepted",
             onStage: true,
             handRaisedAt: null,
@@ -683,8 +686,14 @@ export async function applyClassroomAction(input: {
         await tx.classroomMemberState.update({
           where: actorWhere,
           data: {
-            screenShareState:
-              member.screenShareState === "requested" ? "declined" : "idle",
+            screenShareState: screenShareStateAfter(
+              member.screenShareState === "requested" ||
+                  member.screenShareState === "accepted" ||
+                  member.screenShareState === "declined"
+                ? member.screenShareState
+                : "idle",
+              "decline",
+            ),
             screenShareRequestedAt: null,
           },
         });
@@ -700,7 +709,7 @@ export async function applyClassroomAction(input: {
             },
           },
           data: {
-            screenShareState: "idle",
+            screenShareState: screenShareStateAfter("accepted", "stop"),
             screenShareRequestedAt: null,
           },
         });

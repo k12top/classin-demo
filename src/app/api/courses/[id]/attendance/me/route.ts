@@ -92,8 +92,8 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const rows = visibleLessons.length
-      ? await prisma.courseAttendance.findMany({
+    const [rows, activeLeaveSubmissions] = visibleLessons.length
+      ? await Promise.all([prisma.courseAttendance.findMany({
           where: {
             sessionId: { in: visibleLessons.map((lesson) => lesson.id) },
             studentId: { in: identityCandidates },
@@ -105,9 +105,21 @@ export async function GET(
             durationSec: true,
           },
           orderBy: { enteredAt: "asc" },
-        })
-      : [];
-    const result = summarizeStudentAttendance(visibleLessons, rows);
+        }), prisma.courseSessionStudentSubmission.findMany({
+          where: {
+            sessionId: { in: visibleLessons.map((lesson) => lesson.id) },
+            leaveStatus: "active",
+          },
+          select: { sessionId: true, studentId: true },
+        })])
+      : [[], []];
+    const result = summarizeStudentAttendance(
+      visibleLessons,
+      rows,
+      activeLeaveSubmissions
+        .filter((leave) => identityMatches(leave.studentId))
+        .map((leave) => ({ sessionId: leave.sessionId, active: true })),
+    );
 
     return NextResponse.json(
       {

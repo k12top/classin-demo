@@ -12,6 +12,9 @@ import {
   rosterContainsUser,
 } from "@/lib/course-session-roster";
 import { casdoorUserIdCandidates } from "@/lib/course-teacher";
+import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
+import { serializeStudentSubmission } from "@/lib/course-session-submission";
+import { syncCourseStatusFromSessions } from "@/lib/course-session-status";
 
 export const dynamic = "force-dynamic";
 
@@ -32,12 +35,18 @@ export async function GET(
       teachers: { orderBy: { createdAt: "asc" } },
       students: { orderBy: { createdAt: "asc" } },
       groupLinks: { orderBy: { createdAt: "asc" } },
+      studentSubmissions: { orderBy: { updatedAt: "desc" } },
       _count: {
         select: {
           teachers: true,
           students: true,
           attendances: true,
-          recordings: true,
+          recordings: {
+            where: {
+              status: "completed",
+              playbackObjectKey: { not: null },
+            },
+          },
         },
       },
     },
@@ -67,7 +76,31 @@ export async function GET(
 
   return NextResponse.json({
     canManage,
-    sessions: visible.map(serializeCourseSession),
+    sessions: visible.map((item) => {
+      const serialized = serializeCourseSession(item);
+      if (canManage) {
+        return {
+          ...serialized,
+          studentSubmissions: undefined,
+          submissionSummary: {
+            leaveCount: item.studentSubmissions.filter(
+              (submission) => submission.leaveStatus === "active",
+            ).length,
+            requirementsCount: item.studentSubmissions.filter(
+              (submission) => Boolean(submission.requirements.trim()),
+            ).length,
+          },
+        };
+      }
+      const mine = item.studentSubmissions.find((submission) =>
+        aliases.some((alias) => casdoorUserIdsMatch(submission.studentId, alias)),
+      );
+      return {
+        ...serialized,
+        studentSubmissions: undefined,
+        mySubmission: serializeStudentSubmission(mine),
+      };
+    }),
   });
 }
 
@@ -97,6 +130,7 @@ export async function POST(
       students: Array.isArray(body?.students) ? body.students : undefined,
       groups: Array.isArray(body?.groups) ? body.groups : undefined,
     });
+    await syncCourseStatusFromSessions(courseId);
     return NextResponse.json(
       { sessions: sessions.map(serializeCourseSession) },
       { status: 201 },

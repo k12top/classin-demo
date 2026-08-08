@@ -114,6 +114,24 @@ export default function DashboardPage() {
   }, [authLoading, user, fetchCourses]);
 
   useEffect(() => {
+    if (authLoading || !user) return;
+    let lastRefreshAt = 0;
+    const refreshWhenReturning = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastRefreshAt < 10_000) return;
+      lastRefreshAt = now;
+      void fetchCourses();
+    };
+    window.addEventListener("focus", refreshWhenReturning);
+    document.addEventListener("visibilitychange", refreshWhenReturning);
+    return () => {
+      window.removeEventListener("focus", refreshWhenReturning);
+      document.removeEventListener("visibilitychange", refreshWhenReturning);
+    };
+  }, [authLoading, fetchCourses, user]);
+
+  useEffect(() => {
     if (!authLoading && !user) {
       redirectToSsoLogin();
     }

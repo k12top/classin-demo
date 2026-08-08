@@ -121,7 +121,21 @@ async function getCoursesOnce(request: NextRequest) {
         },
         include: {
           teachers: { orderBy: { createdAt: "asc" } },
-          sessions: { orderBy: { startTime: "asc" } },
+          sessions: {
+            orderBy: { startTime: "asc" },
+            include: {
+              _count: {
+                select: {
+                  recordings: {
+                    where: {
+                      status: "completed",
+                      playbackObjectKey: { not: null },
+                    },
+                  },
+                },
+              },
+            },
+          },
           students: { select: { studentId: true, studentName: true, studentAvatar: true } },
           groupLinks: {
             include: {
@@ -258,7 +272,21 @@ async function getCoursesOnce(request: NextRequest) {
         },
         include: {
           teachers: { orderBy: { createdAt: "asc" } },
-          sessions: { orderBy: { startTime: "asc" } },
+          sessions: {
+            orderBy: { startTime: "asc" },
+            include: {
+              _count: {
+                select: {
+                  recordings: {
+                    where: {
+                      status: "completed",
+                      playbackObjectKey: { not: null },
+                    },
+                  },
+                },
+              },
+            },
+          },
           students: { select: { studentId: true, studentName: true, studentAvatar: true } },
         },
         orderBy,
@@ -274,7 +302,21 @@ async function getCoursesOnce(request: NextRequest) {
           },
           include: {
             teachers: { orderBy: { createdAt: "asc" } },
-            sessions: { orderBy: { startTime: "asc" } },
+            sessions: {
+              orderBy: { startTime: "asc" },
+              include: {
+                _count: {
+                  select: {
+                    recordings: {
+                      where: {
+                        status: "completed",
+                        playbackObjectKey: { not: null },
+                      },
+                    },
+                  },
+                },
+              },
+            },
             students: { select: { studentId: true, studentName: true, studentAvatar: true } },
           },
           orderBy,
@@ -296,7 +338,21 @@ async function getCoursesOnce(request: NextRequest) {
         },
         include: {
           teachers: { orderBy: { createdAt: "asc" } },
-          sessions: { orderBy: { startTime: "asc" } },
+          sessions: {
+            orderBy: { startTime: "asc" },
+            include: {
+              _count: {
+                select: {
+                  recordings: {
+                    where: {
+                      status: "completed",
+                      playbackObjectKey: { not: null },
+                    },
+                  },
+                },
+              },
+            },
+          },
           students: { select: { studentId: true, studentName: true, studentAvatar: true } },
         },
         orderBy,
