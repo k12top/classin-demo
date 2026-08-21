@@ -65,6 +65,12 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   private snapshot: ClassroomMediaSnapshot = {
     connectionState: "idle",
     participants: [],
+    network: {
+      uplinkQuality: 0,
+      downlinkQuality: 0,
+      latencyMs: null,
+      packetLossPercent: null,
+    },
     local: {
       microphoneOn: false,
       cameraOn: false,
@@ -91,6 +97,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       participants: this.snapshot.participants.map((participant) => ({
         ...participant,
       })),
+      network: { ...this.snapshot.network },
       local: { ...this.snapshot.local },
     };
   }
@@ -229,6 +236,20 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
 
     client.on("connection-state-change", (state) => {
       this.snapshot.connectionState = connectionState(state);
+      this.emit();
+    });
+    client.on("network-quality", (quality) => {
+      const rtcStats = client.getRTCStats();
+      const audioLoss = client.getLocalAudioStats().currentPacketLossRate;
+      const videoLoss = client.getLocalVideoStats().currentPacketLossRate;
+      this.snapshot.network = {
+        uplinkQuality: quality.uplinkNetworkQuality,
+        downlinkQuality: quality.downlinkNetworkQuality,
+        latencyMs: Number.isFinite(rtcStats.RTT) ? rtcStats.RTT : null,
+        packetLossPercent: Number.isFinite(Math.max(audioLoss, videoLoss))
+          ? Math.max(audioLoss, videoLoss)
+          : null,
+      };
       this.emit();
     });
     client.on("user-joined", (user) => {
@@ -643,6 +664,12 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.snapshot = {
       connectionState: "disconnected",
       participants: [],
+      network: {
+        uplinkQuality: 0,
+        downlinkQuality: 0,
+        latencyMs: null,
+        packetLossPercent: null,
+      },
       local: {
         microphoneOn: false,
         cameraOn: false,

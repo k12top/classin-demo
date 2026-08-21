@@ -349,10 +349,18 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
           fileNamePrefix,
         );
       } catch (error) {
-        console.error("[classroom:recording] web mode failed; using mix", {
+        const allowRawMixFallback =
+          process.env.AGORA_ALLOW_RAW_MIX_FALLBACK?.trim().toLowerCase() ===
+          "true";
+        console.error("[classroom:recording] composited web mode failed", {
           courseId: input.courseId,
           message: error instanceof Error ? error.message : String(error),
+          allowRawMixFallback,
         });
+        // A raw RTC mix cannot contain the Netless canvas or DOM composition
+        // layer. Preserve the whiteboard-in-recording contract unless an
+        // operator explicitly accepts that degraded legacy fallback.
+        if (!allowRawMixFallback) throw error;
         const mixed = await this.startMixedRecording(
           input,
           config,

@@ -1,20 +1,25 @@
 "use client";
 
 import {
+  CSSProperties,
   FormEvent,
+  KeyboardEvent,
+  PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useRef,
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   AlertCircle,
   ArrowLeft,
   BookOpen,
+  Camera,
   Check,
   ChevronRight,
+  Circle,
   CircleStop,
   Clock3,
   Download,
@@ -26,6 +31,7 @@ import {
   FileText,
   Hand,
   Headphones,
+  Image as ImageIcon,
   LayoutGrid,
   Languages,
   Loader2,
@@ -36,9 +42,13 @@ import {
   MessagesSquare,
   Mic,
   MicOff,
+  MousePointer2,
+  Move,
   MonitorUp,
+  MoreHorizontal,
   PanelRightClose,
   PenTool,
+  Pencil,
   Pause,
   Play,
   Presentation,
@@ -46,11 +56,19 @@ import {
   RefreshCw,
   ScreenShareOff,
   Send,
+  Save,
   Settings2,
   ShieldCheck,
+  Shapes,
   Shuffle,
   TimerReset,
+  Trash2,
   Trophy,
+  Type,
+  Upload,
+  Undo2,
+  Redo2,
+  Eraser,
   UserRound,
   Users,
   Video,
@@ -59,7 +77,12 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { FastboardSurface } from "@/components/classroom/fastboard-surface";
+import {
+  FastboardSurface,
+  preloadFastboard,
+  type ClassroomWhiteboardController,
+  type ClassroomWhiteboardTool,
+} from "@/components/classroom/fastboard-surface";
 import { ClassroomLoading } from "@/components/classroom/classroom-loading";
 import {
   buildAccessDeniedUrl,
@@ -72,11 +95,14 @@ import { useTranslation } from "@/lib/i18n/context";
 import { createClassroomMediaProvider } from "@/lib/classroom/client/provider-factory";
 import { createClassroomSignalingProvider } from "@/lib/classroom/signaling/provider-factory";
 import type {
+  ClassroomCompositionPreview,
   ClassroomInvalidation,
   ClassroomSignalingProvider,
 } from "@/lib/classroom/signaling/types";
 import type {
   ClassroomAction,
+  ClassroomBoardItem,
+  ClassroomBoardRect,
   ClassroomCaptionSnapshot,
   ClassroomCoursewareSnapshot,
   ClassroomJoinCredential,
@@ -90,6 +116,15 @@ import type {
   ClassroomSpaceSnapshot,
   ClassroomQuestionSnapshot,
 } from "@/lib/classroom/types";
+import {
+  defaultBoardRect,
+  normalizeBoardRect,
+  placeClassroomBoardItem,
+  translateBoardRectByPixels,
+  updateClassroomBoardItem,
+} from "@/lib/classroom/composition";
+import { selectActiveScreenShare } from "@/lib/classroom/media-routing";
+import { shouldStopUnauthorizedScreenShare } from "@/lib/classroom/screen-share-state";
 import {
   classroomLanguageLabel,
   classroomLanguages,
@@ -118,6 +153,12 @@ const TEACHER_PIP_HIDDEN_STORAGE_KEY = "classroom_teacher_pip_hidden";
 const EMPTY_MEDIA: ClassroomMediaSnapshot = {
   connectionState: "idle",
   participants: [],
+  network: {
+    uplinkQuality: 0,
+    downlinkQuality: 0,
+    latencyMs: null,
+    packetLossPercent: null,
+  },
   local: {
     microphoneOn: false,
     cameraOn: false,
@@ -265,6 +306,579 @@ function MediaSurface({
   );
 }
 
+function BoardCompositionItem({
+  item,
+  participant,
+  displayName,
+  coursewareName,
+  provider,
+  stageRef,
+  canManage,
+  canEditGeometry,
+  selected,
+  onSelect,
+  onUpdate,
+  onPreview,
+  onRemove,
+  onBringToFront,
+  onHideLocally,
+}: {
+  item: ClassroomBoardItem;
+  participant: ClassroomParticipant | null;
+  displayName: string;
+  coursewareName?: string;
+  provider: ClassroomMediaProvider;
+  stageRef: React.RefObject<HTMLDivElement | null>;
+  canManage: boolean;
+  canEditGeometry: boolean;
+  selected: boolean;
+  onSelect: () => void;
+  onUpdate: (update: {
+    rect?: ClassroomBoardRect;
+    locked?: boolean;
+    visible?: boolean;
+    shape?: "rounded" | "circle";
+  }) => void;
+  onPreview: (rect: ClassroomBoardRect) => void;
+  onRemove: () => void;
+  onBringToFront: () => void;
+  onHideLocally: () => void;
+}) {
+  const { t } = useTranslation();
+  const [resizingRect, setResizingRect] = useState<ClassroomBoardRect | null>(
+    null,
+  );
+  const [draggingRect, setDraggingRect] = useState<ClassroomBoardRect | null>(
+    null,
+  );
+  const dragStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startRect: ClassroomBoardRect;
+    viewport: { width: number; height: number };
+  } | null>(null);
+  const lastDragPreviewAtRef = useRef(0);
+  const visualRect = resizingRect ?? draggingRect ?? item.rect;
+
+  const dragRectAt = useCallback(
+    (clientX: number, clientY: number) => {
+      const drag = dragStateRef.current;
+      if (!drag) return null;
+      return translateBoardRectByPixels(
+        drag.startRect,
+        { x: clientX - drag.startX, y: clientY - drag.startY },
+        drag.viewport,
+        item.kind,
+      );
+    },
+    [item.kind],
+  );
+
+  const startDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      onSelect();
+      const target = event.target as HTMLElement;
+      if (
+        !canEditGeometry ||
+        item.locked ||
+        target.closest("button") ||
+        (event.pointerType === "mouse" && event.button !== 0)
+      ) {
+        return;
+      }
+      const stage = stageRef.current?.getBoundingClientRect();
+      if (!stage) return;
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      dragStateRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startRect: item.rect,
+        viewport: { width: stage.width, height: stage.height },
+      };
+      lastDragPreviewAtRef.current = 0;
+      setDraggingRect(item.rect);
+    },
+    [canEditGeometry, item.locked, item.rect, onSelect, stageRef],
+  );
+
+  const moveDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const drag = dragStateRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const next = dragRectAt(event.clientX, event.clientY);
+      if (!next) return;
+      setDraggingRect(next);
+      const now = performance.now();
+      if (now - lastDragPreviewAtRef.current >= 100) {
+        lastDragPreviewAtRef.current = now;
+        onPreview(next);
+      }
+    },
+    [dragRectAt, onPreview],
+  );
+
+  const endDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const drag = dragStateRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const next = dragRectAt(event.clientX, event.clientY);
+      dragStateRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      if (next) {
+        onPreview(next);
+        onUpdate({ rect: next });
+      }
+      setDraggingRect(null);
+    },
+    [dragRectAt, onPreview, onUpdate],
+  );
+
+  const cancelDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      if (dragStateRef.current?.pointerId !== event.pointerId) return;
+      dragStateRef.current = null;
+      setDraggingRect(null);
+    },
+    [],
+  );
+
+  const startResize = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (!canEditGeometry || item.locked) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const stage = stageRef.current?.getBoundingClientRect();
+      if (!stage) return;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startRect = visualRect;
+      const pointerId = event.pointerId;
+      event.currentTarget.setPointerCapture(pointerId);
+      const resizedRect = (clientX: number, clientY: number) => {
+        const deltaX = clientX - startX;
+        const deltaY = clientY - startY;
+        if (item.shape === "circle") {
+          const initialSize = Math.min(
+            startRect.width * stage.width,
+            startRect.height * stage.height,
+          );
+          const size = Math.max(72, initialSize + Math.max(deltaX, deltaY));
+          return normalizeBoardRect(
+            {
+              ...startRect,
+              width: size / stage.width,
+              height: size / stage.height,
+            },
+            item.kind,
+          );
+        }
+        return normalizeBoardRect(
+          {
+            ...startRect,
+            width: startRect.width + deltaX / stage.width,
+            height: startRect.height + deltaY / stage.height,
+          },
+          item.kind,
+        );
+      };
+      const move = (moveEvent: PointerEvent) => {
+        const next = resizedRect(moveEvent.clientX, moveEvent.clientY);
+        setResizingRect(next);
+        onPreview(next);
+      };
+      const end = (endEvent: PointerEvent) => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", end);
+        const next = resizedRect(endEvent.clientX, endEvent.clientY);
+        setResizingRect(null);
+        onUpdate({ rect: next });
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", end, { once: true });
+    },
+    [
+      canEditGeometry,
+      item.kind,
+      item.locked,
+      item.shape,
+      onPreview,
+      onUpdate,
+      stageRef,
+      visualRect,
+    ],
+  );
+
+  const keyboardMove = useCallback(
+    (event: KeyboardEvent<HTMLElement>) => {
+      if (!canEditGeometry || item.locked) return;
+      const delta = event.shiftKey ? 0.03 : 0.01;
+      const direction = {
+        ArrowLeft: [-delta, 0],
+        ArrowRight: [delta, 0],
+        ArrowUp: [0, -delta],
+        ArrowDown: [0, delta],
+      }[event.key];
+      if (!direction) return;
+      event.preventDefault();
+      const next = normalizeBoardRect(
+        {
+          ...item.rect,
+          x: item.rect.x + direction[0],
+          y: item.rect.y + direction[1],
+        },
+        item.kind,
+      );
+      onUpdate({ rect: next });
+    },
+    [canEditGeometry, item.kind, item.locked, item.rect, onUpdate],
+  );
+
+  const toggleCameraShape = useCallback(() => {
+    if (item.kind !== "camera") return;
+    const nextShape = item.shape === "circle" ? "rounded" : "circle";
+    if (nextShape === "rounded") {
+      onUpdate({ shape: nextShape });
+      return;
+    }
+    const stage = stageRef.current?.getBoundingClientRect();
+    if (!stage) {
+      onUpdate({ shape: nextShape });
+      return;
+    }
+    const size = Math.min(
+      item.rect.width * stage.width,
+      item.rect.height * stage.height,
+    );
+    onUpdate({
+      shape: nextShape,
+      rect: normalizeBoardRect(
+        {
+          ...item.rect,
+          width: size / stage.width,
+          height: size / stage.height,
+        },
+        item.kind,
+      ),
+    });
+  }, [item, onUpdate, stageRef]);
+
+  const style = {
+    left: `${visualRect.x * 100}%`,
+    top: `${visualRect.y * 100}%`,
+    width: `${visualRect.width * 100}%`,
+    height: `${visualRect.height * 100}%`,
+    zIndex: item.zIndex + 5,
+  } satisfies CSSProperties;
+
+  return (
+    <motion.article
+      className={`classroom-v3-board-item${selected ? " is-selected" : ""}${item.locked ? " is-locked" : ""}${item.shape === "circle" ? " is-circle" : ""}${draggingRect ? " is-dragging" : ""}`}
+      style={style}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+      onPointerDown={startDrag}
+      onPointerMove={moveDrag}
+      onPointerUp={endDrag}
+      onPointerCancel={cancelDrag}
+      onKeyDown={keyboardMove}
+      tabIndex={canEditGeometry ? 0 : -1}
+      aria-label={displayName}
+    >
+      {item.kind === "courseware" ? (
+        <div className="classroom-v3-board-courseware">
+          <BookOpen />
+          <strong>{coursewareName || displayName}</strong>
+          <small>{t("classroom.v3.courseware")}</small>
+        </div>
+      ) : participant ? (
+        <MediaSurface
+          participant={participant}
+          provider={provider}
+          displayName={displayName}
+          className="classroom-v3-board-item-media"
+        />
+      ) : (
+        <div className="classroom-v3-board-item-empty">
+          {item.kind === "screen" ? <MonitorUp /> : <VideoOff />}
+          <strong>{displayName}</strong>
+          <small>{t("classroom.v3.waitingForSharedContent")}</small>
+        </div>
+      )}
+      <div className="classroom-v3-board-item-tools" role="toolbar">
+        {item.kind === "camera" && canEditGeometry && (
+          <button
+            type="button"
+            className={item.shape === "circle" ? "is-active" : ""}
+            onClick={(event) => {
+              event.stopPropagation();
+              toggleCameraShape();
+            }}
+            title={
+              item.shape === "circle"
+                ? t("classroom.v3.cameraRoundedWindow")
+                : t("classroom.v3.cameraCircleWindow")
+            }
+            aria-label={
+              item.shape === "circle"
+                ? t("classroom.v3.cameraRoundedWindow")
+                : t("classroom.v3.cameraCircleWindow")
+            }
+            aria-pressed={item.shape === "circle"}
+          >
+            <Circle />
+          </button>
+        )}
+        {canManage ? (
+          <>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onUpdate({ locked: !item.locked });
+              }}
+              title={item.locked ? t("classroom.v3.unlockStage") : t("classroom.v3.lockStage")}
+              aria-label={
+                item.locked
+                  ? t("classroom.v3.unlockStage")
+                  : t("classroom.v3.lockStage")
+              }
+            >
+              {item.locked ? <Lock /> : <LockOpen />}
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onBringToFront();
+              }}
+              title={t("classroom.v3.focusAction")}
+              aria-label={t("classroom.v3.focusAction")}
+            >
+              <Move />
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRemove();
+              }}
+              title={t("classroom.v3.removeStage")}
+              aria-label={t("classroom.v3.removeStage")}
+              className="is-danger"
+            >
+              <X />
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="is-danger"
+            onClick={(event) => {
+              event.stopPropagation();
+              onHideLocally();
+            }}
+            title={t("classroom.v3.close")}
+            aria-label={t("classroom.v3.close")}
+          >
+            <X />
+          </button>
+        )}
+      </div>
+      {canEditGeometry && !item.locked && (
+        <button
+          type="button"
+          className="classroom-v3-board-item-resize"
+          onPointerDown={startResize}
+          aria-label={t("classroom.v3.resize")}
+        />
+      )}
+    </motion.article>
+  );
+}
+
+function BoardCompositionLayer({
+  items,
+  members,
+  courseware,
+  participants,
+  provider,
+  canManage,
+  currentUserId,
+  onAction,
+  onPreview,
+  hiddenItemIds,
+  onHideLocally,
+}: {
+  items: ClassroomBoardItem[];
+  members: ClassroomMemberSnapshot[];
+  courseware: ClassroomCoursewareSnapshot[];
+  participants: ClassroomParticipant[];
+  provider: ClassroomMediaProvider;
+  canManage: boolean;
+  currentUserId: string;
+  onAction: (action: ClassroomAction) => Promise<boolean>;
+  onPreview: (itemId: string, rect: ClassroomBoardRect) => void;
+  hiddenItemIds: Set<string>;
+  onHideLocally: (itemId: string) => void;
+}) {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const isMountedRef = useRef(true);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [localCameraOverrides, setLocalCameraOverrides] = useState<
+    Record<
+      string,
+      { rect?: ClassroomBoardRect; shape?: "rounded" | "circle" }
+    >
+  >({});
+  const [optimisticItemUpdates, setOptimisticItemUpdates] = useState<
+    Record<
+      string,
+      {
+        rect?: ClassroomBoardRect;
+        locked?: boolean;
+        visible?: boolean;
+        shape?: "rounded" | "circle";
+      }
+    >
+  >({});
+  const [optimisticRemovedItemIds, setOptimisticRemovedItemIds] = useState<
+    Set<string>
+  >(() => new Set());
+  const visibleItems = items.filter(
+    (item) =>
+      item.visible &&
+      !hiddenItemIds.has(item.id) &&
+      !optimisticRemovedItemIds.has(item.id),
+  );
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  return (
+    <div
+      ref={stageRef}
+      className="classroom-v3-board-composition"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) setSelectedItemId(null);
+      }}
+    >
+      {visibleItems.map((item) => {
+        const isLocalCamera =
+          item.kind === "camera" && item.sourceId === currentUserId;
+        const localOverride = isLocalCamera
+          ? localCameraOverrides[item.sourceId]
+          : undefined;
+        const optimisticUpdate = optimisticItemUpdates[item.id];
+        const visualItem = {
+          ...item,
+          ...localOverride,
+          ...optimisticUpdate,
+        };
+        const member = members.find((candidate) => candidate.userId === item.sourceId);
+        const matchedParticipant = participants.find(
+          (participant) =>
+            participantOwnerId(participant.id) === item.sourceId &&
+            participant.kind === (item.kind === "screen" ? "screen" : "camera"),
+        ) ?? null;
+        const file = courseware.find((candidate) => candidate.id === item.sourceId);
+        const displayName = item.kind === "courseware"
+          ? file?.name || item.sourceId
+          : member?.displayName || item.sourceId;
+        return (
+          <BoardCompositionItem
+            key={item.id}
+            item={visualItem}
+            participant={matchedParticipant}
+            displayName={displayName}
+            coursewareName={file?.name}
+            provider={provider}
+            stageRef={stageRef}
+            canManage={canManage}
+            canEditGeometry={canManage || isLocalCamera}
+            selected={selectedItemId === item.id}
+            onSelect={() => setSelectedItemId(item.id)}
+            onUpdate={(update) => {
+              setOptimisticItemUpdates((current) => ({
+                ...current,
+                [item.id]: {
+                  ...current[item.id],
+                  ...update,
+                },
+              }));
+              if (isLocalCamera && (update.rect || update.shape)) {
+                setLocalCameraOverrides((current) => ({
+                  ...current,
+                  [item.sourceId]: {
+                    ...current[item.sourceId],
+                    ...(update.rect && { rect: update.rect }),
+                    ...(update.shape && { shape: update.shape }),
+                  },
+                }));
+              }
+              void onAction({
+                type: "updateBoardItem",
+                itemId: item.id,
+                ...update,
+              }).finally(() => {
+                if (!isMountedRef.current) return;
+                setOptimisticItemUpdates((current) => {
+                  const pending = current[item.id];
+                  if (!pending) return current;
+                  const nextPending = { ...pending };
+                  if (update.rect) delete nextPending.rect;
+                  if (update.locked !== undefined) delete nextPending.locked;
+                  if (update.visible !== undefined) delete nextPending.visible;
+                  if (update.shape) delete nextPending.shape;
+                  const next = { ...current };
+                  if (Object.keys(nextPending).length) {
+                    next[item.id] = nextPending;
+                  } else {
+                    delete next[item.id];
+                  }
+                  return next;
+                });
+              });
+            }}
+            onPreview={(rect) => onPreview(item.id, rect)}
+            onRemove={() => {
+              setOptimisticRemovedItemIds((current) => {
+                const next = new Set(current);
+                next.add(item.id);
+                return next;
+              });
+              void onAction({
+                type: "removeBoardItem",
+                itemId: item.id,
+              }).then((removed) => {
+                if (removed || !isMountedRef.current) return;
+                setOptimisticRemovedItemIds((current) => {
+                  const next = new Set(current);
+                  next.delete(item.id);
+                  return next;
+                });
+              });
+            }}
+            onBringToFront={() =>
+              onAction({ type: "bringBoardItemToFront", itemId: item.id })
+            }
+            onHideLocally={() => onHideLocally(item.id)}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 function StatusPill({
   media,
   recording,
@@ -279,11 +893,42 @@ function StatusPill({
   );
   return (
     <div className="classroom-v3-statuses">
-      <span className={connected ? "is-online" : "is-warning"}>
+      <span
+        className={connected ? "is-online" : "is-warning"}
+        tabIndex={0}
+        title={connected ? t("classroom.v3.connected") : t("classroom.v3.reconnecting")}
+      >
         <Wifi />
         {connected
           ? t("classroom.v3.connected")
           : t("classroom.v3.reconnecting")}
+        <span className="classroom-v3-network-popover">
+          <strong>{t("classroom.v3.connectionDetail")}</strong>
+          <small>
+            <i className={connected ? "is-good" : ""} />
+            {connected ? t("classroom.v3.rtcConnected") : t("classroom.v3.rtcRecovering")}
+          </small>
+          <small>
+            <Clock3 />
+            {t("classroom.v3.networkLatency", {
+              value: media.network.latencyMs ?? "--",
+            })}
+          </small>
+          <small>
+            <Wifi />
+            {t("classroom.v3.packetLoss", {
+              value: media.network.packetLossPercent ?? "--",
+            })}
+          </small>
+          <small>
+            {media.local.microphoneOn ? <Mic /> : <MicOff />}
+            {media.local.microphoneOn ? t("classroom.v3.microphoneOn") : t("classroom.v3.microphoneOff")}
+          </small>
+          <small>
+            {media.local.cameraOn ? <Video /> : <VideoOff />}
+            {media.local.cameraOn ? t("classroom.v3.cameraOn") : t("classroom.v3.cameraOff")}
+          </small>
+        </span>
       </span>
       {recordingActive && (
         <span className="is-recording">
@@ -310,6 +955,10 @@ function LiveRailSeat({
   onManageMedia,
   onRemoveStage,
   onReward,
+  onMoveSeat,
+  onPlaceOnBoard,
+  previewPlacesOnBoard,
+  canReorder,
 }: {
   member: ClassroomMemberSnapshot;
   participant: ClassroomParticipant | null;
@@ -328,8 +977,14 @@ function LiveRailSeat({
   ) => void;
   onRemoveStage: (userId: string) => void;
   onReward: (userId: string) => void;
+  onMoveSeat: (userId: string, slots: number) => void;
+  onPlaceOnBoard: (userId: string) => void;
+  previewPlacesOnBoard: boolean;
+  canReorder: boolean;
 }) {
   const { t } = useTranslation();
+  const [touchControlsVisible, setTouchControlsVisible] = useState(false);
+  const skipTouchPreviewActionRef = useRef(false);
   const isSelf = member.userId === currentUserId;
   const microphoneOn = isSelf
     ? media.local.microphoneOn
@@ -359,7 +1014,7 @@ function LiveRailSeat({
         <div className="classroom-v3-rail-fallback">
           {member.avatar ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={member.avatar} alt="" />
+            <img src={member.avatar} alt="" draggable={false} />
           ) : (
             <span>{initialOf(member.displayName)}</span>
           )}
@@ -396,17 +1051,49 @@ function LiveRailSeat({
   return (
     <motion.article
       layout
-      className={`classroom-v3-seat${member.role !== "student" ? " is-teacher" : ""}${cameraOn ? " has-video" : ""}`}
+      drag={canReorder ? "x" : false}
+      dragElastic={0.08}
+      dragMomentum={false}
+      onDragEnd={(_, info) => {
+        const slots = Math.round(info.offset.x / 150);
+        if (slots) onMoveSeat(member.userId, slots);
+      }}
+      className={`classroom-v3-seat${member.role !== "student" ? " is-teacher" : ""}${cameraOn ? " has-video" : ""}${touchControlsVisible ? " is-touch-active" : ""}${canReorder ? " is-reorderable" : ""}`}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setTouchControlsVisible(false);
+        }
+      }}
     >
       {canManage ? (
         <button
           type="button"
           className="classroom-v3-seat-preview"
-          onClick={() => onSpotlight(member.userId)}
-          data-action-label={t("classroom.v3.focusAction")}
-          title={t("classroom.v3.spotlightMember", {
-            name: member.displayName,
-          })}
+          onPointerUp={(event) => {
+            if (event.pointerType === "touch" && !touchControlsVisible) {
+              skipTouchPreviewActionRef.current = true;
+              setTouchControlsVisible(true);
+            }
+          }}
+          onClick={() => {
+            if (skipTouchPreviewActionRef.current) {
+              skipTouchPreviewActionRef.current = false;
+              return;
+            }
+            onSpotlight(member.userId);
+          }}
+          data-action-label={t(
+            previewPlacesOnBoard
+              ? "classroom.v3.placeOnBoard"
+              : "classroom.v3.focusAction",
+          )}
+          title={
+            previewPlacesOnBoard
+              ? t("classroom.v3.placeOnBoard")
+              : t("classroom.v3.spotlightMember", {
+                  name: member.displayName,
+                })
+          }
         >
           {preview}
         </button>
@@ -431,6 +1118,16 @@ function LiveRailSeat({
         </span>
         {showControls && (
           <span className="classroom-v3-seat-controls">
+            {canManage && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onPlaceOnBoard(member.userId)}
+                title={t("classroom.v3.placeOnBoard")}
+              >
+                <Move />
+              </button>
+            )}
             {canReward && member.role === "student" && (
               <button
                 type="button"
@@ -519,6 +1216,11 @@ function LiveRail({
   maxStudentSeats,
   collapsed,
   onToggleCollapsed,
+  seatOrder,
+  boardSourceIds,
+  onReorder,
+  onPlaceOnBoard,
+  previewPlacesOnBoard,
 }: {
   members: ClassroomMemberSnapshot[];
   media: ClassroomMediaSnapshot;
@@ -539,6 +1241,11 @@ function LiveRail({
   maxStudentSeats: number;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  seatOrder: string[];
+  boardSourceIds: Set<string>;
+  onReorder: (seatOrder: string[]) => void;
+  onPlaceOnBoard: (userId: string) => void;
+  previewPlacesOnBoard: boolean;
 }) {
   const { t } = useTranslation();
   const teachers = members.filter(
@@ -549,16 +1256,41 @@ function LiveRail({
   const students = members
     .filter((member) => member.role === "student" && member.onStage)
     .slice(0, maxStudentSeats);
-  const seatedMembers = [...teachers, ...students];
+  // The lead seat is the classroom's orientation point.  Keep teachers in
+  // the rail even when their camera has also been placed on the board; a
+  // student object can leave the rail, but the teacher should never make the
+  // entire podium look empty.
+  const unsortedSeatedMembers = [...teachers, ...students].filter(
+    (member) => member.role !== "student" || !boardSourceIds.has(member.userId),
+  );
+  const seatIndex = new Map(seatOrder.map((userId, index) => [userId, index]));
+  const seatedMembers = [...unsortedSeatedMembers].sort((left, right) => {
+    const leftIndex = seatIndex.get(left.userId);
+    const rightIndex = seatIndex.get(right.userId);
+    if (leftIndex === undefined && rightIndex === undefined) return 0;
+    if (leftIndex === undefined) return 1;
+    if (rightIndex === undefined) return -1;
+    return leftIndex - rightIndex;
+  });
   const queue = members.filter(
     (member) => member.handRaisedAt && !member.onStage,
   );
-  const emptySeats = Math.max(0, maxStudentSeats - students.length);
   const cameraParticipants = new Map(
     media.participants
       .filter((participant) => participant.kind === "camera")
       .map((participant) => [participantOwnerId(participant.id), participant]),
   );
+  const moveSeat = (userId: string, slots: number) => {
+    const currentOrder = seatedMembers.map((member) => member.userId);
+    const from = currentOrder.indexOf(userId);
+    if (from < 0) return;
+    const to = Math.max(0, Math.min(currentOrder.length - 1, from + slots));
+    if (from === to) return;
+    const next = [...currentOrder];
+    next.splice(from, 1);
+    next.splice(to, 0, userId);
+    onReorder(next);
+  };
   return (
     <section
       className="classroom-v3-live-rail"
@@ -608,19 +1340,12 @@ function LiveRail({
             onManageMedia={onManageMedia}
             onRemoveStage={onRemoveStage}
             onReward={onReward}
+            onMoveSeat={moveSeat}
+            onPlaceOnBoard={onPlaceOnBoard}
+            previewPlacesOnBoard={previewPlacesOnBoard}
+            canReorder={canManage && seatedMembers.length > 1}
           />
         ))}
-        {emptySeats > 0 && (
-          <motion.div layout className="classroom-v3-seat-empty-summary">
-            <span><Users /></span>
-            <div>
-              <strong>
-                {t("classroom.v3.emptySeat")} × {emptySeats}
-              </strong>
-              <small>{t("classroom.v3.emptySeatHint")}</small>
-            </div>
-          </motion.div>
-        )}
       </div>
       <div className={queue.length ? "classroom-v3-hand-queue has-hands" : "classroom-v3-hand-queue"}>
         <Hand />
@@ -642,12 +1367,15 @@ function DrawerNavigation({
   whiteboardActive,
   canShareScreen,
   screenSharing,
-  canControlRecording,
-  recordingEnabled,
-  recordingStatus,
   onOpenWhiteboard,
   onToggleScreenShare,
-  onToggleRecording,
+  whiteboardController,
+  whiteboardTool,
+  onWhiteboardToolChange,
+  railLevel,
+  onInteract,
+  canManageStage,
+  onClassroomAction,
 }: {
   active: DrawerPanel | null;
   onChange: (panel: DrawerPanel | null) => void;
@@ -662,14 +1390,33 @@ function DrawerNavigation({
   whiteboardActive: boolean;
   canShareScreen: boolean;
   screenSharing: boolean;
-  canControlRecording: boolean;
-  recordingEnabled: boolean;
-  recordingStatus: string | null;
   onOpenWhiteboard: () => void;
   onToggleScreenShare: () => void;
-  onToggleRecording: () => void;
+  whiteboardController: ClassroomWhiteboardController | null;
+  whiteboardTool: ClassroomWhiteboardTool;
+  onWhiteboardToolChange: (tool: ClassroomWhiteboardTool) => void;
+  railLevel: "expanded" | "compact" | "collapsed";
+  onInteract: () => void;
+  canManageStage: boolean;
+  onClassroomAction: (action: ClassroomAction) => void;
 }) {
   const { t } = useTranslation();
+  const prefersReducedMotion = useReducedMotion();
+  const [toolSettingsOpen, setToolSettingsOpen] = useState(false);
+  const [toolPopoverTop, setToolPopoverTop] = useState<number | null>(null);
+  const [strokeColor, setStrokeColor] = useState("49-198-155");
+  const [strokeWidth, setStrokeWidth] = useState(4);
+  const [textSize, setTextSize] = useState(24);
+  const [classroomMenuOpen, setClassroomMenuOpen] = useState(false);
+  const [clearBoardConfirming, setClearBoardConfirming] = useState(false);
+  const clearBoardCancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!clearBoardConfirming) return;
+    const frame = window.requestAnimationFrame(() => {
+      clearBoardCancelRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [clearBoardConfirming]);
   const items: Array<{
     id: DrawerPanel;
     label: string;
@@ -685,11 +1432,128 @@ function DrawerNavigation({
     { id: "engagement", label: t("classroom.v3.engagement"), icon: Zap },
     { id: "tools", label: t("classroom.v3.tools"), icon: LayoutGrid, count: counts.hands },
   ];
+  const boardTools: Array<{
+    id: ClassroomWhiteboardTool;
+    label: string;
+    icon: typeof PenTool;
+    settings?: boolean;
+  }> = [
+    { id: "selector", label: t("classroom.v3.boardSelect"), icon: MousePointer2 },
+    { id: "clicker", label: t("classroom.v3.boardMove"), icon: Move },
+    { id: "pencil", label: t("classroom.v3.boardPencil"), icon: Pencil, settings: true },
+    { id: "text", label: t("classroom.v3.boardText"), icon: Type, settings: true },
+    { id: "rectangle", label: t("classroom.v3.boardShape"), icon: Shapes, settings: true },
+    { id: "eraser", label: t("classroom.v3.boardEraser"), icon: Eraser },
+    { id: "laserPointer", label: t("classroom.v3.boardLaser"), icon: Radio },
+  ];
+  const selectedBoardTool =
+    boardTools.find((tool) => tool.id === whiteboardTool) ||
+    (whiteboardTool === "ellipse"
+      ? boardTools.find((tool) => tool.id === "rectangle")
+      : undefined) ||
+    boardTools[0];
+  const selectTool = (
+    tool: typeof boardTools[number],
+    target: HTMLButtonElement,
+  ) => {
+    onInteract();
+    onWhiteboardToolChange(tool.id);
+    whiteboardController?.setTool(tool.id);
+    setToolSettingsOpen(Boolean(tool.settings));
+    if (tool.settings) {
+      const side = target.closest(".classroom-v3-side")?.getBoundingClientRect();
+      const button = target.getBoundingClientRect();
+      setToolPopoverTop(
+        side ? button.top - side.top + button.height / 2 : null,
+      );
+    }
+  };
+
+  if (railLevel === "collapsed") {
+    return (
+      <nav
+        className="classroom-v3-tool-rail is-collapsed"
+        aria-label={t("classroom.v3.classroomTools")}
+      >
+        <button type="button" onClick={onInteract} title={t("classroom.v3.expandTools")}>
+          <MoreHorizontal />
+        </button>
+      </nav>
+    );
+  }
+
   return (
+    <>
     <nav
-      className="classroom-v3-tool-rail"
+      className={`classroom-v3-tool-rail is-${railLevel}`}
       aria-label={t("classroom.v3.classroomTools")}
+      onPointerEnter={onInteract}
     >
+      <div className="classroom-v3-board-tools">
+        {(railLevel === "compact" ? [selectedBoardTool] : boardTools).map((tool) => {
+          const Icon = tool.icon;
+          return (
+            <button
+              key={tool.id}
+              type="button"
+              className={
+                whiteboardTool === tool.id ||
+                (tool.id === "rectangle" && whiteboardTool === "ellipse")
+                  ? "is-active"
+                  : ""
+              }
+              disabled={!whiteboardController}
+              onClick={(event) => selectTool(tool, event.currentTarget)}
+              title={tool.label}
+              aria-pressed={whiteboardTool === tool.id}
+            >
+              <Icon />
+              <span>{tool.label}</span>
+            </button>
+          );
+        })}
+        {railLevel === "expanded" && (
+          <>
+            <button
+              type="button"
+              disabled={!whiteboardController}
+              onClick={() => {
+                onInteract();
+                whiteboardController?.undo();
+              }}
+              title={t("classroom.v3.undo")}
+            >
+              <Undo2 />
+              <span>{t("classroom.v3.undo")}</span>
+            </button>
+            <button
+              type="button"
+              disabled={!whiteboardController}
+              onClick={() => {
+                onInteract();
+                whiteboardController?.redo();
+              }}
+              title={t("classroom.v3.redo")}
+            >
+              <Redo2 />
+              <span>{t("classroom.v3.redo")}</span>
+            </button>
+            <button
+              type="button"
+              disabled={!whiteboardController}
+              onClick={() => {
+                onInteract();
+                setToolSettingsOpen(false);
+                setClearBoardConfirming(true);
+              }}
+              title={t("classroom.v3.clearBoard")}
+            >
+              <Trash2 />
+              <span>{t("classroom.v3.clearBoard")}</span>
+            </button>
+          </>
+        )}
+      </div>
       <div className="classroom-v3-rail-primary">
         <button
           type="button"
@@ -713,40 +1577,8 @@ function DrawerNavigation({
             <span>{screenSharing ? t("classroom.v3.stopSharing") : t("classroom.v3.screenShare")}</span>
           </button>
         )}
-        {canControlRecording && (
-          <button
-            type="button"
-            className={
-              recordingStatus === "recording" || recordingStatus === "starting"
-                ? "is-recording"
-                : ""
-            }
-            disabled={
-              !recordingEnabled ||
-              ["starting", "stopping", "processing"].includes(
-                recordingStatus || "",
-              )
-            }
-            onClick={onToggleRecording}
-            title={
-              recordingEnabled
-                ? recordingStatus === "recording"
-                  ? t("classroom.v3.stopRecording")
-                  : t("classroom.v3.startRecording")
-                : t("classroom.v3.recordingNotConfigured")
-            }
-            aria-pressed={recordingStatus === "recording"}
-          >
-            {recordingStatus === "recording" ? <CircleStop /> : <Radio />}
-            <span>
-              {recordingStatus === "recording"
-                ? t("classroom.v3.stopRecording")
-                : t("classroom.v3.startRecording")}
-            </span>
-          </button>
-        )}
       </div>
-      {items.filter((item) => visiblePanels.includes(item.id)).map((item) => {
+      {railLevel === "expanded" && items.filter((item) => visiblePanels.includes(item.id)).map((item) => {
         const Icon = item.icon;
         return (
           <button
@@ -763,7 +1595,228 @@ function DrawerNavigation({
           </button>
         );
       })}
+      {canManageStage && railLevel === "expanded" && (
+        <button
+          type="button"
+          className={classroomMenuOpen ? "is-active" : ""}
+          onClick={() => {
+            onInteract();
+            setClassroomMenuOpen((value) => !value);
+          }}
+          title={t("classroom.v3.classroomManagement")}
+        >
+          <MoreHorizontal />
+          <span>{t("classroom.v3.classroomManagement")}</span>
+        </button>
+      )}
+      {railLevel === "compact" && (
+        <button type="button" onClick={onInteract} title={t("classroom.v3.expandTools")}>
+          <MoreHorizontal />
+        </button>
+      )}
     </nav>
+    <AnimatePresence>
+      {clearBoardConfirming && (
+        <motion.div
+          className="classroom-v3-modal-backdrop is-board-confirm"
+          initial={prefersReducedMotion ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={prefersReducedMotion ? undefined : { opacity: 0 }}
+          transition={{ duration: prefersReducedMotion ? 0 : 0.16 }}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setClearBoardConfirming(false);
+            }
+          }}
+        >
+          <motion.section
+            className="classroom-v3-confirm-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="clear-board-dialog-title"
+            aria-describedby="clear-board-dialog-description"
+            initial={
+              prefersReducedMotion
+                ? false
+                : { opacity: 0, y: 10, scale: 0.985 }
+            }
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={
+              prefersReducedMotion
+                ? undefined
+                : { opacity: 0, y: 8, scale: 0.985 }
+            }
+            transition={{
+              duration: prefersReducedMotion ? 0 : 0.18,
+              ease: [0.22, 1, 0.36, 1],
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setClearBoardConfirming(false);
+              }
+            }}
+          >
+            <div className="classroom-v3-confirm-icon" aria-hidden="true">
+              <Trash2 />
+            </div>
+            <div className="classroom-v3-confirm-copy">
+              <h2 id="clear-board-dialog-title">
+                {t("classroom.v3.clearBoardTitle")}
+              </h2>
+              <p id="clear-board-dialog-description">
+                {t("classroom.v3.confirmClearBoard")}
+              </p>
+              <small>{t("classroom.v3.clearBoardIrreversible")}</small>
+            </div>
+            <footer>
+              <button
+                ref={clearBoardCancelRef}
+                type="button"
+                className="is-secondary"
+                onClick={() => setClearBoardConfirming(false)}
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                className="is-danger"
+                onClick={() => {
+                  whiteboardController?.clear();
+                  setClearBoardConfirming(false);
+                }}
+              >
+                <Trash2 />
+                {t("classroom.v3.clearBoardConfirm")}
+              </button>
+            </footer>
+          </motion.section>
+        </motion.div>
+      )}
+    </AnimatePresence>
+    {toolSettingsOpen && railLevel === "expanded" && (
+      <div
+        className="classroom-v3-tool-popover is-brush"
+        role="dialog"
+        style={toolPopoverTop === null ? undefined : { top: toolPopoverTop }}
+      >
+        <div className="classroom-v3-tool-popover-header">
+          <strong>{selectedBoardTool.label}</strong>
+          <small>{t("classroom.v3.whiteboardToolSettings")}</small>
+        </div>
+        {selectedBoardTool.id === "rectangle" && (
+          <div className="classroom-v3-tool-shapes" role="group">
+            {([
+              ["rectangle", t("classroom.v3.boardRectangle"), Shapes],
+              ["ellipse", t("classroom.v3.boardEllipse"), Circle],
+            ] as const).map(([tool, label, Icon]) => (
+              <button
+                type="button"
+                key={tool}
+                className={whiteboardTool === tool ? "is-active" : ""}
+                onClick={() => {
+                  onWhiteboardToolChange(tool);
+                  whiteboardController?.setTool(tool);
+                  onInteract();
+                }}
+              >
+                <Icon />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="classroom-v3-tool-colors">
+          {([
+            [30, 36, 46],
+            [49, 198, 155],
+            [75, 112, 245],
+            [238, 78, 94],
+            [246, 178, 62],
+          ] as const).map((color) => (
+            <button
+              type="button"
+              key={color.join("-")}
+              className={strokeColor === color.join("-") ? "is-active" : ""}
+              style={{ backgroundColor: `rgb(${color.join(" ")})` }}
+              onClick={() => {
+                whiteboardController?.setStrokeColor([...color]);
+                setStrokeColor(color.join("-"));
+                onInteract();
+              }}
+              aria-label={t("classroom.v3.chooseColor")}
+            />
+          ))}
+        </div>
+        <div className="classroom-v3-tool-widths">
+          {[2, 4, 8].map((width) => (
+            <button
+              type="button"
+              key={width}
+              className={strokeWidth === width ? "is-active" : ""}
+              onClick={() => {
+                whiteboardController?.setStrokeWidth(width);
+                setStrokeWidth(width);
+                onInteract();
+              }}
+              title={t("classroom.v3.strokeWidth", { width })}
+            >
+              <i style={{ height: width }} />
+            </button>
+          ))}
+        </div>
+        {selectedBoardTool.id === "text" && (
+          <div className="classroom-v3-tool-text-sizes" role="group">
+            {[16, 24, 36].map((size) => (
+              <button
+                type="button"
+                key={size}
+                className={textSize === size ? "is-active" : ""}
+                onClick={() => {
+                  whiteboardController?.setTextSize(size);
+                  setTextSize(size);
+                  onInteract();
+                }}
+              >
+                {size}
+              </button>
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            setToolSettingsOpen(false);
+            setToolPopoverTop(null);
+          }}
+        >
+          <X />
+        </button>
+      </div>
+    )}
+    {classroomMenuOpen && (
+      <div className="classroom-v3-tool-popover is-classroom-menu" role="menu">
+        <button type="button" onClick={() => onClassroomAction({ type: "muteAllMicrophones" })}>
+          <MicOff />{t("classroom.v3.muteAllMicrophones")}
+        </button>
+        <button type="button" onClick={() => onClassroomAction({ type: "authorizeAllOnStage" })}>
+          <PenTool />{t("classroom.v3.authorizeAllOnStage")}
+        </button>
+        <button type="button" onClick={() => onClassroomAction({ type: "deauthorizeAll" })}>
+          <Lock />{t("classroom.v3.deauthorizeAll")}
+        </button>
+        <button type="button" onClick={() => onClassroomAction({ type: "removeAllStudentsFromStage" })}>
+          <Users />{t("classroom.v3.removeAllFromStage")}
+        </button>
+        <button type="button" onClick={() => onClassroomAction({ type: "resetComposition" })}>
+          <RefreshCw />{t("classroom.v3.resetLayout")}
+        </button>
+        <button type="button" onClick={() => onClassroomAction({ type: "arrangeVideoGallery" })}>
+          <LayoutGrid />{t("classroom.v3.videoGallery")}
+        </button>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -812,7 +1865,19 @@ function MemberPanel({
       )}
       <div className="classroom-v3-member-list">
         {sorted.map((member) => (
-          <motion.article layout key={member.userId}>
+          <article
+            key={member.userId}
+            draggable={canManage && member.role === "student" && !member.onStage}
+            onDragStart={(event) => {
+              if (!canManage || member.role !== "student" || member.onStage) return;
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData(
+                "application/x-classroom-member",
+                member.userId,
+              );
+              event.dataTransfer.setData("text/plain", member.displayName);
+            }}
+          >
             <span className="classroom-v3-member-avatar">
               {member.avatar ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -962,7 +2027,7 @@ function MemberPanel({
                 </button>
               </span>
             )}
-          </motion.article>
+          </article>
         ))}
       </div>
     </div>
@@ -2038,6 +3103,7 @@ function ToolsPanel({
   onAction,
   onFullscreen,
   onSettings,
+  whiteboardController,
 }: {
   runtime: ClassroomRuntimeSnapshot;
   canManage: boolean;
@@ -2045,8 +3111,39 @@ function ToolsPanel({
   onAction: (action: ClassroomAction) => void;
   onFullscreen: () => void;
   onSettings: () => void;
+  whiteboardController: ClassroomWhiteboardController | null;
 }) {
   const { t } = useTranslation();
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const boardInputRef = useRef<HTMLInputElement>(null);
+  const [whiteboardToolBusy, setWhiteboardToolBusy] = useState(false);
+  const [whiteboardToolError, setWhiteboardToolError] = useState("");
+  const runWhiteboardTool = async (action: () => Promise<void>) => {
+    if (!whiteboardController || whiteboardToolBusy) return;
+    setWhiteboardToolBusy(true);
+    setWhiteboardToolError("");
+    try {
+      await action();
+    } catch (error) {
+      setWhiteboardToolError(
+        error instanceof Error
+          ? error.message
+          : t("classroom.v3.whiteboardToolFailed"),
+      );
+    } finally {
+      setWhiteboardToolBusy(false);
+    }
+  };
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const timestamp = () =>
+    new Date().toISOString().replaceAll(":", "-").replace(/\.\d{3}Z$/, "");
   return (
     <div className="classroom-v3-panel-body">
       <div className="classroom-v3-panel-heading">
@@ -2090,7 +3187,94 @@ function ToolsPanel({
           <strong>{t("classroom.v3.deviceSettings")}</strong>
           <small>{t("classroom.v3.deviceSettingsHint")}</small>
         </button>
+        <button
+          type="button"
+          disabled={!whiteboardController || whiteboardToolBusy}
+          onClick={() =>
+            void runWhiteboardTool(async () => {
+              const image = await whiteboardController!.capture();
+              downloadBlob(image, `whiteboard-${timestamp()}.png`);
+            })
+          }
+        >
+          <Camera />
+          <strong>{t("classroom.v3.boardScreenshot")}</strong>
+          <small>{t("classroom.v3.boardScreenshotHint")}</small>
+        </button>
+        <button
+          type="button"
+          disabled={!whiteboardController || whiteboardToolBusy}
+          onClick={() => imageInputRef.current?.click()}
+        >
+          <ImageIcon />
+          <strong>{t("classroom.v3.insertBoardImage")}</strong>
+          <small>{t("classroom.v3.insertBoardImageHint")}</small>
+        </button>
+        <button
+          type="button"
+          disabled={!whiteboardController || whiteboardToolBusy}
+          onClick={() =>
+            void runWhiteboardTool(async () => {
+              const file = await whiteboardController!.exportBoard();
+              downloadBlob(file, `whiteboard-${timestamp()}.whiteboard`);
+            })
+          }
+        >
+          <Save />
+          <strong>{t("classroom.v3.saveBoardFile")}</strong>
+          <small>{t("classroom.v3.saveBoardFileHint")}</small>
+        </button>
+        <button
+          type="button"
+          disabled={!whiteboardController || whiteboardToolBusy}
+          onClick={() => boardInputRef.current?.click()}
+        >
+          <Upload />
+          <strong>{t("classroom.v3.restoreBoardFile")}</strong>
+          <small>{t("classroom.v3.restoreBoardFileHint")}</small>
+        </button>
       </div>
+      <input
+        ref={imageInputRef}
+        hidden
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          if (!file) return;
+          void runWhiteboardTool(async () => {
+            if (file.size > 4 * 1024 * 1024) {
+              throw new Error(t("classroom.v3.boardImageTooLarge"));
+            }
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onerror = () => reject(reader.error || new Error("IMAGE_READ_FAILED"));
+              reader.onload = () => resolve(String(reader.result || ""));
+              reader.readAsDataURL(file);
+            });
+            await whiteboardController!.insertImage(dataUrl);
+          });
+        }}
+      />
+      <input
+        ref={boardInputRef}
+        hidden
+        type="file"
+        accept=".whiteboard,application/octet-stream"
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          if (!file) return;
+          void runWhiteboardTool(() => whiteboardController!.importBoard(file));
+        }}
+      />
+      {whiteboardToolError ? (
+        <p className="classroom-v3-tool-error" role="alert">
+          <AlertCircle />
+          {whiteboardToolError}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -2348,6 +3532,9 @@ export function ClassroomV3({
   const [roomMedia, setRoomMedia] = useState<ClassroomMediaSnapshot>(EMPTY_MEDIA);
   const [roomProvider, setRoomProvider] =
     useState<ClassroomMediaProvider | null>(null);
+  const [roomScreenShareUserId, setRoomScreenShareUserId] = useState<
+    string | null
+  >(null);
   const roomProviderRef = useRef<ClassroomMediaProvider | null>(null);
   const roomUnsubscribeRef = useRef<(() => void) | null>(null);
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
@@ -2357,11 +3544,24 @@ export function ClassroomV3({
     isRecorder ? "chat" : null,
   );
   const [liveRailCollapsed, setLiveRailCollapsed] = useState(() => {
-    if (isRecorder || typeof window === "undefined") return false;
+    // The standard classroom always opens with the podium visible.  A prior
+    // saved compact preference should not turn the top of a fresh ClassIn
+    // layout into an unexplained empty band.
+    if (isRecorder || classinLayout || typeof window === "undefined") return false;
     return window.localStorage.getItem("classroom_live_rail_collapsed") === "1";
   });
   const [layoutMode, setLayoutMode] =
     useState<ClassroomLayoutMode>("focus");
+  const [whiteboardController, setWhiteboardController] =
+    useState<ClassroomWhiteboardController | null>(null);
+  const [whiteboardTool, setWhiteboardTool] =
+    useState<ClassroomWhiteboardTool>("selector");
+  const [toolRailLevel, setToolRailLevel] =
+    useState<"expanded" | "compact" | "collapsed">("expanded");
+  const [toolRailActivity, setToolRailActivity] = useState(0);
+  const [hiddenBoardItemIds, setHiddenBoardItemIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -2398,8 +3598,47 @@ export function ClassroomV3({
   const publishEnabledRef = useRef(false);
   const teacherCameraAutostartedRef = useRef(false);
   const captionIngestAtRef = useRef(new Map<string, number>());
+  const compositionPreviewAtRef = useRef(0);
   const [studentPublishReady, setStudentPublishReady] = useState(false);
   const now = useNow();
+
+  const handleWhiteboardControllerChange = useCallback(
+    (controller: ClassroomWhiteboardController | null) => {
+      setWhiteboardController(controller);
+    },
+    [],
+  );
+
+  const wakeToolRail = useCallback(() => {
+    setToolRailLevel("expanded");
+    setToolRailActivity((value) => value + 1);
+  }, []);
+
+  useEffect(() => {
+    // A tool may be chosen while the whiteboard is completing its initial
+    // render. Apply the current choice once its controller becomes available
+    // so the toolbar state and the actual drawing appliance never diverge.
+    whiteboardController?.setTool(whiteboardTool);
+  }, [whiteboardController, whiteboardTool]);
+
+  useEffect(() => {
+    // In the standard classroom the toolbar is a persistent teaching control
+    // on the board, not an auto-hiding navigation rail.  Other layouts retain
+    // the progressive compact mode.
+    if (isRecorder || classinLayout) return;
+    const compactTimer = window.setTimeout(
+      () => setToolRailLevel("compact"),
+      60_000,
+    );
+    const collapseTimer = window.setTimeout(
+      () => setToolRailLevel("collapsed"),
+      120_000,
+    );
+    return () => {
+      window.clearTimeout(compactTimer);
+      window.clearTimeout(collapseTimer);
+    };
+  }, [classinLayout, isRecorder, toolRailActivity]);
 
   useEffect(() => {
     sessionRef.current = sessionData;
@@ -2448,6 +3687,7 @@ export function ClassroomV3({
     const current = roomProviderRef.current;
     roomProviderRef.current = null;
     setRoomProvider(null);
+    setRoomScreenShareUserId(null);
     setRoomMedia(EMPTY_MEDIA);
     setActiveSpaceId(null);
     await current?.disconnect().catch(() => undefined);
@@ -2478,6 +3718,9 @@ export function ClassroomV3({
         if (!response.ok || !payload.credential) {
           throw new Error(payload.error || t("classroom.v3.roomConnectFailed"));
         }
+        setRoomScreenShareUserId(
+          payload.credential.screenShare?.userId ?? null,
+        );
         const provider = await createClassroomMediaProvider(
           payload.credential.provider,
         );
@@ -2586,6 +3829,11 @@ export function ClassroomV3({
         setRecordingStatus(payload.recording.status);
         setRecordingMode(payload.recording.mode);
         setRecordingFallback(payload.recording.fallbackFrom);
+        // The initial classroom response intentionally defers the whiteboard
+        // credential so Netless room/token latency never blocks the shell.
+        // Download the SDK in parallel with media setup; by the time the
+        // credential arrives, the heaviest client asset is already cached.
+        void preloadFastboard();
         provider = await createClassroomMediaProvider(
           payload.credential.provider,
         );
@@ -2845,16 +4093,48 @@ export function ClassroomV3({
     let cancelled = false;
     const provider = createClassroomSignalingProvider();
     signalingRef.current = provider;
-    const onInvalidation = (event: ClassroomInvalidation) => {
-      if (
-        !cancelled &&
-        event.courseId === courseId &&
-        event.revision > (sessionRef.current?.runtime.revision ?? 0)
-      ) {
+    const onEvent = (
+      event: ClassroomInvalidation | ClassroomCompositionPreview,
+    ) => {
+      if (cancelled || event.courseId !== courseId) return;
+      if (event.topic === "composition-preview") {
+        const current = sessionRef.current;
+        const actor = current?.runtime.members.find(
+          (member) => member.userId === event.actorId,
+        );
+        // Agora RTM echoes messages to the sender. Applying our own preview
+        // back into React changes the item's base left/top during a Motion
+        // drag, which is the source of the visible snap-back.
+        if (
+          !current ||
+          !actor ||
+          actor.role === "student" ||
+          event.actorId === (isRecorder ? current.credential.userId : user?.userId)
+        ) {
+          return;
+        }
+        setSessionData((snapshot) =>
+          snapshot
+            ? {
+                ...snapshot,
+                runtime: {
+                  ...snapshot.runtime,
+                  composition: updateClassroomBoardItem(
+                    snapshot.runtime.composition,
+                    event.itemId,
+                    { rect: event.rect },
+                  ),
+                },
+              }
+            : snapshot,
+        );
+        return;
+      }
+      if (event.revision > (sessionRef.current?.runtime.revision ?? 0)) {
         void refreshState();
       }
     };
-    void provider.connect(signaling, onInvalidation).catch((error) => {
+    void provider.connect(signaling, onEvent).catch((error) => {
       console.warn("[classroom:v3] RTM unavailable; polling remains active", error);
     });
     return () => {
@@ -2867,6 +4147,7 @@ export function ClassroomV3({
     isRecorder,
     refreshState,
     sessionData?.signaling,
+    user?.userId,
   ]);
 
   useEffect(() => {
@@ -2896,6 +4177,28 @@ export function ClassroomV3({
   const currentUserId = isRecorder
     ? sessionData?.credential.userId || ""
     : user?.userId || "";
+  const publishCompositionPreview = useCallback(
+    (itemId: string, rect: ClassroomBoardRect) => {
+      const now = performance.now();
+      if (
+        !courseId ||
+        !currentUserId ||
+        now - compositionPreviewAtRef.current < 80
+      ) {
+        return;
+      }
+      compositionPreviewAtRef.current = now;
+      void signalingRef.current?.publish({
+        courseId,
+        topic: "composition-preview",
+        actorId: currentUserId,
+        itemId,
+        rect: normalizeBoardRect(rect),
+        sentAt: Date.now(),
+      });
+    },
+    [courseId, currentUserId],
+  );
   const currentMember = sessionData?.runtime.members.find(
     (member) => member.userId === currentUserId,
   );
@@ -3014,8 +4317,16 @@ export function ClassroomV3({
     }
     if (
       currentMember &&
-      currentMember.screenShareState !== "accepted" &&
-      media.local.screenSharing
+      shouldStopUnauthorizedScreenShare({
+        role: sessionData.credential.role,
+        state: currentMember.screenShareState,
+        sharing: media.local.screenSharing,
+        allowedWithoutApproval:
+          sessionData.capabilities.canShareScreen ||
+          (currentMember.onStage &&
+            currentMember.stageState === "accepted" &&
+            studentPublishReady),
+      })
     ) {
       void mediaProvider.stopScreenShare();
     }
@@ -3029,6 +4340,7 @@ export function ClassroomV3({
     mediaProvider,
     sessionData,
     shareAccess,
+    studentPublishReady,
     t,
   ]);
 
@@ -3115,7 +4427,42 @@ export function ClassroomV3({
 
   const performAction = useCallback(
     async (action: ClassroomAction) => {
-      if (!courseId || !sessionRef.current || actionBusy || isRecorder) return;
+      if (!courseId || !sessionRef.current || actionBusy || isRecorder) {
+        return false;
+      }
+      const optimisticComposition =
+        action.type === "placeBoardItem"
+          ? placeClassroomBoardItem(
+              sessionRef.current.runtime.composition,
+              action.item,
+            )
+          : action.type === "updateBoardItem"
+            ? updateClassroomBoardItem(
+                sessionRef.current.runtime.composition,
+                action.itemId,
+                {
+                  ...(action.rect && { rect: action.rect }),
+                  ...(typeof action.locked === "boolean" && {
+                    locked: action.locked,
+                  }),
+                  ...(typeof action.visible === "boolean" && {
+                    visible: action.visible,
+                  }),
+                  ...(action.shape && { shape: action.shape }),
+                },
+              )
+            : null;
+      // Placing or moving a teaching object must feel entirely local. Persist
+      // in the background, then replace the optimistic view with the server's
+      // final revision once it arrives.
+      if (optimisticComposition) {
+        updateSession({
+          runtime: {
+            ...sessionRef.current.runtime,
+            composition: optimisticComposition,
+          },
+        });
+      }
       setActionBusy(action.type);
       setActionError("");
       try {
@@ -3170,12 +4517,15 @@ export function ClassroomV3({
           setRecordingStatus("starting");
           window.setTimeout(() => void refreshState(), 1_800);
         }
+        return true;
       } catch (error) {
+        if (optimisticComposition) void refreshState();
         setActionError(
           error instanceof Error
             ? error.message
             : t("classroom.v3.classroomActionFailed"),
         );
+        return false;
       } finally {
         setActionBusy(null);
       }
@@ -3643,7 +4993,28 @@ export function ClassroomV3({
     }
   }, []);
 
-  const decoratedParticipants = media.participants.map((participant) => {
+  const acceptedStudentOnStage =
+    sessionData?.credential.role === "student" &&
+    Boolean(currentMember?.onStage) &&
+    currentMember?.stageState === "accepted";
+  const currentSpace = sessionData?.spaces.find(
+    (space) => space.id === activeSpaceId,
+  );
+  const currentSpaceMember = currentSpace?.members.find(
+    (member) => member.userId === currentUserId,
+  );
+  const controlsRoomMedia =
+    sessionData?.mode === "largeClass" &&
+    sessionData.credential.role !== "teacher" &&
+    !acceptedStudentOnStage &&
+    Boolean(roomProvider);
+  const requiresRoomMedia =
+    sessionData?.mode === "largeClass" &&
+    sessionData.credential.role !== "teacher" &&
+    !acceptedStudentOnStage;
+  const controlMedia = controlsRoomMedia ? roomMedia : media;
+
+  const decorateParticipant = (participant: ClassroomParticipant) => {
     const member = sessionData?.runtime.members.find(
       (candidate) =>
         candidate.userId === participantOwnerId(participant.id),
@@ -3658,11 +5029,24 @@ export function ClassroomV3({
             })
           : member?.displayName || participant.displayName,
     };
+  };
+  const decoratedParticipants = media.participants.map(decorateParticipant);
+  const activeScreenShare = selectActiveScreenShare({
+    main: media,
+    room: roomMedia,
+    preferRoom: controlsRoomMedia,
+    mainScreenUserId: sessionData?.credential.screenShare?.userId,
+    roomScreenUserId: roomScreenShareUserId,
   });
-  const screenParticipant = decoratedParticipants.find(
-    ({ participant }) =>
-      participant.kind === "screen" && participant.hasVideo,
-  );
+  // Non-teacher large-class members publish through the room RTC provider.
+  // Prefer that provider's screen track so a successful local share actually
+  // replaces the whiteboard; fall back to the main channel for teacher shares.
+  const screenParticipant = activeScreenShare
+    ? decorateParticipant(activeScreenShare.participant)
+    : undefined;
+  const screenParticipantProvider = activeScreenShare?.source === "room"
+    ? roomProvider
+    : mediaProvider;
   const spotlightParticipant = decoratedParticipants.find(
     ({ participant }) =>
       participantOwnerId(participant.id) ===
@@ -3704,14 +5088,22 @@ export function ClassroomV3({
     ) ||
     sessionData?.courseware.find((item) => item.whiteboardEnabled) ||
     null;
-  const showWhiteboard = Boolean(
-    !screenParticipant &&
-      (sessionData?.runtime.stageMode === "whiteboard" ||
-        (classinLayout &&
-          sessionData?.runtime.stageMode === "auto" &&
-          sessionData?.mode !== "publicLive" &&
-          !spotlightParticipant)),
+  const compositionBoardItems = (
+    sessionData?.runtime.composition.boardItems ?? []
+  ).filter((item) => item.kind !== "screen");
+  const boardSourceIds = new Set(
+    compositionBoardItems
+      .filter((item) => item.kind === "camera")
+      .map((item) => item.sourceId),
   );
+  // Keep Fastboard mounted while a screen share is on stage. Destroying it on
+  // every share transition reconnects the room, flashes the loading state and
+  // can make recently synchronized strokes appear to disappear.
+  const whiteboardStageEnabled = Boolean(
+    (classinLayout && sessionData?.mode !== "publicLive") ||
+      sessionData?.runtime.stageMode === "whiteboard",
+  );
+  const showWhiteboard = Boolean(!screenParticipant && whiteboardStageEnabled);
   const useMediaGallery = Boolean(
     !screenParticipant &&
       !showWhiteboard &&
@@ -3766,6 +5158,7 @@ export function ClassroomV3({
       ),
   );
   const canShowTeacherPictureInPicture = Boolean(
+    !classinLayout &&
     !classEnded &&
       leadTeacher &&
       isStudentViewer &&
@@ -3786,26 +5179,6 @@ export function ClassroomV3({
         : sessionData.runtime.timerDurationSec -
         (now - new Date(sessionData.runtime.timerStartedAt).getTime()) / 1000
       : null;
-  const acceptedStudentOnStage =
-    sessionData?.credential.role === "student" &&
-    Boolean(currentMember?.onStage) &&
-    currentMember?.stageState === "accepted";
-  const currentSpace = sessionData?.spaces.find(
-    (space) => space.id === activeSpaceId,
-  );
-  const currentSpaceMember = currentSpace?.members.find(
-    (member) => member.userId === currentUserId,
-  );
-  const controlsRoomMedia =
-    sessionData?.mode === "largeClass" &&
-    sessionData.credential.role !== "teacher" &&
-    !acceptedStudentOnStage &&
-    Boolean(roomProvider);
-  const requiresRoomMedia =
-    sessionData?.mode === "largeClass" &&
-    sessionData.credential.role !== "teacher" &&
-    !acceptedStudentOnStage;
-  const controlMedia = controlsRoomMedia ? roomMedia : media;
   const canUseMedia = requiresRoomMedia
     ? controlsRoomMedia && Boolean(currentSpaceMember)
     : sessionData?.credential.role !== "student" || studentPublishReady;
@@ -3817,10 +5190,12 @@ export function ClassroomV3({
         sessionData?.capabilities.canShareScreen ||
           (acceptedStudentOnStage && studentPublishReady),
       );
+  const studentScreenShareWasActiveRef = useRef(false);
   const toggleScreenShare = useCallback(() => {
     const stopping = controlMedia.local.screenSharing;
     void runMediaAction("screen", async (provider) => {
       if (stopping) {
+        studentScreenShareWasActiveRef.current = false;
         await provider.stopScreenShare();
         if (
           sessionRef.current?.credential.role === "student" &&
@@ -3830,13 +5205,45 @@ export function ClassroomV3({
         }
         return;
       }
-      await provider.startScreenShare();
+      try {
+        await provider.startScreenShare();
+      } catch (error) {
+        if (
+          sessionRef.current?.credential.role === "student" &&
+          currentMember?.screenShareState === "accepted"
+        ) {
+          await performAction({ type: "declineScreenShare" });
+        }
+        throw error;
+      }
     });
   }, [
     controlMedia.local.screenSharing,
     currentMember?.screenShareState,
     performAction,
     runMediaAction,
+  ]);
+  useEffect(() => {
+    const acceptedStudentShare =
+      sessionData?.credential.role === "student" &&
+      currentMember?.screenShareState === "accepted";
+    if (!acceptedStudentShare) {
+      studentScreenShareWasActiveRef.current = false;
+      return;
+    }
+    if (controlMedia.local.screenSharing) {
+      studentScreenShareWasActiveRef.current = true;
+      return;
+    }
+    if (studentScreenShareWasActiveRef.current) {
+      studentScreenShareWasActiveRef.current = false;
+      void performAction({ type: "declineScreenShare" });
+    }
+  }, [
+    controlMedia.local.screenSharing,
+    currentMember?.screenShareState,
+    performAction,
+    sessionData?.credential.role,
   ]);
   const roomPermissionKey = currentSpaceMember
     ? [
@@ -3923,7 +5330,7 @@ export function ClassroomV3({
   ) {
     return (
       <main className="classroom-v3-shell is-error-page">
-        <section className="classroom-v3-error-card">
+        <section className="classroom-v3-error-card" role="alert">
           <AlertCircle />
           <small>{t("classroom.v3.unavailableEyebrow")}</small>
           <h1>{t("classroom.v3.cannotEnter")}</h1>
@@ -3952,6 +5359,7 @@ export function ClassroomV3({
       className={`classroom-v3-shell is-mode-${sessionData.mode} ${classinLayout ? "is-classin-layout" : ""} ${isRecorder ? "is-recorder" : ""} ${sessionData.modePolicy.showLiveRail && liveRailCollapsed ? "is-rail-collapsed" : ""}`}
       data-runtime-status={sessionData.runtime.status}
       data-classroom-mode={sessionData.mode}
+      data-composite-source={isRecorder ? "whiteboard-stage" : undefined}
     >
       <header className="classroom-v3-topbar">
         <div className="classroom-v3-course-identity">
@@ -4015,6 +5423,38 @@ export function ClassroomV3({
               )}
               <span>{roleLabel(sessionData.credential.role, t)}</span>
             </span>
+            {canUseMedia && (
+              <>
+                <button
+                  type="button"
+                  className={!controlMedia.local.microphoneOn ? "is-device-off" : ""}
+                  disabled={Boolean(actionBusy)}
+                  onClick={() =>
+                    void runMediaAction("microphone", (provider) =>
+                      provider.toggleMicrophone(),
+                    )
+                  }
+                  title={t("classroom.v3.microphone")}
+                  aria-pressed={controlMedia.local.microphoneOn}
+                >
+                  {controlMedia.local.microphoneOn ? <Mic /> : <MicOff />}
+                </button>
+                <button
+                  type="button"
+                  className={!controlMedia.local.cameraOn ? "is-device-off" : ""}
+                  disabled={Boolean(actionBusy)}
+                  onClick={() =>
+                    void runMediaAction("camera", (provider) =>
+                      provider.toggleCamera(),
+                    )
+                  }
+                  title={t("classroom.v3.camera")}
+                  aria-pressed={controlMedia.local.cameraOn}
+                >
+                  {controlMedia.local.cameraOn ? <Video /> : <VideoOff />}
+                </button>
+              </>
+            )}
             {sessionData.capabilities.canStartClass &&
               sessionData.runtime.status === "waiting" && (
                 <button
@@ -4061,6 +5501,32 @@ export function ClassroomV3({
                   </button>
                 </>
               )}
+            {sessionData.capabilities.canControlRecording && (
+              <button
+                type="button"
+                className={
+                  ["starting", "recording"].includes(recordingStatus || "")
+                    ? "is-recording"
+                    : ""
+                }
+                disabled={
+                  Boolean(actionBusy) ||
+                  !sessionData.recording.enabled ||
+                  ["starting", "stopping", "processing"].includes(recordingStatus || "")
+                }
+                onClick={() => void toggleRecording()}
+                title={
+                  sessionData.recording.enabled
+                    ? recordingStatus === "recording"
+                      ? t("classroom.v3.stopRecording")
+                      : t("classroom.v3.startRecording")
+                    : t("classroom.v3.recordingNotConfigured")
+                }
+                aria-pressed={recordingStatus === "recording"}
+              >
+                {recordingStatus === "recording" ? <CircleStop /> : <Radio />}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}
@@ -4072,7 +5538,8 @@ export function ClassroomV3({
         )}
       </header>
 
-      {sessionData.modePolicy.showLiveRail && (
+      {(sessionData.modePolicy.showLiveRail ||
+        (classinLayout && sessionData.mode !== "publicLive")) && (
         <LiveRail
           members={sessionData.runtime.members}
           media={media}
@@ -4083,7 +5550,21 @@ export function ClassroomV3({
           busy={Boolean(actionBusy)}
           maxStudentSeats={sessionData.modePolicy.maxStageStudents}
           onSpotlight={(userId) =>
-            void performAction({ type: "setSpotlight", targetUserId: userId })
+            void performAction(
+              classinLayout
+                ? {
+                    type: "placeBoardItem",
+                    item: {
+                      id: `camera:${userId}`,
+                      kind: "camera",
+                      sourceId: userId,
+                      rect: defaultBoardRect("camera"),
+                      locked: false,
+                      visible: true,
+                    },
+                  }
+                : { type: "setSpotlight", targetUserId: userId },
+            )
           }
           onToggleLocalMicrophone={() =>
             void runMediaAction("microphone", (provider) =>
@@ -4115,6 +5596,25 @@ export function ClassroomV3({
           }
           collapsed={liveRailCollapsed}
           onToggleCollapsed={() => setLiveRailCollapsed((value) => !value)}
+          seatOrder={sessionData.runtime.composition.seatOrder}
+          boardSourceIds={boardSourceIds}
+          onReorder={(seatOrder) =>
+            void performAction({ type: "reorderSeats", seatOrder })
+          }
+          onPlaceOnBoard={(userId) =>
+            void performAction({
+              type: "placeBoardItem",
+              item: {
+                id: `camera:${userId}`,
+                kind: "camera",
+                sourceId: userId,
+                rect: defaultBoardRect("camera"),
+                locked: false,
+                visible: true,
+              },
+            })
+          }
+          previewPlacesOnBoard={classinLayout}
         />
       )}
 
@@ -4239,10 +5739,10 @@ export function ClassroomV3({
                       </div>
                     ))}
                 </motion.div>
-              ) : showWhiteboard ? (
+              ) : whiteboardStageEnabled ? (
                 <motion.div
                   key="whiteboard"
-                  className="classroom-v3-stage-layer"
+                  className="classroom-v3-stage-layer is-shared-board"
                   initial={{ opacity: 0, scale: 0.985 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.99 }}
@@ -4251,9 +5751,31 @@ export function ClassroomV3({
                   <FastboardSurface
                     credential={sessionData.whiteboard}
                     courseware={activeCourseware}
+                    onControllerChange={handleWhiteboardControllerChange}
+                  />
+                  <BoardCompositionLayer
+                    items={compositionBoardItems}
+                    members={sessionData.runtime.members}
+                    courseware={sessionData.courseware}
+                    participants={media.participants}
+                    provider={mediaProvider}
+                    canManage={
+                      sessionData.capabilities.canManageStage && !isRecorder
+                    }
+                    currentUserId={currentUserId}
+                    onAction={(action) => performAction(action)}
+                    onPreview={publishCompositionPreview}
+                    hiddenItemIds={hiddenBoardItemIds}
+                    onHideLocally={(itemId) =>
+                      setHiddenBoardItemIds((current) => {
+                        const next = new Set(current);
+                        next.add(itemId);
+                        return next;
+                      })
+                    }
                   />
                 </motion.div>
-              ) : stageParticipant ? (
+              ) : !screenParticipant && stageParticipant ? (
                 <motion.div
                   key={stageParticipant.participant.id}
                   className="classroom-v3-stage-layer"
@@ -4264,11 +5786,15 @@ export function ClassroomV3({
                 >
                   <MediaSurface
                     participant={stageParticipant.participant}
-                    provider={mediaProvider}
+                    provider={
+                      screenParticipant
+                        ? screenParticipantProvider || mediaProvider
+                        : mediaProvider
+                    }
                     displayName={stageParticipant.displayName}
                   />
                 </motion.div>
-              ) : (
+              ) : !screenParticipant ? (
                 <motion.div
                   key="empty"
                   className="classroom-v3-stage-empty"
@@ -4290,7 +5816,25 @@ export function ClassroomV3({
                       : t("classroom.v3.stagePriorityHint")}
                   </p>
                 </motion.div>
-              )}
+              ) : null}
+            </AnimatePresence>
+            <AnimatePresence initial={false}>
+              {!classEnded && screenParticipant ? (
+                <motion.div
+                  key={`screen-${screenParticipant.participant.id}`}
+                  className="classroom-v3-stage-layer is-screen-share"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  <MediaSurface
+                    participant={screenParticipant.participant}
+                    provider={screenParticipantProvider || mediaProvider}
+                    displayName={screenParticipant.displayName}
+                  />
+                </motion.div>
+              ) : null}
             </AnimatePresence>
             {showTeacherPictureInPicture ? (
               <motion.div
@@ -4467,6 +6011,8 @@ export function ClassroomV3({
 
         <section
           className={`classroom-v3-side ${activePanel ? "is-open" : ""}`}
+          onPointerEnter={wakeToolRail}
+          onFocusCapture={wakeToolRail}
         >
           {!isRecorder && !classEnded && (
             <DrawerNavigation
@@ -4476,9 +6022,6 @@ export function ClassroomV3({
               whiteboardActive={showWhiteboard}
               canShareScreen={canShareScreen}
               screenSharing={controlMedia.local.screenSharing}
-              canControlRecording={sessionData.capabilities.canControlRecording}
-              recordingEnabled={sessionData.recording.enabled}
-              recordingStatus={recordingStatus}
               onOpenWhiteboard={() =>
                 void performAction({
                   type: "setStage",
@@ -4488,7 +6031,15 @@ export function ClassroomV3({
                 })
               }
               onToggleScreenShare={toggleScreenShare}
-              onToggleRecording={() => void toggleRecording()}
+              whiteboardController={whiteboardController}
+              whiteboardTool={whiteboardTool}
+              onWhiteboardToolChange={setWhiteboardTool}
+              railLevel={toolRailLevel}
+              onInteract={wakeToolRail}
+              canManageStage={
+                sessionData.capabilities.canManageStage && !isRecorder
+              }
+              onClassroomAction={(action) => void performAction(action)}
               counts={{
                 members: sessionData.runtime.members.filter((member) => member.online).length,
                 rooms: sessionData.spaces.filter((space) => space.status === "open").length,
@@ -4639,6 +6190,7 @@ export function ClassroomV3({
                     onAction={(action) => void performAction(action)}
                     onFullscreen={toggleFullscreen}
                     onSettings={() => setSettingsOpen(true)}
+                    whiteboardController={whiteboardController}
                   />
                 )}
               </motion.aside>

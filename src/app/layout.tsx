@@ -12,6 +12,7 @@ import { siteDescription, siteIcon, siteTitle } from "@/lib/site-brand";
 import { PortalFeedbackProvider } from "@/components/portal/portal-feedback";
 import { getSession } from "@/lib/session";
 import "./globals.css";
+import "./classroom-classin.css";
 
 export const metadata: Metadata = {
   title: siteTitle,

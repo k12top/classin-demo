@@ -664,3 +664,300 @@
     animation-iteration-count: 1 !important;
   }
 }
+
+/* The loading view deliberately mirrors the standard classroom shell.  It
+   reserves the same compact podium, pale board and right-side tool strip so
+   entering a lesson does not feel like switching to another product. */
+.shell {
+  --loading-green: #31c69b;
+  min-height: 100svh;
+  background: #111821;
+}
+
+.shell::before,
+.ambient,
+.drawer {
+  display: none;
+}
+
+.header {
+  height: 44px;
+  padding: 0 10px;
+  border-bottom-color: #2b3541;
+  background: #171f29;
+  backdrop-filter: none;
+}
+
+.brand {
+  gap: 8px;
+}
+
+.brandMark {
+  width: 29px;
+  height: 29px;
+  border-color: #344252;
+  border-radius: 7px;
+  background: #202c3a;
+  color: #9caaba;
+}
+
+.brandText strong {
+  color: #e9eef2;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.brandText span,
+.headerStatus {
+  display: none;
+}
+
+.rail {
+  display: flex;
+  height: 92px;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 38px;
+  border-bottom: 1px solid #293440;
+  background: #131c25;
+}
+
+.railItem {
+  width: 128px;
+  height: 72px;
+  min-width: 128px;
+  padding: 7px;
+  border-color: #354251;
+  border-radius: 8px;
+  background: #0f151c;
+}
+
+.railItem:first-child {
+  border-color: #5b7a72;
+  background: #14251f;
+}
+
+.railItem:nth-child(n + 3) {
+  display: none;
+}
+
+.railAvatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 7px;
+  background: #2d3947;
+}
+
+.workspace {
+  position: relative;
+  display: block;
+  height: calc(100svh - 136px);
+  min-height: 380px;
+  box-sizing: border-box;
+  padding: 7px 8px 8px;
+}
+
+.stage {
+  height: 100%;
+  min-height: 0;
+  border-color: #303c48;
+  border-radius: 8px;
+  background: #18232e;
+  box-shadow: none;
+}
+
+.stage::before,
+.stageHeader {
+  display: none;
+}
+
+.launch {
+  width: min(340px, calc(100% - 36px));
+}
+
+.orb {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 14px;
+}
+
+.orb::before,
+.orb::after {
+  border-color: rgb(49 198 155 / 0.3);
+}
+
+.orbRing {
+  inset: 8px;
+  background: rgb(49 198 155 / 0.12);
+  box-shadow: none;
+}
+
+.orb svg {
+  width: 15px;
+  height: 15px;
+  color: #23886d;
+}
+
+.launchKicker {
+  color: #23886d;
+  font-size: 8px;
+}
+
+.launch h1 {
+  margin-top: 7px;
+  color: #edf2f5;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.launch p {
+  max-width: 320px;
+  color: #a5b3bf;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.sequence {
+  margin-top: 20px;
+}
+
+.sequence::before {
+  background: #3b4b59;
+}
+
+.sequenceProgress {
+  background: #31c69b;
+  box-shadow: none;
+}
+
+.sequenceIcon {
+  width: 26px;
+  height: 26px;
+  border-color: #456151;
+  background: #202f3b;
+  color: #71cfaf;
+}
+
+.sequenceItem {
+  color: #a5b3bf;
+  font-size: 9px;
+}
+
+.dock {
+  top: 50%;
+  right: 8px;
+  bottom: auto;
+  left: auto;
+  display: grid;
+  gap: 2px;
+  padding: 4px 3px;
+  border-color: #253340;
+  border-radius: 8px;
+  background: #18232e;
+  box-shadow: 0 6px 18px rgb(7 13 19 / 0.18);
+  transform: translateY(-50%);
+}
+
+.dockItem,
+.dockItem:nth-child(3) {
+  width: 35px;
+  height: 33px;
+  border-radius: 6px;
+  background: transparent;
+}
+
+.dockItem::before {
+  width: 12px;
+  height: 12px;
+  border-color: #71808e;
+  border-radius: 4px;
+}
+
+@media (max-width: 720px) {
+  .header {
+    height: 44px;
+  }
+
+  .rail {
+    height: 82px;
+    padding: 8px;
+  }
+
+  .railItem {
+    width: 112px;
+    min-width: 112px;
+    height: 66px;
+  }
+
+  .workspace {
+    height: calc(100svh - 126px);
+    padding: 4px;
+  }
+
+  .dock {
+    display: none;
+  }
+}
+
+.webgl {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(circle at 34% 42%, rgb(99 91 214 / 0.38), transparent 36%),
+    radial-gradient(circle at 66% 58%, rgb(35 177 132 / 0.26), transparent 34%),
+    #121d28;
+  pointer-events: none;
+}
+
+.stage::after {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(circle at center, transparent 0 22%, rgb(6 12 18 / 0.5) 86%);
+  content: "";
+  pointer-events: none;
+}
+
+.launch {
+  z-index: 2;
+  padding: 30px 28px 28px;
+  border-radius: 16px;
+  background: rgb(10 18 25 / 0.56);
+  box-shadow: 0 6px 8px rgb(4 9 14 / 0.24);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+
+.orb::before,
+.orb::after {
+  border-color: rgb(159 240 214 / 0.34);
+}
+
+.orbRing {
+  background: rgb(20 59 55 / 0.58);
+  box-shadow: inset 0 0 18px rgb(88 229 186 / 0.18);
+}
+
+.orb svg,
+.launchKicker {
+  color: #9ff0d6;
+}
+
+.sequenceIcon {
+  background: rgb(17 30 40 / 0.88);
+}
+
+@media (max-width: 720px) {
+  .launch {
+    padding: 24px 18px 22px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .webgl {
+    opacity: 0.82;
+  }
+}

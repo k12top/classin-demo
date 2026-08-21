@@ -1,3 +1,5 @@
+import type { ClassroomRole } from "@/lib/classroom/types";
+
 export type ScreenShareRequestState = "idle" | "requested" | "accepted" | "declined";
 
 export const SCREEN_SHARE_REQUEST_TTL_MS = 2 * 60_000;
@@ -21,5 +23,24 @@ export function screenShareRequestIsActive(
     state === "requested" &&
     Boolean(requestedAt) &&
     now.getTime() - requestedAt!.getTime() <= SCREEN_SHARE_REQUEST_TTL_MS
+  );
+}
+
+export function shouldStopUnauthorizedScreenShare({
+  role,
+  state,
+  sharing,
+  allowedWithoutApproval,
+}: {
+  role: ClassroomRole;
+  state: ScreenShareRequestState;
+  sharing: boolean;
+  allowedWithoutApproval: boolean;
+}): boolean {
+  return (
+    role === "student" &&
+    !allowedWithoutApproval &&
+    state !== "accepted" &&
+    sharing
   );
 }

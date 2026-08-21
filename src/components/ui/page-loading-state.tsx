@@ -10,6 +10,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ClassroomWebglLoader } from "@/components/ui/classroom-webgl-loader";
 import classroomStyles from "@/components/ui/classroom-loading-state.module.css";
 
 type PageLoadingVariant = "dashboard" | "course" | "classroom";
@@ -244,6 +245,7 @@ function ClassroomLoading({
 
       <div className={classroomStyles.workspace}>
         <section className={classroomStyles.stage}>
+          <ClassroomWebglLoader className={classroomStyles.webgl} />
           <div className={classroomStyles.stageHeader} aria-hidden="true">
             <span className={classroomStyles.stageLabel}>
               <Video />

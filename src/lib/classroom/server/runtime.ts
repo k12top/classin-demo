@@ -1,6 +1,7 @@
 import "server-only";
 
 import { randomInt } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 
 import type {
   ClassroomAction,
@@ -30,8 +31,22 @@ import {
   normalizeTargetLanguages,
 } from "@/lib/classroom/languages";
 import { classroomSelectorCycle } from "@/lib/classroom/engagement";
+import {
+  bringClassroomBoardItemToFront,
+  defaultBoardRect,
+  emptyClassroomComposition,
+  normalizeClassroomComposition,
+  orderClassroomSeats,
+  placeClassroomBoardItem,
+  touchComposition,
+  updateClassroomBoardItem,
+} from "@/lib/classroom/composition";
 
 const ONLINE_WINDOW_MS = 45_000;
+
+function compositionJson(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
 
 export class ClassroomRevisionConflictError extends Error {
   constructor(public readonly actualRevision: number) {
@@ -144,8 +159,11 @@ export async function touchClassroomMember(
       stageState: startsOnStage ? "accepted" : "offstage",
       microphoneAllowed: startsOnStage,
       cameraAllowed: startsOnStage,
-      whiteboardWritable:
-        teachingRole || mode.defaultStudentWhiteboardWritable,
+      // Teachers and assistants always retain their authoring capability.
+      // Students start read-only, including students automatically placed on
+      // stage in a one-to-one room. A teaching role grants their temporary
+      // annotation access through `setWhiteboardWritable` instead.
+      whiteboardWritable: teachingRole,
     },
     update: {
       runtimeId: runtime.id,
@@ -160,8 +178,10 @@ export async function touchClassroomMember(
             stageState: "accepted",
             microphoneAllowed: true,
             cameraAllowed: true,
-            whiteboardWritable:
-              teachingRole || mode.defaultStudentWhiteboardWritable,
+            // Do not reset a student's temporary grant every time their
+            // classroom session refreshes. Teaching roles are made writable
+            // defensively in case their roster role changed since joining.
+            ...(teachingRole ? { whiteboardWritable: true } : {}),
           }
         : {}),
     },
@@ -300,6 +320,7 @@ export async function getClassroomRuntimeSnapshot(
           : "stopped",
       error: runtime.transcriptionError,
     },
+    composition: normalizeClassroomComposition(runtime.composition),
     members: runtime.members.map((member) =>
       publicMember(member, Date.now(), rewardCountByUserId.get(member.userId) ?? 0),
     ),
@@ -497,6 +518,19 @@ export async function applyClassroomAction(input: {
     const actorWhere = {
       sessionId_userId: { sessionId, userId: session.userId },
     } as const;
+    const currentComposition = normalizeClassroomComposition(runtime.composition);
+    const writeComposition = async (
+      nextComposition: ReturnType<typeof normalizeClassroomComposition>,
+    ) => {
+      await tx.classroomRuntime.update({
+        where: { id: runtime.id },
+        data: {
+          composition: compositionJson(
+            touchComposition(nextComposition, session.userId),
+          ),
+        },
+      });
+    };
 
     switch (action.type) {
       case "startClass": {
@@ -610,6 +644,19 @@ export async function applyClassroomAction(input: {
             screenShareRequestedAt: null,
           },
         });
+        await writeComposition({
+          ...currentComposition,
+          seatOrder: currentComposition.seatOrder.filter(
+            (userId) => userId !== action.targetUserId,
+          ),
+          boardItems: currentComposition.boardItems.filter(
+            (item) =>
+              !(
+                (item.kind === "camera" || item.kind === "screen") &&
+                item.sourceId === action.targetUserId
+              ),
+          ),
+        });
         break;
       case "requestScreenShare": {
         requireTeachingRole(role);
@@ -673,6 +720,16 @@ export async function applyClassroomAction(input: {
             handRaisedAt: null,
           },
         });
+        await writeComposition(
+          placeClassroomBoardItem(currentComposition, {
+            id: `screen:${session.userId}`,
+            kind: "screen",
+            sourceId: session.userId,
+            rect: defaultBoardRect("screen"),
+            locked: false,
+            visible: true,
+          }),
+        );
         break;
       }
       case "declineScreenShare": {
@@ -697,6 +754,12 @@ export async function applyClassroomAction(input: {
             screenShareRequestedAt: null,
           },
         });
+        await writeComposition({
+          ...currentComposition,
+          boardItems: currentComposition.boardItems.filter(
+            (item) => !(item.kind === "screen" && item.sourceId === session.userId),
+          ),
+        });
         break;
       }
       case "stopScreenShare":
@@ -712,6 +775,12 @@ export async function applyClassroomAction(input: {
             screenShareState: screenShareStateAfter("accepted", "stop"),
             screenShareRequestedAt: null,
           },
+        });
+        await writeComposition({
+          ...currentComposition,
+          boardItems: currentComposition.boardItems.filter(
+            (item) => !(item.kind === "screen" && item.sourceId === action.targetUserId),
+          ),
         });
         break;
       case "setMemberMuted":
@@ -790,6 +859,239 @@ export async function applyClassroomAction(input: {
             spotlightUserId: action.targetUserId,
             stageMode: action.targetUserId ? "spotlight" : "auto",
           },
+        });
+        break;
+      case "reorderSeats": {
+        requireTeachingRole(role);
+        const seatMembers = await tx.classroomMemberState.findMany({
+          where: {
+            sessionId,
+            OR: [{ role: { not: "student" } }, { onStage: true }],
+          },
+          select: { userId: true },
+          orderBy: { joinedAt: "asc" },
+        });
+        await writeComposition({
+          ...currentComposition,
+          seatOrder: orderClassroomSeats(
+            action.seatOrder,
+            seatMembers.map((member) => member.userId),
+          ),
+        });
+        break;
+      }
+      case "placeBoardItem": {
+        requireTeachingRole(role);
+        if (
+          !action.item ||
+          typeof action.item.id !== "string" ||
+          typeof action.item.sourceId !== "string" ||
+          !["camera", "screen", "courseware"].includes(action.item.kind)
+        ) {
+          throw new ClassroomActionError("课堂编排对象无效");
+        }
+        const sourceExists = action.item.kind === "courseware"
+          ? Boolean(await tx.courseware.findFirst({
+              where: {
+                id: action.item.sourceId,
+                courseId,
+                OR: [{ sessionId }, { sessionId: null }],
+              },
+              select: { id: true },
+            }))
+          : Boolean(await tx.classroomMemberState.findUnique({
+              where: {
+                sessionId_userId: {
+                  sessionId,
+                  userId: action.item.sourceId,
+                },
+              },
+              select: { id: true },
+            }));
+        if (!sourceExists) {
+          throw new ClassroomActionError("课堂编排对象不存在", 404);
+        }
+        await writeComposition(
+          placeClassroomBoardItem(currentComposition, action.item),
+        );
+        break;
+      }
+      case "updateBoardItem": {
+        const currentItem = currentComposition.boardItems.find(
+          (item) => item.id === action.itemId,
+        );
+        const mayEditOwnCamera = Boolean(
+          currentItem?.kind === "camera" &&
+            currentItem.sourceId === session.userId &&
+            action.locked === undefined &&
+            action.visible === undefined,
+        );
+        if (!mayEditOwnCamera) requireTeachingRole(role);
+        await writeComposition(
+          updateClassroomBoardItem(currentComposition, action.itemId, {
+            rect: action.rect,
+            locked: action.locked,
+            visible: action.visible,
+            shape: action.shape,
+          }),
+        );
+        break;
+      }
+      case "removeBoardItem":
+        requireTeachingRole(role);
+        await writeComposition({
+          ...currentComposition,
+          boardItems: currentComposition.boardItems.filter(
+            (item) => item.id !== action.itemId,
+          ),
+        });
+        break;
+      case "bringBoardItemToFront":
+        requireTeachingRole(role);
+        await writeComposition(
+          bringClassroomBoardItemToFront(currentComposition, action.itemId),
+        );
+        break;
+      case "resetComposition":
+        requireTeachingRole(role);
+        await writeComposition(emptyClassroomComposition());
+        break;
+      case "arrangeVideoGallery": {
+        requireTeachingRole(role);
+        const galleryMembers = await tx.classroomMemberState.findMany({
+          where: {
+            sessionId,
+            presence: "online",
+            OR: [{ role: { not: "student" } }, { onStage: true }],
+          },
+          select: { userId: true, role: true },
+          orderBy: { joinedAt: "asc" },
+          take: 12,
+        });
+        if (galleryMembers.length === 0) {
+          throw new ClassroomActionError("当前没有可编排的视频席位", 409);
+        }
+        const galleryOrder = [...galleryMembers].sort((left, right) => {
+          const roleOrder = { teacher: 0, assistant: 1, student: 2 } as const;
+          return roleOrder[left.role as keyof typeof roleOrder] -
+            roleOrder[right.role as keyof typeof roleOrder];
+        });
+        const columns = Math.ceil(Math.sqrt(galleryOrder.length));
+        const rows = Math.ceil(galleryOrder.length / columns);
+        const gap = 0.018;
+        const itemWidth = (1 - gap * (columns + 1)) / columns;
+        const itemHeight = (1 - gap * (rows + 1)) / rows;
+        let galleryComposition = normalizeClassroomComposition({
+          ...currentComposition,
+          seatOrder: galleryOrder.map((member) => member.userId),
+          boardItems: currentComposition.boardItems.filter(
+            (item) => item.kind !== "camera",
+          ),
+        });
+        galleryOrder.forEach((member, index) => {
+          const column = index % columns;
+          const row = Math.floor(index / columns);
+          galleryComposition = placeClassroomBoardItem(galleryComposition, {
+            id: `camera:${member.userId}`,
+            kind: "camera",
+            sourceId: member.userId,
+            rect: {
+              x: gap + column * (itemWidth + gap),
+              y: gap + row * (itemHeight + gap),
+              width: itemWidth,
+              height: itemHeight,
+            },
+            locked: false,
+            visible: true,
+          });
+        });
+        await writeComposition(galleryComposition);
+        break;
+      }
+      case "swapSeats": {
+        requireTeachingRole(role);
+        const seatMembers = await tx.classroomMemberState.findMany({
+          where: {
+            sessionId,
+            OR: [{ role: { not: "student" } }, { onStage: true }],
+          },
+          select: { userId: true },
+          orderBy: { joinedAt: "asc" },
+        });
+        const seatOrder = orderClassroomSeats(
+          currentComposition.seatOrder,
+          seatMembers.map((member) => member.userId),
+        );
+        const firstIndex = seatOrder.indexOf(action.firstUserId);
+        const secondIndex = seatOrder.indexOf(action.secondUserId);
+        if (firstIndex < 0 || secondIndex < 0) {
+          throw new ClassroomActionError("交换席位的成员不在台上", 409);
+        }
+        [seatOrder[firstIndex], seatOrder[secondIndex]] = [
+          seatOrder[secondIndex],
+          seatOrder[firstIndex],
+        ];
+        await writeComposition({ ...currentComposition, seatOrder });
+        break;
+      }
+      case "authorizeAllOnStage":
+        requireTeachingRole(role);
+        await tx.classroomMemberState.updateMany({
+          where: {
+            sessionId,
+            role: "student",
+            onStage: true,
+            stageState: "accepted",
+          },
+          data: { whiteboardWritable: true },
+        });
+        break;
+      case "deauthorizeAll":
+        requireTeachingRole(role);
+        await tx.classroomMemberState.updateMany({
+          where: { sessionId, role: "student" },
+          data: { whiteboardWritable: false },
+        });
+        break;
+      case "removeAllStudentsFromStage": {
+        requireTeachingRole(role);
+        const students = await tx.classroomMemberState.findMany({
+          where: { sessionId, role: "student" },
+          select: { userId: true },
+        });
+        const studentIds = new Set(students.map((student) => student.userId));
+        await tx.classroomMemberState.updateMany({
+          where: { sessionId, role: "student" },
+          data: {
+            stageState: "offstage",
+            onStage: false,
+            microphoneAllowed: false,
+            cameraAllowed: false,
+            whiteboardWritable: false,
+            screenShareState: "idle",
+            screenShareRequestedAt: null,
+          },
+        });
+        await writeComposition({
+          ...currentComposition,
+          seatOrder: currentComposition.seatOrder.filter(
+            (userId) => !studentIds.has(userId),
+          ),
+          boardItems: currentComposition.boardItems.filter(
+            (item) =>
+              !(
+                (item.kind === "camera" || item.kind === "screen") &&
+                studentIds.has(item.sourceId)
+              ),
+          ),
+        });
+        break;
+      }
+      case "muteAllMicrophones":
+        requireTeachingRole(role);
+        await tx.classroomMemberState.updateMany({
+          where: { sessionId, role: "student" },
+          data: { microphoneAllowed: false },
         });
         break;
       case "setStage":

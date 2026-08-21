@@ -5,6 +5,7 @@ import { aggregateCourseSessionStatus } from "../src/lib/course-session-status-l
 import {
   screenShareRequestIsActive,
   screenShareStateAfter,
+  shouldStopUnauthorizedScreenShare,
 } from "../src/lib/classroom/screen-share-state";
 
 const now = new Date("2026-08-08T08:00:00.000Z");
@@ -77,6 +78,54 @@ test("screen-share requests expire after two minutes", () => {
       new Date("2026-08-08T07:57:59.999Z"),
       now,
     ),
+    false,
+  );
+});
+
+test("only an unauthorized student share is stopped automatically", () => {
+  assert.equal(
+    shouldStopUnauthorizedScreenShare({
+      role: "teacher",
+      state: "idle",
+      sharing: true,
+      allowedWithoutApproval: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldStopUnauthorizedScreenShare({
+      role: "assistant",
+      state: "idle",
+      sharing: true,
+      allowedWithoutApproval: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldStopUnauthorizedScreenShare({
+      role: "student",
+      state: "accepted",
+      sharing: true,
+      allowedWithoutApproval: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldStopUnauthorizedScreenShare({
+      role: "student",
+      state: "idle",
+      sharing: true,
+      allowedWithoutApproval: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldStopUnauthorizedScreenShare({
+      role: "student",
+      state: "idle",
+      sharing: true,
+      allowedWithoutApproval: true,
+    }),
     false,
   );
 });

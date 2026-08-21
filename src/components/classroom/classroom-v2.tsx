@@ -47,6 +47,12 @@ type LoadingState = "loading" | "ready" | "error";
 const EMPTY_MEDIA_SNAPSHOT: ClassroomMediaSnapshot = {
   connectionState: "idle",
   participants: [],
+  network: {
+    uplinkQuality: 0,
+    downlinkQuality: 0,
+    latencyMs: null,
+    packetLossPercent: null,
+  },
   local: {
     microphoneOn: false,
     cameraOn: false,

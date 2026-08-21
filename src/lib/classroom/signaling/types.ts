@@ -1,4 +1,7 @@
-import type { ClassroomSignalingCredential } from "@/lib/classroom/types";
+import type {
+  ClassroomBoardRect,
+  ClassroomSignalingCredential,
+} from "@/lib/classroom/types";
 
 export type ClassroomInvalidation = {
   courseId: string;
@@ -13,11 +16,24 @@ export type ClassroomInvalidation = {
     | "engagement";
 };
 
+export type ClassroomCompositionPreview = {
+  courseId: string;
+  topic: "composition-preview";
+  actorId: string;
+  itemId: string;
+  rect: ClassroomBoardRect;
+  sentAt: number;
+};
+
+export type ClassroomSignalingEvent =
+  | ClassroomInvalidation
+  | ClassroomCompositionPreview;
+
 export interface ClassroomSignalingProvider {
   connect(
     credential: ClassroomSignalingCredential,
-    onInvalidation: (event: ClassroomInvalidation) => void,
+    onEvent: (event: ClassroomSignalingEvent) => void,
   ): Promise<void>;
-  publish(event: ClassroomInvalidation): Promise<void>;
+  publish(event: ClassroomSignalingEvent): Promise<void>;
   disconnect(): Promise<void>;
 }

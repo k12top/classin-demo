@@ -488,6 +488,7 @@ model ClassroomRuntime {
   stageLocked                Boolean   @default(false)
   spotlightUserId            String?
   activeCoursewareId         String?
+  composition                Json      @default("{}")
   chatEnabled                Boolean   @default(true)
   timerStartedAt             DateTime?
   timerDurationSec           Int?

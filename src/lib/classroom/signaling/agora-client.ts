@@ -1,7 +1,7 @@
 "use client";
 
 import type {
-  ClassroomInvalidation,
+  ClassroomSignalingEvent,
   ClassroomSignalingProvider,
 } from "@/lib/classroom/signaling/types";
 import type { ClassroomSignalingCredential } from "@/lib/classroom/types";
@@ -30,7 +30,7 @@ export class AgoraRtmSignalingProvider
 
   async connect(
     credential: ClassroomSignalingCredential,
-    onInvalidation: (event: ClassroomInvalidation) => void,
+    onEvent: (event: ClassroomSignalingEvent) => void,
   ): Promise<void> {
     if (this.client) return;
     const rtmModule = await import("agora-rtm");
@@ -43,13 +43,16 @@ export class AgoraRtmSignalingProvider
       const raw = event.message;
       if (typeof raw !== "string") return;
       try {
-        const parsed = JSON.parse(raw) as ClassroomInvalidation;
+        const parsed = JSON.parse(raw) as ClassroomSignalingEvent;
         if (
           parsed &&
           typeof parsed.courseId === "string" &&
-          Number.isInteger(parsed.revision)
+          (Number.isInteger("revision" in parsed ? parsed.revision : NaN) ||
+            (parsed.topic === "composition-preview" &&
+              typeof parsed.itemId === "string" &&
+              typeof parsed.actorId === "string"))
         ) {
-          onInvalidation(parsed);
+          onEvent(parsed);
         }
       } catch {
         // The channel may be shared with older clients. Ignore unknown payloads.
@@ -61,7 +64,7 @@ export class AgoraRtmSignalingProvider
     this.channelName = credential.channelName;
   }
 
-  async publish(event: ClassroomInvalidation): Promise<void> {
+  async publish(event: ClassroomSignalingEvent): Promise<void> {
     if (!this.client || !this.channelName) return;
     await this.client.publish(this.channelName, JSON.stringify(event), {
       channelType: "MESSAGE",

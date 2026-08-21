@@ -58,6 +58,12 @@ export type ClassroomParticipant = {
 export type ClassroomMediaSnapshot = {
   connectionState: ClassroomConnectionState;
   participants: ClassroomParticipant[];
+  network: {
+    uplinkQuality: number;
+    downlinkQuality: number;
+    latencyMs: number | null;
+    packetLossPercent: number | null;
+  };
   local: {
     microphoneOn: boolean;
     cameraOn: boolean;
@@ -119,6 +125,35 @@ export type ClassroomStageMode =
   | "screen"
   | "whiteboard"
   | "spotlight";
+
+export type ClassroomBoardItemKind = "camera" | "screen" | "courseware";
+export type ClassroomBoardItemShape = "rounded" | "circle";
+
+export type ClassroomBoardRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type ClassroomBoardItem = {
+  id: string;
+  kind: ClassroomBoardItemKind;
+  sourceId: string;
+  rect: ClassroomBoardRect;
+  zIndex: number;
+  locked: boolean;
+  visible: boolean;
+  shape?: ClassroomBoardItemShape;
+};
+
+export type ClassroomCompositionSnapshot = {
+  version: number;
+  seatOrder: string[];
+  boardItems: ClassroomBoardItem[];
+  updatedBy: string;
+  updatedAt: string;
+};
 
 export type ClassroomMemberSnapshot = {
   userId: string;
@@ -271,6 +306,7 @@ export type ClassroomRuntimeSnapshot = {
       | "failed";
     error: string | null;
   };
+  composition: ClassroomCompositionSnapshot;
   members: ClassroomMemberSnapshot[];
 };
 
@@ -368,6 +404,28 @@ export type ClassroomAction =
       writable: boolean;
     }
   | { type: "setSpotlight"; targetUserId: string | null }
+  | { type: "reorderSeats"; seatOrder: string[] }
+  | {
+      type: "placeBoardItem";
+      item: Omit<ClassroomBoardItem, "zIndex"> & { zIndex?: number };
+    }
+  | {
+      type: "updateBoardItem";
+      itemId: string;
+      rect?: ClassroomBoardRect;
+      locked?: boolean;
+      visible?: boolean;
+      shape?: ClassroomBoardItemShape;
+    }
+  | { type: "removeBoardItem"; itemId: string }
+  | { type: "bringBoardItemToFront"; itemId: string }
+  | { type: "resetComposition" }
+  | { type: "arrangeVideoGallery" }
+  | { type: "swapSeats"; firstUserId: string; secondUserId: string }
+  | { type: "authorizeAllOnStage" }
+  | { type: "deauthorizeAll" }
+  | { type: "removeAllStudentsFromStage" }
+  | { type: "muteAllMicrophones" }
   | {
       type: "setStage";
       mode: ClassroomStageMode;

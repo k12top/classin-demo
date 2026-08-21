@@ -12,6 +12,7 @@ const API_BASE = "https://api.netless.link/v5";
 const REQUEST_TIMEOUT_MS = 5_000;
 const TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
 const VALID_REGIONS = new Set(["cn-hz", "us-sv", "sg", "in-mum", "eu"]);
+const roomCreationBySession = new Map<string, Promise<string>>();
 
 type NetlessConfig = {
   appIdentifier: string;
@@ -77,31 +78,52 @@ async function ensureRoom(
   const runtime = await ensureClassroomRuntime(courseId, sessionId);
   if (runtime.whiteboardRoomUuid) return runtime.whiteboardRoomUuid;
 
-  const created = (await requestNetless(
-    "/rooms",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        name: `classroom-${sessionId}`,
-        isRecord: true,
-        limit: 0,
-      }),
-    },
-    config,
-  )) as { uuid?: unknown };
-  if (typeof created.uuid !== "string" || !created.uuid) {
-    throw new Error("白板服务未返回房间 UUID");
-  }
+  const inFlight = roomCreationBySession.get(sessionId);
+  if (inFlight) return inFlight;
 
-  await prisma.classroomRuntime.updateMany({
-    where: { id: runtime.id, whiteboardRoomUuid: null },
-    data: { whiteboardRoomUuid: created.uuid, revision: { increment: 1 } },
-  });
-  const current = await prisma.classroomRuntime.findUniqueOrThrow({
-    where: { id: runtime.id },
-    select: { whiteboardRoomUuid: true },
-  });
-  return current.whiteboardRoomUuid || created.uuid;
+  const createRoom = async () => {
+    // The first classroom entry can be retried by React or requested by more
+    // than one participant. Only one Netless room creation should be allowed
+    // to leave this process; every caller can then mint its own room token.
+    const latestRuntime = await ensureClassroomRuntime(courseId, sessionId);
+    if (latestRuntime.whiteboardRoomUuid) return latestRuntime.whiteboardRoomUuid;
+
+    const created = (await requestNetless(
+      "/rooms",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: `classroom-${sessionId}`,
+          isRecord: true,
+          limit: 0,
+        }),
+      },
+      config,
+    )) as { uuid?: unknown };
+    if (typeof created.uuid !== "string" || !created.uuid) {
+      throw new Error("白板服务未返回房间 UUID");
+    }
+
+    await prisma.classroomRuntime.updateMany({
+      where: { id: latestRuntime.id, whiteboardRoomUuid: null },
+      data: { whiteboardRoomUuid: created.uuid, revision: { increment: 1 } },
+    });
+    const current = await prisma.classroomRuntime.findUniqueOrThrow({
+      where: { id: latestRuntime.id },
+      select: { whiteboardRoomUuid: true },
+    });
+    return current.whiteboardRoomUuid || created.uuid;
+  };
+
+  const task = createRoom();
+  roomCreationBySession.set(sessionId, task);
+  try {
+    return await task;
+  } finally {
+    if (roomCreationBySession.get(sessionId) === task) {
+      roomCreationBySession.delete(sessionId);
+    }
+  }
 }
 
 export class NetlessWhiteboardProvider

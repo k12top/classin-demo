@@ -36,7 +36,10 @@ const POLICIES: Record<ClassroomMode, ClassroomModePolicy> = {
     showPublicQuestions: false,
     allowBreakouts: false,
     defaultStudentOnStage: true,
-    defaultStudentWhiteboardWritable: true,
+    // Being on the 1:1 stage grants media participation, not the ability to
+    // alter shared teaching material. A teacher or assistant must explicitly
+    // grant a student temporary board access, just as in every other mode.
+    defaultStudentWhiteboardWritable: false,
     studentCanRequestStage: false,
     studentCanShareWhenOnStage: true,
   },
