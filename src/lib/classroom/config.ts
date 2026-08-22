@@ -99,9 +99,10 @@ export const classroomRuntimeDefaults = {
   recordingTokenTtlSeconds: 6 * 60 * 60,
   recorderPageTokenTtl: "6h",
   recordingMaxDurationHours: 6,
-  // Cloud recording writes hourly files instead of one very large file. This
-  // keeps a recoverable, playable boundary if an upstream recorder restarts.
-  recordingSegmentDurationSeconds: 60 * 60,
+  // Agora Web Recorder accepts a maxVideoDuration between 30 and 240 seconds.
+  // Four-minute segments keep the six-hour lesson recoverable without sending
+  // an invalid recording request.
+  recordingSegmentDurationSeconds: 4 * 60,
   recordingMaxIdleSeconds: 5 * 60,
   screenShareUidSuffix: "::screen",
 } as const;

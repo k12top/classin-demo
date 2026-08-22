@@ -486,16 +486,27 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     const screenId = this.credential?.screenShare?.userId;
     const track = this.screenTrack;
     const client = this.screenClient;
+    if (!track && !client && !this.snapshot.local.screenSharing) return;
+
     this.screenTrack = null;
     this.screenClient = null;
     this.snapshot.local.screenSharing = false;
+
+    // Reflect the user's second click before the Agora teardown finishes.
+    // Unpublishing and leaving the secondary screen-share client can take a
+    // noticeable amount of time; keeping the screen participant mounted until
+    // then makes the button look like it did not stop the share.
+    if (screenId) {
+      this.removeParticipant(screenId);
+    } else {
+      this.emit();
+    }
 
     if (client && track) {
       await client.unpublish(track).catch(() => undefined);
     }
     track?.close();
     await client?.leave().catch(() => undefined);
-    if (screenId) this.removeParticipant(screenId);
   }
 
   async focusParticipant(participantIdToFocus: string | null): Promise<void> {

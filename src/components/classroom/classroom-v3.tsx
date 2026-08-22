@@ -1023,17 +1023,19 @@ function LiveRailSeat({
       <span className="classroom-v3-seat-role">
         {roleLabel(member.role, t)}
       </span>
-      <span
-        className="classroom-v3-seat-media-state"
-        aria-label={t("classroom.v3.mediaState")}
-      >
-        <i className={microphoneOn ? "is-on" : "is-off"}>
-          {microphoneOn ? <Mic /> : <MicOff />}
-        </i>
-        <i className={cameraOn ? "is-on" : "is-off"}>
-          {cameraOn ? <Video /> : <VideoOff />}
-        </i>
-      </span>
+      {!showControls && (
+        <span
+          className="classroom-v3-seat-media-state"
+          aria-label={t("classroom.v3.mediaState")}
+        >
+          <i className={microphoneOn ? "is-on" : "is-off"}>
+            {microphoneOn ? <Mic /> : <MicOff />}
+          </i>
+          <i className={cameraOn ? "is-on" : "is-off"}>
+            {cameraOn ? <Video /> : <VideoOff />}
+          </i>
+        </span>
+      )}
       {member.rewardCount > 0 && (
         <span className="classroom-v3-seat-reward" title={t("classroom.v3.rewardCount", { count: member.rewardCount })}>
           <Trophy />
@@ -3591,7 +3593,6 @@ export function ClassroomV3({
     );
   });
   const [recordingStatus, setRecordingStatus] = useState<string | null>(null);
-  const [recordingMode, setRecordingMode] = useState<"web" | "mix" | null>(null);
   const [recordingFallback, setRecordingFallback] = useState<string | null>(null);
   const [endClassConfirming, setEndClassConfirming] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
@@ -3827,7 +3828,6 @@ export function ClassroomV3({
         publishEnabledRef.current = startsWithPublishingPermission;
         setStudentPublishReady(startsWithPublishingPermission);
         setRecordingStatus(payload.recording.status);
-        setRecordingMode(payload.recording.mode);
         setRecordingFallback(payload.recording.fallbackFrom);
         // The initial classroom response intentionally defers the whiteboard
         // credential so Netless room/token latency never blocks the shell.
@@ -3975,7 +3975,6 @@ export function ClassroomV3({
           recording: payload.recording,
         });
         setRecordingStatus(payload.recording.status);
-        setRecordingMode(payload.recording.mode);
         setRecordingFallback(payload.recording.fallbackFrom);
         return;
       }
@@ -4002,7 +4001,6 @@ export function ClassroomV3({
         };
         updateSession(payload);
         setRecordingStatus(payload.recording.status);
-        setRecordingMode(payload.recording.mode);
         setRecordingFallback(payload.recording.fallbackFrom);
       }
       if (messagesResponse.ok) {
@@ -4025,7 +4023,6 @@ export function ClassroomV3({
             } | null;
           };
           setRecordingStatus(payload.recording?.status ?? null);
-          setRecordingMode(payload.recording?.mode ?? null);
           setRecordingFallback(payload.recording?.fallbackFrom ?? null);
         }
       }
@@ -4816,60 +4813,6 @@ export function ClassroomV3({
     [courseId, publishInvalidation, shareAccess, t, updateSession],
   );
 
-  const toggleRecording = useCallback(async () => {
-    if (!courseId || actionBusy || isRecorder) return;
-    if (["starting", "stopping", "processing"].includes(recordingStatus || "")) {
-      return;
-    }
-    const active = recordingStatus === "recording";
-    setActionBusy("recording");
-    try {
-      const response = await fetch(
-        `/api/sessions/${encodeURIComponent(courseId)}/recording`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: active ? "stop" : "start" }),
-        },
-      );
-      const payload = (await response.json()) as {
-        error?: string;
-        recording?: {
-          status?: string;
-          mode?: "web" | "mix";
-          fallbackFrom?: string | null;
-        };
-      };
-      if (!response.ok) {
-        throw new Error(
-          payload.error || t("classroom.v3.recordingActionFailed"),
-        );
-      }
-      setRecordingStatus(payload.recording?.status ?? null);
-      setRecordingMode(payload.recording?.mode ?? null);
-      setRecordingFallback(payload.recording?.fallbackFrom ?? null);
-      publishInvalidation(
-        sessionRef.current?.runtime.revision || 0,
-        "recording",
-      );
-    } catch (error) {
-      setActionError(
-        error instanceof Error
-          ? error.message
-          : t("classroom.v3.recordingActionFailed"),
-      );
-    } finally {
-      setActionBusy(null);
-    }
-  }, [
-    actionBusy,
-    courseId,
-    isRecorder,
-    publishInvalidation,
-    recordingStatus,
-    t,
-  ]);
-
   const endClass = useCallback(async () => {
     const current = sessionRef.current;
     if (
@@ -5501,32 +5444,6 @@ export function ClassroomV3({
                   </button>
                 </>
               )}
-            {sessionData.capabilities.canControlRecording && (
-              <button
-                type="button"
-                className={
-                  ["starting", "recording"].includes(recordingStatus || "")
-                    ? "is-recording"
-                    : ""
-                }
-                disabled={
-                  Boolean(actionBusy) ||
-                  !sessionData.recording.enabled ||
-                  ["starting", "stopping", "processing"].includes(recordingStatus || "")
-                }
-                onClick={() => void toggleRecording()}
-                title={
-                  sessionData.recording.enabled
-                    ? recordingStatus === "recording"
-                      ? t("classroom.v3.stopRecording")
-                      : t("classroom.v3.startRecording")
-                    : t("classroom.v3.recordingNotConfigured")
-                }
-                aria-pressed={recordingStatus === "recording"}
-              >
-                {recordingStatus === "recording" ? <CircleStop /> : <Radio />}
-              </button>
-            )}
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}
@@ -6347,50 +6264,6 @@ export function ClassroomV3({
               <LayoutGrid />
               <span>{t("classroom.v3.classroomTools")}</span>
             </button>
-            {sessionData.capabilities.canControlRecording && (
-              <button
-                type="button"
-                className={
-                  ["starting", "recording"].includes(
-                    recordingStatus || "",
-                  )
-                    ? "is-recording"
-                    : ""
-                }
-                disabled={
-                  Boolean(actionBusy) ||
-                  !sessionData.recording.enabled ||
-                  ["starting", "stopping", "processing"].includes(
-                    recordingStatus || "",
-                  )
-                }
-                onClick={() => void toggleRecording()}
-                title={
-                  sessionData.recording.enabled
-                    ? t("classroom.v3.recordingMode", {
-                        mode: recordingMode || t("classroom.v3.preparing"),
-                      })
-                    : t("classroom.v3.recordingNotConfigured")
-                }
-              >
-                {recordingStatus === "recording" ? (
-                  <CircleStop />
-                ) : (
-                  <Radio />
-                )}
-                <span>
-                  {recordingStatus === "starting"
-                    ? t("classroom.v3.recordingStarting")
-                    : recordingStatus === "stopping"
-                      ? t("classroom.v3.recordingStopping")
-                      : recordingStatus === "processing"
-                        ? t("classroom.v3.recordingProcessing")
-                        : recordingStatus === "recording"
-                          ? t("classroom.v3.stopRecording")
-                          : t("classroom.v3.startRecording")}
-                </span>
-              </button>
-            )}
             <span className="classroom-v3-dock-divider" />
             <button
               type="button"

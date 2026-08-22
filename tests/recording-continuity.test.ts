@@ -8,7 +8,7 @@ test("keeps all classroom media credentials within the six-hour lesson window", 
   assert.equal(classroomRuntimeDefaults.recordingTokenTtlSeconds, 6 * 60 * 60);
   assert.equal(classroomRuntimeDefaults.recorderPageTokenTtl, "6h");
   assert.equal(classroomRuntimeDefaults.recordingMaxDurationHours, 6);
-  assert.equal(classroomRuntimeDefaults.recordingSegmentDurationSeconds, 60 * 60);
+  assert.equal(classroomRuntimeDefaults.recordingSegmentDurationSeconds, 4 * 60);
 });
 
 test("recovers only unexpected live recorder failures", () => {
