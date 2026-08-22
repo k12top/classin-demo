@@ -6,8 +6,10 @@ import {
 import { getRecordingProvider } from "@/lib/classroom/server/provider-factory";
 import {
   processRecordingStart,
+  processRecordingStop,
   reconcileRecordingAttempt,
   requestRecordingStart,
+  requestRecordingStop,
 } from "@/lib/classroom/server/recording-orchestrator";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
@@ -148,14 +150,8 @@ export async function POST(
     );
   }
 
-  if (action === "stop") {
-    return NextResponse.json(
-      { error: "录制会随课堂结束自动停止，课堂进行中不能手动关闭" },
-      { status: 409 },
-    );
-  }
-
   const { course, lesson } = resolved;
+  const latest = lesson.recordings[0];
   try {
     if (action === "start") {
       const recording = await requestRecordingStart(course.id, lesson.id);
@@ -171,6 +167,22 @@ export async function POST(
       );
     }
 
+    if (!latest || latest.status === "completed") {
+      return NextResponse.json({
+        recording: latest ? publicRecording(latest) : null,
+      });
+    }
+    const recording = await requestRecordingStop(latest);
+    after(() => processRecordingStop(recording.id).catch((error) => {
+      console.error("[classroom:recording] deferred stop failed", {
+        recordingId: recording.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }));
+    return NextResponse.json(
+      { recording: publicRecording(recording) },
+      { status: 202 },
+    );
   } catch (error) {
     console.error("[classroom:recording] action failed", {
       courseId: id,

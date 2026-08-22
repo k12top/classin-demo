@@ -3594,14 +3594,25 @@ export function ClassroomV3({
   });
   const [recordingStatus, setRecordingStatus] = useState<string | null>(null);
   const [recordingFallback, setRecordingFallback] = useState<string | null>(null);
+  const [recordingStopConfirming, setRecordingStopConfirming] = useState(false);
   const [endClassConfirming, setEndClassConfirming] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const publishEnabledRef = useRef(false);
   const teacherCameraAutostartedRef = useRef(false);
   const captionIngestAtRef = useRef(new Map<string, number>());
   const compositionPreviewAtRef = useRef(0);
+  const recordingStopCancelRef = useRef<HTMLButtonElement>(null);
   const [studentPublishReady, setStudentPublishReady] = useState(false);
   const now = useNow();
+  const prefersReducedMotion = useReducedMotion();
+
+  useEffect(() => {
+    if (!recordingStopConfirming) return;
+    const frame = window.requestAnimationFrame(() => {
+      recordingStopCancelRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [recordingStopConfirming]);
 
   const handleWhiteboardControllerChange = useCallback(
     (controller: ClassroomWhiteboardController | null) => {
@@ -4208,6 +4219,7 @@ export function ClassroomV3({
     const settleEndedState = window.setTimeout(() => {
       void disconnectRoom();
       setActivePanel(null);
+      setRecordingStopConfirming(false);
       setEndClassConfirming(false);
       setStudentPublishReady(false);
       setMedia(EMPTY_MEDIA);
@@ -4812,6 +4824,66 @@ export function ClassroomV3({
     },
     [courseId, publishInvalidation, shareAccess, t, updateSession],
   );
+
+  const controlRecording = useCallback(async (action: "start" | "stop") => {
+    if (!courseId || actionBusy || isRecorder) return;
+    if (["starting", "stopping", "processing"].includes(recordingStatus || "")) {
+      return;
+    }
+    setActionBusy("recording");
+    setActionError("");
+    try {
+      const response = await fetch(
+        `/api/sessions/${encodeURIComponent(courseId)}/recording`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        },
+      );
+      const payload = (await response.json()) as {
+        error?: string;
+        recording?: {
+          status?: string;
+          mode?: "web" | "mix";
+          fallbackFrom?: string | null;
+        } | null;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || t("classroom.v3.recordingActionFailed"));
+      }
+      setRecordingStatus(payload.recording?.status ?? null);
+      setRecordingFallback(payload.recording?.fallbackFrom ?? null);
+      setRecordingStopConfirming(false);
+      publishInvalidation(
+        sessionRef.current?.runtime.revision || 0,
+        "recording",
+      );
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : t("classroom.v3.recordingActionFailed"),
+      );
+    } finally {
+      setActionBusy(null);
+    }
+  }, [
+    actionBusy,
+    courseId,
+    isRecorder,
+    publishInvalidation,
+    recordingStatus,
+    t,
+  ]);
+
+  const onRecordingControl = useCallback(() => {
+    if (recordingStatus === "recording") {
+      setRecordingStopConfirming(true);
+      return;
+    }
+    void controlRecording("start");
+  }, [controlRecording, recordingStatus]);
 
   const endClass = useCallback(async () => {
     const current = sessionRef.current;
@@ -5443,6 +5515,35 @@ export function ClassroomV3({
                       : t("classroom.v3.endClass")}
                   </button>
                 </>
+              )}
+            {sessionData.capabilities.canControlRecording &&
+              sessionData.runtime.status === "live" && (
+                <button
+                  type="button"
+                  className={
+                    ["starting", "recording"].includes(recordingStatus || "")
+                      ? "is-recording"
+                      : ""
+                  }
+                  disabled={
+                    Boolean(actionBusy) ||
+                    !sessionData.recording.enabled ||
+                    ["starting", "stopping", "processing"].includes(
+                      recordingStatus || "",
+                    )
+                  }
+                  onClick={onRecordingControl}
+                  title={
+                    sessionData.recording.enabled
+                      ? recordingStatus === "recording"
+                        ? t("classroom.v3.stopRecording")
+                        : t("classroom.v3.startRecording")
+                      : t("classroom.v3.recordingNotConfigured")
+                  }
+                  aria-pressed={recordingStatus === "recording"}
+                >
+                  {recordingStatus === "recording" ? <CircleStop /> : <Radio />}
+                </button>
               )}
             <button
               type="button"
@@ -6116,6 +6217,83 @@ export function ClassroomV3({
         </section>
       </section>
 
+      <AnimatePresence>
+        {recordingStopConfirming && !isRecorder && (
+          <motion.div
+            className="classroom-v3-modal-backdrop is-board-confirm"
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={prefersReducedMotion ? undefined : { opacity: 0 }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.16 }}
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                setRecordingStopConfirming(false);
+              }
+            }}
+          >
+            <motion.section
+              className="classroom-v3-confirm-dialog"
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="recording-stop-dialog-title"
+              aria-describedby="recording-stop-dialog-description"
+              initial={
+                prefersReducedMotion
+                  ? false
+                  : { opacity: 0, y: 10, scale: 0.985 }
+              }
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={
+                prefersReducedMotion
+                  ? undefined
+                  : { opacity: 0, y: 8, scale: 0.985 }
+              }
+              transition={{
+                duration: prefersReducedMotion ? 0 : 0.18,
+                ease: [0.22, 1, 0.36, 1],
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setRecordingStopConfirming(false);
+                }
+              }}
+            >
+              <div className="classroom-v3-confirm-icon" aria-hidden="true">
+                <CircleStop />
+              </div>
+              <div className="classroom-v3-confirm-copy">
+                <h2 id="recording-stop-dialog-title">
+                  {t("classroom.v3.stopRecording")}
+                </h2>
+                <p id="recording-stop-dialog-description">
+                  {t("common.pleaseConfirm")}
+                </p>
+              </div>
+              <footer>
+                <button
+                  ref={recordingStopCancelRef}
+                  type="button"
+                  className="is-secondary"
+                  onClick={() => setRecordingStopConfirming(false)}
+                >
+                  {t("common.cancel")}
+                </button>
+                <button
+                  type="button"
+                  className="is-danger"
+                  disabled={actionBusy === "recording"}
+                  onClick={() => void controlRecording("stop")}
+                >
+                  {actionBusy === "recording" ? <Loader2 /> : <CircleStop />}
+                  {t("classroom.v3.stopRecording")}
+                </button>
+              </footer>
+            </motion.section>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {actionError && !isRecorder && (
         <motion.div
           className="classroom-v3-action-error"
@@ -6264,6 +6442,46 @@ export function ClassroomV3({
               <LayoutGrid />
               <span>{t("classroom.v3.classroomTools")}</span>
             </button>
+            {sessionData.capabilities.canControlRecording &&
+              sessionData.runtime.status === "live" && (
+                <button
+                  type="button"
+                  className={
+                    ["starting", "recording"].includes(recordingStatus || "")
+                      ? "is-recording"
+                      : ""
+                  }
+                  disabled={
+                    Boolean(actionBusy) ||
+                    !sessionData.recording.enabled ||
+                    ["starting", "stopping", "processing"].includes(
+                      recordingStatus || "",
+                    )
+                  }
+                  onClick={onRecordingControl}
+                  title={
+                    sessionData.recording.enabled
+                      ? recordingStatus === "recording"
+                        ? t("classroom.v3.stopRecording")
+                        : t("classroom.v3.startRecording")
+                      : t("classroom.v3.recordingNotConfigured")
+                  }
+                  aria-pressed={recordingStatus === "recording"}
+                >
+                  {recordingStatus === "recording" ? <CircleStop /> : <Radio />}
+                  <span>
+                    {recordingStatus === "starting"
+                      ? t("classroom.v3.recordingStarting")
+                      : recordingStatus === "stopping"
+                        ? t("classroom.v3.recordingStopping")
+                        : recordingStatus === "processing"
+                          ? t("classroom.v3.recordingProcessing")
+                          : recordingStatus === "recording"
+                            ? t("classroom.v3.stopRecording")
+                            : t("classroom.v3.startRecording")}
+                  </span>
+                </button>
+              )}
             <span className="classroom-v3-dock-divider" />
             <button
               type="button"
