@@ -92,8 +92,16 @@ export const classroomMediaProfile: ClassroomMediaProfile = {
 };
 
 export const classroomRuntimeDefaults = {
+  // A lesson may run for up to six hours. Keep every RTC participant,
+  // recorder and recorder-page credential on that same envelope so a
+  // long-running class does not lose one of its background participants early.
   rtcTokenTtlSeconds: 6 * 60 * 60,
-  recordingTokenTtlSeconds: 24 * 60 * 60,
+  recordingTokenTtlSeconds: 6 * 60 * 60,
+  recorderPageTokenTtl: "6h",
+  recordingMaxDurationHours: 6,
+  // Cloud recording writes hourly files instead of one very large file. This
+  // keeps a recoverable, playable boundary if an upstream recorder restarts.
+  recordingSegmentDurationSeconds: 60 * 60,
   recordingMaxIdleSeconds: 5 * 60,
   screenShareUidSuffix: "::screen",
 } as const;

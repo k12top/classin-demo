@@ -93,6 +93,7 @@ model Course {
   sessionGroupRules         CourseSessionGroupLink[]
   sessionCoursewareRules    CourseSessionCourseware[]
   sessionStudentSubmissions CourseSessionStudentSubmission[]
+  sessionSummaries          CourseSessionSummary[]
 
   @@index([ownerId])
   @@index([teacherId])
@@ -146,6 +147,7 @@ model CourseSession {
   classroomRewardEvents     ClassroomRewardEvent[]
   classroomEngagementRounds ClassroomEngagementRound[]
   studentSubmissions        CourseSessionStudentSubmission[]
+  summary                   CourseSessionSummary?
 
   @@unique([courseId, position])
   @@index([courseId, startTime])
@@ -754,4 +756,26 @@ model ClassroomCaption {
   @@index([courseId, occurredAt])
   @@index([sessionId, occurredAt])
   @@index([runtimeId, occurredAt])
+}
+
+// ── Teacher-reviewed post-class notes generated from final ASR captions ──
+model CourseSessionSummary {
+  id              String   @id @default(uuid())
+  courseId        String
+  sessionId       String   @unique
+  status          String   @default("draft") // draft | published
+  document        Json     @default("{}")
+  captionCount    Int      @default(0)
+  sourceUpdatedAt DateTime?
+  generatedBy     String   @default("system")
+  generatedAt     DateTime @default(now())
+  publishedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  course  Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  session CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([courseId, status, updatedAt])
+  @@index([sessionId, status])
 }

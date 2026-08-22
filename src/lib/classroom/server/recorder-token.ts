@@ -1,8 +1,7 @@
 import "server-only";
 
 import { SignJWT, jwtVerify } from "jose";
-
-const RECORDER_TOKEN_TTL = "8h";
+import { classroomRuntimeDefaults } from "@/lib/classroom/config";
 
 function recorderKey(): Uint8Array | null {
   const secret = process.env.CLASSROOM_RECORDER_SECRET?.trim();
@@ -27,7 +26,7 @@ export async function createRecorderPageUrl(
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime(RECORDER_TOKEN_TTL)
+    .setExpirationTime(classroomRuntimeDefaults.recorderPageTokenTtl)
     .sign(key);
   const url = new URL("/classroom/recorder", base);
   url.searchParams.set("courseId", courseId);

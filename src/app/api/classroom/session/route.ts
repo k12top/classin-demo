@@ -21,6 +21,7 @@ import {
 import { classroomCapabilities } from "@/lib/classroom/policy";
 import { classroomModePolicy } from "@/lib/classroom/mode";
 import { verifyRecorderToken } from "@/lib/classroom/server/recorder-token";
+import { recoverInterruptedRecordingForSession } from "@/lib/classroom/server/recording-orchestrator";
 import { issueAgoraSignalingCredential } from "@/lib/classroom/signaling/agora-server";
 import { getWhiteboardProvider } from "@/lib/classroom/whiteboard/provider-factory";
 import { prisma } from "@/lib/db";
@@ -181,6 +182,23 @@ export async function POST(request: NextRequest) {
       getClassroomRuntimeSnapshot(courseId, sessionId, { ensure: false }),
       getClassroomEngagementSnapshot(sessionId),
     ]);
+
+    // Leaving a teaching tab never stops the cloud recorder. If the provider
+    // did stop unexpectedly while the teacher was away, rejoining the live
+    // session provides an immediate recovery path in addition to cron.
+    if (!recorder && role === "teacher" && runtimeSnapshot.status === "live") {
+      after(() =>
+        recoverInterruptedRecordingForSession(courseId, sessionId).catch(
+          (error) => {
+            console.warn("[classroom:recording] re-entry recovery failed", {
+              courseId,
+              sessionId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          },
+        ),
+      );
+    }
 
     const classroomProvider = getClassroomServerProvider(
       lesson.classroomProvider,

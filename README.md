@@ -138,7 +138,8 @@ WORDLY_INTERNAL_TOKEN=use-the-same-value-as-bridge-internal-token
 # recording fails, the provider automatically falls back to RTC mix recording.
 CLASSROOM_PUBLIC_BASE_URL=https://live.example.com
 CLASSROOM_RECORDER_SECRET=use-a-long-random-server-only-secret
-AGORA_PAGE_RECORDING_MAX_HOURS=8
+# Maximum 6-hour cloud-recorder process. Output is split into hourly files.
+AGORA_PAGE_RECORDING_MAX_HOURS=6
 
 # Netless Fastboard. Without these variables the classroom remains usable and
 # displays a clear "whiteboard not configured" state.

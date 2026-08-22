@@ -27,6 +27,7 @@ import { prisma } from "@/lib/db";
 import { databaseUnavailableResponse } from "@/lib/database-response";
 import { getSessionFromRequest } from "@/lib/session";
 import { syncCourseStatusFromSessions } from "@/lib/course-session-status";
+import { generateCourseSessionSummary } from "@/lib/course-session-summary";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -239,6 +240,19 @@ async function handlePost(request: NextRequest, context: Context) {
                 : String(result.reason),
           });
         }
+      }
+      try {
+        await generateCourseSessionSummary(
+          resolved.courseId,
+          resolved.sessionId,
+          resolved.identity.userId,
+        );
+      } catch (error) {
+        console.error("[classroom:lifecycle] summary generation failed", {
+          courseId: resolved.courseId,
+          sessionId: resolved.sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     });
     return NextResponse.json({

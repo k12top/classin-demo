@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { RtcRole, RtcTokenBuilder } from "agora-token";
+import { classroomRuntimeDefaults } from "@/lib/classroom/config";
 import {
   buildAgoraSttJoinPayload,
   buildAgoraSttUpdatePayload,
@@ -82,8 +83,8 @@ function botToken(
     channelName,
     uid,
     publisher ? RtcRole.PUBLISHER : RtcRole.SUBSCRIBER,
-    3600,
-    3600,
+    classroomRuntimeDefaults.rtcTokenTtlSeconds,
+    classroomRuntimeDefaults.rtcTokenTtlSeconds,
   );
 }
 

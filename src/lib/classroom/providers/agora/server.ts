@@ -390,7 +390,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
         cname: input.channelName,
         uid: recorderUid,
         clientRequest: {
-          resourceExpiredHour: 1,
+          resourceExpiredHour: classroomRuntimeDefaults.recordingMaxDurationHours,
           regionAffinity: config.regionAffinity,
           ...(web ? { scene: 1 } : {}),
         },
@@ -506,10 +506,13 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
     const recorderToken = this.recorderToken(input, config, recorderUid);
     const recording = input.mediaProfile.recording;
     const maxRecordingHour = Math.min(
-      24,
+      classroomRuntimeDefaults.recordingMaxDurationHours,
       Math.max(
         1,
-        positiveIntegerEnv("AGORA_PAGE_RECORDING_MAX_HOURS", 8),
+        positiveIntegerEnv(
+          "AGORA_PAGE_RECORDING_MAX_HOURS",
+          classroomRuntimeDefaults.recordingMaxDurationHours,
+        ),
       ),
     );
     const started = await agoraRecordingRequest(
@@ -533,7 +536,8 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
                   videoWidth: recording.width,
                   videoHeight: recording.height,
                   maxRecordingHour,
-                  maxVideoDuration: 3600,
+                  maxVideoDuration:
+                    classroomRuntimeDefaults.recordingSegmentDurationSeconds,
                 },
               },
             ],

@@ -2,6 +2,7 @@ import "server-only";
 
 import type { ClassroomRecording, Prisma } from "@prisma/client";
 import { classroomMediaProfile } from "@/lib/classroom/config";
+import { shouldRecoverRecording } from "@/lib/classroom/recording-continuity";
 import { getRecordingProvider } from "@/lib/classroom/server/provider-factory";
 import {
   createRecorderPageUrl,
@@ -69,11 +70,14 @@ export async function requestRecordingStart(
     throw new Error("Cloud recording is not configured");
   }
 
-  const previousRetries =
-    latest?.status === "failed" && latest.failureStage === "start"
-      ? latest.startRetryCount
-      : 0;
-  if (previousRetries >= MAX_PROVIDER_RETRIES) {
+  const previousRetries = shouldRecoverRecording(latest, MAX_PROVIDER_RETRIES)
+    ? latest.retryCount
+    : 0;
+  if (
+    latest?.status === "failed" &&
+    latest.failureStage !== "stop" &&
+    latest.retryCount >= MAX_PROVIDER_RETRIES
+  ) {
     throw new Error("Cloud recording start retry limit reached");
   }
 
@@ -88,7 +92,8 @@ export async function requestRecordingStart(
       mode: isRecorderPageConfigured() ? "web" : "mix",
       fallbackFrom: isRecorderPageConfigured() ? null : "web",
       retryCount: previousRetries,
-      startRetryCount: previousRetries,
+      startRetryCount:
+        latest?.failureStage === "start" ? latest.startRetryCount : 0,
       errorMessage: null,
       failureStage: null,
     },
@@ -350,6 +355,11 @@ export async function reconcileRecordingAttempt(recordingId: string) {
   });
   const objectKey = queried.playbackObjectKey || recording.playbackObjectKey;
   const format = playbackFormat(queried.playbackFormat || recording.playbackFormat);
+  const stoppedUnexpectedly =
+    !queried.active &&
+    !objectKey &&
+    !recording.stopRequestedAt &&
+    recording.status === "recording";
   await prisma.classroomRecording.updateMany({
     where: {
       id: recording.id,
@@ -361,13 +371,23 @@ export async function reconcileRecordingAttempt(recordingId: string) {
       playbackObjectKey: objectKey,
       playbackFormat: format,
       lastProviderCheckAt: new Date(),
-      status: queried.active
-        ? recording.status === "processing"
-          ? "processing"
-          : "recording"
-        : objectKey
-          ? "completed"
-          : "processing",
+      status: stoppedUnexpectedly
+        ? "failed"
+        : queried.active
+          ? recording.status === "processing"
+            ? "processing"
+            : "recording"
+          : objectKey
+            ? "completed"
+            : "processing",
+      ...(stoppedUnexpectedly
+        ? {
+            retryCount: { increment: 1 },
+            failureStage: "runtime",
+            errorMessage:
+              "Cloud recorder stopped unexpectedly; recovery has been queued",
+          }
+        : {}),
       ...(objectKey && !recording.stoppedAt ? { stoppedAt: new Date() } : {}),
     },
   });
@@ -437,10 +457,7 @@ export async function retryFailedLiveRecordings(): Promise<number> {
     const latest = runtime.session.recordings[0];
     if (
       !getRecordingProvider(runtime.session.recordingProvider).isConfigured() ||
-      (latest &&
-        (latest.status !== "failed" ||
-          latest.failureStage !== "start" ||
-          latest.startRetryCount >= MAX_PROVIDER_RETRIES))
+      (latest && !shouldRecoverRecording(latest, MAX_PROVIDER_RETRIES))
     ) {
       continue;
     }
@@ -460,6 +477,44 @@ export async function retryFailedLiveRecordings(): Promise<number> {
     }
   }
   return started;
+}
+
+/**
+ * Re-entering a live classroom is another recovery opportunity. The cloud
+ * recorder is independent from the teacher's browser, so this only resumes an
+ * unexpected provider failure; it never overrides a deliberate stop.
+ */
+export async function recoverInterruptedRecordingForSession(
+  courseId: string,
+  sessionId: string,
+): Promise<ClassroomRecording | null> {
+  const [runtime, lesson] = await Promise.all([
+    prisma.classroomRuntime.findFirst({
+      where: { courseId, sessionId },
+      select: { status: true },
+    }),
+    prisma.courseSession.findFirst({
+      where: { id: sessionId, courseId },
+      include: {
+        recordings: { orderBy: { createdAt: "desc" }, take: 1 },
+      },
+    }),
+  ]);
+  const latest = lesson?.recordings[0];
+  if (
+    runtime?.status !== "live" ||
+    !lesson ||
+    !getRecordingProvider(lesson.recordingProvider).isConfigured() ||
+    !shouldRecoverRecording(latest, MAX_PROVIDER_RETRIES)
+  ) {
+    return null;
+  }
+
+  const requested = await requestRecordingStart(courseId, sessionId);
+  if (requested.status === "starting") {
+    await processRecordingStart(requested.id);
+  }
+  return prisma.classroomRecording.findUnique({ where: { id: requested.id } });
 }
 
 export async function reconcilePendingRecordings(): Promise<number> {
