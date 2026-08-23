@@ -181,40 +181,63 @@ export function FastboardSurface({
         if (cancelled) return;
         const fastboard = await preloadFastboard();
         if (cancelled) return;
+        const { WhiteWebSdk } = await import("white-web-sdk");
         const initialBounds = mountTarget.getBoundingClientRect();
         const initialContainerSizeRatio =
           initialBounds.width > 0 && initialBounds.height > 0
             ? initialBounds.height / initialBounds.width
             : 9 / 16;
-        const createdApp = await fastboard.createFastboard({
-          sdkConfig: {
-            appIdentifier: credential.appIdentifier!,
-            region: credential.region!,
-          },
-          joinRoom: {
-            uid: `web-${crypto.randomUUID()}`,
-            uuid: credential.roomUuid!,
-            roomToken: credential.roomToken!,
-            isWritable: credential.writable,
-            disableDeviceInputs: !credential.writable,
-          },
-          managerConfig: {
-            cursor: true,
-            // WindowManager defaults to a centered 16:9 playground. The
-            // classroom stage can be portrait or nearly square, so that
-            // default leaves large visible regions outside the interactive
-            // whiteboard. Match the actual stage and keep it synchronized in
-            // the ResizeObserver below.
-            containerSizeRatio: initialContainerSizeRatio,
-            chessboard: false,
-            builtinAppOptions: {
-              Presentation: {
-                useScrollbar: true,
-                debounceSync: true,
+        // Fastboard 1.1.8 strips `useMultiViews` from its public options and
+        // then forces it to true before joining the SDK room. Canvas capture
+        // is explicitly unsupported in that mode. Intercept its one join
+        // call so the underlying SDK receives the required single-view flag.
+        const originalJoinRoom = WhiteWebSdk.prototype.joinRoom;
+        WhiteWebSdk.prototype.joinRoom = function joinSingleViewRoom(
+          params,
+          callbacks,
+          options,
+        ) {
+          return originalJoinRoom.call(
+            this,
+            { ...params, useMultiViews: false },
+            callbacks,
+            options,
+          );
+        };
+        let createdApp: FastboardApp;
+        try {
+          createdApp = await fastboard.createFastboard({
+            sdkConfig: {
+              appIdentifier: credential.appIdentifier!,
+              region: credential.region!,
+            },
+            joinRoom: {
+              uid: `web-${crypto.randomUUID()}`,
+              uuid: credential.roomUuid!,
+              roomToken: credential.roomToken!,
+              isWritable: credential.writable,
+              disableDeviceInputs: !credential.writable,
+            },
+            managerConfig: {
+              cursor: true,
+              // WindowManager defaults to a centered 16:9 playground. The
+              // classroom stage can be portrait or nearly square, so that
+              // default leaves large visible regions outside the interactive
+              // whiteboard. Match the actual stage and keep it synchronized in
+              // the ResizeObserver below.
+              containerSizeRatio: initialContainerSizeRatio,
+              chessboard: false,
+              builtinAppOptions: {
+                Presentation: {
+                  useScrollbar: true,
+                  debounceSync: true,
+                },
               },
             },
-          },
-        });
+          });
+        } finally {
+          WhiteWebSdk.prototype.joinRoom = originalJoinRoom;
+        }
         app = createdApp;
         if (cancelled) {
           app = null;
