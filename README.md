@@ -168,6 +168,13 @@ without blocking classroom entry. Shengwang translation accepts at most 10
 target languages per class; Wordly mode still uses Shengwang ASR and sends
 only final transcripts to the configured bridge.
 
+Post-class summaries always have a deterministic caption-based fallback. Set
+`AI_SUMMARY_ENABLED=true`, `AI_SUMMARY_API_KEY`, and `AI_SUMMARY_MODEL` to use
+the structured AI summary path. OpenAI uses `AI_SUMMARY_API_STYLE=responses`;
+OpenAI-compatible gateways that only implement Chat Completions can select
+`chat-completions`. Model failures do not block class closure or overwrite the
+teacher's published summary.
+
 ### Cross-platform classroom clients
 
 The browser remains the source of truth for course management and the Web

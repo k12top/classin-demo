@@ -108,6 +108,8 @@ export interface ClassroomMediaProvider {
   attachVideo(participantId: string, element: HTMLElement): void;
   detachVideo(participantId: string, element: HTMLElement): void;
   renewToken(token: string): Promise<void>;
+  renewCredential(credential: ClassroomJoinCredential): Promise<void>;
+  subscribeTokenExpiry(listener: () => void): () => void;
   setPublishingCredential(
     credential: ClassroomJoinCredential | null,
   ): Promise<void>;

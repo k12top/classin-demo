@@ -10,6 +10,18 @@ export type ActiveClassroomScreenShare = {
   source: ClassroomScreenShareSource;
 };
 
+/**
+ * The presenter already sees the selected desktop in the operating system.
+ * Hiding the local RTC preview avoids a distracting recursive mirror, while
+ * viewers and the recorder still render the published screen track.
+ */
+export function shouldHideLocalScreenSharePreview(
+  share: ActiveClassroomScreenShare | null,
+  recorder: boolean,
+) {
+  return Boolean(share?.participant.isLocal && !recorder);
+}
+
 export function selectActiveScreenShare({
   main,
   room,

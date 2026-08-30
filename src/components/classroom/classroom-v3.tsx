@@ -123,8 +123,12 @@ import {
   translateBoardRectByPixels,
   updateClassroomBoardItem,
 } from "@/lib/classroom/composition";
-import { selectActiveScreenShare } from "@/lib/classroom/media-routing";
+import {
+  selectActiveScreenShare,
+  shouldHideLocalScreenSharePreview,
+} from "@/lib/classroom/media-routing";
 import { shouldStopUnauthorizedScreenShare } from "@/lib/classroom/screen-share-state";
+import { shouldApplyClassroomRevision } from "@/lib/classroom/runtime-revision";
 import {
   classroomLanguageLabel,
   classroomLanguages,
@@ -134,6 +138,10 @@ import {
   effectiveCaptionLanguage as resolveEffectiveCaptionLanguage,
   initialCaptionLanguage,
 } from "@/lib/classroom/caption-preferences";
+import {
+  captionTranslation,
+  selectStableCaption,
+} from "@/lib/classroom/caption-display";
 
 type LoadingState = "loading" | "ready" | "error";
 type DrawerPanel =
@@ -197,20 +205,6 @@ function formatClock(totalSeconds: number): string {
   return [hours, minutes, rest]
     .map((value) => String(value).padStart(2, "0"))
     .join(":");
-}
-
-function captionTranslation(
-  caption: Pick<ClassroomCaptionSnapshot, "translations">,
-  language: string,
-) {
-  const exact = caption.translations[language]?.trim();
-  if (exact) return exact;
-  const prefix = language.split("-")[0].toLowerCase();
-  return (
-    Object.entries(caption.translations).find(
-      ([code, text]) => code.split("-")[0].toLowerCase() === prefix && text.trim(),
-    )?.[1] || ""
-  );
 }
 
 function mergeCaptions(
@@ -3527,6 +3521,8 @@ export function ClassroomV3({
   const [sessionData, setSessionData] =
     useState<ClassroomSessionResponse | null>(null);
   const sessionRef = useRef<ClassroomSessionResponse | null>(null);
+  const refreshRequestIdRef = useRef(0);
+  const refreshAbortRef = useRef<AbortController | null>(null);
   const [media, setMedia] = useState<ClassroomMediaSnapshot>(EMPTY_MEDIA);
   const [mediaProvider, setMediaProvider] =
     useState<ClassroomMediaProvider | null>(null);
@@ -3599,6 +3595,8 @@ export function ClassroomV3({
   const [isLeaving, setIsLeaving] = useState(false);
   const publishEnabledRef = useRef(false);
   const teacherCameraAutostartedRef = useRef(false);
+  const credentialRenewalRef = useRef<Promise<void> | null>(null);
+  const recorderReadyNotifiedRef = useRef(false);
   const captionIngestAtRef = useRef(new Map<string, number>());
   const compositionPreviewAtRef = useRef(0);
   const recordingStopCancelRef = useRef<HTMLButtonElement>(null);
@@ -3613,6 +3611,39 @@ export function ClassroomV3({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [recordingStopConfirming]);
+
+  useEffect(() => {
+    if (
+      !isRecorder ||
+      recorderReadyNotifiedRef.current ||
+      loadingState !== "ready" ||
+      media.connectionState !== "connected"
+    ) {
+      return;
+    }
+    const notify = () => {
+      if (recorderReadyNotifiedRef.current) return;
+      const recorderNavigator = window.navigator as Navigator & {
+        notifyReady?: () => void;
+      };
+      if (typeof recorderNavigator.notifyReady !== "function") return;
+      recorderReadyNotifiedRef.current = true;
+      recorderNavigator.notifyReady();
+    };
+    if (whiteboardController || !sessionData?.whiteboard.enabled) {
+      const frame = window.requestAnimationFrame(notify);
+      return () => window.cancelAnimationFrame(frame);
+    }
+    // Do not leave cloud recording blocked forever if Netless is degraded.
+    const timer = window.setTimeout(notify, 8_000);
+    return () => window.clearTimeout(timer);
+  }, [
+    isRecorder,
+    loadingState,
+    media.connectionState,
+    sessionData?.whiteboard.enabled,
+    whiteboardController,
+  ]);
 
   const handleWhiteboardControllerChange = useCallback(
     (controller: ClassroomWhiteboardController | null) => {
@@ -3688,7 +3719,19 @@ export function ClassroomV3({
 
   const updateSession = useCallback(
     (update: Partial<ClassroomSessionResponse>) => {
-      setSessionData((current) => (current ? { ...current, ...update } : current));
+      setSessionData((current) => {
+        if (!current) return current;
+        const incomingRevision = update.runtime?.revision;
+        if (
+          !shouldApplyClassroomRevision(
+            current.runtime.revision,
+            incomingRevision,
+          )
+        ) {
+          return current;
+        }
+        return { ...current, ...update };
+      });
     },
     [],
   );
@@ -3814,6 +3857,28 @@ export function ClassroomV3({
     return payload;
   }, [courseId, isRecorder, legacyCourseId, recorderToken, requestedSessionId, router, shareAccess, t]);
 
+  const renewClassroomCredentials = useCallback(async () => {
+    if (credentialRenewalRef.current) return credentialRenewalRef.current;
+    const renewal = (async () => {
+      const payload = await fetchInitialSession();
+      const provider = providerRef.current;
+      if (!provider) return;
+      await provider.renewCredential(payload.credential);
+      updateSession({
+        credential: payload.credential,
+        signaling: payload.signaling,
+      });
+    })();
+    credentialRenewalRef.current = renewal;
+    try {
+      await renewal;
+    } finally {
+      if (credentialRenewalRef.current === renewal) {
+        credentialRenewalRef.current = null;
+      }
+    }
+  }, [fetchInitialSession, updateSession]);
+
   useEffect(() => {
     if ((!isRecorder && authLoading) || !courseId) return;
     if (!isRecorder && !user) {
@@ -3824,6 +3889,7 @@ export function ClassroomV3({
     let provider: ClassroomMediaProvider | null = null;
     let unsubscribe: (() => void) | null = null;
     let unsubscribeCaptions: (() => void) | null = null;
+    let unsubscribeTokenExpiry: (() => void) | null = null;
 
     async function launch() {
       try {
@@ -3850,6 +3916,11 @@ export function ClassroomV3({
         );
         providerRef.current = provider;
         setMediaProvider(provider);
+        unsubscribeTokenExpiry = provider.subscribeTokenExpiry(() => {
+          void renewClassroomCredentials().catch((error) => {
+            console.warn("[classroom:v3] media credential renewal failed", error);
+          });
+        });
         unsubscribe = provider.subscribe((snapshot) => {
           if (!cancelled) setMedia(snapshot);
         });
@@ -3870,7 +3941,7 @@ export function ClassroomV3({
               ? { ...current, captions: mergeCaptions(current.captions, localCaption) }
               : current,
           );
-          if (isRecorder || payload.credential.role === "student") return;
+          if (!isRecorder && payload.credential.role === "student") return;
           const lastIngested = captionIngestAtRef.current.get(caption.id) || 0;
           if (!caption.isFinal && Date.now() - lastIngested < 600) return;
           captionIngestAtRef.current.set(caption.id, Date.now());
@@ -3882,6 +3953,7 @@ export function ClassroomV3({
               body: JSON.stringify({
                 caption: localCaption,
                 ...(shareAccess && { shareAccess }),
+                ...(isRecorder && recorderToken ? { recorderToken } : {}),
               }),
             },
           )
@@ -3947,6 +4019,7 @@ export function ClassroomV3({
       cancelled = true;
       unsubscribe?.();
       unsubscribeCaptions?.();
+      unsubscribeTokenExpiry?.();
       signalingRef.current?.disconnect().catch(() => undefined);
       signalingRef.current = null;
       if (providerRef.current === provider) providerRef.current = null;
@@ -3958,9 +4031,33 @@ export function ClassroomV3({
     fetchInitialSession,
     isRecorder,
     launchAttempt,
+    recorderToken,
+    renewClassroomCredentials,
     shareAccess,
     t,
     user,
+  ]);
+
+  useEffect(() => {
+    if (loadingState !== "ready" || !sessionData?.credential.expiresInSeconds) {
+      return;
+    }
+    const renewBeforeSeconds = 5 * 60;
+    const delay = Math.max(
+      30_000,
+      (sessionData.credential.expiresInSeconds - renewBeforeSeconds) * 1_000,
+    );
+    const timer = window.setTimeout(() => {
+      void renewClassroomCredentials().catch((error) => {
+        console.warn("[classroom:v3] scheduled credential renewal failed", error);
+      });
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [
+    loadingState,
+    renewClassroomCredentials,
+    sessionData?.credential.expiresInSeconds,
+    sessionData?.credential.token,
   ]);
 
   useEffect(() => {
@@ -3973,9 +4070,15 @@ export function ClassroomV3({
 
   const refreshState = useCallback(async () => {
     if (!courseId || !sessionRef.current) return;
+    const requestId = refreshRequestIdRef.current + 1;
+    refreshRequestIdRef.current = requestId;
+    refreshAbortRef.current?.abort();
+    const controller = new AbortController();
+    refreshAbortRef.current = controller;
     try {
       if (isRecorder) {
         const payload = await fetchInitialSession();
+        if (requestId !== refreshRequestIdRef.current) return;
         updateSession({
           runtime: payload.runtime,
           engagement: payload.engagement,
@@ -3995,11 +4098,14 @@ export function ClassroomV3({
       const [stateResponse, messagesResponse] = await Promise.all([
         fetch(`/api/sessions/${encodeURIComponent(courseId)}/classroom/state${query}`, {
           cache: "no-store",
+          signal: controller.signal,
         }),
         fetch(`/api/sessions/${encodeURIComponent(courseId)}/classroom/messages${query}`, {
           cache: "no-store",
+          signal: controller.signal,
         }),
       ]);
+      if (requestId !== refreshRequestIdRef.current) return;
       if (stateResponse.ok) {
         const payload = (await stateResponse.json()) as {
           runtime: ClassroomRuntimeSnapshot;
@@ -4020,25 +4126,13 @@ export function ClassroomV3({
         };
         updateSession({ messages: payload.messages });
       }
-      if (sessionRef.current?.capabilities.canControlRecording) {
-        const response = await fetch(
-          `/api/sessions/${encodeURIComponent(courseId)}/recording`,
-          { cache: "no-store" },
-        );
-        if (response.ok) {
-          const payload = (await response.json()) as {
-            recording?: {
-              status?: string;
-              mode?: "web" | "mix";
-              fallbackFrom?: string | null;
-            } | null;
-          };
-          setRecordingStatus(payload.recording?.status ?? null);
-          setRecordingFallback(payload.recording?.fallbackFrom ?? null);
-        }
-      }
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       console.warn("[classroom:v3] state refresh failed", error);
+    } finally {
+      if (refreshAbortRef.current === controller) {
+        refreshAbortRef.current = null;
+      }
     }
   }, [
     courseId,
@@ -4047,6 +4141,31 @@ export function ClassroomV3({
     shareAccess,
     updateSession,
   ]);
+
+  useEffect(() => {
+    return () => {
+      refreshRequestIdRef.current += 1;
+      refreshAbortRef.current?.abort();
+      refreshAbortRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (loadingState !== "ready") return;
+    const refreshWhenActive = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) {
+        void refreshState();
+      }
+    };
+    document.addEventListener("visibilitychange", refreshWhenActive);
+    window.addEventListener("online", refreshWhenActive);
+    window.addEventListener("focus", refreshWhenActive);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshWhenActive);
+      window.removeEventListener("online", refreshWhenActive);
+      window.removeEventListener("focus", refreshWhenActive);
+    };
+  }, [loadingState, refreshState]);
 
   useEffect(() => {
     if (
@@ -5062,6 +5181,10 @@ export function ClassroomV3({
   const screenParticipantProvider = activeScreenShare?.source === "room"
     ? roomProvider
     : mediaProvider;
+  const hideLocalScreenSharePreview = shouldHideLocalScreenSharePreview(
+    activeScreenShare,
+    isRecorder,
+  );
   const spotlightParticipant = decoratedParticipants.find(
     ({ participant }) =>
       participantOwnerId(participant.id) ===
@@ -5126,11 +5249,13 @@ export function ClassroomV3({
       galleryParticipants.length > 1,
   );
   const stageActor = screenParticipant?.member || stageParticipant?.member;
-  const stageSourceTitle = screenParticipant
-    ? screenParticipant.displayName
-    : showWhiteboard
-      ? activeCourseware?.name || t("classroom.v3.whiteboard")
-      : stageParticipant?.displayName || t("classroom.v3.teachingStage");
+  const stageSourceTitle = hideLocalScreenSharePreview
+    ? t("classroom.v3.localScreenSharing")
+    : screenParticipant
+      ? screenParticipant.displayName
+      : showWhiteboard
+        ? activeCourseware?.name || t("classroom.v3.whiteboard")
+        : stageParticipant?.displayName || t("classroom.v3.teachingStage");
   const stageSourceDetail = screenParticipant
     ? t("classroom.v3.stageSharedBy", {
         name: stageActor?.displayName || t("classroom.v3.teacher"),
@@ -5301,7 +5426,6 @@ export function ClassroomV3({
     !sessionData?.runtime.chatEnabled ||
     Boolean(currentMember?.chatMuted) ||
     isRecorder;
-  const latestCaption = sessionData?.captions.at(-1) || null;
   const promotedQuestion = sessionData?.questions.find(
     (question) => question.status === "promoted",
   ) || null;
@@ -5310,6 +5434,11 @@ export function ClassroomV3({
   const effectiveCaptionLanguage = resolveEffectiveCaptionLanguage(
     captionLanguage,
     availableCaptionLanguages,
+  );
+  const latestCaption = selectStableCaption(
+    sessionData?.captions || [],
+    effectiveCaptionLanguage,
+    captionDisplayMode,
   );
   const latestTranslation = latestCaption
     ? captionTranslation(latestCaption, effectiveCaptionLanguage)
@@ -5846,11 +5975,22 @@ export function ClassroomV3({
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
                 >
-                  <MediaSurface
-                    participant={screenParticipant.participant}
-                    provider={screenParticipantProvider || mediaProvider}
-                    displayName={screenParticipant.displayName}
-                  />
+                  {hideLocalScreenSharePreview ? (
+                    <div
+                      className="classroom-v3-local-share-status"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <span><MonitorUp /></span>
+                      <strong>{t("classroom.v3.localScreenSharing")}</strong>
+                    </div>
+                  ) : (
+                    <MediaSurface
+                      participant={screenParticipant.participant}
+                      provider={screenParticipantProvider || mediaProvider}
+                      displayName={screenParticipant.displayName}
+                    />
+                  )}
                 </motion.div>
               ) : null}
             </AnimatePresence>

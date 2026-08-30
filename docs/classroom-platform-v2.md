@@ -101,6 +101,17 @@ AGORA_STT_MAX_IDLE_SECONDS=300
 WORDLY_API_URL=
 WORDLY_INTERNAL_TOKEN=
 
+# 可选：基于最终字幕生成结构化课后总结；未配置或调用失败时自动使用规则总结。
+AI_SUMMARY_ENABLED=false
+AI_SUMMARY_BASE_URL=https://api.openai.com/v1
+AI_SUMMARY_API_KEY=
+AI_SUMMARY_MODEL=gpt-4.1-mini
+AI_SUMMARY_API_STYLE=responses
+AI_SUMMARY_LANGUAGE=zh-CN
+AI_SUMMARY_TIMEOUT_SECONDS=180
+AI_SUMMARY_MAX_CAPTIONS=2000
+AI_SUMMARY_RETRY_COUNT=3
+
 ALIYUN_OSS_REGION=
 ALIYUN_OSS_BUCKET=
 ALIYUN_OSS_ACCESS_KEY_ID=
@@ -111,6 +122,12 @@ ALIYUN_OSS_ACCESS_KEY_SECRET=
 声网与 Wordly 两种同传模式都使用声网 ASR；声网模式单堂课最多配置 10
 个目标语言，Wordly 模式只把最终句发送到 Bridge。ASR 或翻译失败只影响字幕，
 不会阻止教师和学生进入课堂。
+
+课后总结只读取本节课已经持久化的最终字幕。启用 AI 总结时，服务端使用严格
+JSON Schema 生成课程概述、重点、课堂问题和行动项，并保留数据库计算出的发言人
+统计；模型不可用、超时或返回非法结构时会自动回退到规则总结。总结始终先保存为
+草稿，由教师审核后再发布给学生。兼容网关若只支持 Chat Completions，可把
+`AI_SUMMARY_API_STYLE` 改为 `chat-completions`。
 
 ## ClassIn 对标能力
 

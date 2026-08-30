@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { selectActiveScreenShare } from "../src/lib/classroom/media-routing";
+import {
+  selectActiveScreenShare,
+  shouldHideLocalScreenSharePreview,
+} from "../src/lib/classroom/media-routing";
 import type {
   ClassroomMediaSnapshot,
   ClassroomParticipant,
@@ -108,6 +111,8 @@ test("local main screen track replaces the whiteboard before its participant is 
   assert.equal(selected?.participant.id, "teacher-screen");
   assert.equal(selected?.participant.isLocal, true);
   assert.equal(selected?.source, "main");
+  assert.equal(shouldHideLocalScreenSharePreview(selected, false), true);
+  assert.equal(shouldHideLocalScreenSharePreview(selected, true), false);
 });
 
 test("local room screen track uses its room credential before participant propagation", () => {
@@ -120,4 +125,14 @@ test("local room screen track uses its room credential before participant propag
 
   assert.equal(selected?.participant.id, "student-screen");
   assert.equal(selected?.source, "room");
+});
+
+test("remote screen shares always remain visible to classroom viewers", () => {
+  const selected = selectActiveScreenShare({
+    main: snapshot([participant("student-screen", "screen")]),
+    room: snapshot([]),
+    preferRoom: false,
+  });
+
+  assert.equal(shouldHideLocalScreenSharePreview(selected, false), false);
 });

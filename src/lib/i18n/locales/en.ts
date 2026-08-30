@@ -79,6 +79,7 @@ export const en: typeof zhCN = {
       speaking: "Speaking",
       muted: "Muted",
       screenSharing: "Sharing screen",
+      localScreenSharing: "You are sharing your screen",
       connected: "Connected",
       reconnecting: "Reconnecting",
       cameraOff: "Camera off",

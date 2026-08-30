@@ -4,7 +4,9 @@ import {
   ingestClassroomCaption,
 } from "@/lib/classroom/server/captions";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
+import { verifyRecorderToken } from "@/lib/classroom/server/recorder-token";
 import type { ClassroomCaptionInput } from "@/lib/classroom/types";
+import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -40,19 +42,41 @@ export async function POST(
 ) {
   const { id: courseId } = await params;
   const body = (await request.json().catch(() => null)) as
-    | { caption?: Partial<ClassroomCaptionInput>; shareAccess?: unknown }
+    | {
+        caption?: Partial<ClassroomCaptionInput>;
+        shareAccess?: unknown;
+        recorderToken?: unknown;
+      }
     | null;
   const shareAccess = typeof body?.shareAccess === "string" ? body.shareAccess : "";
-  const resolved = await resolveClassroomRequestAccess(request, courseId, shareAccess);
-  if (!resolved.ok) {
+  const recorderToken =
+    typeof body?.recorderToken === "string" ? body.recorderToken.trim() : "";
+  const recorder = recorderToken
+    ? await verifyRecorderToken(recorderToken, courseId)
+    : false;
+  const resolved = recorder
+    ? null
+    : await resolveClassroomRequestAccess(request, courseId, shareAccess);
+  if (resolved && !resolved.ok) {
     return NextResponse.json(
       { error: resolved.error, code: resolved.code },
       { status: resolved.status },
     );
   }
-  if (resolved.access.role === "student") {
+  if (resolved?.ok && resolved.access.role === "student") {
     return NextResponse.json({ error: "Only teaching roles can ingest captions" }, { status: 403 });
   }
+  const recorderLesson = recorder
+    ? await prisma.courseSession.findUnique({
+        where: { id: courseId },
+        select: { id: true, courseId: true },
+      })
+    : null;
+  if (recorder && !recorderLesson) {
+    return NextResponse.json({ error: "Course session not found" }, { status: 404 });
+  }
+  const resolvedCourseId = recorderLesson?.courseId || resolved!.access.courseId;
+  const resolvedSessionId = recorderLesson?.id || resolved!.access.sessionId;
   const caption = body?.caption;
   if (
     !caption ||
@@ -65,7 +89,7 @@ export async function POST(
   }
   try {
     return NextResponse.json(
-      await ingestClassroomCaption(resolved.access.courseId, {
+      await ingestClassroomCaption(resolvedCourseId, {
         id: caption.id,
         text: caption.text,
         sourceLanguage:
@@ -84,7 +108,7 @@ export async function POST(
             ? caption.occurredAt
             : new Date().toISOString(),
         isFinal: caption.isFinal,
-      }, resolved.access.sessionId),
+      }, resolvedSessionId),
     );
   } catch (error) {
     console.error("[classroom:captions] ingest failed", error);

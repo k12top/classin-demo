@@ -7,6 +7,7 @@ import { stopRecordingAttempt } from "@/lib/classroom/server/recording-orchestra
 import { retryFailedLiveRecordings } from "@/lib/classroom/server/recording-orchestrator";
 import { reconcilePendingRecordings } from "@/lib/classroom/server/recording-orchestrator";
 import { reconcileActiveClassroomTranscriptions } from "@/lib/classroom/server/transcription-orchestrator";
+import { reconcileCourseSessionSummaries } from "@/lib/course-session-summary";
 import { prisma } from "@/lib/db";
 
 function courseAttendanceCloseTime(
@@ -287,6 +288,7 @@ export async function promoteCoursesIfDue(
       reconcilePendingRecordings(),
       retryFailedLiveRecordings(),
       reconcileActiveClassroomTranscriptions(),
+      reconcileCourseSessionSummaries(),
     ]);
   }
 

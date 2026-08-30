@@ -556,6 +556,13 @@ export async function applyClassroomAction(input: {
             status: "live",
             startedAt: runtime.startedAt ?? now,
             graceEndsAt: classroomGraceEndAt(lesson.endTime),
+            // Every lesson records speaker captions for playback and the
+            // teacher-reviewed post-class summary. Teachers may still disable
+            // interpretation explicitly after the class starts.
+            interpretationEnabled: true,
+            transcriptionStatus:
+              runtime.transcriptionStatus === "running" ? "running" : "starting",
+            transcriptionError: null,
             revision: { increment: 1 },
           },
         });

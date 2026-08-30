@@ -3,6 +3,7 @@ import "server-only";
 import type { ClassroomRecording, Prisma } from "@prisma/client";
 import { classroomMediaProfile } from "@/lib/classroom/config";
 import { shouldRecoverRecording } from "@/lib/classroom/recording-continuity";
+import { appendRecordingProviderState } from "@/lib/classroom/recording-provider-state";
 import { getRecordingProvider } from "@/lib/classroom/server/provider-factory";
 import {
   createRecorderPageUrl,
@@ -22,6 +23,10 @@ const RECONCILABLE_RECORDING_STATUSES = [
 const MAX_PROVIDER_RETRIES = 3;
 const PROVIDER_TRANSITION_LEASE_MS = 45_000;
 const PROVIDER_QUERY_INTERVAL_MS = 5_000;
+const RECORDING_START_CONFIRMATION_TIMEOUT_MS = 90_000;
+// Query at 5, 10 and 15 seconds after Shengwang returns the SID. If the
+// request worker exits, the persisted SID is picked up by the minute cron.
+const RECORDING_START_CONFIRMATION_DELAYS_MS = [5_000, 5_000, 5_000] as const;
 
 function inputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -42,6 +47,98 @@ function errorMessage(error: unknown, fallback: string) {
 function playbackFormat(value: string | null | undefined) {
   if (value === "mp4" || value === "hls") return value;
   return null;
+}
+
+function wait(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function confirmRecordingStart(recordingId: string) {
+  const recording = await prisma.classroomRecording.findUnique({
+    where: { id: recordingId },
+  });
+  if (!recording || recording.status !== "starting") return recording;
+  if (
+    !recording.resourceId ||
+    !recording.providerSessionId ||
+    recording.recorderUserId === "pending"
+  ) {
+    return recording;
+  }
+
+  const startedAt = recording.startedAt || recording.createdAt;
+  const confirmationExpired =
+    Date.now() - startedAt.getTime() >= RECORDING_START_CONFIRMATION_TIMEOUT_MS;
+  const provider = getRecordingProvider(recording.provider);
+  try {
+    const queried = await provider.query({
+      channelName: recording.channelName,
+      recorderUserId: recording.recorderUserId,
+      resourceId: recording.resourceId,
+      providerSessionId: recording.providerSessionId,
+      providerState: providerStateRecord(recording.providerState),
+    });
+    const nextProviderState = appendRecordingProviderState(
+      recording.providerState,
+      "lastQuery",
+      queried.providerState,
+    );
+    await prisma.classroomRecording.updateMany({
+      where: { id: recording.id, status: "starting" },
+      data: queried.active
+        ? {
+            status: "recording",
+            providerState: inputJson(nextProviderState),
+            files: queried.files.length ? inputJson(queried.files) : undefined,
+            lastProviderCheckAt: new Date(),
+            errorMessage: null,
+            failureStage: null,
+          }
+        : confirmationExpired
+          ? {
+              status: "failed",
+              providerState: inputJson(nextProviderState),
+              files: queried.files.length ? inputJson(queried.files) : undefined,
+              lastProviderCheckAt: new Date(),
+              startRetryCount: { increment: 1 },
+              retryCount: { increment: 1 },
+              failureStage: "start",
+              errorMessage:
+                "Cloud recorder did not reach an active state within 90 seconds",
+            }
+          : {
+              providerState: inputJson(nextProviderState),
+              files: queried.files.length ? inputJson(queried.files) : undefined,
+              lastProviderCheckAt: new Date(),
+              errorMessage: "Waiting for cloud recorder startup confirmation",
+              failureStage: null,
+            },
+    });
+  } catch (error) {
+    await prisma.classroomRecording.updateMany({
+      where: { id: recording.id, status: "starting" },
+      data: confirmationExpired
+        ? {
+            status: "failed",
+            lastProviderCheckAt: new Date(),
+            startRetryCount: { increment: 1 },
+            retryCount: { increment: 1 },
+            failureStage: "start",
+            errorMessage: errorMessage(
+              error,
+              "Cloud recorder startup confirmation timed out",
+            ),
+          }
+        : {
+            lastProviderCheckAt: new Date(),
+            errorMessage: errorMessage(
+              error,
+              "Cloud recorder startup confirmation is pending",
+            ),
+          },
+    });
+  }
+  return prisma.classroomRecording.findUnique({ where: { id: recordingId } });
 }
 
 export async function requestRecordingStart(
@@ -126,13 +223,26 @@ export async function processRecordingStart(recordingId: string) {
   });
   if (!recording || recording.status !== "starting") return recording;
 
+  // A previous worker may have persisted the provider SID and exited before
+  // confirming it. Never call start twice for the same recording row.
+  if (
+    recording.resourceId &&
+    recording.providerSessionId &&
+    recording.recorderUserId !== "pending"
+  ) {
+    return confirmRecordingStart(recording.id);
+  }
+
   const provider = getRecordingProvider(recording.provider);
+  let started:
+    | Awaited<ReturnType<(typeof provider)["start"]>>
+    | null = null;
   try {
     const pageUrl =
       recording.mode === "web"
         ? await createRecorderPageUrl(recording.sessionId)
         : null;
-    const started = await provider.start({
+    started = await provider.start({
       recordingId: recording.id,
       courseId: recording.sessionId,
       channelName: recording.channelName,
@@ -146,7 +256,9 @@ export async function processRecordingStart(recordingId: string) {
         resourceId: started.resourceId,
         providerSessionId: started.providerSessionId,
         providerState: inputJson(started.providerState),
-        status: "recording",
+        // A SID only means that the start API accepted the request. Keep the
+        // visible status transitional until query reports status 4 or 5.
+        status: "starting",
         mode: started.mode,
         fallbackFrom: started.fallbackFrom || (!pageUrl ? "web" : null),
         startedAt: new Date(),
@@ -175,7 +287,6 @@ export async function processRecordingStart(recordingId: string) {
           });
         });
     }
-    return prisma.classroomRecording.findUnique({ where: { id: recordingId } });
   } catch (error) {
     await prisma.classroomRecording.updateMany({
       where: { id: recording.id, status: "starting" },
@@ -189,6 +300,16 @@ export async function processRecordingStart(recordingId: string) {
     });
     throw error;
   }
+
+  if (!started) {
+    return prisma.classroomRecording.findUnique({ where: { id: recordingId } });
+  }
+  for (const delay of RECORDING_START_CONFIRMATION_DELAYS_MS) {
+    await wait(delay);
+    const confirmed = await confirmRecordingStart(recording.id);
+    if (!confirmed || confirmed.status !== "starting") return confirmed;
+  }
+  return prisma.classroomRecording.findUnique({ where: { id: recordingId } });
 }
 
 /** Compatibility wrapper used by older server paths. */
@@ -287,7 +408,13 @@ export async function processRecordingStop(recordingId: string) {
         playbackObjectKey: stopped.playbackObjectKey,
         playbackFormat: stopped.playbackFormat,
         files: inputJson(stopped.files),
-        providerState: inputJson(stopped.providerState),
+        providerState: inputJson(
+          appendRecordingProviderState(
+            recording.providerState,
+            "lastStop",
+            stopped.providerState,
+          ),
+        ),
         lastProviderCheckAt: new Date(),
         stoppedAt: new Date(),
         errorMessage: null,
@@ -366,7 +493,13 @@ export async function reconcileRecordingAttempt(recordingId: string) {
       status: { in: ["recording", "processing"] },
     },
     data: {
-      providerState: inputJson(queried.providerState),
+      providerState: inputJson(
+        appendRecordingProviderState(
+          recording.providerState,
+          "lastQuery",
+          queried.providerState,
+        ),
+      ),
       files: queried.files.length ? inputJson(queried.files) : undefined,
       playbackObjectKey: objectKey,
       playbackFormat: format,

@@ -6,6 +6,7 @@ import {
   buildCourseSessionSummaryDocument,
   normalizeCourseSessionSummaryDocument,
 } from "@/lib/course-session-summary-document";
+import { generateCourseSessionAISummary } from "@/lib/course-session-ai-summary";
 
 export {
   buildCourseSessionSummaryDocument,
@@ -53,10 +54,26 @@ export async function generateCourseSessionSummary(
   if (!lesson) throw new Error("Course session not found");
   const captions = await prisma.classroomCaption.findMany({
     where: { sessionId, courseId, isFinal: true },
-    select: { speakerId: true, speakerName: true, text: true, occurredAt: true, updatedAt: true },
+    select: { id: true, speakerId: true, speakerName: true, text: true, occurredAt: true, updatedAt: true },
     orderBy: { occurredAt: "asc" },
   });
-  const document = buildCourseSessionSummaryDocument(lesson.title || lesson.course.name, captions);
+  const title = lesson.title || lesson.course.name;
+  const fallbackDocument = buildCourseSessionSummaryDocument(title, captions);
+  let document = fallbackDocument;
+  try {
+    document = await generateCourseSessionAISummary({
+      title,
+      captions,
+      fallback: fallbackDocument,
+    }) || fallbackDocument;
+    document = normalizeCourseSessionSummaryDocument(document, fallbackDocument);
+  } catch (error) {
+    console.warn("[course-summary] AI generation failed; using deterministic fallback", {
+      courseId,
+      sessionId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   const sourceUpdatedAt = captions.reduce<Date | null>(
     (latest, caption) => !latest || caption.updatedAt > latest ? caption.updatedAt : latest,
     null,
@@ -73,6 +90,51 @@ export async function generateCourseSessionSummary(
       captionCount: captions.length, sourceUpdatedAt, generatedBy, generatedAt: new Date(), publishedAt: null,
     },
   });
+}
+
+/**
+ * Durable cron fallback for an interrupted post-class callback and for final
+ * captions that arrive shortly after the lesson ended.
+ */
+export async function reconcileCourseSessionSummaries(limit = 25) {
+  const lessons = await prisma.courseSession.findMany({
+    where: {
+      status: { in: ["afterClass", "finished"] },
+      classroomCaptions: { some: { isFinal: true } },
+      OR: [
+        { summary: { is: null } },
+        { summary: { is: { status: "draft", generatedBy: "system" } } },
+      ],
+    },
+    select: {
+      id: true,
+      courseId: true,
+      summary: { select: { captionCount: true, sourceUpdatedAt: true } },
+      classroomCaptions: {
+        where: { isFinal: true },
+        select: { updatedAt: true },
+        orderBy: { updatedAt: "desc" },
+        take: 1,
+      },
+      _count: { select: { classroomCaptions: { where: { isFinal: true } } } },
+    },
+    orderBy: { endTime: "asc" },
+    take: limit,
+  });
+  let reconciled = 0;
+  for (const lesson of lessons) {
+    const latestCaptionAt = lesson.classroomCaptions[0]?.updatedAt || null;
+    const alreadyCurrent =
+      lesson.summary &&
+      lesson.summary.captionCount === lesson._count.classroomCaptions &&
+      (!latestCaptionAt ||
+        (lesson.summary.sourceUpdatedAt &&
+          lesson.summary.sourceUpdatedAt >= latestCaptionAt));
+    if (alreadyCurrent) continue;
+    await generateCourseSessionSummary(lesson.courseId, lesson.id, "system");
+    reconciled += 1;
+  }
+  return reconciled;
 }
 
 export async function saveCourseSessionSummary(

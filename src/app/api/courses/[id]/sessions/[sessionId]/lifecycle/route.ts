@@ -245,7 +245,7 @@ async function handlePost(request: NextRequest, context: Context) {
         await generateCourseSessionSummary(
           resolved.courseId,
           resolved.sessionId,
-          resolved.identity.userId,
+          "system",
         );
       } catch (error) {
         console.error("[classroom:lifecycle] summary generation failed", {

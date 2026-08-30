@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import {
+  agoraRecordingWebhookLabel,
+  agoraWebhookDeepValue,
   agoraWebhookNoticeId,
+  classifyAgoraRecordingWebhook,
   verifyAgoraWebhookSignature,
 } from "@/lib/classroom/agora-webhook";
 import { selectAgoraRecordingPlayback } from "@/lib/classroom/providers/agora/server";
+import { appendRecordingProviderState } from "@/lib/classroom/recording-provider-state";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -16,25 +20,8 @@ function recordValue(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function deepValue(value: unknown, names: readonly string[]): unknown {
-  const queue: unknown[] = [value];
-  for (let index = 0; index < queue.length && index < 100; index += 1) {
-    const current = queue[index];
-    const record = recordValue(current);
-    if (!record) {
-      if (Array.isArray(current)) queue.push(...current);
-      continue;
-    }
-    for (const name of names) {
-      if (record[name] !== undefined && record[name] !== null) return record[name];
-    }
-    queue.push(...Object.values(record));
-  }
-  return undefined;
-}
-
 function deepFiles(value: unknown): unknown[] {
-  const found = deepValue(value, ["fileList", "files"]);
+  const found = agoraWebhookDeepValue(value, ["fileList", "files"]);
   return Array.isArray(found) ? found : [];
 }
 
@@ -111,10 +98,10 @@ export async function POST(request: NextRequest) {
   }
 
   const sid = textValue(
-    deepValue(payload, ["sid", "recordingSid", "providerSessionId"]),
+    agoraWebhookDeepValue(payload, ["sid", "recordingSid", "providerSessionId"]),
   );
   const channelName = textValue(
-    deepValue(payload, ["cname", "channelName", "channel"]),
+    agoraWebhookDeepValue(payload, ["cname", "channelName", "channel"]),
   );
   const identities = [
     ...(sid ? [{ providerSessionId: sid }] : []),
@@ -136,11 +123,14 @@ export async function POST(request: NextRequest) {
       files,
       providerPrefix(recording.providerState),
     );
-    const eventLabel = `${eventType} ${textValue(
-      deepValue(payload, ["status", "state", "reason"]),
-    )}`.toLowerCase();
-    const failed = /fail|error|abnormal/.test(eventLabel);
-    const stopped = /stop|leave|upload|complete|finish/.test(eventLabel);
+    const disposition = classifyAgoraRecordingWebhook(payload);
+    const eventLabel = agoraRecordingWebhookLabel(payload);
+    const nextProviderState = appendRecordingProviderState(
+      recording.providerState,
+      "lastWebhook",
+      payload,
+    );
+    const failed = disposition === "failed" && recording.status !== "completed";
     await prisma.classroomRecording.update({
       where: { id: recording.id },
       data: failed
@@ -148,15 +138,15 @@ export async function POST(request: NextRequest) {
             status: "failed",
             failureStage: "webhook",
             errorMessage: eventLabel.slice(0, 1000),
-            providerState: inputJson(payload),
+            providerState: inputJson(nextProviderState),
             lastProviderCheckAt: new Date(),
           }
         : {
             status: playback.objectKey
               ? "completed"
-              : stopped
+              : disposition === "processing"
                 ? "processing"
-                : recording.status === "starting"
+                : disposition === "started" && recording.status === "starting"
                   ? "recording"
                   : recording.status,
             ...(files.length ? { files: inputJson(files) } : {}),
@@ -167,8 +157,11 @@ export async function POST(request: NextRequest) {
                   stoppedAt: recording.stoppedAt || new Date(),
                 }
               : {}),
-            providerState: inputJson(payload),
+            providerState: inputJson(nextProviderState),
             lastProviderCheckAt: new Date(),
+            ...(disposition === "started" && !recording.startedAt
+              ? { startedAt: new Date() }
+              : {}),
             errorMessage: null,
             failureStage: null,
           },

@@ -16,6 +16,55 @@ import {
   resolveManualFinishedStatus,
 } from "../src/lib/course-status";
 import { planLargeClassAssignments } from "../src/lib/classroom/space-planner";
+import { shouldApplyClassroomRevision } from "../src/lib/classroom/runtime-revision";
+import {
+  captionTranslation,
+  selectStableCaption,
+} from "../src/lib/classroom/caption-display";
+
+assert.equal(shouldApplyClassroomRevision(20, 19), false);
+assert.equal(shouldApplyClassroomRevision(20, 20), true);
+assert.equal(shouldApplyClassroomRevision(20, 21), true);
+assert.equal(shouldApplyClassroomRevision(20, undefined), true);
+
+const captionBase = {
+  speakerId: "teacher",
+  speakerName: "李老师",
+  sourceLanguage: "zh-CN",
+  detectedLanguage: "zh-CN",
+  occurredAt: "2026-08-29T10:00:00.000Z",
+};
+const stableCaption = {
+  ...captionBase,
+  id: "caption-1",
+  text: "今天学习方程。",
+  translations: { "en-US": "Today we study equations." },
+  isFinal: true,
+};
+const translationPending = {
+  ...captionBase,
+  id: "caption-2",
+  text: "请完成课后练习。",
+  translations: {},
+  isFinal: true,
+};
+assert.equal(
+  selectStableCaption(
+    [stableCaption, translationPending],
+    "en-US",
+    "bilingual",
+  )?.id,
+  "caption-1",
+);
+assert.equal(
+  selectStableCaption(
+    [stableCaption, translationPending],
+    "en-US",
+    "original",
+  )?.id,
+  "caption-2",
+);
+assert.equal(captionTranslation(stableCaption, "en-GB"), "Today we study equations.");
 
 const teacher = classroomCapabilities("teacher");
 assert.equal(teacher.canStartClass, true);

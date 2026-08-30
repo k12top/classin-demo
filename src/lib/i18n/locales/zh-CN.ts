@@ -77,6 +77,7 @@ export const zhCN = {
       speaking: "正在发言",
       muted: "已静音",
       screenSharing: "正在共享屏幕",
+      localScreenSharing: "您正在共享屏幕",
       connected: "连接正常",
       reconnecting: "正在重连",
       cameraOff: "摄像头已关闭",

@@ -2996,6 +2996,40 @@ button.classroom-v3-seat-preview:focus-visible::after {
   background: #0d0f12;
 }
 
+.classroom-v3-local-share-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  color: #eef1f5;
+  background: #0d0f12;
+  text-align: center;
+}
+
+.classroom-v3-local-share-status > span {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border-radius: 16px;
+  color: #73ddb7;
+  background: rgb(50 212 154 / 0.1);
+}
+
+.classroom-v3-local-share-status svg {
+  width: 25px;
+  height: 25px;
+}
+
+.classroom-v3-local-share-status strong {
+  font-size: 18px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+}
+
 .classroom-v3-media {
   overflow: hidden;
   background: #0d0f12;

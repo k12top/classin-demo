@@ -62,6 +62,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   private videoElements = new Map<string, Set<HTMLElement>>();
   private listeners = new Set<ClassroomMediaListener>();
   private captionListeners = new Set<ClassroomCaptionListener>();
+  private tokenExpiryListeners = new Set<() => void>();
   private snapshot: ClassroomMediaSnapshot = {
     connectionState: "idle",
     participants: [],
@@ -89,6 +90,15 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   subscribeCaptions(listener: ClassroomCaptionListener): () => void {
     this.captionListeners.add(listener);
     return () => this.captionListeners.delete(listener);
+  }
+
+  subscribeTokenExpiry(listener: () => void): () => void {
+    this.tokenExpiryListeners.add(listener);
+    return () => this.tokenExpiryListeners.delete(listener);
+  }
+
+  private emitTokenExpiry() {
+    for (const listener of this.tokenExpiryListeners) listener();
   }
 
   getSnapshot(): ClassroomMediaSnapshot {
@@ -238,6 +248,8 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       this.snapshot.connectionState = connectionState(state);
       this.emit();
     });
+    client.on("token-privilege-will-expire", () => this.emitTokenExpiry());
+    client.on("token-privilege-did-expire", () => this.emitTokenExpiry());
     client.on("network-quality", (quality) => {
       const rtcStats = client.getRTCStats();
       const audioLoss = client.getLocalAudioStats().currentPacketLossRate;
@@ -453,6 +465,12 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       }),
     });
     this.screenClient = screenClient;
+    screenClient.on("token-privilege-will-expire", () =>
+      this.emitTokenExpiry(),
+    );
+    screenClient.on("token-privilege-did-expire", () =>
+      this.emitTokenExpiry(),
+    );
     screenTrack.on("track-ended", () => {
       void this.stopScreenShare();
     });
@@ -548,6 +566,29 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     await this.client.renewToken(token);
   }
 
+  async renewCredential(credential: ClassroomJoinCredential): Promise<void> {
+    if (!this.client || !this.credential) {
+      throw new Error("课堂尚未连接");
+    }
+    if (
+      credential.channelName !== this.credential.channelName ||
+      credential.userId !== this.credential.userId
+    ) {
+      throw new Error("续期凭证与当前课堂不匹配");
+    }
+    await this.client.renewToken(credential.token);
+    if (this.screenClient && this.snapshot.local.screenSharing) {
+      if (
+        !credential.screenShare ||
+        credential.screenShare.userId !== this.credential.screenShare?.userId
+      ) {
+        throw new Error("共享屏幕续期凭证与当前课堂不匹配");
+      }
+      await this.screenClient.renewToken(credential.screenShare.token);
+    }
+    this.credential = { ...this.credential, ...credential };
+  }
+
   async listDevices(): Promise<{
     microphones: MediaDeviceInfo[];
     cameras: MediaDeviceInfo[];
@@ -602,7 +643,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       ) {
         throw new Error("发布凭证与当前课堂不匹配");
       }
-      await this.client.renewToken(credential.token);
+      await this.renewCredential(credential);
       if (credential.scenario === "liveBroadcasting") {
         await this.client.setClientRole("host");
       }
@@ -669,6 +710,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.participants.clear();
     for (const id of this.videoElements.keys()) this.clearVideoTargets(id);
     this.videoElements.clear();
+    this.tokenExpiryListeners.clear();
     this.credential = null;
     this.preferredMicrophoneId = undefined;
     this.preferredCameraId = undefined;
