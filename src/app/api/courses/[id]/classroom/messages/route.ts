@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import type { ClassroomMessageSnapshot } from "@/lib/classroom/types";
 import {
   ensureClassroomRuntime,
-  getClassroomRuntimeSnapshot,
   touchClassroomMember,
 } from "@/lib/classroom/server/runtime";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
@@ -58,13 +57,6 @@ async function access(
     shareAccess,
   );
   if (!resolved.ok) return resolved;
-  await touchClassroomMember(
-    resolved.access.courseId,
-    resolved.session,
-    resolved.access.role,
-    undefined,
-    resolved.access.sessionId,
-  );
   return resolved;
 }
 
@@ -154,18 +146,26 @@ export async function POST(
     );
   }
   const sessionId = resolved.access.sessionId;
-  const runtime = await ensureClassroomRuntime(
-    resolved.access.courseId,
-    sessionId,
-  );
-  const member = await prisma.classroomMemberState.findUniqueOrThrow({
-    where: {
-      sessionId_userId: {
-        sessionId,
-        userId: resolved.session.userId,
+  const [runtime, existingMember] = await Promise.all([
+    ensureClassroomRuntime(resolved.access.courseId, sessionId),
+    prisma.classroomMemberState.findUnique({
+      where: {
+        sessionId_userId: {
+          sessionId,
+          userId: resolved.session.userId,
+        },
       },
-    },
-  });
+    }),
+  ]);
+  const member =
+    existingMember ??
+    (await touchClassroomMember(
+      resolved.access.courseId,
+      resolved.session,
+      resolved.access.role,
+      undefined,
+      sessionId,
+    ));
   const teachingRole =
     resolved.access.role === "teacher" ||
     resolved.access.role === "assistant";
@@ -222,7 +222,7 @@ export async function POST(
     }
   }
 
-  const [message] = await prisma.$transaction([
+  const [message, updatedRuntime] = await prisma.$transaction([
     prisma.classroomMessage.create({
       data: {
         runtimeId: runtime.id,
@@ -245,12 +245,8 @@ export async function POST(
       data: { revision: { increment: 1 } },
     }),
   ]);
-  const runtimeSnapshot = await getClassroomRuntimeSnapshot(
-    resolved.access.courseId,
-    sessionId,
-  );
   return NextResponse.json(
-    { message: publicMessage(message), revision: runtimeSnapshot.revision },
+    { message: publicMessage(message), revision: updatedRuntime.revision },
     { status: 201 },
   );
 }

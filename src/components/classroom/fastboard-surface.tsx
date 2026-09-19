@@ -42,6 +42,7 @@ export type ClassroomWhiteboardController = {
   setTool(tool: ClassroomWhiteboardTool): void;
   setStrokeColor(color: [number, number, number]): void;
   setStrokeWidth(width: number): void;
+  setEraserSize(size: 1 | 2 | 3 | 4): void;
   setTextSize(size: number): void;
   undo(): void;
   redo(): void;
@@ -181,63 +182,53 @@ export function FastboardSurface({
         if (cancelled) return;
         const fastboard = await preloadFastboard();
         if (cancelled) return;
-        const { WhiteWebSdk } = await import("white-web-sdk");
         const initialBounds = mountTarget.getBoundingClientRect();
         const initialContainerSizeRatio =
           initialBounds.width > 0 && initialBounds.height > 0
             ? initialBounds.height / initialBounds.width
             : 9 / 16;
-        // Fastboard 1.1.8 strips `useMultiViews` from its public options and
-        // then forces it to true before joining the SDK room. Canvas capture
-        // is explicitly unsupported in that mode. Intercept its one join
-        // call so the underlying SDK receives the required single-view flag.
-        const originalJoinRoom = WhiteWebSdk.prototype.joinRoom;
-        WhiteWebSdk.prototype.joinRoom = function joinSingleViewRoom(
-          params,
-          callbacks,
-          options,
-        ) {
-          return originalJoinRoom.call(
-            this,
-            { ...params, useMultiViews: false },
-            callbacks,
-            options,
-          );
-        };
-        let createdApp: FastboardApp;
-        try {
-          createdApp = await fastboard.createFastboard({
-            sdkConfig: {
-              appIdentifier: credential.appIdentifier!,
-              region: credential.region!,
-            },
-            joinRoom: {
-              uid: `web-${crypto.randomUUID()}`,
-              uuid: credential.roomUuid!,
-              roomToken: credential.roomToken!,
-              isWritable: credential.writable,
-              disableDeviceInputs: !credential.writable,
-            },
-            managerConfig: {
-              cursor: true,
-              // WindowManager defaults to a centered 16:9 playground. The
-              // classroom stage can be portrait or nearly square, so that
-              // default leaves large visible regions outside the interactive
-              // whiteboard. Match the actual stage and keep it synchronized in
-              // the ResizeObserver below.
-              containerSizeRatio: initialContainerSizeRatio,
-              chessboard: false,
-              builtinAppOptions: {
-                Presentation: {
-                  useScrollbar: true,
-                  debounceSync: true,
-                },
+        // Fastboard's WindowManager is built on the SDK multi-view runtime.
+        // Do not override `useMultiViews`: doing so makes WindowManager fail
+        // as soon as it reads `room.views`. Operations such as screenshots
+        // must target `manager.mainView` instead of the legacy room methods.
+        const createdApp = await fastboard.createFastboard({
+          sdkConfig: {
+            appIdentifier: credential.appIdentifier!,
+            region: credential.region!,
+            // The SDK's optional local file logger requires a separately
+            // bundled agora-foundation worker. This app uses the SDK's normal
+            // Argus reporting, so skip the unavailable local runtime instead
+            // of letting its fallback be reported as a console error.
+            loggerOptions: {
+              localLog: {
+                enabled: false,
               },
             },
-          });
-        } finally {
-          WhiteWebSdk.prototype.joinRoom = originalJoinRoom;
-        }
+          },
+          joinRoom: {
+            uid: `web-${crypto.randomUUID()}`,
+            uuid: credential.roomUuid!,
+            roomToken: credential.roomToken!,
+            isWritable: credential.writable,
+            disableDeviceInputs: !credential.writable,
+          },
+          managerConfig: {
+            cursor: true,
+            // WindowManager defaults to a centered 16:9 playground. The
+            // classroom stage can be portrait or nearly square, so that
+            // default leaves large visible regions outside the interactive
+            // whiteboard. Match the actual stage and keep it synchronized in
+            // the ResizeObserver below.
+            containerSizeRatio: initialContainerSizeRatio,
+            chessboard: false,
+            builtinAppOptions: {
+              Presentation: {
+                useScrollbar: true,
+                debounceSync: true,
+              },
+            },
+          },
+        });
         app = createdApp;
         if (cancelled) {
           app = null;
@@ -283,13 +274,23 @@ export function FastboardSurface({
               setTool: (tool) => {
                 activeToolRef.current = tool;
                 mountTarget.dataset.whiteboardTool = tool;
-                createdApp.setAppliance(tool === "clicker" ? "selector" : tool);
+                createdApp.setAppliance(
+                  tool === "clicker"
+                    ? "selector"
+                    : tool === "eraser"
+                      ? "pencilEraser"
+                      : tool,
+                );
               },
               setStrokeColor: (color) => {
                 createdApp.setStrokeColor(color);
                 createdApp.setTextColor(color);
               },
               setStrokeWidth: (width) => createdApp.setStrokeWidth(width),
+              setEraserSize: (size) => {
+                mountTarget.dataset.whiteboardEraserSize = String(size);
+                createdApp.setPencilEraserSize(size);
+              },
               setTextSize: (size) => createdApp.setTextSize(size),
               undo: () => createdApp.undo(),
               redo: () => createdApp.redo(),
@@ -303,26 +304,31 @@ export function FastboardSurface({
                 canvas.height = height;
                 const context = canvas.getContext("2d");
                 if (!context) throw new Error("WHITEBOARD_CAPTURE_FAILED");
-                const { scenePath } = createdApp.room.state.sceneState;
-                await createdApp.room.screenshotToCanvasAsync(
+                const mainView = createdApp.manager.mainView;
+                const scenePath = mainView.focusScenePath;
+                if (!scenePath) throw new Error("WHITEBOARD_SCENE_NOT_READY");
+                await mainView.screenshotToCanvasAsync(
                   context,
                   scenePath,
                   width,
                   height,
-                  createdApp.room.state.cameraState,
+                  mainView.camera,
                 );
                 return canvasBlob(canvas);
               },
-              exportBoard: () =>
-                createdApp.room.exportScene(
-                  createdApp.room.state.sceneState.scenePath,
-                ),
+              exportBoard: () => {
+                const scenePath = createdApp.manager.mainView.focusScenePath;
+                if (!scenePath) {
+                  return Promise.reject(new Error("WHITEBOARD_SCENE_NOT_READY"));
+                }
+                return createdApp.room.exportScene(scenePath);
+              },
               importBoard: async (file) => {
                 const imported = await createdApp.room.importScene(
                   "/classroom-imports",
                   file,
                 );
-                createdApp.room.setScenePath(
+                await createdApp.manager.setMainViewScenePath(
                   `/classroom-imports/${imported.name}`,
                 );
               },

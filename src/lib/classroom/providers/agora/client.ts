@@ -8,6 +8,9 @@ import AgoraRTC, {
   type IMicrophoneAudioTrack,
   type UID,
 } from "agora-rtc-sdk-ng";
+import VirtualBackgroundExtension, {
+  type IVirtualBackgroundProcessor,
+} from "agora-extension-virtual-background";
 import {
   classroomMediaProfile,
   classroomVideoPresets,
@@ -23,7 +26,25 @@ import {
   type ClassroomMediaProvider,
   type ClassroomMediaSnapshot,
   type ClassroomParticipant,
+  type ClassroomVideoBackgroundEffect,
 } from "@/lib/classroom/types";
+
+type ClassroomAgoraGlobal = typeof globalThis & {
+  __classroomVirtualBackgroundExtension?: InstanceType<
+    typeof VirtualBackgroundExtension
+  >;
+};
+
+const classroomAgoraGlobal = globalThis as ClassroomAgoraGlobal;
+const virtualBackgroundExtension =
+  classroomAgoraGlobal.__classroomVirtualBackgroundExtension ??
+  new VirtualBackgroundExtension();
+
+if (!classroomAgoraGlobal.__classroomVirtualBackgroundExtension) {
+  AgoraRTC.registerExtensions([virtualBackgroundExtension]);
+  classroomAgoraGlobal.__classroomVirtualBackgroundExtension =
+    virtualBackgroundExtension;
+}
 
 function participantId(uid: UID): string {
   return String(uid);
@@ -57,6 +78,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   private screenTrack: ILocalVideoTrack | null = null;
   private preferredMicrophoneId: string | undefined;
   private preferredCameraId: string | undefined;
+  private virtualBackgroundProcessor: IVirtualBackgroundProcessor | null = null;
+  private virtualBackgroundEffect: ClassroomVideoBackgroundEffect = {
+    type: "none",
+  };
   private remoteUsers = new Map<string, IAgoraRTCRemoteUser>();
   private participants = new Map<string, ClassroomParticipant>();
   private videoElements = new Map<string, Set<HTMLElement>>();
@@ -400,7 +425,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     if (!this.cameraTrack) {
       const high =
         classroomVideoPresets[this.snapshot.local.videoQuality].camera.high;
-      this.cameraTrack = await AgoraRTC.createCameraVideoTrack({
+      const cameraTrack = await AgoraRTC.createCameraVideoTrack({
         ...(this.preferredCameraId && {
           cameraId: this.preferredCameraId,
         }),
@@ -413,7 +438,18 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         },
         optimizationMode: "balanced",
       });
-      await this.client.publish(this.cameraTrack);
+      this.cameraTrack = cameraTrack;
+      try {
+        if (this.virtualBackgroundEffect.type !== "none") {
+          await this.applyVirtualBackground();
+        }
+        await this.client.publish(cameraTrack);
+      } catch (error) {
+        await this.releaseVirtualBackgroundProcessor();
+        cameraTrack.close();
+        this.cameraTrack = null;
+        throw error;
+      }
       this.snapshot.local.cameraOn = true;
     } else {
       const next = !this.snapshot.local.cameraOn;
@@ -629,6 +665,97 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.emit();
   }
 
+  supportsVirtualBackground(): boolean {
+    try {
+      return virtualBackgroundExtension.checkCompatibility();
+    } catch {
+      return false;
+    }
+  }
+
+  private async ensureVirtualBackgroundProcessor() {
+    if (!this.cameraTrack) return null;
+    if (this.virtualBackgroundProcessor) {
+      return this.virtualBackgroundProcessor;
+    }
+    if (!this.supportsVirtualBackground()) {
+      throw new Error("当前浏览器或设备不支持虚拟背景");
+    }
+    const processor = virtualBackgroundExtension.createProcessor();
+    await processor.init();
+    this.cameraTrack.pipe(processor).pipe(this.cameraTrack.processorDestination);
+    this.virtualBackgroundProcessor = processor;
+    return processor;
+  }
+
+  private async applyVirtualBackground() {
+    if (!this.cameraTrack) return;
+    if (this.virtualBackgroundEffect.type === "none") {
+      await this.virtualBackgroundProcessor?.disable();
+      return;
+    }
+    const processor = await this.ensureVirtualBackgroundProcessor();
+    if (!processor) return;
+    switch (this.virtualBackgroundEffect.type) {
+      case "blur":
+        processor.setOptions({
+          type: "blur",
+          blurDegree: this.virtualBackgroundEffect.blurDegree,
+        });
+        break;
+      case "color":
+        processor.setOptions({
+          type: "color",
+          color: this.virtualBackgroundEffect.color,
+        });
+        break;
+      case "image":
+        processor.setOptions({
+          type: "img",
+          source: this.virtualBackgroundEffect.source,
+          fit: "cover",
+        });
+        break;
+    }
+    await processor.enable();
+  }
+
+  async setVirtualBackground(
+    effect: ClassroomVideoBackgroundEffect,
+  ): Promise<void> {
+    if (effect.type !== "none" && !this.supportsVirtualBackground()) {
+      throw new Error("当前浏览器或设备不支持虚拟背景");
+    }
+    const previousEffect = this.virtualBackgroundEffect;
+    this.virtualBackgroundEffect = effect;
+    try {
+      await this.applyVirtualBackground();
+    } catch (error) {
+      this.virtualBackgroundEffect = previousEffect;
+      if (this.cameraTrack && this.snapshot.local.cameraOn) {
+        await this.cameraTrack.setMuted(true).catch(() => undefined);
+        this.snapshot.local.cameraOn = false;
+        if (this.credential) {
+          this.upsertParticipant(this.credential.userId, { hasVideo: false });
+          this.clearVideoTargets(this.credential.userId);
+        } else {
+          this.emit();
+        }
+      }
+      throw error;
+    }
+  }
+
+  private async releaseVirtualBackgroundProcessor() {
+    const processor = this.virtualBackgroundProcessor;
+    this.virtualBackgroundProcessor = null;
+    if (!processor) return;
+    this.cameraTrack?.unpipe();
+    processor.unpipe();
+    await Promise.resolve(processor.disable()).catch(() => undefined);
+    await processor.release().catch(() => undefined);
+  }
+
   async setPublishingCredential(
     credential: ClassroomJoinCredential | null,
   ): Promise<void> {
@@ -662,6 +789,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     if (localTracks.length > 0) {
       await this.client.unpublish(localTracks).catch(() => undefined);
     }
+    await this.releaseVirtualBackgroundProcessor();
     this.microphoneTrack?.close();
     this.cameraTrack?.close();
     this.microphoneTrack = null;
@@ -702,6 +830,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       await client.leave().catch(() => undefined);
       client.removeAllListeners();
     }
+    await this.releaseVirtualBackgroundProcessor();
     this.microphoneTrack?.close();
     this.cameraTrack?.close();
     this.microphoneTrack = null;
@@ -714,6 +843,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.credential = null;
     this.preferredMicrophoneId = undefined;
     this.preferredCameraId = undefined;
+    this.virtualBackgroundEffect = { type: "none" };
     this.snapshot = {
       connectionState: "disconnected",
       participants: [],

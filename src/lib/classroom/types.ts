@@ -91,6 +91,12 @@ export type ClassroomCaptionInput = {
 
 export type ClassroomCaptionListener = (caption: ClassroomCaptionInput) => void;
 
+export type ClassroomVideoBackgroundEffect =
+  | { type: "none" }
+  | { type: "blur"; blurDegree: 1 | 2 | 3 }
+  | { type: "color"; color: string }
+  | { type: "image"; source: HTMLImageElement };
+
 export interface ClassroomMediaProvider {
   connect(
     credential: ClassroomJoinCredential,
@@ -120,6 +126,8 @@ export interface ClassroomMediaProvider {
   setMicrophoneDevice(deviceId: string): Promise<void>;
   setCameraDevice(deviceId: string): Promise<void>;
   setVideoQuality(quality: "economy" | "hd" | "fullHd"): Promise<void>;
+  supportsVirtualBackground(): boolean;
+  setVirtualBackground(effect: ClassroomVideoBackgroundEffect): Promise<void>;
 }
 
 export type ClassroomStageMode =

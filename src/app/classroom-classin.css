@@ -236,6 +236,13 @@
   border-radius: inherit;
 }
 
+/* The preview action label and the footer controls previously occupied the
+   same bottom-right area on hover. The footer is the single control surface;
+   the preview remains accessible through its native title and focus ring. */
+.is-classin-layout button.classroom-v3-seat-preview::after {
+  display: none;
+}
+
 .is-classin-layout .classroom-v3-seat > footer {
   right: 4px;
   bottom: 4px;
@@ -549,7 +556,7 @@
 
   .classroom-v3-shell.is-classin-layout.is-rail-collapsed,
   .classroom-v3-shell.is-classin-layout.is-mode-oneToOne.is-rail-collapsed {
-    grid-template-rows: 44px 38px minmax(0, 1fr);
+    grid-template-rows: 44px 30px minmax(0, 1fr);
   }
 
   .is-classin-layout .classroom-v3-live-rail {
@@ -584,17 +591,58 @@
   }
 
   .is-classin-layout .classroom-v3-live-rail[data-collapsed="true"] {
-    min-height: 38px;
-    padding: 3px 38px;
+    min-height: 30px;
+    justify-content: center;
+    padding: 0;
+    overflow: visible;
+    border-bottom-color: transparent;
+    background: #111821;
+  }
+
+  .is-classin-layout .classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-rail-title,
+  .is-classin-layout .classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-seats {
+    display: none;
   }
 
   .is-classin-layout .classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-hand-queue {
-    bottom: 5px;
+    position: absolute;
+    right: 12px;
+    bottom: 1px;
+    height: 28px;
+    margin: 0;
   }
 
   .is-classin-layout .classroom-v3-rail-toggle {
     opacity: 0;
-    transition: opacity 160ms ease, color 160ms ease, background 160ms ease;
+    transition:
+      opacity 160ms ease,
+      color 160ms ease,
+      background 160ms ease,
+      box-shadow 180ms ease,
+      transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .is-classin-layout .classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-rail-toggle {
+    top: 50%;
+    right: 50%;
+    width: auto;
+    min-width: 126px;
+    height: 28px;
+    padding: 0 9px 0 10px;
+    border: 1px solid rgb(163 180 198 / 0.2);
+    border-radius: 999px;
+    color: #cbd5df;
+    background: #1a2531;
+    box-shadow: 0 5px 14px rgb(0 0 0 / 0.2);
+    opacity: 1;
+    transform: translate(50%, -50%);
+  }
+
+  .is-classin-layout .classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-rail-toggle:hover,
+  .is-classin-layout .classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-rail-toggle:focus-visible {
+    color: #f3f7fb;
+    background: #22303d;
+    box-shadow: 0 7px 18px rgb(0 0 0 / 0.26);
   }
 
   .is-classin-layout .classroom-v3-live-rail:hover .classroom-v3-rail-toggle,

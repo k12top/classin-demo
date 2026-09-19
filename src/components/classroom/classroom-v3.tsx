@@ -2,6 +2,7 @@
 
 import {
   CSSProperties,
+  ChangeEvent,
   FormEvent,
   KeyboardEvent,
   PointerEvent as ReactPointerEvent,
@@ -114,6 +115,7 @@ import type {
   ClassroomRuntimeSnapshot,
   ClassroomSessionResponse,
   ClassroomSpaceSnapshot,
+  ClassroomVideoBackgroundEffect,
   ClassroomQuestionSnapshot,
 } from "@/lib/classroom/types";
 import {
@@ -144,6 +146,11 @@ import {
 } from "@/lib/classroom/caption-display";
 
 type LoadingState = "loading" | "ready" | "error";
+const CLASSROOM_BACKGROUND_IMAGE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
 type DrawerPanel =
   | "members"
   | "rooms"
@@ -157,6 +164,7 @@ type ClassroomLayoutMode = "focus" | "split" | "grid";
 type CaptionDisplayMode = "off" | "original" | "bilingual" | "translated";
 
 const TEACHER_PIP_HIDDEN_STORAGE_KEY = "classroom_teacher_pip_hidden";
+const OPTIMISTIC_MESSAGE_PREFIX = "optimistic:";
 
 const EMPTY_MEDIA: ClassroomMediaSnapshot = {
   connectionState: "idle",
@@ -1309,6 +1317,11 @@ function LiveRail({
             : "classroom.v3.collapseStageSeats",
         )}
       >
+        <span className="classroom-v3-rail-toggle-summary" aria-hidden="true">
+          <i />
+          <span>{t("classroom.v3.stageSeats")}</span>
+          <strong>{seatedMembers.length}</strong>
+        </span>
         <ChevronRight />
       </button>
       <div className="classroom-v3-rail-title">
@@ -1402,6 +1415,7 @@ function DrawerNavigation({
   const [toolPopoverTop, setToolPopoverTop] = useState<number | null>(null);
   const [strokeColor, setStrokeColor] = useState("49-198-155");
   const [strokeWidth, setStrokeWidth] = useState(4);
+  const [eraserSize, setEraserSize] = useState<1 | 2 | 3 | 4>(2);
   const [textSize, setTextSize] = useState(24);
   const [classroomMenuOpen, setClassroomMenuOpen] = useState(false);
   const [clearBoardConfirming, setClearBoardConfirming] = useState(false);
@@ -1439,7 +1453,12 @@ function DrawerNavigation({
     { id: "pencil", label: t("classroom.v3.boardPencil"), icon: Pencil, settings: true },
     { id: "text", label: t("classroom.v3.boardText"), icon: Type, settings: true },
     { id: "rectangle", label: t("classroom.v3.boardShape"), icon: Shapes, settings: true },
-    { id: "eraser", label: t("classroom.v3.boardEraser"), icon: Eraser },
+    {
+      id: "eraser",
+      label: t("classroom.v3.boardEraser"),
+      icon: Eraser,
+      settings: true,
+    },
     { id: "laserPointer", label: t("classroom.v3.boardLaser"), icon: Radio },
   ];
   const selectedBoardTool =
@@ -1455,6 +1474,9 @@ function DrawerNavigation({
     onInteract();
     onWhiteboardToolChange(tool.id);
     whiteboardController?.setTool(tool.id);
+    if (tool.id === "eraser") {
+      whiteboardController?.setEraserSize(eraserSize);
+    }
     setToolSettingsOpen(Boolean(tool.settings));
     if (tool.settings) {
       const side = target.closest(".classroom-v3-side")?.getBoundingClientRect();
@@ -1698,7 +1720,11 @@ function DrawerNavigation({
       >
         <div className="classroom-v3-tool-popover-header">
           <strong>{selectedBoardTool.label}</strong>
-          <small>{t("classroom.v3.whiteboardToolSettings")}</small>
+          <small>
+            {selectedBoardTool.id === "eraser"
+              ? t("classroom.v3.eraserSettings")
+              : t("classroom.v3.whiteboardToolSettings")}
+          </small>
         </div>
         {selectedBoardTool.id === "rectangle" && (
           <div className="classroom-v3-tool-shapes" role="group">
@@ -1722,45 +1748,83 @@ function DrawerNavigation({
             ))}
           </div>
         )}
-        <div className="classroom-v3-tool-colors">
-          {([
-            [30, 36, 46],
-            [49, 198, 155],
-            [75, 112, 245],
-            [238, 78, 94],
-            [246, 178, 62],
-          ] as const).map((color) => (
-            <button
-              type="button"
-              key={color.join("-")}
-              className={strokeColor === color.join("-") ? "is-active" : ""}
-              style={{ backgroundColor: `rgb(${color.join(" ")})` }}
-              onClick={() => {
-                whiteboardController?.setStrokeColor([...color]);
-                setStrokeColor(color.join("-"));
-                onInteract();
-              }}
-              aria-label={t("classroom.v3.chooseColor")}
-            />
-          ))}
-        </div>
-        <div className="classroom-v3-tool-widths">
-          {[2, 4, 8].map((width) => (
-            <button
-              type="button"
-              key={width}
-              className={strokeWidth === width ? "is-active" : ""}
-              onClick={() => {
-                whiteboardController?.setStrokeWidth(width);
-                setStrokeWidth(width);
-                onInteract();
-              }}
-              title={t("classroom.v3.strokeWidth", { width })}
-            >
-              <i style={{ height: width }} />
-            </button>
-          ))}
-        </div>
+        {selectedBoardTool.id === "eraser" ? (
+          <div
+            className="classroom-v3-tool-eraser-sizes"
+            role="radiogroup"
+            aria-label={t("classroom.v3.eraserSettings")}
+          >
+            {([
+              [1, 10, t("classroom.v3.eraserSizeSmall")],
+              [2, 14, t("classroom.v3.eraserSizeMedium")],
+              [3, 19, t("classroom.v3.eraserSizeLarge")],
+              [4, 24, t("classroom.v3.eraserSizeExtraLarge")],
+            ] as const).map(([size, diameter, label]) => (
+              <button
+                type="button"
+                role="radio"
+                key={size}
+                className={eraserSize === size ? "is-active" : ""}
+                aria-checked={eraserSize === size}
+                aria-label={t("classroom.v3.eraserSize", { size: label })}
+                title={t("classroom.v3.eraserSize", { size: label })}
+                onClick={() => {
+                  whiteboardController?.setEraserSize(size);
+                  setEraserSize(size);
+                  onInteract();
+                }}
+              >
+                <i
+                  aria-hidden="true"
+                  style={{ "--eraser-size": `${diameter}px` } as CSSProperties}
+                />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <>
+            <div className="classroom-v3-tool-colors">
+              {([
+                [30, 36, 46],
+                [49, 198, 155],
+                [75, 112, 245],
+                [238, 78, 94],
+                [246, 178, 62],
+              ] as const).map((color) => (
+                <button
+                  type="button"
+                  key={color.join("-")}
+                  className={strokeColor === color.join("-") ? "is-active" : ""}
+                  style={{ backgroundColor: `rgb(${color.join(" ")})` }}
+                  onClick={() => {
+                    whiteboardController?.setStrokeColor([...color]);
+                    setStrokeColor(color.join("-"));
+                    onInteract();
+                  }}
+                  aria-label={t("classroom.v3.chooseColor")}
+                />
+              ))}
+            </div>
+            <div className="classroom-v3-tool-widths">
+              {[2, 4, 8].map((width) => (
+                <button
+                  type="button"
+                  key={width}
+                  className={strokeWidth === width ? "is-active" : ""}
+                  onClick={() => {
+                    whiteboardController?.setStrokeWidth(width);
+                    setStrokeWidth(width);
+                    onInteract();
+                  }}
+                  title={t("classroom.v3.strokeWidth", { width })}
+                >
+                  <i style={{ height: width }} />
+                </button>
+              ))}
+            </div>
+          </>
+        )}
         {selectedBoardTool.id === "text" && (
           <div className="classroom-v3-tool-text-sizes" role="group">
             {[16, 24, 36].map((size) => (
@@ -2054,7 +2118,7 @@ function ChatPanel({
       scope: "classroom" | "room" | "staff";
       spaceId?: string | null;
     },
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   onDelete: (messageId: string) => void;
 }) {
   const { t, locale } = useTranslation();
@@ -2077,7 +2141,11 @@ function ChatPanel({
     const content = value.trim();
     if (!content || disabled) return;
     setValue("");
-    await onSend(content, { scope, spaceId: scope === "room" ? roomId : null });
+    const sent = await onSend(content, {
+      scope,
+      spaceId: scope === "room" ? roomId : null,
+    });
+    if (!sent) setValue((current) => current || content);
   }
 
   return (
@@ -2104,7 +2172,11 @@ function ChatPanel({
           </button>
         ) : null}
       </nav>
-      <div className="classroom-v3-message-list">
+      <div
+        className="classroom-v3-message-list"
+        aria-live="polite"
+        aria-relevant="additions"
+      >
         {visibleMessages.length === 0 && (
           <div className="classroom-v3-panel-empty">
             <MessageCircle />
@@ -2112,38 +2184,42 @@ function ChatPanel({
             <p>{t("classroom.v3.discussionHint")}</p>
           </div>
         )}
-        {visibleMessages.map((message) => (
-          <article
-            key={message.id}
-            className={
-              message.senderId === currentUserId ? "is-mine" : ""
-            }
-          >
-            <div>
-              <strong>{message.senderName}</strong>
-              <small>
-                {new Date(message.createdAt).toLocaleTimeString(locale, {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </small>
-              {canManage && !message.deletedAt && (
-                <button
-                  type="button"
-                  onClick={() => onDelete(message.id)}
-                  title={t("classroom.v3.withdrawMessage")}
-                >
-                  <X />
-                </button>
-              )}
-            </div>
-            <p className={message.deletedAt ? "is-deleted" : ""}>
-              {message.deletedAt
-                ? t("classroom.v3.messageWithdrawn")
-                : message.content}
-            </p>
-          </article>
-        ))}
+        {visibleMessages.map((message) => {
+          const pending = message.id.startsWith(OPTIMISTIC_MESSAGE_PREFIX);
+          return (
+            <article
+              key={message.id}
+              aria-busy={pending}
+              className={`${message.senderId === currentUserId ? "is-mine" : ""}${
+                pending ? " is-pending" : ""
+              }`}
+            >
+              <div>
+                <strong>{message.senderName}</strong>
+                <small>
+                  {new Date(message.createdAt).toLocaleTimeString(locale, {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </small>
+                {canManage && !pending && !message.deletedAt && (
+                  <button
+                    type="button"
+                    onClick={() => onDelete(message.id)}
+                    title={t("classroom.v3.withdrawMessage")}
+                  >
+                    <X />
+                  </button>
+                )}
+              </div>
+              <p className={message.deletedAt ? "is-deleted" : ""}>
+                {message.deletedAt
+                  ? t("classroom.v3.messageWithdrawn")
+                  : message.content}
+              </p>
+            </article>
+          );
+        })}
         <div ref={endRef} />
       </div>
       <form className="classroom-v3-chat-form" onSubmit={submit}>
@@ -2723,17 +2799,20 @@ function CaptionsPanel({
 }) {
   const { t, locale } = useTranslation();
   const [enabled, setEnabled] = useState(runtime.interpretation.enabled);
-  const [provider, setProvider] = useState<"shengwang" | "wordly">(
-    runtime.interpretation.provider,
-  );
   const [sourceLanguage, setSourceLanguage] = useState(
     runtime.interpretation.sourceLanguage,
   );
   const [targetLanguages, setTargetLanguages] = useState<string[]>(
     runtime.interpretation.targetLanguages,
   );
-  const effectiveProvider =
-    provider === "wordly" && !availability.wordly ? "shengwang" : provider;
+  const configuredProvider = runtime.interpretation.provider;
+  const effectiveProvider = availability[configuredProvider]
+    ? configuredProvider
+    : availability.wordly
+      ? "wordly"
+      : availability.shengwang
+        ? "shengwang"
+        : configuredProvider;
   const interpretationStateLabel = !runtime.interpretation.enabled
     ? t("classroom.v3.notEnabled")
     : runtime.status !== "live"
@@ -2832,7 +2911,6 @@ function CaptionsPanel({
           <header>
             <div>
               <strong>{t("classroom.v3.interpretation")}</strong>
-              <small>{t("classroom.v3.interpretationHint")}</small>
             </div>
             <button
               type="button"
@@ -2846,31 +2924,6 @@ function CaptionsPanel({
                 : t("classroom.v3.disabled")}
             </button>
           </header>
-          <div
-            className="classroom-v3-provider-choice"
-            role="radiogroup"
-            aria-label={t("classroom.v3.translationService")}
-          >
-            <button
-              type="button"
-              className={effectiveProvider === "shengwang" ? "is-selected" : ""}
-              disabled={!availability.shengwang}
-              onClick={() => setProvider("shengwang")}
-            >
-              <strong>{t("classroom.v3.shengwang")}</strong>
-              <small>{t("classroom.v3.shengwangIntegrated")}</small>
-            </button>
-            {availability.wordly ? (
-              <button
-                type="button"
-                className={effectiveProvider === "wordly" ? "is-selected" : ""}
-                onClick={() => setProvider("wordly")}
-              >
-                <strong>Wordly</strong>
-                <small>{t("classroom.v3.wordlyIntegrated")}</small>
-              </button>
-            ) : null}
-          </div>
           <label className="classroom-v3-interpretation-source">
             <span>{t("classroom.v3.sourceLanguage")}</span>
             <select
@@ -3375,6 +3428,12 @@ function DeviceSettings({
     cameras: MediaDeviceInfo[];
   }>({ microphones: [], cameras: [] });
   const [error, setError] = useState("");
+  const [backgroundMode, setBackgroundMode] = useState<
+    ClassroomVideoBackgroundEffect["type"]
+  >("none");
+  const [backgroundBusy, setBackgroundBusy] = useState(false);
+  const [customBackgroundName, setCustomBackgroundName] = useState("");
+  const backgroundSupported = provider?.supportsVirtualBackground() ?? false;
   useEffect(() => {
     if (!open || !provider) return;
     void provider
@@ -3388,6 +3447,59 @@ function DeviceSettings({
         ),
       );
   }, [open, provider, t]);
+
+  const applyBackground = async (effect: ClassroomVideoBackgroundEffect) => {
+    if (!provider || backgroundBusy) return false;
+    setError("");
+    setBackgroundBusy(true);
+    try {
+      await provider.setVirtualBackground(effect);
+      setBackgroundMode(effect.type);
+      if (effect.type !== "image") setCustomBackgroundName("");
+      return true;
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : t("classroom.v3.backgroundApplyFailed"),
+      );
+      return false;
+    } finally {
+      setBackgroundBusy(false);
+    }
+  };
+
+  const uploadBackground = async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file || backgroundBusy || !provider) return;
+    if (!CLASSROOM_BACKGROUND_IMAGE_TYPES.has(file.type)) {
+      setError(t("classroom.v3.backgroundImageInvalid"));
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setError(t("classroom.v3.backgroundImageTooLarge"));
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    const image = new window.Image();
+    try {
+      image.src = objectUrl;
+      await image.decode();
+      const applied = await applyBackground({ type: "image", source: image });
+      if (applied) setCustomBackgroundName(file.name);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : t("classroom.v3.backgroundApplyFailed"),
+      );
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  };
   return (
     <AnimatePresence>
       {open && (
@@ -3478,6 +3590,72 @@ function DeviceSettings({
                 </button>
               ))}
             </fieldset>
+            <fieldset className="classroom-v3-background-options">
+              <legend>{t("classroom.v3.videoBackground")}</legend>
+              <button
+                type="button"
+                className={backgroundMode === "none" ? "is-selected" : ""}
+                aria-pressed={backgroundMode === "none"}
+                disabled={backgroundBusy}
+                onClick={() => void applyBackground({ type: "none" })}
+              >
+                <EyeOff />
+                <span>{t("classroom.v3.backgroundNone")}</span>
+                {backgroundMode === "none" && <Check />}
+              </button>
+              <button
+                type="button"
+                className={backgroundMode === "blur" ? "is-selected" : ""}
+                aria-pressed={backgroundMode === "blur"}
+                disabled={!backgroundSupported || backgroundBusy}
+                onClick={() =>
+                  void applyBackground({ type: "blur", blurDegree: 2 })
+                }
+              >
+                <ShieldCheck />
+                <span>{t("classroom.v3.backgroundBlur")}</span>
+                {backgroundMode === "blur" && <Check />}
+              </button>
+              <button
+                type="button"
+                className={backgroundMode === "color" ? "is-selected" : ""}
+                aria-pressed={backgroundMode === "color"}
+                disabled={!backgroundSupported || backgroundBusy}
+                onClick={() =>
+                  void applyBackground({ type: "color", color: "#293a4c" })
+                }
+              >
+                <span className="classroom-v3-background-color" />
+                <span>{t("classroom.v3.backgroundColor")}</span>
+                {backgroundMode === "color" && <Check />}
+              </button>
+              <label
+                className={`${backgroundMode === "image" ? "is-selected" : ""}${
+                  !backgroundSupported || backgroundBusy ? " is-disabled" : ""
+                }`}
+              >
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  disabled={!backgroundSupported || backgroundBusy}
+                  onChange={(event) => void uploadBackground(event)}
+                />
+                <ImageIcon />
+                <span>{t("classroom.v3.customBackground")}</span>
+                {backgroundMode === "image" && <Check />}
+              </label>
+            </fieldset>
+            <p className="classroom-v3-background-hint" role="status">
+              {backgroundBusy
+                ? t("classroom.v3.backgroundApplying")
+                : !backgroundSupported
+                  ? t("classroom.v3.virtualBackgroundUnsupported")
+                  : customBackgroundName
+                    ? t("classroom.v3.customBackgroundSelected", {
+                        name: customBackgroundName,
+                      })
+                    : t("classroom.v3.virtualBackgroundPrivacyHint")}
+            </p>
             {error && <p className="classroom-v3-modal-error">{error}</p>}
             <footer>
               <p>{t("classroom.v3.screenQualityHint")}</p>
@@ -3541,6 +3719,9 @@ export function ClassroomV3({
   const [activePanel, setActivePanel] = useState<DrawerPanel | null>(
     isRecorder ? "chat" : null,
   );
+  const [pendingMessages, setPendingMessages] = useState<
+    ClassroomMessageSnapshot[]
+  >([]);
   const [liveRailCollapsed, setLiveRailCollapsed] = useState(() => {
     // The standard classroom always opens with the podium visible.  A prior
     // saved compact preference should not turn the top of a fresh ClassIn
@@ -4718,34 +4899,78 @@ export function ClassroomV3({
         spaceId?: string | null;
       },
     ) => {
-      const response = await fetch(
-        `/api/sessions/${encodeURIComponent(courseId)}/classroom/messages`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            content,
-            scope: context.scope,
-            spaceId: context.spaceId,
-            ...(shareAccess && { shareAccess }),
-          }),
-        },
+      const current = sessionRef.current;
+      if (!current) return false;
+      const currentMember = current.runtime.members.find(
+        (member) => member.userId === currentUserId,
       );
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        message?: ClassroomMessageSnapshot;
-        revision?: number;
+      const optimisticId = `${OPTIMISTIC_MESSAGE_PREFIX}${crypto.randomUUID()}`;
+      const optimisticMessage: ClassroomMessageSnapshot = {
+        id: optimisticId,
+        senderId: currentUserId,
+        senderName: currentMember?.displayName || currentUserId,
+        senderRole: current.credential.role,
+        scope: context.scope,
+        spaceId: context.scope === "room" ? context.spaceId || null : null,
+        recipientId: null,
+        kind: "text",
+        content,
+        deletedAt: null,
+        createdAt: new Date().toISOString(),
       };
-      if (!response.ok || !payload.message) {
-        setActionError(payload.error || t("classroom.v3.messageSendFailed"));
-        return;
+      setPendingMessages((messages) => [...messages, optimisticMessage]);
+      try {
+        const response = await fetch(
+          `/api/sessions/${encodeURIComponent(courseId)}/classroom/messages`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              content,
+              scope: context.scope,
+              spaceId: context.spaceId,
+              ...(shareAccess && { shareAccess }),
+            }),
+          },
+        );
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          message?: ClassroomMessageSnapshot;
+          revision?: number;
+        };
+        if (!response.ok || !payload.message) {
+          setActionError(payload.error || t("classroom.v3.messageSendFailed"));
+          return false;
+        }
+        const confirmedMessage = payload.message;
+        setSessionData((snapshot) => {
+          if (!snapshot) return snapshot;
+          const alreadyReceived = snapshot.messages.some(
+            (message) => message.id === confirmedMessage.id,
+          );
+          return alreadyReceived
+            ? snapshot
+            : {
+                ...snapshot,
+                messages: [...snapshot.messages, confirmedMessage],
+              };
+        });
+        if (payload.revision) publishInvalidation(payload.revision, "messages");
+        return true;
+      } catch (error) {
+        setActionError(
+          error instanceof Error
+            ? error.message
+            : t("classroom.v3.messageSendFailed"),
+        );
+        return false;
+      } finally {
+        setPendingMessages((messages) =>
+          messages.filter((message) => message.id !== optimisticId),
+        );
       }
-      updateSession({
-        messages: [...(sessionRef.current?.messages || []), payload.message],
-      });
-      if (payload.revision) publishInvalidation(payload.revision, "messages");
     },
-    [courseId, publishInvalidation, shareAccess, t, updateSession],
+    [courseId, currentUserId, publishInvalidation, shareAccess, t],
   );
 
   const deleteMessage = useCallback(
@@ -5500,7 +5725,7 @@ export function ClassroomV3({
 
   return (
     <main
-      className={`classroom-v3-shell is-mode-${sessionData.mode} ${classinLayout ? "is-classin-layout" : ""} ${isRecorder ? "is-recorder" : ""} ${sessionData.modePolicy.showLiveRail && liveRailCollapsed ? "is-rail-collapsed" : ""}`}
+      className={`classroom-v3-shell is-mode-${sessionData.mode} ${classinLayout ? "is-classin-layout" : ""} ${isRecorder ? "is-recorder" : ""} ${(sessionData.modePolicy.showLiveRail || (classinLayout && sessionData.mode !== "publicLive")) && liveRailCollapsed ? "is-rail-collapsed" : ""}`}
       data-runtime-status={sessionData.runtime.status}
       data-classroom-mode={sessionData.mode}
       data-composite-source={isRecorder ? "whiteboard-stage" : undefined}
@@ -6279,7 +6504,7 @@ export function ClassroomV3({
                 )}
                 {activePanel === "chat" && (
                   <ChatPanel
-                    messages={sessionData.messages}
+                    messages={[...sessionData.messages, ...pendingMessages]}
                     currentUserId={currentUserId}
                     role={sessionData.credential.role}
                     spaces={sessionData.spaces}
