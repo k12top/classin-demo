@@ -47,12 +47,9 @@ const courseDetailInclude = {
           teachers: true,
           students: true,
           attendances: true,
-          recordings: {
-            where: {
-              status: "completed",
-              playbackObjectKey: { not: null },
-            },
-          },
+          // Show a review entry as soon as recording has started. The
+          // playback page owns processing/failed/ready presentation.
+          recordings: true,
         },
       },
     },

@@ -41,12 +41,7 @@ export async function GET(
           teachers: true,
           students: true,
           attendances: true,
-          recordings: {
-            where: {
-              status: "completed",
-              playbackObjectKey: { not: null },
-            },
-          },
+          recordings: true,
         },
       },
     },

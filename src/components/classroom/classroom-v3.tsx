@@ -5229,6 +5229,37 @@ export function ClassroomV3({
     void controlRecording("start");
   }, [controlRecording, recordingStatus]);
 
+  const parentCourseId = sessionData?.course.id || null;
+  const classroomRole = sessionData?.credential.role || null;
+  const isStudentViewer = classroomRole === "student";
+  const exitClassroom = useCallback(() => {
+    if (isLeaving) return;
+    setIsLeaving(true);
+    const destination = parentCourseId
+      ? `/courses/${encodeURIComponent(parentCourseId)}`
+      : "/";
+    const signaling = signalingRef.current;
+    const mediaProvider = providerRef.current;
+    signalingRef.current = null;
+    providerRef.current = null;
+
+    // Navigation is the visible result of ending or leaving a lesson. Provider
+    // disconnects can wait on reconnecting sockets, so clean them up after the
+    // route transition instead of trapping the user in the classroom.
+    router.replace(destination);
+    void signaling?.disconnect().catch((error: unknown) => {
+      console.warn("[classroom:v3] signaling cleanup failed", error);
+    });
+    void mediaProvider?.disconnect().catch((error: unknown) => {
+      console.warn("[classroom:v3] media cleanup failed", error);
+    });
+    window.setTimeout(() => {
+      if (window.location.pathname === "/classroom") {
+        window.location.replace(destination);
+      }
+    }, 1_200);
+  }, [isLeaving, parentCourseId, router]);
+
   const endClass = useCallback(async () => {
     const current = sessionRef.current;
     if (
@@ -5281,6 +5312,7 @@ export function ClassroomV3({
       }
       publishInvalidation(payload.runtime.revision, "runtime");
       setEndClassConfirming(false);
+      exitClassroom();
     } catch (error) {
       setActionError(
         error instanceof Error
@@ -5293,18 +5325,15 @@ export function ClassroomV3({
   }, [
     actionBusy,
     courseId,
+    exitClassroom,
     isRecorder,
     publishInvalidation,
     recordingStatus,
     t,
   ]);
 
-  const parentCourseId = sessionData?.course.id || null;
-  const classroomRole = sessionData?.credential.role || null;
-  const isStudentViewer = classroomRole === "student";
   const leaveClassroom = useCallback(() => {
     if (isLeaving) return;
-    setIsLeaving(true);
     if (!isRecorder && courseId && classroomRole === "student") {
       void fetch(
         `/api/sessions/${encodeURIComponent(courseId)}/attendance`,
@@ -5316,33 +5345,8 @@ export function ClassroomV3({
         },
       );
     }
-    const destination = parentCourseId
-      ? `/courses/${encodeURIComponent(parentCourseId)}`
-      : "/";
-    const signaling = signalingRef.current;
-    const mediaProvider = providerRef.current;
-    signalingRef.current = null;
-    providerRef.current = null;
-
-    // Leaving the classroom is navigation, not a teardown progress screen.
-    // RTC/RTM SDK disconnects can stall while reconnecting, so never await
-    // them before changing routes.
-    router.replace(destination);
-    void signaling?.disconnect().catch((error: unknown) => {
-      console.warn("[classroom:v3] signaling cleanup failed", error);
-    });
-    void mediaProvider?.disconnect().catch((error: unknown) => {
-      console.warn("[classroom:v3] media cleanup failed", error);
-    });
-
-    // Development compilation or a stuck RSC request can delay a client-side
-    // transition. Fall back to a full navigation so the user can always exit.
-    window.setTimeout(() => {
-      if (window.location.pathname === "/classroom") {
-        window.location.replace(destination);
-      }
-    }, 1_200);
-  }, [classroomRole, courseId, isLeaving, isRecorder, parentCourseId, router]);
+    exitClassroom();
+  }, [classroomRole, courseId, exitClassroom, isLeaving, isRecorder]);
 
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) {
@@ -6535,7 +6539,19 @@ export function ClassroomV3({
                     onDisplayModeChange={setCaptionDisplayMode}
                     onOverlayVisibleChange={setCaptionOverlayVisible}
                     onPreferredLanguageChange={setCaptionLanguage}
-                    onAction={(action) => void performAction(action)}
+                    onAction={async (action) => {
+                      const applied = await performAction(action);
+                      if (
+                        applied &&
+                        action.type === "setInterpretation" &&
+                        action.enabled
+                      ) {
+                        setCaptionDisplayMode("bilingual");
+                        setCaptionOverlayVisible(true);
+                        const preferred = action.targetLanguages[0];
+                        if (preferred) setCaptionLanguage(preferred);
+                      }
+                    }}
                   />
                 )}
                 {activePanel === "courseware" && (

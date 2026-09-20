@@ -56,6 +56,8 @@ type PlaybackRecording = {
   stoppedAt: string | null;
   playbackFormat: "hls" | "mp4" | null;
   playbackUrl: string | null;
+  errorMessage?: string | null;
+  failureStage?: string | null;
 };
 
 type LessonSummaryDocument = {
@@ -287,10 +289,20 @@ export default function CoursePlaybackPage({
       .then(async (response) => {
         const payload = (await response.json().catch(() => ({}))) as {
           recordings?: PlaybackRecording[];
+          refreshAfterMs?: number | null;
           error?: string;
         };
         if (!response.ok) throw new Error(payload.error || copy.loadFailed);
-        if (!controller.signal.aborted) setRecordings(payload.recordings || []);
+        if (!controller.signal.aborted) {
+          setRecordings(payload.recordings || []);
+          if (payload.refreshAfterMs) {
+            window.setTimeout(() => {
+              if (!controller.signal.aborted) {
+                setRecordingsRevision((value) => value + 1);
+              }
+            }, payload.refreshAfterMs);
+          }
+        }
       })
       .catch((cause) => {
         if (controller.signal.aborted) return;
@@ -375,6 +387,14 @@ export default function CoursePlaybackPage({
     (recording) => recording.status === "completed" && Boolean(recording.playbackUrl),
   );
   const canPlaySessionRecording = playableRecordings.length > 0;
+  const recordingIsProcessing = recordings.some((recording) =>
+    ["starting", "recording", "stopping", "processing"].includes(
+      recording.status,
+    ),
+  );
+  const failedRecording = recordings.find(
+    (recording) => recording.status === "failed",
+  );
   const canPlayInApp = canPlaySessionRecording || canPlayMp4 || canPlayHls;
   const hasRecordedSession = sessions.some(
     (session) => (session._count?.recordings || 0) > 0,
@@ -396,7 +416,16 @@ export default function CoursePlaybackPage({
     (!selectedSessionId && course?.status !== "finished"
       ? copy.notFinished
       : !canPlayInApp
-        ? copy.noUrl
+        ? recordingIsProcessing
+          ? locale.startsWith("zh")
+            ? "课堂回放正在生成，页面会自动刷新。"
+            : "The lesson recording is being prepared. This page will refresh automatically."
+          : failedRecording
+            ? failedRecording.errorMessage ||
+              (locale.startsWith("zh")
+                ? "课堂录像生成失败，请检查录像配置后重试。"
+                : "The lesson recording failed. Check the recording configuration and retry.")
+            : copy.noUrl
         : "");
 
   return (
@@ -498,7 +527,13 @@ export default function CoursePlaybackPage({
             ) : (
               <div className="flex min-h-[300px] flex-col items-center justify-center gap-3 p-8 text-center">
                 <div className="rounded-full bg-amber-500/10 p-4 text-amber-500">
-                  {message ? <AlertTriangle className="h-8 w-8" /> : <PlayCircle className="h-8 w-8" />}
+                  {recordingIsProcessing ? (
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  ) : message ? (
+                    <AlertTriangle className="h-8 w-8" />
+                  ) : (
+                    <PlayCircle className="h-8 w-8" />
+                  )}
                 </div>
                 <div className="max-w-md space-y-2">
                   <p className="text-base font-semibold text-foreground">

@@ -1,9 +1,10 @@
 import type { NextRequest } from "next/server";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { POST as controlRecording } from "@/app/api/courses/[id]/recording/route";
 import { resolveCoursewareAccess } from "@/lib/courseware-access";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
+import { reconcileRecordingAttempt } from "@/lib/classroom/server/recording-orchestrator";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -35,7 +36,21 @@ export async function GET(request: NextRequest, context: Context) {
     where: { sessionId },
     orderBy: { createdAt: "asc" },
   });
+  const pending = recordings.filter((recording) =>
+    ["stopping", "processing"].includes(recording.status),
+  );
+  if (pending.length) {
+    // Agora may expose its final file list shortly after stop. Reconcile on
+    // playback reads too, so a newly ended lesson converges without waiting
+    // for another class or a server restart.
+    after(async () => {
+      await Promise.allSettled(
+        pending.map((recording) => reconcileRecordingAttempt(recording.id)),
+      );
+    });
+  }
   return NextResponse.json({
+    refreshAfterMs: pending.length ? 2_500 : null,
     recordings: recordings.map((recording, index) => ({
       id: recording.id,
       segment: index + 1,
