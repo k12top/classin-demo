@@ -16,6 +16,30 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Environment configuration
+
+Copy `.env.example` to `.env.local` and fill only the capabilities used by the
+deployment. The template is the source of truth and labels each group as
+required, capability-specific, or optional.
+
+- Every production deployment needs PostgreSQL, session/share secrets,
+  Casdoor, and the cron secret.
+- Live audio/video needs the Agora App ID and App Certificate. Cloud recording
+  and Agora captions additionally need the REST customer credentials.
+- Full classroom recording additionally needs OSS, Agora's numeric storage
+  region, the NCS webhook secret, and the externally reachable recorder-page
+  URL and secret.
+- Whiteboard, Wordly, and AI summary variables are conditional; leave the
+  entire unused group unset.
+- Variables with documented defaults do not need to be passed unless that
+  deployment intentionally overrides them. Legacy `SHENGWANG_*` aliases are
+  unnecessary when the canonical `AGORA_*` variables are present.
+
+Secrets belong in `.env.local` or the deployment platform's encrypted secret
+store. Only non-secret browser configuration may use the `NEXT_PUBLIC_`
+prefix; those values are embedded during `next build` and require a rebuild to
+change.
+
 ## Brand Configuration
 
 The public site brand can be overridden with environment variables:
@@ -88,7 +112,10 @@ the application's authenticated download URL.
 The classroom UI and lifecycle are owned by this application. Agora is the
 default RTC and cloud-recording provider behind provider-neutral interfaces;
 the removed Flexible Classroom bundle is no longer loaded. Configure the
-following server-only variables:
+following server-only variables. Start from `.env.example`: it separates core
+requirements, capability-specific requirements, safe defaults, and public
+build-time values. Store real secrets in `.env.local` for development and in
+the deployment platform's secret store for production; never commit them.
 
 ```bash
 CLASSROOM_MEDIA_PROVIDER=agora
@@ -108,7 +135,8 @@ AGORA_REST_CUSTOMER_SECRET=your-agora-rest-customer-secret
 # Numeric Agora Cloud Recording storage-region ID for Alibaba Cloud OSS.
 # This is not the OSS endpoint string such as oss-ap-southeast-1.
 AGORA_RECORDING_STORAGE_REGION=10
-AGORA_RECORDING_API_REGION=ap
+# Standard Cloud Recording uses /v1/apps without a region path prefix.
+AGORA_RECORDING_API_REGION=
 AGORA_RECORDING_REGION_AFFINITY=2
 AGORA_RECORDING_STORAGE_ENDPOINT=https://your-bucket.oss-ap-southeast-1.aliyuncs.com
 AGORA_RECORDING_WEBHOOK_SECRET=use-the-secret-configured-in-agora-ncs
@@ -134,12 +162,15 @@ AGORA_STT_MAX_IDLE_SECONDS=300
 WORDLY_API_URL=https://wordly-bridge.example.com
 WORDLY_INTERNAL_TOKEN=use-the-same-value-as-bridge-internal-token
 
-# Enables 1280x720 full-page classroom recording. If these are absent or web
-# recording fails, the provider automatically falls back to RTC mix recording.
+# Enables 1280x720 full-page classroom recording. If these are absent, Agora
+# records an RTC-only mix. If web recording starts but fails, the default is to
+# fail visibly rather than silently lose the whiteboard and DOM overlays.
 CLASSROOM_PUBLIC_BASE_URL=https://live.example.com
 CLASSROOM_RECORDER_SECRET=use-a-long-random-server-only-secret
 # Maximum 6-hour cloud-recorder process. Output is split into four-minute files.
 AGORA_PAGE_RECORDING_MAX_HOURS=6
+# Opt in only when a degraded RTC-only fallback is acceptable.
+AGORA_ALLOW_RAW_MIX_FALLBACK=false
 
 # Netless Fastboard. Without these variables the classroom remains usable and
 # displays a clear "whiteboard not configured" state.
