@@ -560,9 +560,30 @@ export async function applyClassroomAction(input: {
             // teacher-reviewed post-class summary. Teachers may still disable
             // interpretation explicitly after the class starts.
             interpretationEnabled: true,
+            targetLanguages:
+              normalizeTargetLanguages(
+                runtime.targetLanguages,
+                normalizeClassroomLanguage(runtime.sourceLanguage),
+              ).length > 0
+                ? normalizeTargetLanguages(
+                    runtime.targetLanguages,
+                    normalizeClassroomLanguage(runtime.sourceLanguage),
+                  )
+                : [
+                    normalizeClassroomLanguage(runtime.sourceLanguage) ===
+                      "zh-CN" ||
+                    normalizeClassroomLanguage(runtime.sourceLanguage) ===
+                      "zh-TW"
+                      ? "en-US"
+                      : "zh-CN",
+                  ],
             transcriptionStatus:
               runtime.transcriptionStatus === "running" ? "running" : "starting",
             transcriptionError: null,
+            transcriptionLastCheckedAt:
+              runtime.transcriptionStatus === "running"
+                ? runtime.transcriptionLastCheckedAt
+                : null,
             revision: { increment: 1 },
           },
         });
@@ -1137,6 +1158,10 @@ export async function applyClassroomAction(input: {
             targetLanguages,
             transcriptionStatus: action.enabled ? "starting" : "stopped",
             transcriptionError: null,
+            // A timestamp on an explicit disable distinguishes the teacher's
+            // choice from an untouched legacy runtime that should auto-start
+            // captions when the teacher enters the live room.
+            transcriptionLastCheckedAt: action.enabled ? null : new Date(),
           },
         });
         break;

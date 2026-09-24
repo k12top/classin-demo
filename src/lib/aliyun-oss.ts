@@ -33,12 +33,16 @@ function coursewareOssConfig() {
   };
 }
 
-export function getCoursewareOssClient(): OSS {
+export function getAliyunOssClient(): OSS {
   const config = coursewareOssConfig();
   return new OSS({
     ...config,
     secure: true,
   });
+}
+
+export function getCoursewareOssClient(): OSS {
+  return getAliyunOssClient();
 }
 
 function coursewarePrefix(): string {

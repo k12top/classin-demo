@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import {
   getClassroomCourseware,
   getClassroomEngagementSnapshot,
@@ -12,6 +12,7 @@ import { getClassroomSpaces } from "@/lib/classroom/server/spaces";
 import { classroomModePolicy } from "@/lib/classroom/mode";
 import { getRecordingProvider } from "@/lib/classroom/server/provider-factory";
 import { prisma } from "@/lib/db";
+import { ensureClassroomTranscriptionForLiveSession } from "@/lib/classroom/server/transcription-orchestrator";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -43,6 +44,23 @@ export async function GET(
     undefined,
     sessionId,
   );
+  if (resolved.access.role === "teacher") {
+    // Joining an already-live classroom is a recovery boundary. It repairs an
+    // interrupted start callback and starts untouched legacy runtimes without
+    // blocking the classroom shell on an external STT request.
+    after(() =>
+      ensureClassroomTranscriptionForLiveSession(
+        resolvedCourseId,
+        sessionId,
+      ).catch((error) => {
+        console.error("[classroom:captions] entry auto-start failed", {
+          courseId: resolvedCourseId,
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }),
+    );
+  }
   const lesson = await prisma.courseSession.findUnique({
     where: { id: sessionId },
     select: {

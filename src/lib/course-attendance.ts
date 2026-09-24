@@ -1,3 +1,5 @@
+import { Prisma } from "@prisma/client";
+
 import { prisma } from "@/lib/db";
 
 export function attendanceDurationSec(enteredAt: Date, leftAt: Date): number {
@@ -8,34 +10,34 @@ async function closeAttendanceSessions(
   where: { courseId?: string; sessionId?: string; studentId?: string },
   leftAt: Date
 ) {
-  const openSessions = await prisma.courseAttendance.findMany({
-    where: {
-      ...where,
-      leftAt: null,
-    },
-    select: {
-      id: true,
-      enteredAt: true,
-    },
-  });
-
-  if (openSessions.length === 0) {
-    return { closed: 0 };
+  const predicates: Prisma.Sql[] = [Prisma.sql`"leftAt" IS NULL`];
+  if (where.courseId) {
+    predicates.push(Prisma.sql`"courseId" = ${where.courseId}`);
+  }
+  if (where.sessionId) {
+    predicates.push(Prisma.sql`"sessionId" = ${where.sessionId}`);
+  }
+  if (where.studentId) {
+    predicates.push(Prisma.sql`"studentId" = ${where.studentId}`);
   }
 
-  await prisma.$transaction(
-    openSessions.map((session) =>
-      prisma.courseAttendance.update({
-        where: { id: session.id },
-        data: {
-          leftAt,
-          durationSec: attendanceDurationSec(session.enteredAt, leftAt),
-        },
-      })
-    )
+  // A single set-based update avoids Prisma's default five-second interactive
+  // transaction timeout when a legacy course has thousands of stale open rows.
+  // The duration expression is the SQL equivalent of attendanceDurationSec.
+  const closed = await prisma.$executeRaw(
+    Prisma.sql`
+      UPDATE "CourseAttendance"
+      SET
+        "leftAt" = ${leftAt},
+        "durationSec" = GREATEST(
+          0,
+          FLOOR(EXTRACT(EPOCH FROM (${leftAt}::timestamptz - "enteredAt")))
+        )::integer
+      WHERE ${Prisma.join(predicates, " AND ")}
+    `,
   );
 
-  return { closed: openSessions.length };
+  return { closed };
 }
 
 export async function closeOpenAttendanceSessions(

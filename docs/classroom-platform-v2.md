@@ -77,7 +77,8 @@ AGORA_REST_CUSTOMER_SECRET=
 
 # 声网云录制 storageConfig 的数字区域 ID；不要直接填 oss-ap-southeast-1。
 AGORA_RECORDING_STORAGE_REGION=10
-AGORA_RECORDING_API_REGION=ap
+# 标准声网云录制 REST 路径为 /v1/apps；保持为空，不要填写 ap。
+AGORA_RECORDING_API_REGION=
 AGORA_RECORDING_REGION_AFFINITY=2
 AGORA_RECORDING_STORAGE_ENDPOINT=https://your-bucket.oss-ap-southeast-1.aliyuncs.com
 AGORA_RECORDING_WEBHOOK_SECRET=

@@ -7,6 +7,7 @@ import { buildScreenShareUserId } from "@/lib/classroom/screen-share";
 import {
   ClassroomProviderConfigurationError,
   ClassroomProviderRequestError,
+  ClassroomRecordingStopUncertainError,
 } from "@/lib/classroom/server/errors";
 import type {
   ClassroomServerProvider,
@@ -23,6 +24,7 @@ import {
   expectedAgoraRecordingStorageRegion,
   validateAgoraRecordingStorageRegion,
 } from "@/lib/classroom/recording-storage";
+import { getAliyunOssClient } from "@/lib/aliyun-oss";
 
 const AGORA_ALIYUN_VENDOR_ID = 2;
 const AGORA_REQUEST_TIMEOUT_MS = 15_000;
@@ -214,6 +216,7 @@ async function agoraRecordingRequest(
   path: string,
   body: Record<string, unknown>,
   config: ReturnType<typeof recordingConfiguration>,
+  timeoutMs = AGORA_REQUEST_TIMEOUT_MS,
 ): Promise<AgoraRecordingResponse> {
   const response = await fetch(
     `${config.apiBase}/${encodeURIComponent(config.appId)}${path}`,
@@ -229,7 +232,7 @@ async function agoraRecordingRequest(
       },
       body: JSON.stringify(body),
       cache: "no-store",
-      signal: AbortSignal.timeout(AGORA_REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     },
   );
 
@@ -255,6 +258,38 @@ async function agoraRecordingRequest(
     );
   }
   return payload;
+}
+
+function recordingStopIsUncertain(error: unknown): boolean {
+  if (error instanceof ClassroomProviderRequestError) {
+    const response =
+      error.response && typeof error.response === "object"
+        ? (error.response as AgoraRecordingResponse)
+        : null;
+    const reason = `${response?.reason || ""} ${error.message}`.toLowerCase();
+    return (
+      error.status === 408 ||
+      error.status === 429 ||
+      error.status >= 500 ||
+      response?.code === 62 ||
+      response?.code === 65 ||
+      reason.includes("request timeout") ||
+      reason.includes("request not completed") ||
+      reason.includes("failed to find worker") ||
+      reason.includes("worker not found")
+    );
+  }
+  if (error instanceof Error) {
+    const message = `${error.name} ${error.message}`.toLowerCase();
+    return (
+      message.includes("timeout") ||
+      message.includes("network") ||
+      message.includes("fetch failed") ||
+      message.includes("connection reset") ||
+      message.includes("unexpected eof")
+    );
+  }
+  return false;
 }
 
 function fileNameOf(value: unknown): string | null {
@@ -318,6 +353,38 @@ function responseFiles(payload: AgoraRecordingResponse): unknown[] {
     const files = (payloadValue as { fileList?: unknown }).fileList;
     return Array.isArray(files) ? files : [];
   });
+}
+
+async function recordingFilesFromStorage(
+  prefixSegments: string[],
+): Promise<unknown[]> {
+  const prefix = `${prefixSegments.filter(Boolean).join("/")}/`;
+  if (prefix === "/") return [];
+
+  const client = getAliyunOssClient();
+  const files: Array<{ fileName: string; isPlayable: true }> = [];
+  let marker: string | undefined;
+  do {
+    const result = await client.list(
+      {
+        prefix,
+        marker,
+        "max-keys": 1_000,
+      },
+      {},
+    );
+    for (const object of result.objects || []) {
+      if (
+        object.name.toLowerCase().endsWith(".mp4") ||
+        object.name.toLowerCase().endsWith(".m3u8")
+      ) {
+        files.push({ fileName: object.name, isPlayable: true });
+      }
+    }
+    marker = result.nextMarker;
+  } while (marker && files.length < 100);
+
+  return files;
 }
 
 export class AgoraCloudRecordingProvider implements RecordingProvider {
@@ -581,31 +648,71 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
 
   async query(input: RecordingStopInput): Promise<RecordingQueryResult> {
     const config = recordingConfiguration();
-    const response = await fetch(
-      `${config.apiBase}/${encodeURIComponent(
-        config.appId,
-      )}/cloud_recording/resourceid/${encodeURIComponent(
-        input.resourceId,
-      )}/sid/${encodeURIComponent(
-        input.providerSessionId,
-      )}/mode/${input.providerState?.mode === "web" ? "web" : "mix"}/query`,
-      {
-        headers: {
-          Accept: "application/json",
-          Authorization: basicAuthorization(
-            config.customerId,
-            config.customerSecret,
-          ),
+    let response: Response | null = null;
+    let payload: AgoraRecordingResponse = {};
+    let queryError: unknown = null;
+    try {
+      response = await fetch(
+        `${config.apiBase}/${encodeURIComponent(
+          config.appId,
+        )}/cloud_recording/resourceid/${encodeURIComponent(
+          input.resourceId,
+        )}/sid/${encodeURIComponent(
+          input.providerSessionId,
+        )}/mode/${input.providerState?.mode === "web" ? "web" : "mix"}/query`,
+        {
+          headers: {
+            Accept: "application/json",
+            Authorization: basicAuthorization(
+              config.customerId,
+              config.customerSecret,
+            ),
+          },
+          cache: "no-store",
+          signal: AbortSignal.timeout(AGORA_REQUEST_TIMEOUT_MS),
         },
-        cache: "no-store",
-        signal: AbortSignal.timeout(AGORA_REQUEST_TIMEOUT_MS),
-      },
-    );
-    const text = await response.text();
-    const payload = text
-      ? (JSON.parse(text) as AgoraRecordingResponse)
-      : ({} as AgoraRecordingResponse);
-    if (!response.ok) {
+      );
+      const text = await response.text();
+      payload = text
+        ? (JSON.parse(text) as AgoraRecordingResponse)
+        : ({} as AgoraRecordingResponse);
+    } catch (error) {
+      queryError = error;
+    }
+    const prefixSegments = Array.isArray(input.providerState?.fileNamePrefix)
+      ? input.providerState.fileNamePrefix.filter(
+          (segment): segment is string => typeof segment === "string",
+        )
+      : [];
+    const providerFiles = responseFiles(payload);
+    let files = providerFiles;
+    let playback = selectAgoraRecordingPlayback(files, prefixSegments);
+    const postStop = Boolean(input.providerState?.lastStop);
+
+    // Agora can release the query resource before its final file list reaches
+    // the application. The files are already durable in OSS at that point, so
+    // recover them by the unique per-recording prefix instead of leaving the
+    // lesson in `processing` forever when NCS delivery is delayed or missing.
+    if (postStop && !playback.objectKey) {
+      try {
+        const storageFiles = await recordingFilesFromStorage(prefixSegments);
+        const storagePlayback = selectAgoraRecordingPlayback(
+          storageFiles,
+          prefixSegments,
+        );
+        if (storagePlayback.objectKey) {
+          files = storageFiles;
+          playback = storagePlayback;
+        }
+      } catch (error) {
+        queryError ||= error;
+      }
+    }
+
+    if (queryError && !playback.objectKey) {
+      throw queryError;
+    }
+    if (response && !response.ok && !playback.objectKey) {
       throw new ClassroomProviderRequestError(
         payload.reason || "Agora recording query failed",
         response.status,
@@ -614,13 +721,6 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
     }
 
     const status = payload.serverResponse?.status;
-    const files = responseFiles(payload);
-    const prefixSegments = Array.isArray(input.providerState?.fileNamePrefix)
-      ? input.providerState.fileNamePrefix.filter(
-          (segment): segment is string => typeof segment === "string",
-        )
-      : [];
-    const playback = selectAgoraRecordingPlayback(files, prefixSegments);
     return {
       active: status === 4 || status === 5,
       files,
@@ -632,21 +732,41 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
 
   async stop(input: RecordingStopInput): Promise<RecordingStopResult> {
     const config = recordingConfiguration();
-    const stopped = await agoraRecordingRequest(
-      `/cloud_recording/resourceid/${encodeURIComponent(
-        input.resourceId,
-      )}/sid/${encodeURIComponent(
-        input.providerSessionId,
-      )}/mode/${input.providerState?.mode === "web" ? "web" : "mix"}/stop`,
-      {
-        cname: input.channelName,
-        uid: input.recorderUserId,
-        clientRequest: {
-          async_stop: false,
+    let stopped: AgoraRecordingResponse;
+    try {
+      stopped = await agoraRecordingRequest(
+        `/cloud_recording/resourceid/${encodeURIComponent(
+          input.resourceId,
+        )}/sid/${encodeURIComponent(
+          input.providerSessionId,
+        )}/mode/${input.providerState?.mode === "web" ? "web" : "mix"}/stop`,
+        {
+          cname: input.channelName,
+          uid: input.recorderUserId,
+          clientRequest: {
+            // Match the proven meeting service behavior: return promptly and
+            // discover the final media through query/OSS reconciliation.
+            async_stop: true,
+          },
         },
-      },
-      config,
-    );
+        config,
+        65_000,
+      );
+    } catch (error) {
+      if (recordingStopIsUncertain(error)) {
+        throw new ClassroomRecordingStopUncertainError(
+          "Cloud recording stop result is uncertain; finalization will be reconciled",
+          error,
+        );
+      }
+      throw error;
+    }
+    if (stopped.code === 62 || stopped.code === 65) {
+      throw new ClassroomRecordingStopUncertainError(
+        `Cloud recording stop returned code ${stopped.code}; finalization will be reconciled`,
+        stopped,
+      );
+    }
     const files = responseFiles(stopped);
     const prefixSegments = Array.isArray(
       input.providerState?.fileNamePrefix,
@@ -657,6 +777,27 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
       : [];
 
     const playback = selectAgoraRecordingPlayback(files, prefixSegments);
+    if (!playback.objectKey) {
+      try {
+        const storageFiles = await recordingFilesFromStorage(prefixSegments);
+        const storagePlayback = selectAgoraRecordingPlayback(
+          storageFiles,
+          prefixSegments,
+        );
+        if (storagePlayback.objectKey) {
+          return {
+            playbackObjectKey: storagePlayback.objectKey,
+            playbackFormat: storagePlayback.format,
+            files: storageFiles,
+            providerState: stopped,
+          };
+        }
+      } catch (error) {
+        console.warn("[classroom:recording] OSS finalization lookup failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     return {
       playbackObjectKey: playback.objectKey,
       playbackFormat: playback.format,

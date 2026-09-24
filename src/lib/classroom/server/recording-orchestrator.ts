@@ -6,12 +6,14 @@ import { shouldRecoverRecording } from "@/lib/classroom/recording-continuity";
 import { appendRecordingProviderState } from "@/lib/classroom/recording-provider-state";
 import { getRecordingProvider } from "@/lib/classroom/server/provider-factory";
 import {
+  assertRecorderPageReachable,
   createRecorderPageUrl,
   isRecorderPageConfigured,
 } from "@/lib/classroom/server/recorder-token";
 import { courseIdToRoomUuid } from "@/lib/course-room";
 import { CourseStatus } from "@/lib/course-status";
 import { prisma } from "@/lib/db";
+import { ClassroomRecordingStopUncertainError } from "@/lib/classroom/server/errors";
 
 const ACTIVE_RECORDING_STATUSES = ["starting", "recording", "stopping"];
 const RECONCILABLE_RECORDING_STATUSES = [
@@ -24,6 +26,7 @@ const MAX_PROVIDER_RETRIES = 3;
 const PROVIDER_TRANSITION_LEASE_MS = 45_000;
 const PROVIDER_QUERY_INTERVAL_MS = 5_000;
 const RECORDING_START_CONFIRMATION_TIMEOUT_MS = 90_000;
+const RECORDING_FINALIZATION_TIMEOUT_MS = 15 * 60_000;
 // Query at 5, 10 and 15 seconds after Shengwang returns the SID. If the
 // request worker exits, the persisted SID is picked up by the minute cron.
 const RECORDING_START_CONFIRMATION_DELAYS_MS = [5_000, 5_000, 5_000] as const;
@@ -238,10 +241,30 @@ export async function processRecordingStart(recordingId: string) {
     | Awaited<ReturnType<(typeof provider)["start"]>>
     | null = null;
   try {
-    const pageUrl =
+    let pageUrl =
       recording.mode === "web"
         ? await createRecorderPageUrl(recording.sessionId)
         : null;
+    if (pageUrl) {
+      try {
+        await assertRecorderPageReachable(pageUrl);
+      } catch (error) {
+        if (
+          process.env.AGORA_ALLOW_RAW_MIX_FALLBACK?.trim().toLowerCase() !==
+          "true"
+        ) {
+          throw error;
+        }
+        console.warn(
+          "[classroom:recording] recorder page unavailable; using RTC mix fallback",
+          {
+            recordingId: recording.id,
+            error: errorMessage(error, "Recorder page is unavailable"),
+          },
+        );
+        pageUrl = null;
+      }
+    }
     started = await provider.start({
       recordingId: recording.id,
       courseId: recording.sessionId,
@@ -425,6 +448,33 @@ export async function processRecordingStop(recordingId: string) {
       where: { id: recording.id },
     });
   } catch (error) {
+    if (error instanceof ClassroomRecordingStopUncertainError) {
+      await prisma.classroomRecording.updateMany({
+        where: { id: recording.id, status: "stopping" },
+        data: {
+          status: "processing",
+          providerState: inputJson(
+            appendRecordingProviderState(
+              recording.providerState,
+              "lastStop",
+              {
+                uncertain: true,
+                message: error.message,
+                occurredAt: new Date().toISOString(),
+              },
+            ),
+          ),
+          stoppedAt: new Date(),
+          lastProviderCheckAt: new Date(),
+          failureStage: null,
+          errorMessage:
+            "停止请求已发送，正在核验声网任务并等待 OSS 生成回放文件",
+        },
+      });
+      return prisma.classroomRecording.findUnique({
+        where: { id: recording.id },
+      });
+    }
     const nextRetryCount = recording.stopRetryCount + 1;
     await prisma.classroomRecording.updateMany({
       where: { id: recording.id, status: "stopping" },
@@ -473,13 +523,43 @@ export async function reconcileRecordingAttempt(recordingId: string) {
   }
 
   const provider = getRecordingProvider(recording.provider);
-  const queried = await provider.query({
-    channelName: recording.channelName,
-    recorderUserId: recording.recorderUserId,
-    resourceId: recording.resourceId,
-    providerSessionId: recording.providerSessionId,
-    providerState: providerStateRecord(recording.providerState),
-  });
+  let queried: Awaited<ReturnType<(typeof provider)["query"]>>;
+  try {
+    queried = await provider.query({
+      channelName: recording.channelName,
+      recorderUserId: recording.recorderUserId,
+      resourceId: recording.resourceId,
+      providerSessionId: recording.providerSessionId,
+      providerState: providerStateRecord(recording.providerState),
+    });
+  } catch (error) {
+    const finalizationStartedAt =
+      recording.stoppedAt || recording.stopRequestedAt || recording.updatedAt;
+    const finalizationExpired =
+      recording.status === "processing" &&
+      Date.now() - finalizationStartedAt.getTime() >=
+        RECORDING_FINALIZATION_TIMEOUT_MS;
+    await prisma.classroomRecording.updateMany({
+      where: { id: recording.id, status: recording.status },
+      data: {
+        status: finalizationExpired ? "failed" : recording.status,
+        lastProviderCheckAt: new Date(),
+        stopRetryCount: recording.stopRequestedAt
+          ? { increment: 1 }
+          : undefined,
+        failureStage: finalizationExpired ? "processing" : null,
+        errorMessage: errorMessage(
+          error,
+          finalizationExpired
+            ? "Recording finalization timed out"
+            : "Waiting for the final recording file",
+        ),
+      },
+    });
+    return prisma.classroomRecording.findUnique({
+      where: { id: recording.id },
+    });
+  }
   const objectKey = queried.playbackObjectKey || recording.playbackObjectKey;
   const format = playbackFormat(queried.playbackFormat || recording.playbackFormat);
   const stoppedUnexpectedly =
@@ -487,6 +567,14 @@ export async function reconcileRecordingAttempt(recordingId: string) {
     !objectKey &&
     !recording.stopRequestedAt &&
     recording.status === "recording";
+  const finalizationStartedAt =
+    recording.stoppedAt || recording.stopRequestedAt || recording.updatedAt;
+  const finalizationExpired =
+    recording.status === "processing" &&
+    !queried.active &&
+    !objectKey &&
+    Date.now() - finalizationStartedAt.getTime() >=
+      RECORDING_FINALIZATION_TIMEOUT_MS;
   await prisma.classroomRecording.updateMany({
     where: {
       id: recording.id,
@@ -504,7 +592,7 @@ export async function reconcileRecordingAttempt(recordingId: string) {
       playbackObjectKey: objectKey,
       playbackFormat: format,
       lastProviderCheckAt: new Date(),
-      status: stoppedUnexpectedly
+      status: stoppedUnexpectedly || finalizationExpired
         ? "failed"
         : queried.active
           ? recording.status === "processing"
@@ -520,7 +608,13 @@ export async function reconcileRecordingAttempt(recordingId: string) {
             errorMessage:
               "Cloud recorder stopped unexpectedly; recovery has been queued",
           }
-        : {}),
+        : finalizationExpired
+          ? {
+              failureStage: "processing",
+              errorMessage:
+                "Cloud recording finished without a playable MP4 or HLS file",
+            }
+          : {}),
       ...(objectKey && !recording.stoppedAt ? { stoppedAt: new Date() } : {}),
     },
   });

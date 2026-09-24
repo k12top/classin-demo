@@ -2,6 +2,9 @@ import "server-only";
 
 import { SignJWT, jwtVerify } from "jose";
 import { classroomRuntimeDefaults } from "@/lib/classroom/config";
+import { ClassroomProviderConfigurationError } from "@/lib/classroom/server/errors";
+
+const RECORDER_PAGE_CHECK_TIMEOUT_MS = 10_000;
 
 function recorderKey(): Uint8Array | null {
   const secret = process.env.CLASSROOM_RECORDER_SECRET?.trim();
@@ -33,6 +36,29 @@ export async function createRecorderPageUrl(
   url.searchParams.set("recorderToken", token);
   url.searchParams.set("is_recorder", "1");
   return url.toString();
+}
+
+export async function assertRecorderPageReachable(pageUrl: string) {
+  let response: Response;
+  try {
+    response = await fetch(pageUrl, {
+      method: "GET",
+      redirect: "manual",
+      cache: "no-store",
+      signal: AbortSignal.timeout(RECORDER_PAGE_CHECK_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw new ClassroomProviderConfigurationError(
+      `CLASSROOM_PUBLIC_BASE_URL is unreachable: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  if (!response.ok) {
+    throw new ClassroomProviderConfigurationError(
+      `CLASSROOM_PUBLIC_BASE_URL does not expose /classroom/recorder (HTTP ${response.status})`,
+    );
+  }
 }
 
 export async function verifyRecorderToken(

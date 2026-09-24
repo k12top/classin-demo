@@ -12,7 +12,10 @@ import {
   processRecordingStart,
   requestRecordingStart,
 } from "@/lib/classroom/server/recording-orchestrator";
-import { syncClassroomTranscription } from "@/lib/classroom/server/transcription-orchestrator";
+import {
+  ensureClassroomTranscriptionForLiveSession,
+  syncClassroomTranscription,
+} from "@/lib/classroom/server/transcription-orchestrator";
 import { databaseUnavailableResponse } from "@/lib/database-response";
 
 export const dynamic = "force-dynamic";
@@ -138,12 +141,17 @@ export async function POST(
           });
         }));
       }
-      after(() => syncClassroomTranscription(resolvedCourseId, { sessionId }).catch((error) => {
+      after(() =>
+        ensureClassroomTranscriptionForLiveSession(
+          resolvedCourseId,
+          sessionId,
+        ).catch((error) => {
           console.error("[classroom:actions] auto transcription failed", {
             courseId,
             error: error instanceof Error ? error.message : String(error),
           });
-        }));
+        }),
+      );
       runtimeSnapshot = await getClassroomRuntimeSnapshot(
         resolvedCourseId,
         sessionId,
