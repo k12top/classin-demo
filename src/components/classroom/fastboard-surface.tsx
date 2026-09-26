@@ -77,12 +77,14 @@ export function FastboardSurface({
   credential,
   courseware,
   onControllerChange,
+  onRetry,
 }: {
   credential: ClassroomWhiteboardCredential;
   courseware: ClassroomCoursewareSnapshot | null;
   onControllerChange?: (
     controller: ClassroomWhiteboardController | null,
   ) => void;
+  onRetry?: () => void;
 }) {
   const { t, locale } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -490,6 +492,11 @@ export function FastboardSurface({
         </strong>
         {!pending && (
           <p>{credential.error || t("classroom.v3.whiteboardConfigureHint")}</p>
+        )}
+        {!pending && onRetry && (
+          <button type="button" onClick={onRetry}>
+            {t("classroom.v3.retry")}
+          </button>
         )}
       </div>
     );

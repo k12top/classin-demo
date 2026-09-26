@@ -3458,6 +3458,12 @@ button.classroom-v3-seat-preview:focus-visible::after {
   font-weight: 500;
 }
 
+.classroom-v3-caption-overlay p.is-placeholder {
+  color: #c8cfda;
+  font-size: clamp(11px, 1.1vw, 15px);
+  font-weight: 500;
+}
+
 .classroom-v3-caption-stage-hint {
   display: flex;
   align-items: flex-start;
@@ -4999,6 +5005,18 @@ button.classroom-v3-seat-preview:focus-visible::after {
   margin: 0;
   font-size: 11px;
   line-height: 1.6;
+}
+
+.classroom-v3-board-state button {
+  margin-top: 8px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--classroom-iris);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
 }
 
 .classroom-v3-board-mark {

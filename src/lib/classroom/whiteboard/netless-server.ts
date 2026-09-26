@@ -9,7 +9,7 @@ import { ensureClassroomRuntime } from "@/lib/classroom/server/runtime";
 import { prisma } from "@/lib/db";
 
 const API_BASE = "https://api.netless.link/v5";
-const REQUEST_TIMEOUT_MS = 5_000;
+const REQUEST_TIMEOUT_MS = 20_000;
 const TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
 const VALID_REGIONS = new Set(["cn-hz", "us-sv", "sg", "in-mum", "eu"]);
 const roomCreationBySession = new Map<string, Promise<string>>();

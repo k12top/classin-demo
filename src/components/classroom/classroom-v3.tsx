@@ -3427,6 +3427,15 @@ function DeviceSettings({
     microphones: MediaDeviceInfo[];
     cameras: MediaDeviceInfo[];
   }>({ microphones: [], cameras: [] });
+  const [deviceSelection, setDeviceSelection] = useState<{
+    provider: ClassroomMediaProvider | null;
+    microphoneId: string;
+    cameraId: string;
+  }>({ provider: null, microphoneId: "", cameraId: "" });
+  const selectedDevices =
+    deviceSelection.provider === provider
+      ? deviceSelection
+      : { provider, microphoneId: "", cameraId: "" };
   const [error, setError] = useState("");
   const [backgroundMode, setBackgroundMode] = useState<
     ClassroomVideoBackgroundEffect["type"]
@@ -3447,6 +3456,39 @@ function DeviceSettings({
         ),
       );
   }, [open, provider, t]);
+
+  const selectDevice = async (kind: "microphone" | "camera", deviceId: string) => {
+    if (!provider || !deviceId) return;
+    setError("");
+    try {
+      if (kind === "microphone") {
+        await provider.setMicrophoneDevice(deviceId);
+      } else {
+        await provider.setCameraDevice(deviceId);
+      }
+      setDeviceSelection((current) => ({
+        provider,
+        microphoneId:
+          kind === "microphone"
+            ? deviceId
+            : current.provider === provider
+              ? current.microphoneId
+              : "",
+        cameraId:
+          kind === "camera"
+            ? deviceId
+            : current.provider === provider
+              ? current.cameraId
+              : "",
+      }));
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : t("classroom.v3.mediaActionFailed"),
+      );
+    }
+  };
 
   const applyBackground = async (effect: ClassroomVideoBackgroundEffect) => {
     if (!provider || backgroundBusy) return false;
@@ -3534,9 +3576,15 @@ function DeviceSettings({
             <label>
               <span>{t("classroom.v3.microphone")}</span>
               <select
-                defaultValue=""
+                value={
+                  devices.microphones.some(
+                    (device) => device.deviceId === selectedDevices.microphoneId,
+                  )
+                    ? selectedDevices.microphoneId
+                    : ""
+                }
                 onChange={(event) =>
-                  void provider?.setMicrophoneDevice(event.target.value)
+                  void selectDevice("microphone", event.target.value)
                 }
               >
                 <option value="" disabled>
@@ -3552,9 +3600,15 @@ function DeviceSettings({
             <label>
               <span>{t("classroom.v3.camera")}</span>
               <select
-                defaultValue=""
+                value={
+                  devices.cameras.some(
+                    (device) => device.deviceId === selectedDevices.cameraId,
+                  )
+                    ? selectedDevices.cameraId
+                    : ""
+                }
                 onChange={(event) =>
-                  void provider?.setCameraDevice(event.target.value)
+                  void selectDevice("camera", event.target.value)
                 }
               >
                 <option value="" disabled>
@@ -4653,18 +4707,20 @@ export function ClassroomV3({
     t,
   ]);
 
+  const whiteboardCredentialRole = sessionData?.credential.role;
+  const whiteboardCredentialError = sessionData?.whiteboard.error;
+  const whiteboardCredentialWritable = sessionData?.whiteboard.writable;
+  const memberWhiteboardWritable = currentMember?.whiteboardWritable;
   useEffect(() => {
-    const whiteboardPending =
-      sessionData?.whiteboard.error === "whiteboard_pending";
+    const whiteboardPending = whiteboardCredentialError === "whiteboard_pending";
     const studentPermissionChanged =
-      sessionData?.credential.role === "student" &&
-      Boolean(currentMember) &&
-      currentMember!.whiteboardWritable !== sessionData.whiteboard.writable;
+      whiteboardCredentialRole === "student" &&
+      memberWhiteboardWritable !== undefined &&
+      memberWhiteboardWritable !== whiteboardCredentialWritable;
     if (
       isRecorder ||
       loadingState !== "ready" ||
       !courseId ||
-      !sessionData ||
       (!whiteboardPending && !studentPermissionChanged)
     ) {
       return;
@@ -4714,16 +4770,15 @@ export function ClassroomV3({
     };
   }, [
     courseId,
-    currentMember,
     isRecorder,
     loadingState,
-    sessionData,
-    sessionData?.credential.role,
-    sessionData?.whiteboard.error,
-    sessionData?.whiteboard.writable,
+    memberWhiteboardWritable,
     shareAccess,
     t,
     updateSession,
+    whiteboardCredentialError,
+    whiteboardCredentialRole,
+    whiteboardCredentialWritable,
   ]);
 
   const publishInvalidation = useCallback(
@@ -6128,6 +6183,16 @@ export function ClassroomV3({
                     credential={sessionData.whiteboard}
                     courseware={activeCourseware}
                     onControllerChange={handleWhiteboardControllerChange}
+                    onRetry={() =>
+                      updateSession({
+                        whiteboard: {
+                          enabled: false,
+                          provider: "netless",
+                          writable: false,
+                          error: "whiteboard_pending",
+                        },
+                      })
+                    }
                   />
                   <BoardCompositionLayer
                     items={compositionBoardItems}
@@ -6270,27 +6335,41 @@ export function ClassroomV3({
             {!classEnded &&
               captionOverlayVisible &&
               captionDisplayMode !== "off" &&
-              sessionData.runtime.interpretation.enabled &&
-              latestCaption ? (
+              sessionData.runtime.interpretation.enabled ? (
                 <motion.div
-                  key={latestCaption.id}
+                  key={latestCaption?.id || "waiting"}
                   className="classroom-v3-caption-overlay"
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
+                  aria-live="polite"
                 >
                   <header>
                     <strong>
-                      {latestCaption.speakerName || t("classroom.v3.speaker")}
+                      {latestCaption?.speakerName ||
+                        (sessionData.runtime.interpretation.status === "failed"
+                          ? t("classroom.v3.abnormal")
+                          : sessionData.runtime.interpretation.status === "running"
+                            ? t("classroom.v3.live")
+                            : t("classroom.v3.preparing"))}
                     </strong>
                     <span>
                       {classroomLanguageLabel(effectiveCaptionLanguage)}
                     </span>
                   </header>
-                  {captionDisplayMode !== "translated" ? (
+                  {latestCaption && captionDisplayMode !== "translated" ? (
                     <p>{latestCaption.text}</p>
                   ) : null}
                   {captionDisplayMode !== "original" && latestTranslation ? (
                     <p className="is-translation">{latestTranslation}</p>
+                  ) : null}
+                  {!latestCaption ||
+                  (captionDisplayMode === "translated" && !latestTranslation) ? (
+                    <p className="is-placeholder">
+                      {sessionData.runtime.interpretation.error ||
+                        (sessionData.runtime.status === "live"
+                          ? t("classroom.v3.captionsWaiting")
+                          : t("classroom.v3.captionsStartAfterClass"))}
+                    </p>
                   ) : null}
                 </motion.div>
               ) : null}

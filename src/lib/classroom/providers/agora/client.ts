@@ -638,14 +638,14 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
 
   async setMicrophoneDevice(deviceId: string): Promise<void> {
     if (!deviceId) return;
-    this.preferredMicrophoneId = deviceId;
     if (this.microphoneTrack) await this.microphoneTrack.setDevice(deviceId);
+    this.preferredMicrophoneId = deviceId;
   }
 
   async setCameraDevice(deviceId: string): Promise<void> {
     if (!deviceId) return;
-    this.preferredCameraId = deviceId;
     if (this.cameraTrack) await this.cameraTrack.setDevice(deviceId);
+    this.preferredCameraId = deviceId;
   }
 
   async setVideoQuality(
