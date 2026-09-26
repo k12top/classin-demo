@@ -23,6 +23,7 @@ import {
 import { ensureClassroomRuntime } from "@/lib/classroom/server/runtime";
 
 const TRANSCRIPTION_TRANSITION_LEASE_MS = 30_000;
+const TRANSCRIPTION_HEALTH_CHECK_INTERVAL_MS = 30_000;
 
 function defaultTargetLanguage(sourceLanguage: string) {
   return sourceLanguage === "zh-CN" || sourceLanguage === "zh-TW"
@@ -73,6 +74,7 @@ export async function syncClassroomTranscription(
     sessionId?: string;
     retryCount?: number;
     claimed?: boolean;
+    knownInactiveAgentId?: string;
   } = {},
 ) {
   const sessionId = options.sessionId || courseId;
@@ -160,29 +162,31 @@ export async function syncClassroomTranscription(
 
     if (options.restart && runtime.transcriptionAgentId) {
       try {
-        const current = await queryAgoraTranscription(
-          runtime.transcriptionAgentId,
-        );
-        const status = normalizeAgoraTranscriptionStatus(current);
-        if (["running", "starting", "recovering"].includes(status)) {
-          await updateAgoraTranscription(runtime.transcriptionAgentId, {
-            sourceLanguage,
-            targetLanguages,
-            translationProvider: provider,
-          });
-          return prisma.classroomRuntime.update({
-            where: { id: runtime.id },
-            data: {
-              transcriptionStatus: status,
-              transcriptionError: null,
-              transcriptionLastCheckedAt: new Date(),
-            },
-          });
+        if (options.knownInactiveAgentId !== runtime.transcriptionAgentId) {
+          const current = await queryAgoraTranscription(
+            runtime.transcriptionAgentId,
+          );
+          const status = normalizeAgoraTranscriptionStatus(current);
+          if (["running", "starting", "recovering"].includes(status)) {
+            await updateAgoraTranscription(runtime.transcriptionAgentId, {
+              sourceLanguage,
+              targetLanguages,
+              translationProvider: provider,
+            });
+            return prisma.classroomRuntime.update({
+              where: { id: runtime.id },
+              data: {
+                transcriptionStatus: status,
+                transcriptionError: null,
+                transcriptionLastCheckedAt: new Date(),
+              },
+            });
+          }
         }
       } catch (error) {
-      console.warn("[classroom:captions] live update failed; restarting", {
-        courseId,
-        sessionId,
+        console.warn("[classroom:captions] live update failed; restarting", {
+          courseId,
+          sessionId,
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -300,61 +304,120 @@ export async function reconcileClassroomTranscription(sessionId: string) {
     }
     return runtime;
   }
+  // Teacher re-entry and the production cron can both check this agent.
+  // Claim the provider query so they cannot each start a replacement.
+  const checkAt = new Date();
+  const claimed = await prisma.classroomRuntime.updateMany({
+    where: {
+      id: runtime.id,
+      interpretationEnabled: true,
+      status: "live",
+      transcriptionAgentId: runtime.transcriptionAgentId,
+      OR: [
+        { transcriptionLastCheckedAt: null },
+        {
+          transcriptionLastCheckedAt: {
+            lt: new Date(
+              checkAt.getTime() - TRANSCRIPTION_HEALTH_CHECK_INTERVAL_MS,
+            ),
+          },
+        },
+      ],
+    },
+    data: { transcriptionLastCheckedAt: checkAt },
+  });
+  if (!claimed.count) {
+    return prisma.classroomRuntime.findUnique({ where: { sessionId } });
+  }
+
+  let status: ReturnType<typeof normalizeAgoraTranscriptionStatus>;
   try {
-    const providerState = await queryAgoraTranscription(
-      runtime.transcriptionAgentId,
-    );
-    const status = normalizeAgoraTranscriptionStatus(providerState);
-    if (["starting", "running", "recovering", "stopping"].includes(status)) {
-      return prisma.classroomRuntime.update({
-        where: { id: runtime.id },
-        data: {
-          transcriptionStatus: status,
-          transcriptionError: null,
-          transcriptionLastCheckedAt: new Date(),
-        },
-      });
-    }
-    if (
-      ["failed", "stopped", "unknown"].includes(status) &&
-      runtime.transcriptionRetryCount < 3
-    ) {
-      const nextRetryCount = runtime.transcriptionRetryCount + 1;
-      await prisma.classroomRuntime.update({
-        where: { id: runtime.id },
-        data: {
-          transcriptionStatus: "recovering",
-          transcriptionRetryCount: nextRetryCount,
-          transcriptionLastCheckedAt: new Date(),
-          transcriptionError: `Shengwang ASR agent is ${status}`,
-        },
-      });
-      return syncClassroomTranscription(runtime.courseId, {
-        sessionId,
-        restart: true,
-        retryCount: nextRetryCount,
-      });
-    }
-    return prisma.classroomRuntime.update({
-      where: { id: runtime.id },
-      data: {
-        transcriptionStatus: "failed",
-        transcriptionLastCheckedAt: new Date(),
-        transcriptionError: `Shengwang ASR agent is ${status}`,
-      },
-    });
+    const providerState = await queryAgoraTranscription(runtime.transcriptionAgentId);
+    status = normalizeAgoraTranscriptionStatus(providerState);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to query Shengwang ASR";
-    return prisma.classroomRuntime.update({
-      where: { id: runtime.id },
+    await prisma.classroomRuntime.updateMany({
+      where: {
+        id: runtime.id,
+        interpretationEnabled: true,
+        status: "live",
+        transcriptionAgentId: runtime.transcriptionAgentId,
+      },
       data: {
         transcriptionStatus: "failed",
         transcriptionLastCheckedAt: new Date(),
         transcriptionError: message.slice(0, 1000),
       },
     });
+    return prisma.classroomRuntime.findUnique({ where: { sessionId } });
   }
+  if (["starting", "running", "recovering", "stopping"].includes(status)) {
+    await prisma.classroomRuntime.updateMany({
+      where: {
+        id: runtime.id,
+        interpretationEnabled: true,
+        status: "live",
+        transcriptionAgentId: runtime.transcriptionAgentId,
+      },
+      data: {
+        transcriptionStatus: status,
+        transcriptionError: null,
+        ...(status === "running" ? { transcriptionRetryCount: 0 } : {}),
+        transcriptionLastCheckedAt: new Date(),
+      },
+    });
+    return prisma.classroomRuntime.findUnique({ where: { sessionId } });
+  }
+  if (runtime.transcriptionRetryCount < 3) {
+    const nextRetryCount = runtime.transcriptionRetryCount + 1;
+    const recovering = await prisma.classroomRuntime.updateMany({
+      where: {
+        id: runtime.id,
+        interpretationEnabled: true,
+        status: "live",
+        transcriptionAgentId: runtime.transcriptionAgentId,
+        transcriptionRetryCount: runtime.transcriptionRetryCount,
+      },
+      data: {
+        transcriptionStatus: "recovering",
+        transcriptionRetryCount: nextRetryCount,
+        transcriptionLastCheckedAt: new Date(),
+        transcriptionError: `Shengwang ASR agent is ${status}`,
+      },
+    });
+    if (!recovering.count) {
+      return prisma.classroomRuntime.findUnique({ where: { sessionId } });
+    }
+    console.warn("[classroom:captions] restarting inactive ASR agent", {
+      sessionId,
+      status,
+      retryCount: nextRetryCount,
+    });
+    // The recovery claim above owns this transition. A second lease check
+    // here would reject the restart using the timestamp we just wrote.
+    return syncClassroomTranscription(runtime.courseId, {
+      sessionId,
+      restart: true,
+      retryCount: nextRetryCount,
+      claimed: true,
+      knownInactiveAgentId: runtime.transcriptionAgentId,
+    });
+  }
+  await prisma.classroomRuntime.updateMany({
+    where: {
+      id: runtime.id,
+      interpretationEnabled: true,
+      status: "live",
+      transcriptionAgentId: runtime.transcriptionAgentId,
+    },
+    data: {
+      transcriptionStatus: "failed",
+      transcriptionLastCheckedAt: new Date(),
+      transcriptionError: `Shengwang ASR agent is ${status}`,
+    },
+  });
+  return prisma.classroomRuntime.findUnique({ where: { sessionId } });
 }
 
 /**
@@ -407,11 +470,8 @@ export async function ensureClassroomTranscriptionForLiveSession(
     });
   }
 
-  if (
-    runtime.transcriptionStatus === "running" &&
-    runtime.transcriptionAgentId
-  ) {
-    return runtime;
+  if (runtime.transcriptionAgentId && !needsDefaultTarget) {
+    return (await reconcileClassroomTranscription(sessionId)) ?? runtime;
   }
   return syncClassroomTranscription(courseId, {
     sessionId,
