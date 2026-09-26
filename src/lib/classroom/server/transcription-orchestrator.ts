@@ -211,6 +211,11 @@ export async function syncClassroomTranscription(
       targetLanguages,
       translationProvider: provider,
     });
+    console.info("[classroom:captions] ASR agent started", {
+      sessionId,
+      provider,
+      status: started.status,
+    });
     return prisma.classroomRuntime.update({
       where: { id: runtime.id },
       data: {
@@ -223,6 +228,11 @@ export async function syncClassroomTranscription(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to start classroom captions";
+    console.error("[classroom:captions] ASR agent start failed", {
+      sessionId,
+      provider,
+      message,
+    });
     await prisma.classroomRuntime.update({
       where: { id: runtime.id },
       data: {

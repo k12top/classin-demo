@@ -3755,6 +3755,7 @@ export function ClassroomV3({
   const sessionRef = useRef<ClassroomSessionResponse | null>(null);
   const refreshRequestIdRef = useRef(0);
   const refreshAbortRef = useRef<AbortController | null>(null);
+  const refreshCourseIdRef = useRef("");
   const [media, setMedia] = useState<ClassroomMediaSnapshot>(EMPTY_MEDIA);
   const [mediaProvider, setMediaProvider] =
     useState<ClassroomMediaProvider | null>(null);
@@ -4305,15 +4306,25 @@ export function ClassroomV3({
 
   const refreshState = useCallback(async () => {
     if (!courseId || !sessionRef.current) return;
+    if (refreshAbortRef.current) {
+      if (refreshCourseIdRef.current === courseId) return;
+      // A different lesson replaced the current one; its snapshot is stale.
+      refreshAbortRef.current.abort();
+    }
     const requestId = refreshRequestIdRef.current + 1;
     refreshRequestIdRef.current = requestId;
-    refreshAbortRef.current?.abort();
     const controller = new AbortController();
     refreshAbortRef.current = controller;
+    refreshCourseIdRef.current = courseId;
+    let timedOut = false;
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 30_000);
     try {
       if (isRecorder) {
         const payload = await fetchInitialSession();
-        if (requestId !== refreshRequestIdRef.current) return;
+        if (controller.signal.aborted || requestId !== refreshRequestIdRef.current) return;
         updateSession({
           runtime: payload.runtime,
           engagement: payload.engagement,
@@ -4340,7 +4351,7 @@ export function ClassroomV3({
           signal: controller.signal,
         }),
       ]);
-      if (requestId !== refreshRequestIdRef.current) return;
+      if (controller.signal.aborted || requestId !== refreshRequestIdRef.current) return;
       if (stateResponse.ok) {
         const payload = (await stateResponse.json()) as {
           runtime: ClassroomRuntimeSnapshot;
@@ -4362,11 +4373,16 @@ export function ClassroomV3({
         updateSession({ messages: payload.messages });
       }
     } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (controller.signal.aborted) {
+        if (timedOut) console.warn("[classroom:v3] state refresh timed out");
+        return;
+      }
       console.warn("[classroom:v3] state refresh failed", error);
     } finally {
+      window.clearTimeout(timeoutId);
       if (refreshAbortRef.current === controller) {
         refreshAbortRef.current = null;
+        refreshCourseIdRef.current = "";
       }
     }
   }, [
@@ -4382,6 +4398,7 @@ export function ClassroomV3({
       refreshRequestIdRef.current += 1;
       refreshAbortRef.current?.abort();
       refreshAbortRef.current = null;
+      refreshCourseIdRef.current = "";
     };
   }, []);
 
