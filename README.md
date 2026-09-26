@@ -184,6 +184,11 @@ COURSE_FINISHED_DELAY_MINUTES=20
 NEXT_PUBLIC_CLASSROOM_VIDEO_PRESET=hd
 ```
 
+Vercel preview deployments use their own `VERCEL_URL` for the web recorder,
+even when `CLASSROOM_PUBLIC_BASE_URL` points to production. The production
+domain must expose `/classroom/recorder` before production web recording can
+start.
+
 Cloud recording reuses the private Alibaba Cloud OSS bucket and credentials
 from the courseware section. The RAM policy must also allow read/write access
 to `recordings/*`. Agora's REST customer credentials are different from the

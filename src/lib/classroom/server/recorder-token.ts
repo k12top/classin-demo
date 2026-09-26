@@ -2,6 +2,7 @@ import "server-only";
 
 import { SignJWT, jwtVerify } from "jose";
 import { classroomRuntimeDefaults } from "@/lib/classroom/config";
+import { recorderPageOrigin } from "@/lib/classroom/recorder-origin";
 import { ClassroomProviderConfigurationError } from "@/lib/classroom/server/errors";
 
 const RECORDER_PAGE_CHECK_TIMEOUT_MS = 10_000;
@@ -13,7 +14,7 @@ function recorderKey(): Uint8Array | null {
 
 export function isRecorderPageConfigured(): boolean {
   return Boolean(
-    recorderKey() && process.env.CLASSROOM_PUBLIC_BASE_URL?.trim(),
+    recorderKey() && recorderPageOrigin(process.env),
   );
 }
 
@@ -21,7 +22,7 @@ export async function createRecorderPageUrl(
   courseId: string,
 ): Promise<string | null> {
   const key = recorderKey();
-  const base = process.env.CLASSROOM_PUBLIC_BASE_URL?.trim();
+  const base = recorderPageOrigin(process.env);
   if (!key || !base) return null;
   const token = await new SignJWT({
     courseId,
