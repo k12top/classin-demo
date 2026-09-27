@@ -684,7 +684,8 @@ export async function retryFailedLiveRecordings(): Promise<number> {
     const latest = runtime.session.recordings[0];
     if (
       !getRecordingProvider(runtime.session.recordingProvider).isConfigured() ||
-      (latest && !shouldRecoverRecording(latest, MAX_PROVIDER_RETRIES))
+      !latest ||
+      !shouldRecoverRecording(latest, MAX_PROVIDER_RETRIES)
     ) {
       continue;
     }
@@ -730,6 +731,7 @@ export async function recoverInterruptedRecordingForSession(
   const latest = lesson?.recordings[0];
   if (
     runtime?.status !== "live" ||
+    !latest ||
     !lesson ||
     !getRecordingProvider(lesson.recordingProvider).isConfigured() ||
     !shouldRecoverRecording(latest, MAX_PROVIDER_RETRIES)

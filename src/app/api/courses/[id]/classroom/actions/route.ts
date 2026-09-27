@@ -24,6 +24,7 @@ export const runtime = "nodejs";
 const ACTION_TYPES = new Set<ClassroomAction["type"]>([
   "heartbeat",
   "startClass",
+  "setRecordingStartMode",
   "raiseHand",
   "lowerHand",
   "inviteStage",
@@ -122,16 +123,14 @@ export async function POST(
       body.action.type === "startClass" &&
       resolved.access.role === "teacher"
     ) {
-      const recording = await requestRecordingStart(
-        resolvedCourseId,
-        sessionId,
-      ).catch((error) => {
+      const recording = runtimeSnapshot.recordingStartMode === "classStart"
+        ? await requestRecordingStart(resolvedCourseId, sessionId).catch((error) => {
         console.error("[classroom:actions] auto recording failed", {
           courseId,
           error: error instanceof Error ? error.message : String(error),
         });
         return null;
-      });
+      }) : null;
       if (recording) {
         after(() => processRecordingStart(recording.id).catch((error) => {
           console.error("[classroom:actions] auto recording failed", {

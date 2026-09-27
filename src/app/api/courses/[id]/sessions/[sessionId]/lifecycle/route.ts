@@ -304,16 +304,18 @@ async function handlePost(request: NextRequest, context: Context) {
   });
   clearCourseSessionAccessCache();
   await syncCourseStatusFromSessions(resolved.courseId);
-  const recording = await requestRecordingStart(
-    resolved.courseId,
-    resolved.sessionId,
-  ).catch((error) => {
+  const recordingMode = await prisma.classroomRuntime.findUnique({
+    where: { sessionId: resolved.sessionId },
+    select: { recordingStartMode: true },
+  });
+  const recording = recordingMode?.recordingStartMode !== "pageReady"
+    ? await requestRecordingStart(resolved.courseId, resolved.sessionId).catch((error) => {
     console.error("[classroom:lifecycle] reopen recording request failed", {
       sessionId: resolved.sessionId,
       error: error instanceof Error ? error.message : String(error),
     });
     return null;
-  });
+  }) : null;
   after(async () => {
     await Promise.allSettled([
       recording ? processRecordingStart(recording.id) : Promise.resolve(),

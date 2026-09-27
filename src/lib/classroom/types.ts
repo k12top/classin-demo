@@ -294,6 +294,7 @@ export type ClassroomEngagementSnapshot = {
 export type ClassroomRuntimeSnapshot = {
   revision: number;
   status: "waiting" | "live" | "ended";
+  recordingStartMode: "classStart" | "pageReady";
   startedAt: string | null;
   graceEndsAt: string | null;
   stageMode: ClassroomStageMode;
@@ -392,6 +393,7 @@ export function credentialCanPublish(
 export type ClassroomAction =
   | { type: "heartbeat" }
   | { type: "startClass" }
+  | { type: "setRecordingStartMode"; mode: "classStart" | "pageReady" }
   | { type: "raiseHand" }
   | { type: "lowerHand" }
   | { type: "inviteStage"; targetUserId: string }

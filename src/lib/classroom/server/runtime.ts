@@ -78,17 +78,14 @@ export async function ensureClassroomRuntime(
   const ended =
     lesson.status === CourseStatus.FINISHED ||
     lesson.status === CourseStatus.CANCELLED;
-  const live =
-    lesson.status === CourseStatus.LIVE ||
-    lesson.status === CourseStatus.AFTER_CLASS;
   const runtime = await prisma.classroomRuntime.upsert({
     where: { sessionId },
     create: {
       courseId,
       sessionId,
-      status: ended ? "ended" : live ? "live" : "waiting",
+      status: ended ? "ended" : "waiting",
       graceEndsAt: classroomGraceEndAt(lesson.endTime),
-      startedAt: live ? new Date() : null,
+      startedAt: null,
     },
     update: {
       graceEndsAt: classroomGraceEndAt(lesson.endTime),
@@ -291,6 +288,8 @@ export async function getClassroomRuntimeSnapshot(
         : runtime.status === "ended"
           ? "ended"
           : "waiting",
+    recordingStartMode:
+      runtime.recordingStartMode === "pageReady" ? "pageReady" : "classStart",
     startedAt: runtime.startedAt?.toISOString() ?? null,
     graceEndsAt: runtime.graceEndsAt?.toISOString() ?? null,
     stageMode: normalizeStageMode(runtime.stageMode),
@@ -533,6 +532,17 @@ export async function applyClassroomAction(input: {
     };
 
     switch (action.type) {
+      case "setRecordingStartMode": {
+        requireLeadTeacher(role);
+        if (action.mode !== "classStart" && action.mode !== "pageReady") {
+          throw new ClassroomActionError("录制启动方式无效");
+        }
+        await tx.classroomRuntime.update({
+          where: { id: runtime.id },
+          data: { recordingStartMode: action.mode },
+        });
+        break;
+      }
       case "startClass": {
         requireLeadTeacher(role);
         const lesson = await tx.courseSession.findUniqueOrThrow({

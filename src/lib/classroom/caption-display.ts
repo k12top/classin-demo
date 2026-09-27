@@ -23,12 +23,7 @@ export function captionTranslation(
   );
 }
 
-/**
- * Keep the stage overlay on the newest complete sentence. Incremental
- * captions remain visible in the history panel, while translated modes wait
- * for the corresponding translation instead of flashing an untranslated
- * sentence and immediately replacing it.
- */
+/** Show live original text as it arrives; translation-only waits silently. */
 export function selectStableCaption(
   captions: readonly ClassroomCaptionSnapshot[],
   language: string,
@@ -37,11 +32,10 @@ export function selectStableCaption(
   if (displayMode === "off") return null;
   for (let index = captions.length - 1; index >= 0; index -= 1) {
     const caption = captions[index];
-    if (!caption?.isFinal || !caption.text.trim()) continue;
-    if (
-      displayMode === "original" ||
-      captionTranslation(caption, language)
-    ) {
+    if (!caption) continue;
+    if (displayMode === "translated") {
+      if (captionTranslation(caption, language)) return caption;
+    } else if (caption.text.trim()) {
       return caption;
     }
   }

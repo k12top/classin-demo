@@ -143,9 +143,9 @@ export async function POST(
     action?: unknown;
   };
   const action = body.action;
-  if (action !== "start" && action !== "stop") {
+  if (action !== "start" && action !== "stop" && action !== "auto-start-page-ready") {
     return NextResponse.json(
-      { error: 'action must be "start" or "stop"' },
+      { error: 'action must be "start", "stop", or "auto-start-page-ready"' },
       { status: 400 },
     );
   }
@@ -153,7 +153,20 @@ export async function POST(
   const { course, lesson } = resolved;
   const latest = lesson.recordings[0];
   try {
-    if (action === "start") {
+    if (action === "auto-start-page-ready") {
+      const runtimeState = await prisma.classroomRuntime.findUnique({
+        where: { sessionId: lesson.id },
+        select: { status: true, recordingStartMode: true },
+      });
+      if (
+        runtimeState?.recordingStartMode !== "pageReady" ||
+        runtimeState.status === "ended" ||
+        latest
+      ) {
+        return NextResponse.json({ recording: latest ? publicRecording(latest) : null });
+      }
+    }
+    if (action === "start" || action === "auto-start-page-ready") {
       const recording = await requestRecordingStart(course.id, lesson.id);
       after(() => processRecordingStart(recording.id).catch((error) => {
         console.error("[classroom:recording] deferred start failed", {

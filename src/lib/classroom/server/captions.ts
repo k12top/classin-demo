@@ -70,8 +70,19 @@ export async function ingestClassroomCaption(
   const runtime = await ensureClassroomRuntime(courseId, sessionId);
   const lesson = await prisma.courseSession.findUniqueOrThrow({
     where: { id: sessionId },
-    select: { id: true, title: true, roomUuid: true },
+    select: { id: true, title: true, roomUuid: true, endedAt: true },
   });
+  // A transcription provider can finish its last sentence just after the
+  // teacher ends class. Keep that final sentence, but quietly discard delayed
+  // partials and any later callbacks from an already stopped agent.
+  if (
+    runtime.status === "ended" &&
+    (!input.isFinal ||
+      !lesson.endedAt ||
+      Date.now() - lesson.endedAt.getTime() > 30_000)
+  ) {
+    return { ignored: true };
+  }
   const externalId = input.id.trim().slice(0, 240);
   const text = input.text.trim().slice(0, 20_000);
   const suppliedTranslations = translationsRecord(input.translations);
@@ -85,7 +96,7 @@ export async function ingestClassroomCaption(
       // This prevents duplicate Wordly billing and prevents a late partial from
       // overwriting an already persisted final sentence.
       await transaction.$queryRaw`
-        SELECT pg_advisory_xact_lock(
+        SELECT 1 AS locked FROM pg_advisory_xact_lock(
           hashtext(${sessionId}),
           hashtext(${externalId})
         )

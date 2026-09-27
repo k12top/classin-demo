@@ -13,7 +13,7 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { classroomRtcUid } from "@/lib/classroom/rtc-uid";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useDragControls, useReducedMotion } from "motion/react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -163,6 +163,7 @@ type DrawerPanel =
   | "tools";
 type ClassroomLayoutMode = "focus" | "split" | "grid";
 type CaptionDisplayMode = "off" | "original" | "bilingual" | "translated";
+type CaptionBackgroundMode = "transparent" | "solid";
 
 const TEACHER_PIP_HIDDEN_STORAGE_KEY = "classroom_teacher_pip_hidden";
 const OPTIMISTIC_MESSAGE_PREFIX = "optimistic:";
@@ -842,6 +843,16 @@ function BoardCompositionLayer({
                 ...update,
               }).finally(() => {
                 if (!isMountedRef.current) return;
+                // The server snapshot is authoritative for every viewer,
+                // including the separate recorder browser. A permanent local
+                // override would make a rejected edit appear saved only here.
+                if (isLocalCamera && (update.rect || update.shape)) {
+                  setLocalCameraOverrides((current) => {
+                    const next = { ...current };
+                    delete next[item.sourceId];
+                    return next;
+                  });
+                }
                 setOptimisticItemUpdates((current) => {
                   const pending = current[item.id];
                   if (!pending) return current;
@@ -3424,14 +3435,32 @@ function DeviceSettings({
   open,
   provider,
   media,
+  runtime,
+  canManageRecording,
+  captionDisplayMode,
+  captionBackgroundMode,
+  captionBackgroundColor,
+  onRecordingStartModeChange,
+  onCaptionDisplayModeChange,
+  onCaptionBackgroundModeChange,
+  onCaptionBackgroundColorChange,
   onClose,
 }: {
   open: boolean;
   provider: ClassroomMediaProvider | null;
   media: ClassroomMediaSnapshot;
+  runtime: ClassroomRuntimeSnapshot | null;
+  canManageRecording: boolean;
+  captionDisplayMode: CaptionDisplayMode;
+  captionBackgroundMode: CaptionBackgroundMode;
+  captionBackgroundColor: string;
+  onRecordingStartModeChange: (mode: "classStart" | "pageReady") => void;
+  onCaptionDisplayModeChange: (mode: CaptionDisplayMode) => void;
+  onCaptionBackgroundModeChange: (mode: CaptionBackgroundMode) => void;
+  onCaptionBackgroundColorChange: (color: string) => void;
   onClose: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [devices, setDevices] = useState<{
     microphones: MediaDeviceInfo[];
     cameras: MediaDeviceInfo[];
@@ -3719,6 +3748,44 @@ function DeviceSettings({
                       })
                     : t("classroom.v3.virtualBackgroundPrivacyHint")}
             </p>
+            <fieldset className="classroom-v3-caption-settings">
+              <legend>{t("classroom.v3.captionsTitle")}</legend>
+              <label>
+                <span>{t("classroom.v3.displayMode")}</span>
+                <select value={captionDisplayMode} onChange={(event) => onCaptionDisplayModeChange(event.target.value as CaptionDisplayMode)}>
+                  <option value="off">{t("classroom.v3.captionsOff")}</option>
+                  <option value="original">{t("classroom.v3.originalOnly")}</option>
+                  <option value="translated">{t("classroom.v3.translatedOnly")}</option>
+                  <option value="bilingual">{t("classroom.v3.bilingual")}</option>
+                </select>
+              </label>
+              <label>
+                <span>{locale.startsWith("zh") ? "字幕背景" : "Caption background"}</span>
+                <select value={captionBackgroundMode} onChange={(event) => onCaptionBackgroundModeChange(event.target.value as CaptionBackgroundMode)}>
+                  <option value="transparent">{locale.startsWith("zh") ? "透明" : "Transparent"}</option>
+                  <option value="solid">{locale.startsWith("zh") ? "自定义颜色" : "Custom color"}</option>
+                </select>
+              </label>
+              {captionBackgroundMode === "solid" && (
+                <label>
+                  <span>{locale.startsWith("zh") ? "背景颜色" : "Background color"}</span>
+                  <input type="color" value={captionBackgroundColor} onChange={(event) => onCaptionBackgroundColorChange(event.target.value)} />
+                </label>
+              )}
+              <p>{locale.startsWith("zh") ? "字幕出现后，可拖动悬浮框顶部调整位置。" : "Drag the caption header to move the overlay."}</p>
+            </fieldset>
+            {canManageRecording && runtime && (
+              <fieldset className="classroom-v3-caption-settings">
+                <legend>{locale.startsWith("zh") ? "自动录制" : "Automatic recording"}</legend>
+                <label>
+                  <span>{locale.startsWith("zh") ? "开始时机" : "Start when"}</span>
+                  <select value={runtime.recordingStartMode} onChange={(event) => onRecordingStartModeChange(event.target.value as "classStart" | "pageReady")}>
+                    <option value="classStart">{locale.startsWith("zh") ? "点击开始上课后" : "Class starts"}</option>
+                    <option value="pageReady">{locale.startsWith("zh") ? "课堂页面加载完成后" : "Classroom page is ready"}</option>
+                  </select>
+                </label>
+              </fieldset>
+            )}
             {error && <p className="classroom-v3-modal-error">{error}</p>}
             <footer>
               <p>{t("classroom.v3.screenQualityHint")}</p>
@@ -3821,6 +3888,17 @@ export function ClassroomV3({
     if (typeof window === "undefined") return true;
     return window.localStorage.getItem("classroom_caption_overlay_visible") !== "0";
   });
+  const [captionBackgroundMode, setCaptionBackgroundMode] = useState<CaptionBackgroundMode>(() =>
+    typeof window !== "undefined" && window.localStorage.getItem("classroom_caption_background_mode") === "transparent"
+      ? "transparent" : "solid",
+  );
+  const [captionBackgroundColor, setCaptionBackgroundColor] = useState(() => {
+    const saved = typeof window === "undefined" ? null : window.localStorage.getItem("classroom_caption_background_color");
+    return saved && /^#[0-9a-fA-F]{6}$/.test(saved) ? saved : "#202124";
+  });
+  const captionDragControls = useDragControls();
+  const stageElementRef = useRef<HTMLElement | null>(null);
+  const pageReadyRecordingRequestedRef = useRef("");
   const [teacherPiPHidden, setTeacherPiPHidden] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(TEACHER_PIP_HIDDEN_STORAGE_KEY) === "1";
@@ -3942,6 +4020,36 @@ export function ClassroomV3({
       captionOverlayVisible ? "1" : "0",
     );
   }, [captionOverlayVisible]);
+
+  useEffect(() => {
+    window.localStorage.setItem("classroom_caption_background_mode", captionBackgroundMode);
+    window.localStorage.setItem("classroom_caption_background_color", captionBackgroundColor);
+  }, [captionBackgroundMode, captionBackgroundColor]);
+
+  useEffect(() => {
+    if (
+      isRecorder ||
+      loadingState !== "ready" ||
+      media.connectionState !== "connected" ||
+      sessionData?.credential.role !== "teacher" ||
+      sessionData.runtime.status === "ended" ||
+      sessionData.runtime.recordingStartMode !== "pageReady" ||
+      pageReadyRecordingRequestedRef.current === courseId
+    ) return;
+    pageReadyRecordingRequestedRef.current = courseId;
+    void fetch(`/api/courses/${encodeURIComponent(courseId)}/recording`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "auto-start-page-ready" }),
+    }).then(async (response) => {
+      if (!response.ok) throw new Error("Automatic recording failed");
+      const result = await response.json() as { recording?: { status?: string } | null };
+      if (result.recording?.status) setRecordingStatus(result.recording.status);
+    }).catch((error) => {
+      console.warn("[classroom:v3] page-ready recording failed", error);
+      pageReadyRecordingRequestedRef.current = "";
+    });
+  }, [courseId, isRecorder, loadingState, media.connectionState, sessionData?.credential.role, sessionData?.runtime.recordingStartMode, sessionData?.runtime.status]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -4174,6 +4282,7 @@ export function ClassroomV3({
         unsubscribeCaptions = provider.subscribeCaptions((caption) => {
           if (cancelled) return;
           const runtime = sessionRef.current?.runtime ?? payload.runtime;
+          if (runtime.status === "ended") return;
           const speakerId = participantOwnerId(caption.speakerId, runtime.members);
           const localCaption: ClassroomCaptionSnapshot = {
             ...caption,
@@ -4868,7 +4977,8 @@ export function ClassroomV3({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               action,
-              ...(action.type !== "submitBuzz" && {
+              ...(action.type !== "submitBuzz" &&
+                action.type !== "updateBoardItem" && {
                 expectedRevision: sessionRef.current.runtime.revision,
               }),
               ...(shareAccess && { shareAccess }),
@@ -4909,7 +5019,7 @@ export function ClassroomV3({
           );
         }
         if (action.type === "startClass") {
-          setRecordingStatus("starting");
+          if (payload.runtime?.recordingStartMode === "classStart") setRecordingStatus("starting");
           window.setTimeout(() => void refreshState(), 1_800);
         }
         return true;
@@ -6086,6 +6196,7 @@ export function ClassroomV3({
         <motion.section
           layout
           className="classroom-v3-stage"
+          ref={stageElementRef}
           transition={{ type: "spring", stiffness: 320, damping: 32 }}
         >
           <header className="classroom-v3-stage-bar">
@@ -6368,22 +6479,24 @@ export function ClassroomV3({
             {!classEnded &&
               captionOverlayVisible &&
               captionDisplayMode !== "off" &&
-              sessionData.runtime.interpretation.enabled ? (
+              sessionData.runtime.interpretation.enabled &&
+              latestCaption &&
+              (captionDisplayMode !== "translated" || latestTranslation) ? (
                 <motion.div
-                  key={latestCaption?.id || "waiting"}
                   className="classroom-v3-caption-overlay"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
+                  data-background={captionBackgroundMode}
+                  style={{ "--caption-overlay-background": captionBackgroundColor } as CSSProperties}
+                  drag
+                  dragControls={captionDragControls}
+                  dragListener={false}
+                  dragConstraints={stageElementRef}
+                  dragMomentum={false}
+                  dragElastic={0}
                   aria-live="polite"
                 >
-                  <header>
+                  <header onPointerDown={(event) => captionDragControls.start(event)}>
                     <strong>
-                      {latestCaption?.speakerName ||
-                        (sessionData.runtime.interpretation.status === "failed"
-                          ? t("classroom.v3.abnormal")
-                          : sessionData.runtime.interpretation.status === "running"
-                            ? t("classroom.v3.live")
-                            : t("classroom.v3.preparing"))}
+                      <Move aria-hidden="true" /> {latestCaption.speakerName}
                     </strong>
                     <span>
                       {classroomLanguageLabel(effectiveCaptionLanguage)}
@@ -6394,15 +6507,6 @@ export function ClassroomV3({
                   ) : null}
                   {captionDisplayMode !== "original" && latestTranslation ? (
                     <p className="is-translation">{latestTranslation}</p>
-                  ) : null}
-                  {!latestCaption ||
-                  (captionDisplayMode === "translated" && !latestTranslation) ? (
-                    <p className="is-placeholder">
-                      {sessionData.runtime.interpretation.error ||
-                        (sessionData.runtime.status === "live"
-                          ? t("classroom.v3.captionsWaiting")
-                          : t("classroom.v3.captionsStartAfterClass"))}
-                    </p>
                   ) : null}
                 </motion.div>
               ) : null}
@@ -6658,7 +6762,6 @@ export function ClassroomV3({
                         action.type === "setInterpretation" &&
                         action.enabled
                       ) {
-                        setCaptionDisplayMode("bilingual");
                         setCaptionOverlayVisible(true);
                         const preferred = action.targetLanguages[0];
                         if (preferred) setCaptionLanguage(preferred);
@@ -7098,6 +7201,15 @@ export function ClassroomV3({
         open={settingsOpen}
         provider={controlsRoomMedia ? roomProvider : mediaProvider}
         media={controlMedia}
+        runtime={sessionData?.runtime || null}
+        canManageRecording={sessionData?.credential.role === "teacher" && !isRecorder}
+        captionDisplayMode={captionDisplayMode}
+        captionBackgroundMode={captionBackgroundMode}
+        captionBackgroundColor={captionBackgroundColor}
+        onRecordingStartModeChange={(mode) => void performAction({ type: "setRecordingStartMode", mode })}
+        onCaptionDisplayModeChange={setCaptionDisplayMode}
+        onCaptionBackgroundModeChange={setCaptionBackgroundMode}
+        onCaptionBackgroundColorChange={setCaptionBackgroundColor}
         onClose={() => setSettingsOpen(false)}
       />
     </main>

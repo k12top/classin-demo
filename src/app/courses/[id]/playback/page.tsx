@@ -88,6 +88,14 @@ type LessonSummary = {
   isStale: boolean;
 };
 
+type LessonCaption = {
+  id: string;
+  occurredAt: string;
+  speakerName: string;
+  text: string;
+  translations: Record<string, string>;
+};
+
 type SummaryCopy = {
   title: string;
   draft: string;
@@ -131,6 +139,10 @@ export default function CoursePlaybackPage({
   const [recordingsError, setRecordingsError] = useState("");
   const [recordingsRevision, setRecordingsRevision] = useState(0);
   const [summary, setSummary] = useState<LessonSummary | null>(null);
+  const [lessonCaptions, setLessonCaptions] = useState<LessonCaption[]>([]);
+  const [nextCaptionCursor, setNextCaptionCursor] = useState<string | null>(null);
+  const [captionsLoadingMore, setCaptionsLoadingMore] = useState(false);
+  const summaryRequestIdRef = useRef(0);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState("");
   const [summaryBusy, setSummaryBusy] = useState<
@@ -315,8 +327,12 @@ export default function CoursePlaybackPage({
   }, [copy.loadFailed, recordingsRevision, selectedSessionId]);
 
   const fetchSummary = useCallback(async () => {
+    const requestId = ++summaryRequestIdRef.current;
+    setCaptionsLoadingMore(false);
     if (!selectedSessionId) {
       setSummary(null);
+      setLessonCaptions([]);
+      setNextCaptionCursor(null);
       setSummaryCanManage(false);
       return;
     }
@@ -329,18 +345,50 @@ export default function CoursePlaybackPage({
       );
       const payload = (await response.json().catch(() => ({}))) as {
         summary?: LessonSummary | null;
+        captions?: LessonCaption[];
+        nextCaptionCursor?: string | null;
         canManage?: boolean;
         error?: string;
       };
       if (!response.ok) throw new Error(payload.error || copy.loadFailed);
+      if (requestId !== summaryRequestIdRef.current) return;
       setSummary(payload.summary || null);
+      setLessonCaptions(Array.isArray(payload.captions) ? payload.captions : []);
+      setNextCaptionCursor(payload.nextCaptionCursor || null);
       setSummaryCanManage(Boolean(payload.canManage));
     } catch (cause) {
+      if (requestId !== summaryRequestIdRef.current) return;
       setSummaryError(cause instanceof Error ? cause.message : copy.loadFailed);
     } finally {
-      setSummaryLoading(false);
+      if (requestId === summaryRequestIdRef.current) setSummaryLoading(false);
     }
   }, [copy.loadFailed, selectedSessionId]);
+
+  const loadMoreCaptions = useCallback(async () => {
+    if (!selectedSessionId || !nextCaptionCursor || captionsLoadingMore) return;
+    const requestId = summaryRequestIdRef.current;
+    setCaptionsLoadingMore(true);
+    try {
+      const response = await fetch(
+        `/api/sessions/${encodeURIComponent(selectedSessionId)}/summary?captionCursor=${encodeURIComponent(nextCaptionCursor)}`,
+        { credentials: "same-origin", cache: "no-store" },
+      );
+      const payload = await response.json() as {
+        captions?: LessonCaption[];
+        nextCaptionCursor?: string | null;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(payload.error || copy.loadFailed);
+      if (requestId !== summaryRequestIdRef.current) return;
+      setLessonCaptions((current) => [...current, ...(payload.captions || [])]);
+      setNextCaptionCursor(payload.nextCaptionCursor || null);
+    } catch (cause) {
+      if (requestId !== summaryRequestIdRef.current) return;
+      setSummaryError(cause instanceof Error ? cause.message : copy.loadFailed);
+    } finally {
+      if (requestId === summaryRequestIdRef.current) setCaptionsLoadingMore(false);
+    }
+  }, [captionsLoadingMore, copy.loadFailed, nextCaptionCursor, selectedSessionId]);
 
   useEffect(() => {
     queueMicrotask(() => void fetchSummary());
@@ -553,6 +601,10 @@ export default function CoursePlaybackPage({
         {selectedSessionId && (
           <LessonSummaryPanel
             summary={summary}
+            captions={lessonCaptions}
+            hasMoreCaptions={Boolean(nextCaptionCursor)}
+            captionsLoadingMore={captionsLoadingMore}
+            onLoadMoreCaptions={() => void loadMoreCaptions()}
             loading={summaryLoading}
             error={summaryError}
             canManage={summaryCanManage}
@@ -571,6 +623,10 @@ export default function CoursePlaybackPage({
 
 function LessonSummaryPanel({
   summary,
+  captions,
+  hasMoreCaptions,
+  captionsLoadingMore,
+  onLoadMoreCaptions,
   loading,
   error,
   canManage,
@@ -582,6 +638,10 @@ function LessonSummaryPanel({
   onUnpublish,
 }: {
   summary: LessonSummary | null;
+  captions: LessonCaption[];
+  hasMoreCaptions: boolean;
+  captionsLoadingMore: boolean;
+  onLoadMoreCaptions: () => void;
   loading: boolean;
   error: string;
   canManage: boolean;
@@ -593,7 +653,8 @@ function LessonSummaryPanel({
   onUnpublish: () => void;
 }) {
   return (
-    <Card className="mt-6 overflow-hidden rounded-2xl border border-border/70 bg-card shadow-none">
+    <div className="mt-6 space-y-6">
+    <Card className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-none">
       <CardContent className="p-0">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/60 px-5 py-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
@@ -632,7 +693,13 @@ function LessonSummaryPanel({
         ) : !summary ? (
           <div className="flex min-h-44 flex-col items-center justify-center gap-3 px-6 py-10 text-center">
             <p className="max-w-lg text-sm leading-6 text-muted-foreground">
-              {canManage ? copy.noCaptions : copy.noSummary}
+              {canManage
+                ? captions.length
+                  ? copy.title === "课后总结"
+                    ? "已有最终字幕，可生成课后总结。"
+                    : "Final captions are ready for the lesson summary."
+                  : copy.noCaptions
+                : copy.noSummary}
             </p>
             {canManage ? (
               <Button type="button" size="sm" onClick={onGenerate} disabled={Boolean(busy)}>
@@ -656,6 +723,46 @@ function LessonSummaryPanel({
         )}
       </CardContent>
     </Card>
+    {(canManage || summary?.status === "published") && (
+      <Card className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-none">
+        <CardContent className="p-5 sm:p-6">
+          <h2 className="text-base font-semibold text-foreground">
+            {copy.title === "课后总结" ? "课堂字幕时间线" : "Caption timeline"}
+          </h2>
+          {captions.length ? (
+            <>
+            <ol className="mt-4 max-h-[480px] space-y-4 overflow-y-auto">
+              {captions.map((caption) => (
+                <li key={caption.id} className="grid gap-1 border-l-2 border-primary/30 pl-4 text-sm">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <time dateTime={caption.occurredAt}>
+                      {new Date(caption.occurredAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                    </time>
+                    <span>{caption.speakerName}</span>
+                  </div>
+                  <p className="text-foreground">{caption.text}</p>
+                  {Object.entries(caption.translations || {}).map(([language, translation]) => (
+                    <p key={language} className="text-muted-foreground">{language}: {translation}</p>
+                  ))}
+                </li>
+              ))}
+            </ol>
+            {hasMoreCaptions && (
+              <Button type="button" size="sm" variant="outline" className="mt-4" disabled={captionsLoadingMore} onClick={onLoadMoreCaptions}>
+                {captionsLoadingMore ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                {copy.title === "课后总结" ? "加载更多字幕" : "Load more captions"}
+              </Button>
+            )}
+            </>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">
+              {copy.title === "课后总结" ? "本课次暂无已保存的最终字幕。" : "No final captions have been saved for this lesson."}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    )}
+    </div>
   );
 }
 

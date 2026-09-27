@@ -28,6 +28,8 @@ assert.equal(shouldApplyClassroomRevision(20, 21), true);
 assert.equal(shouldApplyClassroomRevision(20, undefined), true);
 
 const captionBase = {
+  provider: "shengwang" as const,
+  createdAt: "2026-08-29T10:00:00.000Z",
   speakerId: "teacher",
   speakerName: "李老师",
   sourceLanguage: "zh-CN",
@@ -54,7 +56,7 @@ assert.equal(
     "en-US",
     "bilingual",
   )?.id,
-  "caption-1",
+  "caption-2",
 );
 assert.equal(
   selectStableCaption(
@@ -65,6 +67,19 @@ assert.equal(
   "caption-2",
 );
 assert.equal(captionTranslation(stableCaption, "en-GB"), "Today we study equations.");
+assert.equal(
+  selectStableCaption([stableCaption, translationPending], "en-US", "translated")?.id,
+  "caption-1",
+);
+assert.equal(
+  selectStableCaption(
+    [{ ...translationPending, isFinal: false }],
+    "en-US",
+    "bilingual",
+  )?.id,
+  "caption-2",
+);
+assert.equal(selectStableCaption([], "en-US", "bilingual"), null);
 
 const teacher = classroomCapabilities("teacher");
 assert.equal(teacher.canStartClass, true);

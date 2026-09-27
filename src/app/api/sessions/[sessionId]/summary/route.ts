@@ -36,12 +36,37 @@ export async function GET(request: NextRequest, context: Context) {
   const summary = await prisma.courseSessionSummary.findUnique({
     where: { sessionId },
   });
-  if (!summary || (!resolved.access.teaching && summary.status !== "published")) {
-    return NextResponse.json({ summary: null, canManage: resolved.access.teaching });
-  }
+  const visibleSummary = summary && (resolved.access.teaching || summary.status === "published")
+    ? publicCourseSessionSummary(summary)
+    : null;
+  const captionCursor = request.nextUrl.searchParams.get("captionCursor") || undefined;
+  const captions = visibleSummary || resolved.access.teaching
+    ? await prisma.classroomCaption.findMany({
+        where: { sessionId, courseId: resolved.courseId, isFinal: true },
+        orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          externalId: true,
+          occurredAt: true,
+          speakerName: true,
+          text: true,
+          translations: true,
+        },
+        ...(captionCursor ? { cursor: { id: captionCursor }, skip: 1 } : {}),
+        take: 101,
+      })
+    : [];
   return NextResponse.json({
-    summary: publicCourseSessionSummary(summary),
+    summary: visibleSummary,
     canManage: resolved.access.teaching,
+    captions: captions.slice(0, 100).map((caption) => ({
+      id: caption.externalId,
+      occurredAt: caption.occurredAt.toISOString(),
+      speakerName: caption.speakerName,
+      text: caption.text,
+      translations: caption.translations,
+    })),
+    nextCaptionCursor: captions.length > 100 ? captions[99].id : null,
   });
 }
 
