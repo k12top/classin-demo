@@ -5404,6 +5404,9 @@ button.classroom-v3-seat-preview:focus-visible::after {
 
 /* Vercel injects its preview toolbar outside the app root. Keep it out of
    the cloud recorder's captured page without changing the teacher preview. */
+html[data-classroom-recorder="true"] vercel-live-feedback,
+html[data-classroom-recorder="true"] vercel-toolbar,
+html[data-classroom-recorder="true"] iframe[src^="https://vercel.live/"],
 body:has(.classroom-v3-shell.is-recorder) vercel-live-feedback,
 body:has(.classroom-v3-shell.is-recorder) vercel-toolbar,
 body:has(.classroom-v3-shell.is-recorder) iframe[src^="https://vercel.live/"] {

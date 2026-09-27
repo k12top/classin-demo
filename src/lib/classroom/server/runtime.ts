@@ -20,6 +20,10 @@ import {
   type ClassroomModePolicy,
 } from "@/lib/classroom/mode";
 import { CourseStatus } from "@/lib/course-status";
+import {
+  normalizeRecordingStartMode,
+  scheduledClassStartDue,
+} from "@/lib/classroom/recording-start";
 import { prisma } from "@/lib/db";
 import {
   SCREEN_SHARE_REQUEST_TTL_MS,
@@ -71,7 +75,7 @@ export async function ensureClassroomRuntime(
 ) {
   const lesson = await prisma.courseSession.findFirst({
     where: { id: sessionId, courseId },
-    select: { id: true, status: true, endTime: true },
+    select: { id: true, status: true, startTime: true, endTime: true },
   });
   if (!lesson) throw new ClassroomActionError("课次不存在", 404);
 
@@ -110,7 +114,80 @@ export async function ensureClassroomRuntime(
     ]);
     return updated;
   }
+  if (
+    runtime.status === "waiting" &&
+    scheduledClassStartDue(
+      runtime.recordingStartMode,
+      lesson.startTime,
+      lesson.endTime,
+      new Date(),
+    ) &&
+    lesson.status !== CourseStatus.CANCELLED &&
+    lesson.status !== CourseStatus.FINISHED &&
+    lesson.status !== CourseStatus.AFTER_CLASS
+  ) {
+    await startScheduledClassroomIfDue(sessionId);
+    return prisma.classroomRuntime.findUniqueOrThrow({ where: { sessionId } });
+  }
   return runtime;
+}
+
+export async function startScheduledClassroomIfDue(
+  sessionId: string,
+  now = new Date(),
+) {
+  const runtime = await prisma.classroomRuntime.findUnique({
+    where: { sessionId },
+    include: { session: { select: { status: true, startTime: true, endTime: true } } },
+  });
+  if (
+    !runtime || runtime.status !== "waiting" ||
+    !scheduledClassStartDue(
+      runtime.recordingStartMode,
+      runtime.session.startTime,
+      runtime.session.endTime,
+      now,
+    ) ||
+    runtime.session.status === CourseStatus.CANCELLED ||
+    runtime.session.status === CourseStatus.FINISHED ||
+    runtime.session.status === CourseStatus.AFTER_CLASS
+  ) return false;
+
+  const sourceLanguage = normalizeClassroomLanguage(runtime.sourceLanguage);
+  const targets = normalizeTargetLanguages(runtime.targetLanguages, sourceLanguage);
+  const started = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.classroomRuntime.updateMany({
+      where: {
+        id: runtime.id,
+        status: "waiting",
+        recordingStartMode: runtime.recordingStartMode,
+      },
+      data: {
+        status: "live",
+        startedAt: now,
+        graceEndsAt: classroomGraceEndAt(runtime.session.endTime),
+        interpretationEnabled: true,
+        targetLanguages: targets.length
+          ? targets
+          : [sourceLanguage === "zh-CN" || sourceLanguage === "zh-TW" ? "en-US" : "zh-CN"],
+        transcriptionStatus: "starting",
+        transcriptionError: null,
+        transcriptionLastCheckedAt: null,
+        revision: { increment: 1 },
+      },
+    });
+    if (!claimed.count) return false;
+    await tx.courseSession.updateMany({
+      where: { id: sessionId, status: { in: [CourseStatus.SCHEDULED, CourseStatus.LIVE] } },
+      data: { status: CourseStatus.LIVE, endedAt: null },
+    });
+    await tx.course.updateMany({
+      where: { id: runtime.courseId, status: CourseStatus.SCHEDULED },
+      data: { status: CourseStatus.LIVE },
+    });
+    return true;
+  });
+  return started;
 }
 
 export async function touchClassroomMember(
@@ -288,8 +365,7 @@ export async function getClassroomRuntimeSnapshot(
         : runtime.status === "ended"
           ? "ended"
           : "waiting",
-    recordingStartMode:
-      runtime.recordingStartMode === "pageReady" ? "pageReady" : "classStart",
+    recordingStartMode: normalizeRecordingStartMode(runtime.recordingStartMode),
     startedAt: runtime.startedAt?.toISOString() ?? null,
     graceEndsAt: runtime.graceEndsAt?.toISOString() ?? null,
     stageMode: normalizeStageMode(runtime.stageMode),
@@ -534,7 +610,10 @@ export async function applyClassroomAction(input: {
     switch (action.type) {
       case "setRecordingStartMode": {
         requireLeadTeacher(role);
-        if (action.mode !== "classStart" && action.mode !== "pageReady") {
+        if (
+          action.mode !== "classStart" && action.mode !== "scheduled" &&
+          action.mode !== "scheduledEarly"
+        ) {
           throw new ClassroomActionError("录制启动方式无效");
         }
         await tx.classroomRuntime.update({
@@ -1403,5 +1482,8 @@ export async function applyClassroomAction(input: {
     });
   });
 
+  if (action.type === "setRecordingStartMode") {
+    await startScheduledClassroomIfDue(sessionId);
+  }
   return getClassroomRuntimeSnapshot(courseId, sessionId, { ensure: false });
 }

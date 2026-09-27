@@ -599,6 +599,10 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
                 errorHandlePolicy: "error_abort",
                 serviceParam: {
                   url: input.pageUrl,
+                  // Open the recorder page without writing its loading screen
+                  // into the replay. The ready endpoint releases this hold.
+                  onhold: true,
+                  readyTimeout: 60,
                   audioProfile: 0,
                   videoWidth: recording.width,
                   videoHeight: recording.height,
@@ -641,9 +645,28 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
         storageEndpoint: config.storageEndpoint,
         acquire,
         started,
+        onhold: true,
       },
       mode: "web",
     };
+  }
+
+  async resume(input: RecordingStopInput): Promise<void> {
+    if (input.providerState?.mode !== "web") return;
+    const config = recordingConfiguration();
+    await agoraRecordingRequest(
+      `/cloud_recording/resourceid/${encodeURIComponent(
+        input.resourceId,
+      )}/sid/${encodeURIComponent(
+        input.providerSessionId,
+      )}/mode/web/update`,
+      {
+        cname: input.channelName,
+        uid: input.recorderUserId,
+        clientRequest: { webRecordingConfig: { onhold: false } },
+      },
+      config,
+    );
   }
 
   async query(input: RecordingStopInput): Promise<RecordingQueryResult> {

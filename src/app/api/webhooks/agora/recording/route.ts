@@ -146,7 +146,8 @@ export async function POST(request: NextRequest) {
               ? "completed"
               : disposition === "processing"
                 ? "processing"
-                : disposition === "started" && recording.status === "starting"
+                : disposition === "started" && recording.status === "starting" &&
+                    !(recording.mode === "web" && !recording.startedAt)
                   ? "recording"
                   : recording.status,
             ...(files.length ? { files: inputJson(files) } : {}),
@@ -159,7 +160,7 @@ export async function POST(request: NextRequest) {
               : {}),
             providerState: inputJson(nextProviderState),
             lastProviderCheckAt: new Date(),
-            ...(disposition === "started" && !recording.startedAt
+            ...(disposition === "started" && !recording.startedAt && recording.mode !== "web"
               ? { startedAt: new Date() }
               : {}),
             errorMessage: null,

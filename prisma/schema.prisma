@@ -483,7 +483,7 @@ model ClassroomRuntime {
   courseId                   String
   sessionId                  String    @unique
   status                     String    @default("waiting") // waiting | live | ended
-  recordingStartMode         String    @default("classStart") // classStart | pageReady
+  recordingStartMode         String    @default("classStart") // classStart | scheduled | scheduledEarly
   revision                   Int       @default(1)
   startedAt                  DateTime?
   graceEndsAt                DateTime?

@@ -20,12 +20,14 @@ export function isRecorderPageConfigured(): boolean {
 
 export async function createRecorderPageUrl(
   courseId: string,
+  recordingId: string,
 ): Promise<string | null> {
   const key = recorderKey();
   const base = recorderPageOrigin(process.env);
   if (!key || !base) return null;
   const token = await new SignJWT({
     courseId,
+    recordingId,
     scope: "classroom-recorder",
   })
     .setProtectedHeader({ alg: "HS256" })
@@ -34,6 +36,7 @@ export async function createRecorderPageUrl(
     .sign(key);
   const url = new URL("/classroom/recorder", base);
   url.searchParams.set("courseId", courseId);
+  url.searchParams.set("recordingId", recordingId);
   url.searchParams.set("recorderToken", token);
   url.searchParams.set("is_recorder", "1");
   return url.toString();
@@ -65,6 +68,7 @@ export async function assertRecorderPageReachable(pageUrl: string) {
 export async function verifyRecorderToken(
   token: string,
   expectedCourseId: string,
+  expectedRecordingId?: string,
 ): Promise<boolean> {
   const key = recorderKey();
   if (!key || !token) return false;
@@ -74,7 +78,8 @@ export async function verifyRecorderToken(
     });
     return (
       payload.scope === "classroom-recorder" &&
-      payload.courseId === expectedCourseId
+      payload.courseId === expectedCourseId &&
+      (!expectedRecordingId || payload.recordingId === expectedRecordingId)
     );
   } catch {
     return false;

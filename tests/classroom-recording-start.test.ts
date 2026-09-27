@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   canAutoStartRecordingAtStatus,
+  normalizeRecordingStartMode,
+  scheduledClassStartDue,
   shouldAutoStartRecordingAfterWhiteboard,
   shouldNotifyRecorderReady,
 } from "../src/lib/classroom/recording-start";
@@ -14,11 +16,11 @@ const readyClassroom = {
   whiteboardEnabled: true,
   whiteboardReady: true,
   isTeacher: true,
-  mode: "pageReady",
+  mode: "classStart",
   status: "waiting",
 };
 
-test("page entry never starts automatic recording before the whiteboard opens", () => {
+test("page entry never starts automatic recording before class and whiteboard are ready", () => {
   assert.equal(shouldAutoStartRecordingAfterWhiteboard({
     ...readyClassroom,
     whiteboardReady: false,
@@ -31,7 +33,11 @@ test("page entry never starts automatic recording before the whiteboard opens", 
     ...readyClassroom,
     mediaConnected: false,
   }), false);
-  assert.equal(shouldAutoStartRecordingAfterWhiteboard(readyClassroom), true);
+  assert.equal(shouldAutoStartRecordingAfterWhiteboard(readyClassroom), false);
+  assert.equal(shouldAutoStartRecordingAfterWhiteboard({
+    ...readyClassroom,
+    status: "live",
+  }), true);
 });
 
 test("start-class recording waits for both live state and an open whiteboard", () => {
@@ -51,7 +57,23 @@ test("start-class recording waits for both live state and an open whiteboard", (
     status: "live",
   }), true);
   assert.equal(canAutoStartRecordingAtStatus("pageReady", "ended"), false);
+  assert.equal(canAutoStartRecordingAtStatus("pageReady", "waiting"), false);
   assert.equal(canAutoStartRecordingAtStatus("classStart", "ended"), false);
+  assert.equal(canAutoStartRecordingAtStatus("scheduled", "waiting"), false);
+  assert.equal(canAutoStartRecordingAtStatus("scheduledEarly", "live"), true);
+});
+
+test("scheduled class starts only at its selected threshold", () => {
+  const start = new Date("2026-09-27T12:00:00.000Z");
+  const end = new Date("2026-09-27T13:00:00.000Z");
+  const at = (time: string) => new Date(`2026-09-27T${time}.000Z`);
+  assert.equal(scheduledClassStartDue("classStart", start, end, at("12:00:00")), false);
+  assert.equal(scheduledClassStartDue("scheduled", start, end, at("11:59:59")), false);
+  assert.equal(scheduledClassStartDue("scheduled", start, end, at("12:00:00")), true);
+  assert.equal(scheduledClassStartDue("scheduledEarly", start, end, at("11:49:59")), false);
+  assert.equal(scheduledClassStartDue("scheduledEarly", start, end, at("11:50:00")), true);
+  assert.equal(scheduledClassStartDue("scheduledEarly", start, end, at("13:00:00")), false);
+  assert.equal(normalizeRecordingStartMode("pageReady"), "classStart");
 });
 
 test("student and recorder pages cannot launch automatic recording", () => {

@@ -88,7 +88,7 @@ async function confirmRecordingStart(recordingId: string) {
     );
     await prisma.classroomRecording.updateMany({
       where: { id: recording.id, status: "starting" },
-      data: queried.active
+      data: queried.active && !(recording.mode === "web" && !recording.startedAt)
         ? {
             status: "recording",
             providerState: inputJson(nextProviderState),
@@ -155,6 +155,13 @@ export async function requestRecordingStart(
     },
   });
   if (!lesson) throw new Error("Course session not found");
+  const runtime = await prisma.classroomRuntime.findUnique({
+    where: { sessionId: lesson.id },
+    select: { status: true },
+  });
+  if (runtime?.status !== "live") {
+    throw new Error("Recording cannot start before class begins");
+  }
   if (
     lesson.status === CourseStatus.AFTER_CLASS ||
     lesson.status === CourseStatus.FINISHED ||
@@ -243,7 +250,7 @@ export async function processRecordingStart(recordingId: string) {
   try {
     let pageUrl =
       recording.mode === "web"
-        ? await createRecorderPageUrl(recording.sessionId)
+        ? await createRecorderPageUrl(recording.sessionId, recording.id)
         : null;
     if (pageUrl) {
       try {
@@ -284,7 +291,7 @@ export async function processRecordingStart(recordingId: string) {
         status: "starting",
         mode: started.mode,
         fallbackFrom: started.fallbackFrom || (!pageUrl ? "web" : null),
-        startedAt: new Date(),
+        startedAt: started.mode === "web" ? null : new Date(),
         lastProviderCheckAt: new Date(),
         errorMessage: null,
         failureStage: null,
@@ -347,6 +354,48 @@ export async function startRecordingForCourse(
   return prisma.classroomRecording.findUniqueOrThrow({
     where: { id: requested.id },
   });
+}
+
+export async function resumeRecordingWhenReady(
+  sessionId: string,
+  recordingId: string,
+): Promise<"pending" | "ready" | "stopped"> {
+  const recording = await prisma.classroomRecording.findFirst({
+    where: { id: recordingId, sessionId },
+  });
+  if (!recording || recording.status === "stopping" ||
+    !["starting", "recording"].includes(recording.status)) return "stopped";
+  if (recording.startedAt) return "ready";
+  if (
+    recording.mode !== "web" || !recording.resourceId ||
+    !recording.providerSessionId || recording.recorderUserId === "pending"
+  ) return "pending";
+
+  const provider = getRecordingProvider(recording.provider);
+  await provider.resume({
+    channelName: recording.channelName,
+    recorderUserId: recording.recorderUserId,
+    resourceId: recording.resourceId,
+    providerSessionId: recording.providerSessionId,
+    providerState: providerStateRecord(recording.providerState),
+  });
+  const resumedAt = new Date();
+  const updated = await prisma.classroomRecording.updateMany({
+    where: { id: recording.id, status: "starting", startedAt: null },
+    data: {
+      status: "recording",
+      startedAt: resumedAt,
+      providerState: inputJson({
+        ...providerStateRecord(recording.providerState),
+        onhold: false,
+        resumedAt: resumedAt.toISOString(),
+      }),
+      lastProviderCheckAt: resumedAt,
+      errorMessage: null,
+      failureStage: null,
+    },
+  });
+  return updated.count ? "ready" : "stopped";
 }
 
 export async function requestRecordingStop(recording: ClassroomRecording) {

@@ -1,9 +1,28 @@
+export type RecordingStartMode = "classStart" | "scheduled" | "scheduledEarly";
+
+export function normalizeRecordingStartMode(mode: string): RecordingStartMode {
+  return mode === "scheduled" || mode === "scheduledEarly" ? mode : "classStart";
+}
+
+export function scheduledClassStartDue(
+  mode: string,
+  startTime: Date,
+  endTime: Date,
+  now: Date,
+) {
+  const leadMs = mode === "scheduledEarly" ? 10 * 60_000 : 0;
+  return (mode === "scheduled" || mode === "scheduledEarly") &&
+    now.getTime() >= startTime.getTime() - leadMs &&
+    now.getTime() < endTime.getTime();
+}
+
 export function canAutoStartRecordingAtStatus(
   mode: string,
   status: string,
 ) {
-  return status !== "ended" &&
-    (mode === "pageReady" || (mode === "classStart" && status === "live"));
+  return status === "live" &&
+    (mode === "classStart" || mode === "scheduled" ||
+      mode === "scheduledEarly" || mode === "pageReady");
 }
 
 export function shouldAutoStartRecordingAfterWhiteboard(input: {

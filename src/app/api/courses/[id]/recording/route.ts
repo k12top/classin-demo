@@ -155,6 +155,18 @@ export async function POST(
   const { course, lesson } = resolved;
   const latest = lesson.recordings[0];
   try {
+    if (action === "start") {
+      const runtimeState = await prisma.classroomRuntime.findUnique({
+        where: { sessionId: lesson.id },
+        select: { status: true },
+      });
+      if (runtimeState?.status !== "live") {
+        return NextResponse.json(
+          { error: "开始上课后才能录制" },
+          { status: 409 },
+        );
+      }
+    }
     if (action === "auto-start-whiteboard-ready") {
       const runtimeState = await prisma.classroomRuntime.findUnique({
         where: { sessionId: lesson.id },

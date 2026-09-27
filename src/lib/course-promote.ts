@@ -6,6 +6,8 @@ import {
 import { stopRecordingAttempt } from "@/lib/classroom/server/recording-orchestrator";
 import { retryFailedLiveRecordings } from "@/lib/classroom/server/recording-orchestrator";
 import { reconcilePendingRecordings } from "@/lib/classroom/server/recording-orchestrator";
+import { requestRecordingStart } from "@/lib/classroom/server/recording-orchestrator";
+import { startScheduledClassroomIfDue } from "@/lib/classroom/server/runtime";
 import { reconcileActiveClassroomTranscriptions } from "@/lib/classroom/server/transcription-orchestrator";
 import { reconcileCourseSessionSummaries } from "@/lib/course-session-summary";
 import { prisma } from "@/lib/db";
@@ -280,6 +282,51 @@ export async function promoteCoursesIfDue(
     );
   }
 
+  const scheduledClassrooms = await prisma.classroomRuntime.findMany({
+    where: {
+      status: "waiting",
+      recordingStartMode: { in: ["scheduled", "scheduledEarly"] },
+      ...(courseIds?.length ? { courseId: { in: courseIds } } : {}),
+      session: {
+        status: { in: [CourseStatus.SCHEDULED, CourseStatus.LIVE] },
+        startTime: { lte: new Date(now.getTime() + 10 * 60_000) },
+        endTime: { gt: now },
+      },
+    },
+    select: { sessionId: true, courseId: true },
+  });
+  let scheduledClassStartCount = 0;
+  for (const classroom of scheduledClassrooms) {
+    if (await startScheduledClassroomIfDue(classroom.sessionId, now)) {
+      scheduledClassStartCount += 1;
+    }
+  }
+  // A teacher or student request may have crossed the scheduled threshold
+  // before this cron run. Start that lesson's first recorder here as well.
+  const liveScheduledClassrooms = await prisma.classroomRuntime.findMany({
+    where: {
+      status: "live",
+      recordingStartMode: { in: ["scheduled", "scheduledEarly"] },
+      ...(courseIds?.length ? { courseId: { in: courseIds } } : {}),
+      session: {
+        status: CourseStatus.LIVE,
+        endTime: { gt: now },
+        recordings: { none: {} },
+      },
+    },
+    select: { sessionId: true, courseId: true },
+  });
+  for (const classroom of liveScheduledClassrooms) {
+    try {
+      await requestRecordingStart(classroom.courseId, classroom.sessionId);
+    } catch (error) {
+      console.error("[classroom:recording] scheduled start failed", {
+        sessionId: classroom.sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   // Per-course reads call this function as a deadline fallback. Recording
   // retries belong to the minute-level global reconciliation only, otherwise
   // a 5-second client poll would repeatedly attempt provider startup.
@@ -295,6 +342,7 @@ export async function promoteCoursesIfDue(
   return (
     finishedSessions.count +
     liveSessions.count +
+    scheduledClassStartCount +
     resultScheduledEnd.count +
     resultScheduledStart.count
   );

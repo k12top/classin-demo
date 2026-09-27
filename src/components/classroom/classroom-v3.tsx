@@ -3488,7 +3488,7 @@ function DeviceSettings({
   captionDisplayMode: CaptionDisplayMode;
   captionBackgroundMode: CaptionBackgroundMode;
   captionBackgroundColor: string;
-  onRecordingStartModeChange: (mode: "classStart" | "pageReady") => void;
+  onRecordingStartModeChange: (mode: "classStart" | "scheduled" | "scheduledEarly") => void;
   onCaptionDisplayModeChange: (mode: CaptionDisplayMode) => void;
   onCaptionBackgroundModeChange: (mode: CaptionBackgroundMode) => void;
   onCaptionBackgroundColorChange: (color: string) => void;
@@ -3817,14 +3817,16 @@ function DeviceSettings({
                 </fieldset>
                 {canManageRecording && runtime && (
                   <fieldset className="classroom-v3-caption-settings is-recording">
-                    <legend>{locale.startsWith("zh") ? "自动录制" : "Automatic recording"}</legend>
+                    <legend>{locale.startsWith("zh") ? "开课与自动录制" : "Class start and recording"}</legend>
                     <label>
                       <span>{locale.startsWith("zh") ? "开始时机" : "Start when"}</span>
-                      <select value={runtime.recordingStartMode} onChange={(event) => onRecordingStartModeChange(event.target.value as "classStart" | "pageReady")}>
+                      <select value={runtime.recordingStartMode} onChange={(event) => onRecordingStartModeChange(event.target.value as "classStart" | "scheduled" | "scheduledEarly")}>
                         <option value="classStart">{locale.startsWith("zh") ? "点击开始上课后" : "Class starts"}</option>
-                        <option value="pageReady">{locale.startsWith("zh") ? "课堂页面加载完成后" : "Classroom page is ready"}</option>
+                        <option value="scheduled">{locale.startsWith("zh") ? "计划上课时间自动开课" : "At scheduled time"}</option>
+                        <option value="scheduledEarly">{locale.startsWith("zh") ? "计划上课前 10 分钟自动开课" : "10 minutes before scheduled time"}</option>
                       </select>
                     </label>
+                    <p>{locale.startsWith("zh") ? "录制仅在开课且录制画面准备好后开始。" : "Recording begins after class starts and the recording view is ready."}</p>
                   </fieldset>
                 )}
               </div>
@@ -3862,6 +3864,7 @@ export function ClassroomV3({
   const courseId = requestedSessionId || legacyCourseId;
   const shareAccess = searchParams.get("shareAccess") || "";
   const recorderToken = searchParams.get("recorderToken") || "";
+  const recordingId = searchParams.get("recordingId") || "";
   const isRecorder =
     recorderMode ||
     searchParams.get("is_recorder") === "1" ||
@@ -3964,12 +3967,30 @@ export function ClassroomV3({
   const teacherCameraAutostartedRef = useRef(false);
   const credentialRenewalRef = useRef<Promise<void> | null>(null);
   const recorderReadyNotifiedRef = useRef(false);
+  const recorderReleasedRef = useRef(false);
   const captionIngestAtRef = useRef(new Map<string, number>());
   const compositionPreviewAtRef = useRef(0);
   const recordingStopCancelRef = useRef<HTMLButtonElement>(null);
   const [studentPublishReady, setStudentPublishReady] = useState(false);
   const now = useNow();
   const prefersReducedMotion = useReducedMotion();
+
+  useEffect(() => {
+    if (!isRecorder) return;
+    document.documentElement.dataset.classroomRecorder = "true";
+    const removeInjectedToolbar = () => {
+      document.querySelectorAll(
+        "vercel-live-feedback, vercel-toolbar, iframe[src^='https://vercel.live/']",
+      ).forEach((element) => element.remove());
+    };
+    const observer = new MutationObserver(removeInjectedToolbar);
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    removeInjectedToolbar();
+    return () => {
+      observer.disconnect();
+      delete document.documentElement.dataset.classroomRecorder;
+    };
+  }, [isRecorder]);
 
   useEffect(() => {
     if (!recordingStopConfirming) return;
@@ -3982,7 +4003,7 @@ export function ClassroomV3({
   useEffect(() => {
     if (
       !isRecorder ||
-      recorderReadyNotifiedRef.current ||
+      recorderReleasedRef.current ||
       !sessionData ||
       !shouldNotifyRecorderReady({
         pageReady: loadingState === "ready",
@@ -3993,21 +4014,47 @@ export function ClassroomV3({
     ) {
       return;
     }
-    const notify = () => {
-      if (recorderReadyNotifiedRef.current) return;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const notify = async () => {
       const recorderNavigator = window.navigator as Navigator & {
         notifyReady?: () => void;
       };
-      if (typeof recorderNavigator.notifyReady !== "function") return;
-      recorderReadyNotifiedRef.current = true;
-      recorderNavigator.notifyReady();
+      if (!recorderReadyNotifiedRef.current) {
+        recorderReadyNotifiedRef.current = true;
+        recorderNavigator.notifyReady?.();
+      }
+      if (!recordingId || !recorderToken) return;
+      try {
+        const response = await fetch("/api/classroom/recorder/ready", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId: courseId, recordingId, recorderToken }),
+        });
+        if (cancelled) return;
+        if (response.ok) {
+          recorderReleasedRef.current = true;
+          return;
+        }
+        if (response.status === 401 || response.status === 409) return;
+      } catch (error) {
+        console.warn("[classroom:recorder] ready notification failed", error);
+      }
+      if (!cancelled) retryTimer = setTimeout(() => void notify(), 1_500);
     };
-    const frame = window.requestAnimationFrame(notify);
-    return () => window.cancelAnimationFrame(frame);
+    const frame = window.requestAnimationFrame(() => void notify());
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, [
+    courseId,
     isRecorder,
     loadingState,
     media.connectionState,
+    recordingId,
+    recorderToken,
     sessionData,
     whiteboardReady,
   ]);

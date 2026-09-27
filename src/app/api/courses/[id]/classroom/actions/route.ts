@@ -116,7 +116,8 @@ export async function POST(
       action: body.action,
     });
     if (
-      body.action.type === "startClass" &&
+      (body.action.type === "startClass" ||
+        (body.action.type === "setRecordingStartMode" && runtimeSnapshot.status === "live")) &&
       resolved.access.role === "teacher"
     ) {
       after(() =>
