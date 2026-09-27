@@ -3625,6 +3625,7 @@ function DeviceSettings({
           onMouseDown={(event) => event.target === event.currentTarget && onClose()}
         >
           <motion.section
+            className="classroom-v3-device-dialog"
             role="dialog"
             aria-modal="true"
             aria-label={t("classroom.v3.deviceSettings")}
@@ -3645,181 +3646,189 @@ function DeviceSettings({
                 <X />
               </button>
             </header>
-            <label>
-              <span>{t("classroom.v3.microphone")}</span>
-              <select
-                value={
-                  devices.microphones.some(
-                    (device) => device.deviceId === selectedDevices.microphoneId,
-                  )
-                    ? selectedDevices.microphoneId
-                    : ""
-                }
-                onChange={(event) =>
-                  void selectDevice("microphone", event.target.value)
-                }
-              >
-                <option value="" disabled>
-                  {t("classroom.v3.selectMicrophone")}
-                </option>
-                {devices.microphones.map((device, index) => (
-                  <option key={device.deviceId} value={device.deviceId}>
-                    {device.label || `${t("classroom.v3.microphone")} ${index + 1}`}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>{t("classroom.v3.camera")}</span>
-              <select
-                value={
-                  devices.cameras.some(
-                    (device) => device.deviceId === selectedDevices.cameraId,
-                  )
-                    ? selectedDevices.cameraId
-                    : ""
-                }
-                onChange={(event) =>
-                  void selectDevice("camera", event.target.value)
-                }
-              >
-                <option value="" disabled>
-                  {t("classroom.v3.selectCamera")}
-                </option>
-                {devices.cameras.map((device, index) => (
-                  <option key={device.deviceId} value={device.deviceId}>
-                    {device.label || `${t("classroom.v3.camera")} ${index + 1}`}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <fieldset>
-              <legend>{t("classroom.v3.cameraQuality")}</legend>
-              {[
-                ["economy", t("classroom.v3.economy"), "640 × 360"],
-                ["hd", t("classroom.v3.hd"), "1280 × 720"],
-                ["fullHd", t("classroom.v3.fullHd"), "1920 × 1080"],
-              ].map(([value, label, detail]) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={media.local.videoQuality === value ? "is-selected" : ""}
-                  onClick={() =>
-                    void provider?.setVideoQuality(
-                      value as "economy" | "hd" | "fullHd",
-                    )
-                  }
-                >
-                  <span>{label}</span>
-                  <small>{detail}</small>
-                  {media.local.videoQuality === value && <Check />}
-                </button>
-              ))}
-            </fieldset>
-            <fieldset className="classroom-v3-background-options">
-              <legend>{t("classroom.v3.videoBackground")}</legend>
-              <button
-                type="button"
-                className={backgroundMode === "none" ? "is-selected" : ""}
-                aria-pressed={backgroundMode === "none"}
-                disabled={backgroundBusy}
-                onClick={() => void applyBackground({ type: "none" })}
-              >
-                <EyeOff />
-                <span>{t("classroom.v3.backgroundNone")}</span>
-                {backgroundMode === "none" && <Check />}
-              </button>
-              <button
-                type="button"
-                className={backgroundMode === "blur" ? "is-selected" : ""}
-                aria-pressed={backgroundMode === "blur"}
-                disabled={!backgroundSupported || backgroundBusy}
-                onClick={() =>
-                  void applyBackground({ type: "blur", blurDegree: 2 })
-                }
-              >
-                <ShieldCheck />
-                <span>{t("classroom.v3.backgroundBlur")}</span>
-                {backgroundMode === "blur" && <Check />}
-              </button>
-              <button
-                type="button"
-                className={backgroundMode === "color" ? "is-selected" : ""}
-                aria-pressed={backgroundMode === "color"}
-                disabled={!backgroundSupported || backgroundBusy}
-                onClick={() =>
-                  void applyBackground({ type: "color", color: "#293a4c" })
-                }
-              >
-                <span className="classroom-v3-background-color" />
-                <span>{t("classroom.v3.backgroundColor")}</span>
-                {backgroundMode === "color" && <Check />}
-              </button>
-              <label
-                className={`${backgroundMode === "image" ? "is-selected" : ""}${
-                  !backgroundSupported || backgroundBusy ? " is-disabled" : ""
-                }`}
-              >
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  disabled={!backgroundSupported || backgroundBusy}
-                  onChange={(event) => void uploadBackground(event)}
-                />
-                <ImageIcon />
-                <span>{t("classroom.v3.customBackground")}</span>
-                {backgroundMode === "image" && <Check />}
-              </label>
-            </fieldset>
-            <p className="classroom-v3-background-hint" role="status">
-              {backgroundBusy
-                ? t("classroom.v3.backgroundApplying")
-                : !backgroundSupported
-                  ? t("classroom.v3.virtualBackgroundUnsupported")
-                  : customBackgroundName
-                    ? t("classroom.v3.customBackgroundSelected", {
-                        name: customBackgroundName,
-                      })
-                    : t("classroom.v3.virtualBackgroundPrivacyHint")}
-            </p>
-            <fieldset className="classroom-v3-caption-settings">
-              <legend>{t("classroom.v3.captionsTitle")}</legend>
-              <label>
-                <span>{t("classroom.v3.displayMode")}</span>
-                <select value={captionDisplayMode} onChange={(event) => onCaptionDisplayModeChange(event.target.value as CaptionDisplayMode)}>
-                  <option value="off">{t("classroom.v3.captionsOff")}</option>
-                  <option value="original">{t("classroom.v3.originalOnly")}</option>
-                  <option value="translated">{t("classroom.v3.translatedOnly")}</option>
-                  <option value="bilingual">{t("classroom.v3.bilingual")}</option>
-                </select>
-              </label>
-              <label>
-                <span>{locale.startsWith("zh") ? "字幕背景" : "Caption background"}</span>
-                <select value={captionBackgroundMode} onChange={(event) => onCaptionBackgroundModeChange(event.target.value as CaptionBackgroundMode)}>
-                  <option value="transparent">{locale.startsWith("zh") ? "透明" : "Transparent"}</option>
-                  <option value="solid">{locale.startsWith("zh") ? "自定义颜色" : "Custom color"}</option>
-                </select>
-              </label>
-              {captionBackgroundMode === "solid" && (
-                <label>
-                  <span>{locale.startsWith("zh") ? "背景颜色" : "Background color"}</span>
-                  <input type="color" value={captionBackgroundColor} onChange={(event) => onCaptionBackgroundColorChange(event.target.value)} />
-                </label>
-              )}
-              <p>{locale.startsWith("zh") ? "字幕出现后，可拖动悬浮框顶部调整位置。" : "Drag the caption header to move the overlay."}</p>
-            </fieldset>
-            {canManageRecording && runtime && (
-              <fieldset className="classroom-v3-caption-settings">
-                <legend>{locale.startsWith("zh") ? "自动录制" : "Automatic recording"}</legend>
-                <label>
-                  <span>{locale.startsWith("zh") ? "开始时机" : "Start when"}</span>
-                  <select value={runtime.recordingStartMode} onChange={(event) => onRecordingStartModeChange(event.target.value as "classStart" | "pageReady")}>
-                    <option value="classStart">{locale.startsWith("zh") ? "点击开始上课后" : "Class starts"}</option>
-                    <option value="pageReady">{locale.startsWith("zh") ? "课堂页面加载完成后" : "Classroom page is ready"}</option>
-                  </select>
-                </label>
-              </fieldset>
-            )}
+            <div className="classroom-v3-device-body">
+              <div className="classroom-v3-device-column">
+                <div className="classroom-v3-device-fields">
+                  <label>
+                    <span>{t("classroom.v3.microphone")}</span>
+                    <select
+                      value={
+                        devices.microphones.some(
+                          (device) => device.deviceId === selectedDevices.microphoneId,
+                        )
+                          ? selectedDevices.microphoneId
+                          : ""
+                      }
+                      onChange={(event) =>
+                        void selectDevice("microphone", event.target.value)
+                      }
+                    >
+                      <option value="" disabled>
+                        {t("classroom.v3.selectMicrophone")}
+                      </option>
+                      {devices.microphones.map((device, index) => (
+                        <option key={device.deviceId} value={device.deviceId}>
+                          {device.label || `${t("classroom.v3.microphone")} ${index + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>{t("classroom.v3.camera")}</span>
+                    <select
+                      value={
+                        devices.cameras.some(
+                          (device) => device.deviceId === selectedDevices.cameraId,
+                        )
+                          ? selectedDevices.cameraId
+                          : ""
+                      }
+                      onChange={(event) =>
+                        void selectDevice("camera", event.target.value)
+                      }
+                    >
+                      <option value="" disabled>
+                        {t("classroom.v3.selectCamera")}
+                      </option>
+                      {devices.cameras.map((device, index) => (
+                        <option key={device.deviceId} value={device.deviceId}>
+                          {device.label || `${t("classroom.v3.camera")} ${index + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <fieldset className="classroom-v3-quality-options">
+                  <legend>{t("classroom.v3.cameraQuality")}</legend>
+                  {[
+                    ["economy", t("classroom.v3.economy"), "640 × 360"],
+                    ["hd", t("classroom.v3.hd"), "1280 × 720"],
+                    ["fullHd", t("classroom.v3.fullHd"), "1920 × 1080"],
+                  ].map(([value, label, detail]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={media.local.videoQuality === value ? "is-selected" : ""}
+                      onClick={() =>
+                        void provider?.setVideoQuality(
+                          value as "economy" | "hd" | "fullHd",
+                        )
+                      }
+                    >
+                      <span>{label}</span>
+                      <small>{detail}</small>
+                      {media.local.videoQuality === value && <Check />}
+                    </button>
+                  ))}
+                </fieldset>
+                <fieldset className="classroom-v3-background-options">
+                  <legend>{t("classroom.v3.videoBackground")}</legend>
+                  <button
+                    type="button"
+                    className={backgroundMode === "none" ? "is-selected" : ""}
+                    aria-pressed={backgroundMode === "none"}
+                    disabled={backgroundBusy}
+                    onClick={() => void applyBackground({ type: "none" })}
+                  >
+                    <EyeOff />
+                    <span>{t("classroom.v3.backgroundNone")}</span>
+                    {backgroundMode === "none" && <Check />}
+                  </button>
+                  <button
+                    type="button"
+                    className={backgroundMode === "blur" ? "is-selected" : ""}
+                    aria-pressed={backgroundMode === "blur"}
+                    disabled={!backgroundSupported || backgroundBusy}
+                    onClick={() =>
+                      void applyBackground({ type: "blur", blurDegree: 2 })
+                    }
+                  >
+                    <ShieldCheck />
+                    <span>{t("classroom.v3.backgroundBlur")}</span>
+                    {backgroundMode === "blur" && <Check />}
+                  </button>
+                  <button
+                    type="button"
+                    className={backgroundMode === "color" ? "is-selected" : ""}
+                    aria-pressed={backgroundMode === "color"}
+                    disabled={!backgroundSupported || backgroundBusy}
+                    onClick={() =>
+                      void applyBackground({ type: "color", color: "#293a4c" })
+                    }
+                  >
+                    <span className="classroom-v3-background-color" />
+                    <span>{t("classroom.v3.backgroundColor")}</span>
+                    {backgroundMode === "color" && <Check />}
+                  </button>
+                  <label
+                    className={`${backgroundMode === "image" ? "is-selected" : ""}${
+                      !backgroundSupported || backgroundBusy ? " is-disabled" : ""
+                    }`}
+                  >
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      disabled={!backgroundSupported || backgroundBusy}
+                      onChange={(event) => void uploadBackground(event)}
+                    />
+                    <ImageIcon />
+                    <span>{t("classroom.v3.customBackground")}</span>
+                    {backgroundMode === "image" && <Check />}
+                  </label>
+                </fieldset>
+                <p className="classroom-v3-background-hint" role="status">
+                  {backgroundBusy
+                    ? t("classroom.v3.backgroundApplying")
+                    : !backgroundSupported
+                      ? t("classroom.v3.virtualBackgroundUnsupported")
+                      : customBackgroundName
+                        ? t("classroom.v3.customBackgroundSelected", {
+                            name: customBackgroundName,
+                          })
+                        : t("classroom.v3.virtualBackgroundPrivacyHint")}
+                </p>
+              </div>
+              <div className="classroom-v3-device-column">
+                <fieldset className="classroom-v3-caption-settings">
+                  <legend>{t("classroom.v3.captionsTitle")}</legend>
+                  <label>
+                    <span>{t("classroom.v3.displayMode")}</span>
+                    <select value={captionDisplayMode} onChange={(event) => onCaptionDisplayModeChange(event.target.value as CaptionDisplayMode)}>
+                      <option value="off">{t("classroom.v3.captionsOff")}</option>
+                      <option value="original">{t("classroom.v3.originalOnly")}</option>
+                      <option value="translated">{t("classroom.v3.translatedOnly")}</option>
+                      <option value="bilingual">{t("classroom.v3.bilingual")}</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>{locale.startsWith("zh") ? "字幕背景" : "Caption background"}</span>
+                    <select value={captionBackgroundMode} onChange={(event) => onCaptionBackgroundModeChange(event.target.value as CaptionBackgroundMode)}>
+                      <option value="transparent">{locale.startsWith("zh") ? "透明" : "Transparent"}</option>
+                      <option value="solid">{locale.startsWith("zh") ? "自定义颜色" : "Custom color"}</option>
+                    </select>
+                  </label>
+                  {captionBackgroundMode === "solid" && (
+                    <label>
+                      <span>{locale.startsWith("zh") ? "背景颜色" : "Background color"}</span>
+                      <input type="color" value={captionBackgroundColor} onChange={(event) => onCaptionBackgroundColorChange(event.target.value)} />
+                    </label>
+                  )}
+                  <p>{locale.startsWith("zh") ? "字幕出现后，可拖动悬浮框顶部调整位置。" : "Drag the caption header to move the overlay."}</p>
+                </fieldset>
+                {canManageRecording && runtime && (
+                  <fieldset className="classroom-v3-caption-settings is-recording">
+                    <legend>{locale.startsWith("zh") ? "自动录制" : "Automatic recording"}</legend>
+                    <label>
+                      <span>{locale.startsWith("zh") ? "开始时机" : "Start when"}</span>
+                      <select value={runtime.recordingStartMode} onChange={(event) => onRecordingStartModeChange(event.target.value as "classStart" | "pageReady")}>
+                        <option value="classStart">{locale.startsWith("zh") ? "点击开始上课后" : "Class starts"}</option>
+                        <option value="pageReady">{locale.startsWith("zh") ? "课堂页面加载完成后" : "Classroom page is ready"}</option>
+                      </select>
+                    </label>
+                  </fieldset>
+                )}
+              </div>
+            </div>
             {error && <p className="classroom-v3-modal-error">{error}</p>}
             <footer>
               <p>{t("classroom.v3.screenQualityHint")}</p>

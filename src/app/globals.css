@@ -4936,6 +4936,155 @@ button.classroom-v3-seat-preview:focus-visible::after {
   font-size: 10px;
 }
 
+.classroom-v3-modal-backdrop > section.classroom-v3-device-dialog {
+  display: flex;
+  width: min(100%, 900px);
+  max-height: min(88dvh, 720px);
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.classroom-v3-device-dialog > header,
+.classroom-v3-device-dialog > footer {
+  flex: 0 0 auto;
+  padding: 16px 24px;
+}
+
+.classroom-v3-device-dialog > header {
+  border-bottom: 1px solid rgb(255 255 255 / 0.07);
+}
+
+.classroom-v3-device-body {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 22px;
+  overflow: auto;
+  padding: 18px 24px 20px;
+}
+
+.classroom-v3-device-column {
+  min-width: 0;
+}
+
+.classroom-v3-device-column + .classroom-v3-device-column {
+  padding-left: 22px;
+  border-left: 1px solid rgb(255 255 255 / 0.07);
+}
+
+.classroom-v3-device-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.classroom-v3-device-fields > label,
+.classroom-v3-device-dialog .classroom-v3-caption-settings label {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  color: #aab1bc;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.classroom-v3-device-dialog fieldset.classroom-v3-quality-options,
+.classroom-v3-device-dialog fieldset.classroom-v3-background-options {
+  margin-top: 16px;
+}
+
+.classroom-v3-device-dialog .classroom-v3-quality-options > button,
+.classroom-v3-device-dialog .classroom-v3-background-options > button,
+.classroom-v3-device-dialog .classroom-v3-background-options > label {
+  min-height: 62px;
+}
+
+.classroom-v3-device-dialog fieldset.classroom-v3-caption-settings {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid rgb(255 255 255 / 0.07);
+  border-radius: 13px;
+  background: rgb(255 255 255 / 0.025);
+}
+
+.classroom-v3-device-dialog .classroom-v3-caption-settings legend {
+  margin-bottom: 4px;
+  padding: 0 4px;
+}
+
+.classroom-v3-device-dialog .classroom-v3-caption-settings p {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  color: #8993a0;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.classroom-v3-device-dialog fieldset.classroom-v3-caption-settings.is-recording {
+  margin-top: 16px;
+}
+
+.classroom-v3-device-dialog .classroom-v3-caption-settings.is-recording label {
+  grid-column: 1 / -1;
+}
+
+.classroom-v3-device-dialog > .classroom-v3-modal-error {
+  margin: 0;
+  padding: 8px 24px;
+}
+
+.classroom-v3-device-dialog > footer {
+  gap: 20px;
+  margin: 0;
+  border-top: 1px solid rgb(255 255 255 / 0.07);
+}
+
+.classroom-v3-device-dialog > footer button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 840px) {
+  .classroom-v3-device-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  .classroom-v3-device-column + .classroom-v3-device-column {
+    padding: 18px 0 0;
+    border-top: 1px solid rgb(255 255 255 / 0.07);
+    border-left: 0;
+  }
+}
+
+@media (max-width: 540px) {
+  .classroom-v3-device-dialog > header,
+  .classroom-v3-device-dialog > footer {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+
+  .classroom-v3-device-body {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+
+  .classroom-v3-device-dialog fieldset.classroom-v3-caption-settings,
+  .classroom-v3-device-dialog fieldset.classroom-v3-background-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .classroom-v3-device-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .classroom-v3-device-dialog > footer p {
+    max-width: 220px;
+  }
+}
+
 .classroom-v3-modal-backdrop.is-board-confirm {
   background: rgb(7 11 15 / 0.76);
   backdrop-filter: blur(8px);
@@ -5620,6 +5769,14 @@ body:has(.classroom-v3-shell.is-recorder) iframe[src^="https://vercel.live/"] {
     max-height: 88dvh;
     border-radius: 22px 22px 0 0;
     padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  }
+
+  .classroom-v3-modal-backdrop > section.classroom-v3-device-dialog {
+    padding: 0;
+  }
+
+  .classroom-v3-device-dialog > footer {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
   }
 
   .classroom-v3-modal-backdrop > section.classroom-v3-confirm-dialog {
