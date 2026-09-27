@@ -8,7 +8,8 @@ export function attendanceDurationSec(enteredAt: Date, leftAt: Date): number {
 
 async function closeAttendanceSessions(
   where: { courseId?: string; sessionId?: string; studentId?: string },
-  leftAt: Date
+  leftAt: Date,
+  client: Pick<Prisma.TransactionClient, "$executeRaw"> = prisma,
 ) {
   const predicates: Prisma.Sql[] = [Prisma.sql`"leftAt" IS NULL`];
   if (where.courseId) {
@@ -24,7 +25,7 @@ async function closeAttendanceSessions(
   // A single set-based update avoids Prisma's default five-second interactive
   // transaction timeout when a legacy course has thousands of stale open rows.
   // The duration expression is the SQL equivalent of attendanceDurationSec.
-  const closed = await prisma.$executeRaw(
+  const closed = await client.$executeRaw(
     Prisma.sql`
       UPDATE "CourseAttendance"
       SET
@@ -66,6 +67,7 @@ export async function closeOpenAttendanceSessionsForLesson(
 export async function closeAllOpenAttendanceForLesson(
   sessionId: string,
   leftAt = new Date(),
+  client: Pick<Prisma.TransactionClient, "$executeRaw"> = prisma,
 ) {
-  return closeAttendanceSessions({ sessionId }, leftAt);
+  return closeAttendanceSessions({ sessionId }, leftAt, client);
 }

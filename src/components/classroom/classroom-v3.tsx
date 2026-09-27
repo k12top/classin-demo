@@ -3969,6 +3969,9 @@ export function ClassroomV3({
   const recorderReadyNotifiedRef = useRef(false);
   const recorderReleasedRef = useRef(false);
   const captionIngestAtRef = useRef(new Map<string, number>());
+  const captionPartialInFlightRef = useRef(false);
+  const captionLastPartialIngestRef = useRef(0);
+  const endingClassRef = useRef(false);
   const compositionPreviewAtRef = useRef(0);
   const recordingStopCancelRef = useRef<HTMLButtonElement>(null);
   const [studentPublishReady, setStudentPublishReady] = useState(false);
@@ -4379,7 +4382,7 @@ export function ClassroomV3({
         unsubscribeCaptions = provider.subscribeCaptions((caption) => {
           if (cancelled) return;
           const runtime = sessionRef.current?.runtime ?? payload.runtime;
-          if (runtime.status === "ended") return;
+          if (runtime.status === "ended" || endingClassRef.current) return;
           const speakerId = participantOwnerId(caption.speakerId, runtime.members);
           const localCaption: ClassroomCaptionSnapshot = {
             ...caption,
@@ -4402,12 +4405,21 @@ export function ClassroomV3({
           if (!isRecorder && payload.credential.role === "student") return;
           const lastIngested = captionIngestAtRef.current.get(caption.id) || 0;
           if (!caption.isFinal && Date.now() - lastIngested < 600) return;
+          if (!caption.isFinal) {
+            if (
+              captionPartialInFlightRef.current ||
+              Date.now() - captionLastPartialIngestRef.current < 1_000
+            ) return;
+            captionPartialInFlightRef.current = true;
+            captionLastPartialIngestRef.current = Date.now();
+          }
           captionIngestAtRef.current.set(caption.id, Date.now());
           void fetch(
             `/api/sessions/${encodeURIComponent(courseId)}/classroom/captions`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
+              signal: AbortSignal.timeout(caption.isFinal ? 30_000 : 10_000),
               body: JSON.stringify({
                 caption: localCaption,
                 ...(shareAccess && { shareAccess }),
@@ -4445,6 +4457,9 @@ export function ClassroomV3({
             })
             .catch((error) => {
               console.warn("[classroom:v3] caption ingest failed", error);
+            })
+            .finally(() => {
+              if (!caption.isFinal) captionPartialInFlightRef.current = false;
             });
         });
         const displayName = isRecorder
@@ -5569,6 +5584,7 @@ export function ClassroomV3({
     ) {
       return;
     }
+    endingClassRef.current = true;
     setActionBusy("endClass");
     setActionError("");
     try {
@@ -5585,7 +5601,7 @@ export function ClassroomV3({
         session?: { status?: string };
         runtime?: ClassroomRuntimeSnapshot;
       };
-      if (!response.ok || !payload.runtime) {
+      if (!response.ok || !payload.session?.status) {
         throw new Error(
           payload.error || t("classroom.v3.classroomActionFailed"),
         );
@@ -5594,10 +5610,10 @@ export function ClassroomV3({
         value
           ? {
               ...value,
-              runtime: payload.runtime!,
+              runtime: payload.runtime || { ...value.runtime, status: "ended" },
               course: {
                 ...value.course,
-                status: payload.session?.status || value.course.status,
+                status: payload.session!.status!,
               },
             }
           : value,
@@ -5607,10 +5623,13 @@ export function ClassroomV3({
       ) {
         setRecordingStatus("stopping");
       }
-      publishInvalidation(payload.runtime.revision, "runtime");
+      if (payload.runtime) {
+        publishInvalidation(payload.runtime.revision, "runtime");
+      }
       setEndClassConfirming(false);
       exitClassroom();
     } catch (error) {
+      endingClassRef.current = false;
       setActionError(
         error instanceof Error
           ? error.message

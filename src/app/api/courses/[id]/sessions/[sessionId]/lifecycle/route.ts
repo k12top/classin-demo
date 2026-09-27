@@ -1,5 +1,5 @@
 import { after, NextRequest, NextResponse } from "next/server";
-import { attendanceDurationSec } from "@/lib/course-attendance";
+import { closeAllOpenAttendanceForLesson } from "@/lib/course-attendance";
 import {
   stopActiveRecordingsForCourse,
 } from "@/lib/classroom/server/recording-orchestrator";
@@ -171,19 +171,7 @@ async function handlePost(request: NextRequest, context: Context) {
       );
     }
     const updated = await prisma.$transaction(async (transaction) => {
-      const openAttendances = await transaction.courseAttendance.findMany({
-        where: { sessionId: resolved.sessionId, leftAt: null },
-        select: { id: true, enteredAt: true },
-      });
-      for (const attendance of openAttendances) {
-        await transaction.courseAttendance.update({
-          where: { id: attendance.id },
-          data: {
-            leftAt: now,
-            durationSec: attendanceDurationSec(attendance.enteredAt, now),
-          },
-        });
-      }
+      await closeAllOpenAttendanceForLesson(resolved.sessionId, now, transaction);
       await transaction.classroomRuntime.updateMany({
         where: { sessionId: resolved.sessionId },
         data: {
@@ -221,8 +209,31 @@ async function handlePost(request: NextRequest, context: Context) {
       });
     });
     clearCourseSessionAccessCache();
-    await syncCourseStatusFromSessions(resolved.courseId);
+    let courseStatusSynced = false;
+    try {
+      await syncCourseStatusFromSessions(resolved.courseId);
+      courseStatusSynced = true;
+    } catch (error) {
+      // The lesson has already ended. A secondary course-level projection must
+      // not make the first click look unsuccessful and invite another click.
+      console.error("[classroom:lifecycle] course status sync failed after end", {
+        courseId: resolved.courseId,
+        sessionId: resolved.sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     after(async () => {
+      if (!courseStatusSynced) {
+        try {
+          await syncCourseStatusFromSessions(resolved.courseId);
+        } catch (error) {
+          console.error("[classroom:lifecycle] course status sync retry failed", {
+            courseId: resolved.courseId,
+            sessionId: resolved.sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
       const results = await Promise.allSettled([
         stopActiveRecordingsForCourse(resolved.courseId, resolved.sessionId),
         stopClassroomTranscription(resolved.courseId, resolved.sessionId),
@@ -253,13 +264,23 @@ async function handlePost(request: NextRequest, context: Context) {
         });
       }
     });
-    return NextResponse.json({
-      session: serializeCourseSession(updated),
-      runtime: await getClassroomRuntimeSnapshot(
+    let runtime = null;
+    try {
+      runtime = await getClassroomRuntimeSnapshot(
         resolved.courseId,
         resolved.sessionId,
         { ensure: false },
-      ),
+      );
+    } catch (error) {
+      console.error("[classroom:lifecycle] runtime read failed after end", {
+        courseId: resolved.courseId,
+        sessionId: resolved.sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return NextResponse.json({
+      session: serializeCourseSession(updated),
+      runtime,
     });
   }
 
