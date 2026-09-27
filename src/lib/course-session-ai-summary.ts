@@ -45,7 +45,7 @@ function positiveInteger(value: string | undefined, fallback: number) {
 }
 
 export function courseSessionAISummaryConfig(
-  env: NodeJS.ProcessEnv = process.env,
+  env: Partial<NodeJS.ProcessEnv> = process.env,
 ): CourseSessionAISummaryConfig | null {
   if (env.AI_SUMMARY_ENABLED?.trim().toLowerCase() !== "true") return null;
   const apiKey = env.AI_SUMMARY_API_KEY?.trim() || "";

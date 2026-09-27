@@ -160,7 +160,6 @@ export default function CoursePlaybackPage({
     "generate" | "save" | "publish" | "unpublish" | null
   >(null);
   const [summaryCanManage, setSummaryCanManage] = useState(false);
-  const [contentTab, setContentTab] = useState<"timeline" | "summary">("timeline");
   const [captionMode, setCaptionMode] = useState<CaptionDisplayMode>("off");
   const [captionLanguage, setCaptionLanguage] = useState("");
   const [captionAppearance, setCaptionAppearance] = useState<CaptionAppearance>({ background: "solid", size: "medium", position: "bottom" });
@@ -580,6 +579,26 @@ export default function CoursePlaybackPage({
             : copy.noUrl
         : "");
 
+  const lessonContentProps = {
+    summary,
+    captions: lessonCaptions,
+    hasMoreCaptions: Boolean(nextCaptionCursor),
+    captionsLoadingMore,
+    onLoadMoreCaptions: () => void loadMoreCaptions(),
+    recordings: playableRecordings,
+    activeCaptionId: activeCaption?.id || null,
+    onSeekToCaption: seekToCaption,
+    loading: summaryLoading,
+    error: summaryError,
+    canManage: summaryCanManage,
+    busy: summaryBusy,
+    copy: summaryCopy,
+    onGenerate: () => void updateSummary("generate"),
+    onSave: (document: LessonSummaryDocument) => updateSummary("save", document),
+    onPublish: () => void updateSummary("publish"),
+    onUnpublish: () => void updateSummary("unpublish"),
+  };
+
   return (
     <PortalShell
       role={isTeacher ? "teacher" : "student"}
@@ -637,7 +656,12 @@ export default function CoursePlaybackPage({
         )}
         {selectedSession && <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-lg font-semibold">{selectedSession.title || copy.title}</h2>
-          <time dateTime={selectedSession.startTime} className="text-xs text-muted-foreground">{new Date(selectedSession.startTime).toLocaleString(locale)}</time>
+          <div className="flex items-center gap-3">
+            <time dateTime={selectedSession.startTime} className="text-xs text-muted-foreground">{new Date(selectedSession.startTime).toLocaleString(locale)}</time>
+            <a href="#lesson-summary" className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-primary">
+              <FileText className="h-3.5 w-3.5" aria-hidden="true" />{summaryCopy.title}
+            </a>
+          </div>
         </div>}
         <Card className="overflow-hidden rounded-[22px] border border-border/70 bg-card shadow-[0_24px_70px_rgba(21,23,28,0.08)]">
           <CardContent className="p-0">
@@ -726,28 +750,13 @@ export default function CoursePlaybackPage({
         </div>
         {selectedSessionId && (
           <aside className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm" aria-label={locale.startsWith("zh") ? "课次内容" : "Lesson content"}>
-          <LessonSummaryPanel
-            contentTab={contentTab}
-            onContentTabChange={setContentTab}
-            summary={summary}
-            captions={lessonCaptions}
-            hasMoreCaptions={Boolean(nextCaptionCursor)}
-            captionsLoadingMore={captionsLoadingMore}
-            onLoadMoreCaptions={() => void loadMoreCaptions()}
-            recordings={playableRecordings}
-            activeCaptionId={activeCaption?.id || null}
-            onSeekToCaption={seekToCaption}
-            loading={summaryLoading}
-            error={summaryError}
-            canManage={summaryCanManage}
-            busy={summaryBusy}
-            copy={summaryCopy}
-            onGenerate={() => void updateSummary("generate")}
-            onSave={(document) => updateSummary("save", document)}
-            onPublish={() => void updateSummary("publish")}
-            onUnpublish={() => void updateSummary("unpublish")}
-          />
+            <LessonSummaryPanel presentation="timeline" {...lessonContentProps} />
           </aside>
+        )}
+        {selectedSessionId && (
+          <section id="lesson-summary" className={`min-w-0 scroll-mt-6 ${reviewableSessions.length > 1 ? "xl:col-start-2 xl:col-span-2" : "xl:col-span-2"}`} aria-label={summaryCopy.title}>
+            <LessonSummaryPanel presentation="summary" {...lessonContentProps} />
+          </section>
         )}
         </div>
       </main>
@@ -756,8 +765,7 @@ export default function CoursePlaybackPage({
 }
 
 function LessonSummaryPanel({
-  contentTab,
-  onContentTabChange,
+  presentation,
   summary,
   captions,
   hasMoreCaptions,
@@ -776,8 +784,7 @@ function LessonSummaryPanel({
   onPublish,
   onUnpublish,
 }: {
-  contentTab: "timeline" | "summary";
-  onContentTabChange: (tab: "timeline" | "summary") => void;
+  presentation: "timeline" | "summary";
   summary: LessonSummary | null;
   captions: LessonCaption[];
   hasMoreCaptions: boolean;
@@ -798,26 +805,16 @@ function LessonSummaryPanel({
 }) {
   return (
     <div>
-    <div className="border-b border-border/60 px-5 pt-4">
-      <h2 className="text-sm font-semibold">{copy.title === "课后总结" ? "这堂课的内容" : "This lesson"}</h2>
-      <div className="mt-4 flex gap-5" role="tablist">
-        <button type="button" role="tab" aria-selected={contentTab === "timeline"} onClick={() => onContentTabChange("timeline")}
-          className={`border-b-2 pb-3 text-sm font-medium ${contentTab === "timeline" ? "border-primary text-primary" : "border-transparent text-muted-foreground"}`}>
-          {copy.title === "课后总结" ? "发言时间线" : "Utterance timeline"}</button>
-        <button type="button" role="tab" aria-selected={contentTab === "summary"} onClick={() => onContentTabChange("summary")}
-          className={`border-b-2 pb-3 text-sm font-medium ${contentTab === "summary" ? "border-primary text-primary" : "border-transparent text-muted-foreground"}`}>
-          {copy.title}</button>
-      </div>
-    </div>
-    {contentTab === "summary" && <Card className="overflow-hidden rounded-none border-0 bg-card shadow-none">
+    {presentation === "summary" && <Card className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
       <CardContent className="p-0">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/60 px-5 py-4 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/60 px-5 py-5 sm:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
               <FileText className="h-4 w-4" aria-hidden="true" />
             </span>
             <div className="min-w-0">
-              <h2 className="text-base font-semibold text-foreground">{copy.title}</h2>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">{copy.title === "课后总结" ? "课后回顾" : "After the lesson"}</p>
+              <h2 className="mt-0.5 text-lg font-semibold text-foreground">{copy.title}</h2>
               {summary ? (
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {copy.generatedFrom.replace("{count}", String(summary.captionCount))}
@@ -878,7 +875,12 @@ function LessonSummaryPanel({
         )}
       </CardContent>
     </Card>}
-    {contentTab === "timeline" && (
+    {presentation === "timeline" && (
+      <>
+      <div className="border-b border-border/60 px-5 py-5">
+        <h2 className="text-base font-semibold text-foreground">{copy.title === "课后总结" ? "发言时间线" : "Utterance timeline"}</h2>
+        <p className="mt-1 text-xs text-muted-foreground">{copy.title === "课后总结" ? "点击发言跳转到视频中的对应位置" : "Select an utterance to jump to the video"}</p>
+      </div>
       <Card className="overflow-hidden rounded-none border-0 bg-card shadow-none">
         <CardContent className="p-3">
           {error && <p role="alert" className="mb-3 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
@@ -923,6 +925,7 @@ function LessonSummaryPanel({
           ) : null}
         </CardContent>
       </Card>
+      </>
     )}
     </div>
   );
@@ -965,7 +968,7 @@ function SummaryDocument({
   };
 
   return (
-    <div className="px-5 py-5 sm:px-6 sm:py-6">
+    <div className="px-5 py-6 sm:px-8 sm:py-8">
       {summary.isStale && (
         <p className="mb-4 rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
           {copy.stale}
@@ -1024,8 +1027,8 @@ function SummaryDocument({
           <SummaryTextarea label={copy.actionItems} value={draft.actionItems.join("\n")} onChange={(value) => updateList("actionItems", value)} />
         </div>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_260px]">
-          <div className="min-w-0 space-y-6">
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_240px]">
+          <div className="min-w-0 max-w-[72ch] space-y-6">
             <div>
               <h3 className="text-lg font-semibold tracking-[-0.015em] text-foreground">{summary.document.title}</h3>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{summary.document.overview}</p>

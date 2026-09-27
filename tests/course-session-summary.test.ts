@@ -129,5 +129,9 @@ test("generates a structured AI lesson summary while preserving speaker facts", 
 
   assert.equal(document?.overview, "本节课复习了一元二次方程。");
   assert.deepEqual(document?.speakers, fallback.speakers);
-  assert.equal((requestBody?.text as { format?: { type?: string } }).format?.type, "json_schema");
+  const capturedRequestBody = (): Record<string, unknown> | null => requestBody;
+  assert.equal(
+    (capturedRequestBody()?.text as { format?: { type?: string } } | undefined)?.format?.type,
+    "json_schema",
+  );
 });

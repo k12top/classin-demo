@@ -66,6 +66,8 @@
     .lesson-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 1px 0 12px; }
     .lesson-heading h2 { margin: 0; font-size: 17px; letter-spacing: -.03em; }
     .lesson-heading span { color: var(--muted); font-size: 12px; }
+    .lesson-heading a { margin-left: 10px; color: var(--violet); font-size: 12px; font-weight: 650; text-decoration: none; }
+    .lesson-heading a:hover { text-decoration: underline; }
     .mobile-lesson-select { display: none; }
     .player { overflow: hidden; border-radius: 16px; background: #131a27; box-shadow: 0 24px 60px rgba(18,24,42,.14); }
     .video {
@@ -140,8 +142,16 @@
     .cue-body b { display: block; margin-bottom: 2px; color: #8a92a4; font-size: 10px; font-weight: 600; }
     .cue-body strong { display: block; font-size: 12px; line-height: 1.55; font-weight: 590; }
     .cue-body small { display: block; margin-top: 2px; color: #858ca0; line-height: 1.5; font-size: 11px; }
-    .summary { padding: 20px; }
-    .summary[hidden] { display: none; }
+    .summary { grid-column: 1 / span 2; margin-top: 6px; padding: 24px 28px; border: 1px solid var(--line); border-radius: 16px; background: white; box-shadow: var(--shadow); scroll-margin-top: 24px; }
+    .multi .summary { grid-column: 2 / span 2; }
+    .summary-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+    .summary-head h2 { margin: 0; font-size: 20px; letter-spacing: -.035em; }
+    .summary-head small { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+    .summary-layout { display: grid; grid-template-columns: minmax(0,1fr) 220px; gap: 40px; padding-top: 4px; }
+    .summary-main { max-width: 720px; min-width: 0; }
+    .summary-speakers { align-self: start; margin-top: 20px; padding: 16px; border-radius: 11px; background: #f5f4fa; font-size: 12px; }
+    .summary-speakers strong { display: block; margin-bottom: 12px; }
+    .summary-speakers span { display: flex; justify-content: space-between; color: var(--muted); }
     .summary-status { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border-radius: 5px; background: #e8f7f3; color: #188d75; font-size: 10px; font-weight: 700; }
     .summary h3 { margin: 17px 0 7px; font-size: 15px; letter-spacing: -.02em; }
     .summary p { margin: 0; color: #657083; font-size: 12px; line-height: 1.8; }
@@ -159,16 +169,22 @@
       .grid, .multi .grid { grid-template-columns: minmax(0,1fr) 330px; }
       .multi .lesson-rail { display: none; }
       .multi .mobile-lesson-select { display: block; width: 100%; margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: white; color: var(--ink); }
+      .multi .summary { grid-column: 1 / span 2; }
     }
     @media (max-width: 760px) {
       .prototype-bar { flex-wrap: wrap; padding: 10px 16px; }
       .page-head { align-items: start; }
       .head-tag { display: none; }
-      .grid, .multi .grid { grid-template-columns: 1fr; }
+      .grid, .multi .grid { grid-template-columns: minmax(0,1fr); }
+      .lesson-heading { flex-wrap: wrap; }
+      .control-row { flex-wrap: wrap; }
+      .control-row .seek { order: 2; flex-basis: 100%; }
       .side { min-height: 0; }
       .video { min-height: 240px; }
       .below-player { flex-wrap: wrap; }
       .summary { padding: 17px; }
+      .summary, .multi .summary { grid-column: 1; }
+      .summary-layout { grid-template-columns: 1fr; gap: 0; }
     }
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
   </style>
@@ -195,7 +211,7 @@
       </nav>
       <main class="workspace">
         <select class="mobile-lesson-select" id="mobile-lesson-select" aria-label="选择课次"></select>
-        <div class="lesson-heading"><h2 id="lesson-title">第 2 课 · 表达观点</h2><span id="lesson-date">9 月 27 日 · 10:00</span></div>
+        <div class="lesson-heading"><h2 id="lesson-title">第 2 课 · 表达观点</h2><div><span id="lesson-date">9 月 27 日 · 10:00</span><a href="#summary-panel">课后总结 ↓</a></div></div>
         <section class="player" aria-label="课程视频播放器">
           <div class="video">
             <div class="board-heading"><small>CLASS NOTES</small><strong id="board-title">How to express an opinion</strong></div>
@@ -227,26 +243,26 @@
       </main>
       <aside class="side" aria-label="课次内容">
         <div class="side-head">
-          <strong>这堂课的内容</strong>
-          <small>时间线与总结跟随当前课次切换</small>
-          <div class="tabs" role="tablist">
-            <button type="button" id="timeline-tab" role="tab" aria-controls="timeline-panel" aria-selected="true">发言时间线</button>
-            <button type="button" id="summary-tab" role="tab" aria-controls="summary-panel" aria-selected="false">课后总结</button>
-          </div>
+          <strong>发言时间线</strong>
+          <small>点击发言跳转到视频中的对应位置</small>
         </div>
-        <div class="panel" id="timeline-panel" role="tabpanel" aria-labelledby="timeline-tab">
+        <div class="panel" id="timeline-panel">
           <div class="timeline-tools"><span>按课堂发生顺序</span><label><input type="checkbox" id="follow" checked> 跟随播放</label></div>
           <div class="cue-list" id="cue-list"></div>
         </div>
-        <div class="summary" id="summary-panel" role="tabpanel" aria-labelledby="summary-tab" hidden>
+      </aside>
+      <section class="summary" id="summary-panel" aria-label="课后总结">
+        <div class="summary-head"><div><h2>课后总结</h2><small>基于本课最终发言整理，便于完整阅读与审核</small></div>
           <span class="summary-status">● 已发布</span>
+        </div>
+        <div class="summary-layout"><div class="summary-main">
           <h3>本课概述</h3><p id="summary-overview"></p>
           <h3>重点内容</h3><ul id="summary-points"></ul>
           <button class="summary-action" type="button" id="summary-jump">从本课第一条发言开始看 ↗</button>
-        </div>
-      </aside>
+        </div><aside class="summary-speakers"><strong>发言记录</strong><span>老师 <b>5 句</b></span><span>学生 <b>2 句</b></span></aside></div>
+      </section>
     </div>
-    <div class="design-note"><strong>设计稿说明</strong>原文和译文默认只显示在右侧发言时间线；需要时点击 CC 才叠加到视频。教师视频保持右下角圆形画中画。这里用演示数据验证布局与跳转交互。正式实现需要用真实视频片段的媒体起点校准字幕时间；无法精确定位的字幕应明确提示，而不是跳到错误位置。</div>
+    <div class="design-note"><strong>设计稿说明</strong>视频旁只放发言时间线，课后总结在视频下方使用完整阅读宽度；需要时点击 CC 才叠加字幕到视频。这里用演示数据验证布局与跳转交互。正式实现需要用真实视频片段的媒体起点校准字幕时间。</div>
   </div>
   <script>
     const lessons = [
@@ -255,7 +271,7 @@
       { id: "3", title: "第 3 课 · 提问与回应", date: "10 月 4 日 · 10:00", duration: 682, board: "Asking better questions", summary: "练习提出开放式问题，并用追问让对话继续。", points: ["使用 What / Why / How 开始开放式问题", "回应后补充一个追问", "避免只用 yes 或 no 结束对话"], segments: [{start:0,end:682,label:"完整录像"}], cues: [[53,"老师","一个好的问题可以让对话继续。","A good question keeps the conversation going."],[236,"学生","你为什么选择这个答案？","Why did you choose that answer?"],[521,"老师","很好，再追问一个细节。","Good. Ask one more question about a detail."]] }
     ];
     const $ = (id) => document.getElementById(id);
-    let currentLesson = lessons[1], currentTime = 198, playing = false, timer = null, playbackRate = 1, activePanel = "timeline", captionMode = "off";
+    let currentLesson = lessons[1], currentTime = 198, playing = false, timer = null, playbackRate = 1, captionMode = "off";
     const fmt = (seconds) => String(Math.floor(seconds/60)).padStart(2,"0")+":"+String(Math.floor(seconds%60)).padStart(2,"0");
     const escapeHTML = (value) => String(value).replace(/[&<>"']/g, (ch) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
     function renderLessons() {
@@ -331,14 +347,7 @@
     $("caption-mode").addEventListener("change", (event) => setCaptionMode(event.target.value));
     $("caption-background").addEventListener("change", (event) => $("caption-overlay").classList.toggle("transparent",event.target.value==="transparent"));
     $("caption-size").addEventListener("change", (event) => { $("caption-overlay").style.fontSize=event.target.value==="small"?"11px":event.target.value==="large"?"16px":"13px"; });
-    function showPanel(panel) {
-      activePanel=panel;
-      $("timeline-panel").hidden=panel!=="timeline"; $("summary-panel").hidden=panel!=="summary";
-      $("timeline-tab").setAttribute("aria-selected",String(panel==="timeline")); $("summary-tab").setAttribute("aria-selected",String(panel==="summary"));
-    }
-    $("timeline-tab").addEventListener("click",() => showPanel("timeline"));
-    $("summary-tab").addEventListener("click",() => showPanel("summary"));
-    $("summary-jump").addEventListener("click",() => { showPanel("timeline"); seekTo(currentLesson.cues[0][0],"cue"); });
+    $("summary-jump").addEventListener("click",() => { seekTo(currentLesson.cues[0][0],"cue"); $("play-button").scrollIntoView({block:"center",behavior:"smooth"}); });
     setLesson(currentLesson); seekTo(198,"progress");
   </script>
 </body>
