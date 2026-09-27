@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  boardItemUpdateConfirmed,
+  circleBoardGeometry,
   bringClassroomBoardItemToFront,
   emptyClassroomComposition,
   normalizeBoardRect,
@@ -12,6 +14,30 @@ import {
   translateBoardRectByPixels,
   updateClassroomBoardItem,
 } from "../src/lib/classroom/composition";
+
+test("a dragged camera stays optimistic until a newer matching cloud revision arrives", () => {
+  const item = placeClassroomBoardItem(emptyClassroomComposition(), {
+    id: "camera:teacher",
+    kind: "camera",
+    sourceId: "teacher",
+    rect: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+    locked: false,
+    visible: true,
+    shape: "circle",
+  }).boardItems[0];
+  const moved = { x: 0.55, y: 0.65, width: 0.2, height: 0.2 };
+  assert.equal(boardItemUpdateConfirmed(item, { rect: moved }, 4, 4), false);
+  assert.equal(boardItemUpdateConfirmed(item, { rect: moved }, 4, 5), false);
+  assert.equal(boardItemUpdateConfirmed({ ...item, rect: moved }, { rect: moved }, 4, 4), false);
+  assert.equal(boardItemUpdateConfirmed({ ...item, rect: moved }, { rect: moved }, 4, 5), true);
+});
+
+test("recorded circular camera stays square and fully inside a differently shaped stage", () => {
+  assert.deepEqual(circleBoardGeometry(
+    { x: 0.85, y: 0.8, width: 0.3, height: 0.3 },
+    { width: 1000, height: 600 },
+  ), { size: 180, x: 820, y: 420 });
+});
 
 test("composition clamps normalized board geometry to the shared canvas", () => {
   assert.deepEqual(

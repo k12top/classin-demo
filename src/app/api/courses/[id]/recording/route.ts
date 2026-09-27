@@ -4,6 +4,8 @@ import {
   ClassroomProviderRequestError,
 } from "@/lib/classroom/server/errors";
 import { getRecordingProvider } from "@/lib/classroom/server/provider-factory";
+import { canAutoStartRecordingAtStatus } from "@/lib/classroom/recording-start";
+import { shouldRecoverRecording } from "@/lib/classroom/recording-continuity";
 import {
   processRecordingStart,
   processRecordingStop,
@@ -143,9 +145,9 @@ export async function POST(
     action?: unknown;
   };
   const action = body.action;
-  if (action !== "start" && action !== "stop" && action !== "auto-start-page-ready") {
+  if (action !== "start" && action !== "stop" && action !== "auto-start-whiteboard-ready") {
     return NextResponse.json(
-      { error: 'action must be "start", "stop", or "auto-start-page-ready"' },
+      { error: 'action must be "start", "stop", or "auto-start-whiteboard-ready"' },
       { status: 400 },
     );
   }
@@ -153,20 +155,27 @@ export async function POST(
   const { course, lesson } = resolved;
   const latest = lesson.recordings[0];
   try {
-    if (action === "auto-start-page-ready") {
+    if (action === "auto-start-whiteboard-ready") {
       const runtimeState = await prisma.classroomRuntime.findUnique({
         where: { sessionId: lesson.id },
-        select: { status: true, recordingStartMode: true },
+        select: { status: true, recordingStartMode: true, startedAt: true },
       });
+      const previousLessonRun = Boolean(
+        runtimeState?.startedAt && latest?.stoppedAt &&
+        latest.stoppedAt < runtimeState.startedAt,
+      );
       if (
-        runtimeState?.recordingStartMode !== "pageReady" ||
-        runtimeState.status === "ended" ||
-        latest
+        !runtimeState ||
+        !canAutoStartRecordingAtStatus(
+          runtimeState.recordingStartMode,
+          runtimeState.status,
+        ) ||
+        (latest && !previousLessonRun && !shouldRecoverRecording(latest, 3))
       ) {
         return NextResponse.json({ recording: latest ? publicRecording(latest) : null });
       }
     }
-    if (action === "start" || action === "auto-start-page-ready") {
+    if (action === "start" || action === "auto-start-whiteboard-ready") {
       const recording = await requestRecordingStart(course.id, lesson.id);
       after(() => processRecordingStart(recording.id).catch((error) => {
         console.error("[classroom:recording] deferred start failed", {

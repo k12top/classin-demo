@@ -63,6 +63,37 @@ export function translateBoardRectByPixels(
   );
 }
 
+export function boardItemUpdateConfirmed(
+  item: ClassroomBoardItem,
+  update: Partial<Pick<ClassroomBoardItem, "rect" | "shape" | "locked" | "visible">>,
+  initialRevision: number,
+  currentRevision: number,
+) {
+  const rect = update.rect;
+  return currentRevision > initialRevision &&
+    (!rect || (["x", "y", "width", "height"] as const).every(
+      (key) => Math.abs(item.rect[key] - rect[key]) < 0.0001,
+    )) &&
+    (!update.shape || item.shape === update.shape) &&
+    (update.locked === undefined || item.locked === update.locked) &&
+    (update.visible === undefined || item.visible === update.visible);
+}
+
+export function circleBoardGeometry(
+  rect: ClassroomBoardRect,
+  viewport: { width: number; height: number },
+) {
+  const size = Math.max(0, Math.min(
+    rect.width * viewport.width,
+    rect.height * viewport.height,
+  ));
+  return {
+    size,
+    x: Math.max(0, Math.min(rect.x * viewport.width, viewport.width - size)),
+    y: Math.max(0, Math.min(rect.y * viewport.height, viewport.height - size)),
+  };
+}
+
 function text(value: unknown, maximum = 160) {
   return typeof value === "string" ? value.trim().slice(0, maximum) : "";
 }

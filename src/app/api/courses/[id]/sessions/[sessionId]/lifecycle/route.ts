@@ -1,8 +1,6 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { attendanceDurationSec } from "@/lib/course-attendance";
 import {
-  processRecordingStart,
-  requestRecordingStart,
   stopActiveRecordingsForCourse,
 } from "@/lib/classroom/server/recording-orchestrator";
 import {
@@ -304,25 +302,10 @@ async function handlePost(request: NextRequest, context: Context) {
   });
   clearCourseSessionAccessCache();
   await syncCourseStatusFromSessions(resolved.courseId);
-  const recordingMode = await prisma.classroomRuntime.findUnique({
-    where: { sessionId: resolved.sessionId },
-    select: { recordingStartMode: true },
-  });
-  const recording = recordingMode?.recordingStartMode !== "pageReady"
-    ? await requestRecordingStart(resolved.courseId, resolved.sessionId).catch((error) => {
-    console.error("[classroom:lifecycle] reopen recording request failed", {
-      sessionId: resolved.sessionId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  }) : null;
   after(async () => {
-    await Promise.allSettled([
-      recording ? processRecordingStart(recording.id) : Promise.resolve(),
-      syncClassroomTranscription(resolved.courseId, {
-        sessionId: resolved.sessionId,
-      }),
-    ]);
+    await syncClassroomTranscription(resolved.courseId, {
+      sessionId: resolved.sessionId,
+    });
   });
   return NextResponse.json({ session: serializeCourseSession(updated) });
 }

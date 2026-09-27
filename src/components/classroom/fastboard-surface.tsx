@@ -78,6 +78,7 @@ export function FastboardSurface({
   courseware,
   recorderMode = false,
   onControllerChange,
+  onReadyChange,
   onRetry,
 }: {
   credential: ClassroomWhiteboardCredential;
@@ -86,6 +87,7 @@ export function FastboardSurface({
   onControllerChange?: (
     controller: ClassroomWhiteboardController | null,
   ) => void;
+  onReadyChange?: (ready: boolean) => void;
   onRetry?: () => void;
 }) {
   const { t, locale } = useTranslation();
@@ -341,6 +343,7 @@ export function FastboardSurface({
           window.clearTimeout(timeoutId);
           setError(null);
           setReady(true);
+          onReadyChange?.(true);
         };
         publishControllerWhenReady();
       } catch (launchError) {
@@ -372,6 +375,7 @@ export function FastboardSurface({
       panCleanup?.();
       mountTarget.removeEventListener("pointerdown", startCanvasPan, true);
       setReady(false);
+      onReadyChange?.(false);
       onControllerChange?.(null);
       if (!launchStarted) {
         if (mountTarget.isConnected) mountTarget.replaceChildren();
@@ -409,6 +413,7 @@ export function FastboardSurface({
     launchAttempt,
     locale,
     onControllerChange,
+    onReadyChange,
     recorderMode,
   ]);
 

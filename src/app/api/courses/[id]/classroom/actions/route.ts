@@ -9,10 +9,6 @@ import {
 } from "@/lib/classroom/server/runtime";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
 import {
-  processRecordingStart,
-  requestRecordingStart,
-} from "@/lib/classroom/server/recording-orchestrator";
-import {
   ensureClassroomTranscriptionForLiveSession,
   syncClassroomTranscription,
 } from "@/lib/classroom/server/transcription-orchestrator";
@@ -123,23 +119,6 @@ export async function POST(
       body.action.type === "startClass" &&
       resolved.access.role === "teacher"
     ) {
-      const recording = runtimeSnapshot.recordingStartMode === "classStart"
-        ? await requestRecordingStart(resolvedCourseId, sessionId).catch((error) => {
-        console.error("[classroom:actions] auto recording failed", {
-          courseId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return null;
-      }) : null;
-      if (recording) {
-        after(() => processRecordingStart(recording.id).catch((error) => {
-          console.error("[classroom:actions] auto recording failed", {
-            courseId,
-            recordingId: recording.id,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }));
-      }
       after(() =>
         ensureClassroomTranscriptionForLiveSession(
           resolvedCourseId,

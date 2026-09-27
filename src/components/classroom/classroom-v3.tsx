@@ -120,6 +120,8 @@ import type {
   ClassroomQuestionSnapshot,
 } from "@/lib/classroom/types";
 import {
+  boardItemUpdateConfirmed,
+  circleBoardGeometry,
   defaultBoardRect,
   normalizeBoardRect,
   placeClassroomBoardItem,
@@ -132,6 +134,10 @@ import {
 } from "@/lib/classroom/media-routing";
 import { shouldStopUnauthorizedScreenShare } from "@/lib/classroom/screen-share-state";
 import { shouldApplyClassroomRevision } from "@/lib/classroom/runtime-revision";
+import {
+  shouldAutoStartRecordingAfterWhiteboard,
+  shouldNotifyRecorderReady,
+} from "@/lib/classroom/recording-start";
 import {
   classroomLanguageLabel,
   classroomLanguages,
@@ -325,6 +331,7 @@ function BoardCompositionItem({
   coursewareName,
   provider,
   stageRef,
+  stageSize,
   canManage,
   canEditGeometry,
   isRecorder,
@@ -342,6 +349,7 @@ function BoardCompositionItem({
   coursewareName?: string;
   provider: ClassroomMediaProvider;
   stageRef: React.RefObject<HTMLDivElement | null>;
+  stageSize: { width: number; height: number };
   canManage: boolean;
   canEditGeometry: boolean;
   isRecorder: boolean;
@@ -581,14 +589,24 @@ function BoardCompositionItem({
     });
   }, [item, onUpdate, stageRef]);
 
-  // The recorder uses a different stage aspect ratio. Keep circles square in
-  // pixels while staying within the saved normalized bounds.
-  const circleSize = `min(${visualRect.width * 100}cqw, ${visualRect.height * 100}cqh)`;
+  // Recorder and teacher stages can have different aspect ratios. Measure the
+  // actual stage so the saved normalized rect becomes a square in both views.
+  const circle = stageSize.width > 0 && stageSize.height > 0
+    ? circleBoardGeometry(visualRect, stageSize)
+    : null;
+  const circleSize = circle
+    ? `${circle.size}px`
+    : `min(${visualRect.width * 100}cqw, ${visualRect.height * 100}cqh)`;
   const style = {
-    left: `${visualRect.x * 100}%`,
-    top: `${visualRect.y * 100}%`,
+    left: item.shape === "circle" && isRecorder && circle
+      ? `${circle.x}px`
+      : `${visualRect.x * 100}%`,
+    top: item.shape === "circle" && isRecorder && circle
+      ? `${circle.y}px`
+      : `${visualRect.y * 100}%`,
     width: item.shape === "circle" ? circleSize : `${visualRect.width * 100}%`,
     height: item.shape === "circle" ? circleSize : `${visualRect.height * 100}%`,
+    aspectRatio: item.shape === "circle" ? "1 / 1" : undefined,
     zIndex: item.zIndex + 5,
   } satisfies CSSProperties;
 
@@ -722,6 +740,7 @@ function BoardCompositionItem({
 
 function BoardCompositionLayer({
   items,
+  revision,
   members,
   courseware,
   participants,
@@ -735,6 +754,7 @@ function BoardCompositionLayer({
   onHideLocally,
 }: {
   items: ClassroomBoardItem[];
+  revision: number;
   members: ClassroomMemberSnapshot[];
   courseware: ClassroomCoursewareSnapshot[];
   participants: ClassroomParticipant[];
@@ -748,22 +768,23 @@ function BoardCompositionLayer({
   onHideLocally: (itemId: string) => void;
 }) {
   const stageRef = useRef<HTMLDivElement>(null);
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const isMountedRef = useRef(true);
+  const updateTokenRef = useRef<Record<string, number>>({});
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [localCameraOverrides, setLocalCameraOverrides] = useState<
-    Record<
-      string,
-      { rect?: ClassroomBoardRect; shape?: "rounded" | "circle" }
-    >
-  >({});
   const [optimisticItemUpdates, setOptimisticItemUpdates] = useState<
     Record<
       string,
       {
-        rect?: ClassroomBoardRect;
-        locked?: boolean;
-        visible?: boolean;
-        shape?: "rounded" | "circle";
+        update: {
+          rect?: ClassroomBoardRect;
+          locked?: boolean;
+          visible?: boolean;
+          shape?: "rounded" | "circle";
+        };
+        initialRevision: number;
+        acknowledged: boolean;
+        token: number;
       }
     >
   >({});
@@ -784,6 +805,22 @@ function BoardCompositionLayer({
     };
   }, []);
 
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      setStageSize((current) =>
+        current.width === width && current.height === height
+          ? current
+          : { width, height },
+      );
+    });
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div
       ref={stageRef}
@@ -795,13 +832,17 @@ function BoardCompositionLayer({
       {visibleItems.map((item) => {
         const isLocalCamera =
           item.kind === "camera" && item.sourceId === currentUserId;
-        const localOverride = isLocalCamera
-          ? localCameraOverrides[item.sourceId]
-          : undefined;
-        const optimisticUpdate = optimisticItemUpdates[item.id];
+        const pending = optimisticItemUpdates[item.id];
+        const savedUpdateVisible = pending?.acknowledged &&
+          boardItemUpdateConfirmed(
+            item,
+            pending.update,
+            pending.initialRevision,
+            revision,
+          );
+        const optimisticUpdate = savedUpdateVisible ? undefined : pending?.update;
         const visualItem = {
           ...item,
-          ...localOverride,
           ...optimisticUpdate,
         };
         const member = members.find((candidate) => candidate.userId === item.sourceId);
@@ -823,6 +864,7 @@ function BoardCompositionLayer({
             coursewareName={file?.name}
             provider={provider}
             stageRef={stageRef}
+            stageSize={stageSize}
             canManage={canManage}
             isRecorder={isRecorder}
             canEditGeometry={!isRecorder && (canManage || isLocalCamera)}
@@ -831,54 +873,35 @@ function BoardCompositionLayer({
               if (!isRecorder) setSelectedItemId(item.id);
             }}
             onUpdate={(update) => {
+              const token = (updateTokenRef.current[item.id] ?? 0) + 1;
+              updateTokenRef.current[item.id] = token;
               setOptimisticItemUpdates((current) => ({
                 ...current,
                 [item.id]: {
-                  ...current[item.id],
-                  ...update,
+                  update: { ...current[item.id]?.update, ...update },
+                  initialRevision: revision,
+                  acknowledged: false,
+                  token,
                 },
               }));
-              if (isLocalCamera && (update.rect || update.shape)) {
-                setLocalCameraOverrides((current) => ({
-                  ...current,
-                  [item.sourceId]: {
-                    ...current[item.sourceId],
-                    ...(update.rect && { rect: update.rect }),
-                    ...(update.shape && { shape: update.shape }),
-                  },
-                }));
-              }
               void onAction({
                 type: "updateBoardItem",
                 itemId: item.id,
                 ...update,
-              }).finally(() => {
+              }).then((saved) => {
                 if (!isMountedRef.current) return;
-                // The server snapshot is authoritative for every viewer,
-                // including the separate recorder browser. A permanent local
-                // override would make a rejected edit appear saved only here.
-                if (isLocalCamera && (update.rect || update.shape)) {
-                  setLocalCameraOverrides((current) => {
-                    const next = { ...current };
-                    delete next[item.sourceId];
-                    return next;
-                  });
-                }
                 setOptimisticItemUpdates((current) => {
                   const pending = current[item.id];
-                  if (!pending) return current;
-                  const nextPending = { ...pending };
-                  if (update.rect) delete nextPending.rect;
-                  if (update.locked !== undefined) delete nextPending.locked;
-                  if (update.visible !== undefined) delete nextPending.visible;
-                  if (update.shape) delete nextPending.shape;
-                  const next = { ...current };
-                  if (Object.keys(nextPending).length) {
-                    next[item.id] = nextPending;
-                  } else {
+                  if (!pending || pending.token !== token) return current;
+                  if (!saved) {
+                    const next = { ...current };
                     delete next[item.id];
+                    return next;
                   }
-                  return next;
+                  return {
+                    ...current,
+                    [item.id]: { ...pending, acknowledged: true },
+                  };
                 });
               });
             }}
@@ -3875,6 +3898,7 @@ export function ClassroomV3({
     useState<ClassroomLayoutMode>("focus");
   const [whiteboardController, setWhiteboardController] =
     useState<ClassroomWhiteboardController | null>(null);
+  const [whiteboardReady, setWhiteboardReady] = useState(false);
   const [whiteboardTool, setWhiteboardTool] =
     useState<ClassroomWhiteboardTool>("selector");
   const [toolRailLevel, setToolRailLevel] =
@@ -3909,7 +3933,7 @@ export function ClassroomV3({
   });
   const captionDragControls = useDragControls();
   const stageElementRef = useRef<HTMLElement | null>(null);
-  const pageReadyRecordingRequestedRef = useRef("");
+  const automaticRecordingRequestedRef = useRef("");
   const [teacherPiPHidden, setTeacherPiPHidden] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(TEACHER_PIP_HIDDEN_STORAGE_KEY) === "1";
@@ -3950,8 +3974,13 @@ export function ClassroomV3({
     if (
       !isRecorder ||
       recorderReadyNotifiedRef.current ||
-      loadingState !== "ready" ||
-      media.connectionState !== "connected"
+      !sessionData ||
+      !shouldNotifyRecorderReady({
+        pageReady: loadingState === "ready",
+        mediaConnected: media.connectionState === "connected",
+        whiteboardEnabled: sessionData?.whiteboard.enabled ?? false,
+        whiteboardReady,
+      })
     ) {
       return;
     }
@@ -3964,19 +3993,14 @@ export function ClassroomV3({
       recorderReadyNotifiedRef.current = true;
       recorderNavigator.notifyReady();
     };
-    if (whiteboardController || !sessionData?.whiteboard.enabled) {
-      const frame = window.requestAnimationFrame(notify);
-      return () => window.cancelAnimationFrame(frame);
-    }
-    // Do not leave cloud recording blocked forever if Netless is degraded.
-    const timer = window.setTimeout(notify, 8_000);
-    return () => window.clearTimeout(timer);
+    const frame = window.requestAnimationFrame(notify);
+    return () => window.cancelAnimationFrame(frame);
   }, [
     isRecorder,
     loadingState,
     media.connectionState,
-    sessionData?.whiteboard.enabled,
-    whiteboardController,
+    sessionData,
+    whiteboardReady,
   ]);
 
   const handleWhiteboardControllerChange = useCallback(
@@ -3985,6 +4009,9 @@ export function ClassroomV3({
     },
     [],
   );
+  const handleWhiteboardReadyChange = useCallback((ready: boolean) => {
+    setWhiteboardReady(ready);
+  }, []);
 
   const wakeToolRail = useCallback(() => {
     setToolRailLevel("expanded");
@@ -4038,29 +4065,32 @@ export function ClassroomV3({
   }, [captionBackgroundMode, captionBackgroundColor]);
 
   useEffect(() => {
-    if (
-      isRecorder ||
-      loadingState !== "ready" ||
-      media.connectionState !== "connected" ||
-      sessionData?.credential.role !== "teacher" ||
-      sessionData.runtime.status === "ended" ||
-      sessionData.runtime.recordingStartMode !== "pageReady" ||
-      pageReadyRecordingRequestedRef.current === courseId
-    ) return;
-    pageReadyRecordingRequestedRef.current = courseId;
+    if (!sessionData || !shouldAutoStartRecordingAfterWhiteboard({
+      isRecorder,
+      pageReady: loadingState === "ready",
+      mediaConnected: media.connectionState === "connected",
+      whiteboardEnabled: sessionData.whiteboard.enabled,
+      whiteboardReady,
+      isTeacher: sessionData.credential.role === "teacher",
+      mode: sessionData.runtime.recordingStartMode,
+      status: sessionData.runtime.status,
+    })) return;
+    const requestKey = `${courseId}:${sessionData.runtime.recordingStartMode}`;
+    if (automaticRecordingRequestedRef.current === requestKey) return;
+    automaticRecordingRequestedRef.current = requestKey;
     void fetch(`/api/courses/${encodeURIComponent(courseId)}/recording`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "auto-start-page-ready" }),
+      body: JSON.stringify({ action: "auto-start-whiteboard-ready" }),
     }).then(async (response) => {
       if (!response.ok) throw new Error("Automatic recording failed");
       const result = await response.json() as { recording?: { status?: string } | null };
       if (result.recording?.status) setRecordingStatus(result.recording.status);
     }).catch((error) => {
-      console.warn("[classroom:v3] page-ready recording failed", error);
-      pageReadyRecordingRequestedRef.current = "";
+      console.warn("[classroom:v3] whiteboard-ready recording failed", error);
+      automaticRecordingRequestedRef.current = "";
     });
-  }, [courseId, isRecorder, loadingState, media.connectionState, sessionData?.credential.role, sessionData?.runtime.recordingStartMode, sessionData?.runtime.status]);
+  }, [courseId, isRecorder, loadingState, media.connectionState, sessionData, whiteboardReady]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -4306,11 +4336,13 @@ export function ClassroomV3({
               t("classroom.v3.speaker"),
             createdAt: new Date().toISOString(),
           };
-          setSessionData((current) =>
-            current
-              ? { ...current, captions: mergeCaptions(current.captions, localCaption) }
-              : current,
-          );
+          if (!isRecorder) {
+            setSessionData((current) =>
+              current
+                ? { ...current, captions: mergeCaptions(current.captions, localCaption) }
+                : current,
+            );
+          }
           if (!isRecorder && payload.credential.role === "student") return;
           const lastIngested = captionIngestAtRef.current.get(caption.id) || 0;
           if (!caption.isFinal && Date.now() - lastIngested < 600) return;
@@ -4333,18 +4365,20 @@ export function ClassroomV3({
                 revision?: number;
               };
               if (!response.ok || !result.caption) return;
-              setSessionData((current) =>
-                current
-                  ? {
-                      ...current,
-                      captions: mergeCaptions(current.captions, result.caption!),
-                      runtime:
-                        typeof result.revision === "number"
-                          ? { ...current.runtime, revision: result.revision }
-                          : current.runtime,
-                    }
-                  : current,
-              );
+              if (!isRecorder) {
+                setSessionData((current) =>
+                  current
+                    ? {
+                        ...current,
+                        captions: mergeCaptions(current.captions, result.caption!),
+                        runtime:
+                          typeof result.revision === "number"
+                            ? { ...current.runtime, revision: result.revision }
+                            : current.runtime,
+                      }
+                    : current,
+                );
+              }
               if (typeof result.revision === "number") {
                 void signalingRef.current?.publish({
                   courseId,
@@ -4942,7 +4976,8 @@ export function ClassroomV3({
 
   const performAction = useCallback(
     async (action: ClassroomAction) => {
-      if (!courseId || !sessionRef.current || actionBusy || isRecorder) {
+      if (!courseId || !sessionRef.current || isRecorder ||
+        (actionBusy && action.type !== "updateBoardItem")) {
         return false;
       }
       const optimisticComposition =
@@ -5030,7 +5065,6 @@ export function ClassroomV3({
           );
         }
         if (action.type === "startClass") {
-          if (payload.runtime?.recordingStartMode === "classStart") setRecordingStatus("starting");
           window.setTimeout(() => void refreshState(), 1_800);
         }
         return true;
@@ -5874,7 +5908,7 @@ export function ClassroomV3({
     availableCaptionLanguages,
   );
   const latestCaption = selectStableCaption(
-    sessionData?.captions || [],
+    isRecorder ? [] : sessionData?.captions || [],
     effectiveCaptionLanguage,
     captionDisplayMode,
   );
@@ -6340,6 +6374,7 @@ export function ClassroomV3({
                     courseware={activeCourseware}
                     recorderMode={isRecorder}
                     onControllerChange={handleWhiteboardControllerChange}
+                    onReadyChange={handleWhiteboardReadyChange}
                     onRetry={() =>
                       updateSession({
                         whiteboard: {
@@ -6353,6 +6388,7 @@ export function ClassroomV3({
                   />
                   <BoardCompositionLayer
                     items={compositionBoardItems}
+                    revision={sessionData.runtime.revision}
                     members={sessionData.runtime.members}
                     courseware={sessionData.courseware}
                     participants={media.participants}

@@ -27,7 +27,6 @@ import { getWhiteboardProvider } from "@/lib/classroom/whiteboard/provider-facto
 import { prisma } from "@/lib/db";
 import { databaseUnavailableResponse } from "@/lib/database-response";
 import { getSessionFromRequest } from "@/lib/session";
-import { getClassroomCaptions } from "@/lib/classroom/server/captions";
 import { ensureClassroomSpaceAssignment } from "@/lib/classroom/server/spaces";
 import { classroomInterpretationAvailability } from "@/lib/classroom/server/transcription-orchestrator";
 import { casdoorUserIdCandidates } from "@/lib/course-teacher";
@@ -331,9 +330,9 @@ export async function POST(request: NextRequest) {
             take: 100,
           })
         : Promise.resolve([]),
-      recorder
-        ? getClassroomCaptions(courseId, 100, sessionId)
-        : Promise.resolve([]),
+      // The recorder ingests captions for playback but never renders them
+      // into the captured classroom page.
+      Promise.resolve([]),
       Promise.resolve([]),
       Promise.resolve([]),
       classroomInterpretationAvailability(),
