@@ -327,6 +327,7 @@ function BoardCompositionItem({
   stageRef,
   canManage,
   canEditGeometry,
+  isRecorder,
   selected,
   onSelect,
   onUpdate,
@@ -343,6 +344,7 @@ function BoardCompositionItem({
   stageRef: React.RefObject<HTMLDivElement | null>;
   canManage: boolean;
   canEditGeometry: boolean;
+  isRecorder: boolean;
   selected: boolean;
   onSelect: () => void;
   onUpdate: (update: {
@@ -579,11 +581,14 @@ function BoardCompositionItem({
     });
   }, [item, onUpdate, stageRef]);
 
+  // The recorder uses a different stage aspect ratio. Keep circles square in
+  // pixels while staying within the saved normalized bounds.
+  const circleSize = `min(${visualRect.width * 100}cqw, ${visualRect.height * 100}cqh)`;
   const style = {
     left: `${visualRect.x * 100}%`,
     top: `${visualRect.y * 100}%`,
-    width: `${visualRect.width * 100}%`,
-    height: `${visualRect.height * 100}%`,
+    width: item.shape === "circle" ? circleSize : `${visualRect.width * 100}%`,
+    height: item.shape === "circle" ? circleSize : `${visualRect.height * 100}%`,
     zIndex: item.zIndex + 5,
   } satisfies CSSProperties;
 
@@ -614,6 +619,7 @@ function BoardCompositionItem({
           provider={provider}
           displayName={displayName}
           className="classroom-v3-board-item-media"
+          showCaption={!isRecorder}
         />
       ) : (
         <div className="classroom-v3-board-item-empty">
@@ -622,7 +628,7 @@ function BoardCompositionItem({
           <small>{t("classroom.v3.waitingForSharedContent")}</small>
         </div>
       )}
-      <div className="classroom-v3-board-item-tools" role="toolbar">
+      {!isRecorder && <div className="classroom-v3-board-item-tools" role="toolbar">
         {item.kind === "camera" && canEditGeometry && (
           <button
             type="button"
@@ -701,7 +707,7 @@ function BoardCompositionItem({
             <X />
           </button>
         )}
-      </div>
+      </div>}
       {canEditGeometry && !item.locked && (
         <button
           type="button"
@@ -721,6 +727,7 @@ function BoardCompositionLayer({
   participants,
   provider,
   canManage,
+  isRecorder,
   currentUserId,
   onAction,
   onPreview,
@@ -733,6 +740,7 @@ function BoardCompositionLayer({
   participants: ClassroomParticipant[];
   provider: ClassroomMediaProvider;
   canManage: boolean;
+  isRecorder: boolean;
   currentUserId: string;
   onAction: (action: ClassroomAction) => Promise<boolean>;
   onPreview: (itemId: string, rect: ClassroomBoardRect) => void;
@@ -816,9 +824,12 @@ function BoardCompositionLayer({
             provider={provider}
             stageRef={stageRef}
             canManage={canManage}
-            canEditGeometry={canManage || isLocalCamera}
+            isRecorder={isRecorder}
+            canEditGeometry={!isRecorder && (canManage || isLocalCamera)}
             selected={selectedItemId === item.id}
-            onSelect={() => setSelectedItemId(item.id)}
+            onSelect={() => {
+              if (!isRecorder) setSelectedItemId(item.id);
+            }}
             onUpdate={(update) => {
               setOptimisticItemUpdates((current) => ({
                 ...current,
@@ -6310,6 +6321,7 @@ export function ClassroomV3({
                           provider={mediaProvider}
                           displayName={item.displayName}
                           className="classroom-v3-tile-media"
+                          showCaption={!isRecorder}
                         />
                       </div>
                     ))}
@@ -6326,6 +6338,7 @@ export function ClassroomV3({
                   <FastboardSurface
                     credential={sessionData.whiteboard}
                     courseware={activeCourseware}
+                    recorderMode={isRecorder}
                     onControllerChange={handleWhiteboardControllerChange}
                     onRetry={() =>
                       updateSession({
@@ -6347,6 +6360,7 @@ export function ClassroomV3({
                     canManage={
                       sessionData.capabilities.canManageStage && !isRecorder
                     }
+                    isRecorder={isRecorder}
                     currentUserId={currentUserId}
                     onAction={(action) => performAction(action)}
                     onPreview={publishCompositionPreview}
@@ -6377,6 +6391,7 @@ export function ClassroomV3({
                         : mediaProvider
                     }
                     displayName={stageParticipant.displayName}
+                    showCaption={!isRecorder}
                   />
                 </motion.div>
               ) : !screenParticipant ? (
@@ -6427,6 +6442,7 @@ export function ClassroomV3({
                       participant={screenParticipant.participant}
                       provider={screenParticipantProvider || mediaProvider}
                       displayName={screenParticipant.displayName}
+                      showCaption={!isRecorder}
                     />
                   )}
                 </motion.div>
@@ -6444,6 +6460,7 @@ export function ClassroomV3({
                     participant={teacherParticipant.participant}
                     provider={mediaProvider}
                     displayName={teacherParticipant.displayName}
+                    showCaption={!isRecorder}
                   />
                 ) : (
                   <div className="classroom-v3-teacher-pip-unavailable">

@@ -76,11 +76,13 @@ function enqueueFastboardLifecycle(task: () => Promise<void>) {
 export function FastboardSurface({
   credential,
   courseware,
+  recorderMode = false,
   onControllerChange,
   onRetry,
 }: {
   credential: ClassroomWhiteboardCredential;
   courseware: ClassroomCoursewareSnapshot | null;
+  recorderMode?: boolean;
   onControllerChange?: (
     controller: ClassroomWhiteboardController | null,
   ) => void;
@@ -243,16 +245,16 @@ export function FastboardSurface({
           language: locale.toLowerCase().startsWith("zh") ? "zh-CN" : "en",
           force_show_toolbar: false,
           force_show_redo_undo: false,
-          force_show_zoom_control: true,
-          force_show_page_control: true,
+          force_show_zoom_control: !recorderMode,
+          force_show_page_control: !recorderMode,
           config: {
             toolbar: {
               enable: false,
               apps: { enable: false },
             },
             redo_undo: { enable: false },
-            zoom_control: { enable: true },
-            page_control: { enable: true },
+            zoom_control: { enable: !recorderMode },
+            page_control: { enable: !recorderMode },
           },
         });
         // The surrounding teaching stage can finish its Motion layout after
@@ -407,6 +409,7 @@ export function FastboardSurface({
     launchAttempt,
     locale,
     onControllerChange,
+    recorderMode,
   ]);
 
   useEffect(() => {

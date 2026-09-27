@@ -327,6 +327,7 @@
   inset: 0;
   overflow: hidden;
   pointer-events: none;
+  container-type: size;
 }
 
 .classroom-v3-board-item {
@@ -354,6 +355,15 @@
 
 .classroom-v3-board-item.is-locked {
   box-shadow: 0 2px 7px rgb(6 10 15 / 0.22);
+}
+
+.classroom-v3-board-item.is-circle {
+  border-radius: 50%;
+}
+
+.classroom-v3-board-item.is-circle .classroom-v3-board-item-media {
+  overflow: hidden;
+  border-radius: 50%;
 }
 
 .classroom-v3-board-item .classroom-v3-media,
@@ -396,11 +406,19 @@
 }
 
 .classroom-v3-board-item:hover .classroom-v3-board-item-tools,
-.classroom-v3-board-item:focus-within .classroom-v3-board-item-tools,
-.classroom-v3-board-item.is-selected .classroom-v3-board-item-tools {
+.classroom-v3-board-item:focus-visible .classroom-v3-board-item-tools,
+.classroom-v3-board-item:has(.classroom-v3-board-item-tools button:focus-visible) .classroom-v3-board-item-tools {
   opacity: 1;
   pointer-events: auto;
   transform: translate(-50%, 0);
+}
+
+@media (hover: none) {
+  .classroom-v3-board-item.is-selected .classroom-v3-board-item-tools {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-50%, 0);
+  }
 }
 
 .classroom-v3-board-item-tools button {
@@ -442,6 +460,21 @@
   border-radius: 4px;
   background: var(--classroom-accent);
   cursor: nwse-resize;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.classroom-v3-board-item:hover .classroom-v3-board-item-resize,
+.classroom-v3-board-item:focus-visible .classroom-v3-board-item-resize {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .classroom-v3-board-item.is-selected .classroom-v3-board-item-resize {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .classroom-v3-board-courseware,
@@ -3337,6 +3370,20 @@ button.classroom-v3-seat-preview:focus-visible::after {
   right: 6px;
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .classroom-v3-teacher-pip-hide {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms ease;
+  }
+
+  .classroom-v3-teacher-pip:hover .classroom-v3-teacher-pip-hide,
+  .classroom-v3-teacher-pip-hide:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .classroom-v3-teacher-pip-restore {
   z-index: 8;
   top: 12px;
@@ -5208,7 +5255,9 @@ button.classroom-v3-seat-preview:focus-visible::after {
 
 /* Vercel injects its preview toolbar outside the app root. Keep it out of
    the cloud recorder's captured page without changing the teacher preview. */
-body:has(.classroom-v3-shell.is-recorder) vercel-live-feedback {
+body:has(.classroom-v3-shell.is-recorder) vercel-live-feedback,
+body:has(.classroom-v3-shell.is-recorder) vercel-toolbar,
+body:has(.classroom-v3-shell.is-recorder) iframe[src^="https://vercel.live/"] {
   display: none !important;
 }
 

@@ -803,3 +803,55 @@
 .is-classin-layout .classroom-v3-board-item.is-circle video {
   border-radius: 50%;
 }
+
+/* Fastboard chrome belongs to the editable board, below placed camera tiles.
+   Keep page controls away from the camera's usual bottom-right location. */
+.is-classin-layout .classroom-v3-board {
+  z-index: 0;
+}
+
+.is-classin-layout .classroom-v3-board-canvas .fastboard-bottom-right {
+  top: 8px;
+  right: 8px;
+  bottom: auto;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .is-classin-layout .classroom-v3-board:hover .fastboard-bottom-right,
+  .is-classin-layout .classroom-v3-board:focus-within .fastboard-bottom-right {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (hover: none) {
+  .is-classin-layout .classroom-v3-board-canvas .fastboard-bottom-right {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.classroom-v3-shell.is-recorder .fastboard-bottom-left,
+.classroom-v3-shell.is-recorder .fastboard-bottom-right {
+  display: none !important;
+}
+
+.classroom-v3-shell.is-recorder .classroom-v3-board-item {
+  pointer-events: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .is-classin-layout .classroom-v3-board-item .classroom-v3-media-caption {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms ease;
+  }
+
+  .is-classin-layout .classroom-v3-board-item:hover .classroom-v3-media-caption,
+  .is-classin-layout .classroom-v3-board-item:focus-visible .classroom-v3-media-caption {
+    opacity: 1;
+  }
+}
