@@ -5202,6 +5202,10 @@ button.classroom-v3-seat-preview:focus-visible::after {
   grid-template-rows: 56px 132px minmax(0, 1fr);
 }
 
+.classroom-v3-shell.is-recorder .classroom-v3-caption-overlay {
+  display: none !important;
+}
+
 /* Vercel injects its preview toolbar outside the app root. Keep it out of
    the cloud recorder's captured page without changing the teacher preview. */
 body:has(.classroom-v3-shell.is-recorder) vercel-live-feedback {

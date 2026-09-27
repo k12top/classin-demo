@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Save,
   Send,
+  Settings2,
   Sparkles,
   Users,
 } from "lucide-react";
@@ -25,6 +26,8 @@ import { redirectToSsoLogin } from "@/lib/auth-login";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { useTranslation } from "@/lib/i18n/context";
 import { isHlsPlaybackUrl, isMp4PlaybackUrl } from "@/lib/playback-url";
+import { captionTranslation, type CaptionDisplayMode } from "@/lib/classroom/caption-display";
+import { activeCaptionIndex, captionPosition } from "@/lib/classroom/playback-captions";
 import {
   PortalShell,
   type PortalPage,
@@ -96,6 +99,14 @@ type LessonCaption = {
   translations: Record<string, string>;
 };
 
+type CaptionAppearance = {
+  background: "solid" | "transparent";
+  size: "small" | "medium" | "large";
+  position: "top" | "bottom";
+};
+
+type PlaybackSeek = { recordingId: string; seconds: number; captionId: string };
+
 type SummaryCopy = {
   title: string;
   draft: string;
@@ -149,6 +160,45 @@ export default function CoursePlaybackPage({
     "generate" | "save" | "publish" | "unpublish" | null
   >(null);
   const [summaryCanManage, setSummaryCanManage] = useState(false);
+  const [contentTab, setContentTab] = useState<"timeline" | "summary">("timeline");
+  const [captionMode, setCaptionMode] = useState<CaptionDisplayMode>("off");
+  const [captionLanguage, setCaptionLanguage] = useState("");
+  const [captionAppearance, setCaptionAppearance] = useState<CaptionAppearance>({ background: "solid", size: "medium", position: "bottom" });
+  const [captionSettingsOpen, setCaptionSettingsOpen] = useState(false);
+  const [captionPrefsLoaded, setCaptionPrefsLoaded] = useState(false);
+  const [selectedRecordingId, setSelectedRecordingId] = useState("");
+  const [mediaTime, setMediaTime] = useState(0);
+  const [seekRequest, setSeekRequest] = useState<PlaybackSeek | null>(null);
+
+  useEffect(() => {
+    const savedMode = window.localStorage.getItem("playback_caption_mode");
+    const savedLanguage = window.localStorage.getItem("playback_caption_language") || "";
+    const savedBackground = window.localStorage.getItem("playback_caption_background");
+    const savedSize = window.localStorage.getItem("playback_caption_size");
+    const savedPosition = window.localStorage.getItem("playback_caption_position");
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      if (savedMode === "original" || savedMode === "translated" || savedMode === "bilingual") setCaptionMode(savedMode);
+      setCaptionLanguage(savedLanguage);
+      setCaptionAppearance({
+        background: savedBackground === "transparent" ? "transparent" : "solid",
+        size: savedSize === "small" || savedSize === "large" ? savedSize : "medium",
+        position: savedPosition === "top" ? "top" : "bottom",
+      });
+      setCaptionPrefsLoaded(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!captionPrefsLoaded) return;
+    window.localStorage.setItem("playback_caption_mode", captionMode);
+    window.localStorage.setItem("playback_caption_language", captionLanguage);
+    window.localStorage.setItem("playback_caption_background", captionAppearance.background);
+    window.localStorage.setItem("playback_caption_size", captionAppearance.size);
+    window.localStorage.setItem("playback_caption_position", captionAppearance.position);
+  }, [captionAppearance, captionLanguage, captionMode, captionPrefsLoaded]);
 
   const copy = useMemo(() => {
     return {
@@ -356,6 +406,29 @@ export default function CoursePlaybackPage({
       setLessonCaptions(Array.isArray(payload.captions) ? payload.captions : []);
       setNextCaptionCursor(payload.nextCaptionCursor || null);
       setSummaryCanManage(Boolean(payload.canManage));
+      setSummaryLoading(false);
+      let cursor = payload.nextCaptionCursor || null;
+      let loaded = payload.captions?.length || 0;
+      if (cursor) setCaptionsLoadingMore(true);
+      while (cursor && loaded < 2_000 && requestId === summaryRequestIdRef.current) {
+        let page: { captions?: LessonCaption[]; nextCaptionCursor?: string | null };
+        try {
+          const next = await fetch(
+            `/api/sessions/${encodeURIComponent(selectedSessionId)}/summary?captionCursor=${encodeURIComponent(cursor)}`,
+            { credentials: "same-origin", cache: "no-store" },
+          );
+          if (!next.ok) break;
+          page = await next.json();
+        } catch { break; }
+        if (requestId !== summaryRequestIdRef.current) break;
+        const more = Array.isArray(page.captions) ? page.captions : [];
+        if (!more.length || page.nextCaptionCursor === cursor) break;
+        setLessonCaptions((current) => [...current, ...more]);
+        loaded += more.length;
+        cursor = page.nextCaptionCursor || null;
+        setNextCaptionCursor(cursor);
+      }
+      if (requestId === summaryRequestIdRef.current) setCaptionsLoadingMore(false);
     } catch (cause) {
       if (requestId !== summaryRequestIdRef.current) return;
       setSummaryError(cause instanceof Error ? cause.message : copy.loadFailed);
@@ -447,13 +520,44 @@ export default function CoursePlaybackPage({
   const hasRecordedSession = sessions.some(
     (session) => (session._count?.recordings || 0) > 0,
   );
-  const hasReviewableSession = sessions.some(
+  const isTeacher = Boolean(course?.canTeach);
+  const reviewableSessions = sessions.filter(
     (session) =>
       (session._count?.recordings || 0) > 0 ||
       session.status === "finished" ||
       session.status === "afterClass",
   );
-  const isTeacher = Boolean(course?.canTeach);
+  const selectedRecording = playableRecordings.find((recording) => recording.id === selectedRecordingId)
+    || playableRecordings[0] || null;
+  const captionCanSync = Boolean(selectedRecording?.startedAt && selectedRecording?.stoppedAt && lessonCaptions.length);
+  const activeCaption = lessonCaptions[activeCaptionIndex(lessonCaptions, selectedRecording, mediaTime)] || null;
+  const captionLanguages = Array.from(new Set(
+    lessonCaptions.flatMap((caption) => Object.keys(caption.translations || {})),
+  ));
+  const effectiveCaptionLanguage = captionLanguages.includes(captionLanguage)
+    ? captionLanguage : captionLanguages[0] || "";
+  const selectedCaptionTranslation = activeCaption && effectiveCaptionLanguage
+    ? captionTranslation(activeCaption, effectiveCaptionLanguage) : "";
+  const activeCaptionPosition = activeCaption && captionPosition(activeCaption.occurredAt, playableRecordings);
+  const videoCaption = activeCaptionPosition && selectedRecording && activeCaptionPosition.recordingId === selectedRecording.id &&
+    mediaTime - activeCaptionPosition.seconds >= -0.5 && mediaTime - activeCaptionPosition.seconds <= 12
+    ? activeCaption : null;
+  const captionPositionFor = (caption: LessonCaption) => captionPosition(caption.occurredAt, playableRecordings);
+  const selectSession = (sessionId: string) => {
+    setSelectedSessionId(sessionId);
+    setSelectedRecordingId("");
+    setMediaTime(0);
+    setSeekRequest(null);
+    const url = new URL(window.location.href);
+    url.searchParams.set("sessionId", sessionId);
+    window.history.replaceState(null, "", url);
+  };
+  const seekToCaption = (caption: LessonCaption) => {
+    const position = captionPositionFor(caption);
+    if (!position) return;
+    setSelectedRecordingId(position.recordingId);
+    setSeekRequest({ ...position, captionId: caption.id });
+  };
 
   if (authLoading || loading || sessionsLoading) {
     return <PageLoadingState message={copy.loading} variant="course" />;
@@ -486,7 +590,7 @@ export default function CoursePlaybackPage({
       }
       onLogout={logout}
     >
-      <main className="mx-auto max-w-6xl">
+      <main className="mx-auto max-w-[1540px]">
         <Button
           variant="ghost"
           size="sm"
@@ -496,46 +600,47 @@ export default function CoursePlaybackPage({
           <ChevronLeft className="h-4 w-4" />
           {copy.back}
         </Button>
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Lesson replay</p>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">{course?.name || copy.title}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{locale.startsWith("zh") ? "从视频、发言到课后要点，在同一处回顾这堂课。" : "Review the video, conversation and lesson notes together."}</p>
+          </div>
+          {course?.teacherName && <Badge variant="outline">{copy.teacher}: {course.teacherName}</Badge>}
+        </div>
+        <div className={`grid items-start gap-4 ${reviewableSessions.length > 1 ? "xl:grid-cols-[210px_minmax(0,1fr)_350px]" : "xl:grid-cols-[minmax(0,1fr)_370px]"}`}>
+        {reviewableSessions.length > 1 && (
+          <nav aria-label={locale.startsWith("zh") ? "课次回放" : "Lesson replays"} className="hidden overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm xl:block">
+            <div className="border-b border-border/60 px-4 py-4">
+              <h2 className="text-sm font-semibold">{locale.startsWith("zh") ? "课次回放" : "Lesson replays"}</h2>
+              <p className="mt-1 text-xs text-muted-foreground">{reviewableSessions.length} {locale.startsWith("zh") ? "堂课" : "lessons"}</p>
+            </div>
+            {reviewableSessions.map((session, index) => (
+              <button key={session.id} type="button" aria-current={session.id === selectedSessionId ? "page" : undefined}
+                onClick={() => selectSession(session.id)}
+                className={`block w-full border-b border-border/50 px-4 py-4 text-left transition-colors last:border-b-0 hover:bg-primary/5 focus-visible:outline-2 focus-visible:outline-primary ${session.id === selectedSessionId ? "bg-primary/10 shadow-[inset_3px_0_0_hsl(var(--primary))]" : ""}`}>
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-primary">Lesson {String(index + 1).padStart(2, "0")}</span>
+                <strong className="mt-1 block text-sm leading-5">{session.title || copy.title}</strong>
+                <small className="mt-2 block text-xs text-muted-foreground">{new Date(session.startTime).toLocaleDateString(locale)}</small>
+              </button>
+            ))}
+          </nav>
+        )}
+        <div className="min-w-0">
+        {reviewableSessions.length > 1 && (
+          <label className="mb-3 block xl:hidden">
+            <span className="sr-only">{locale.startsWith("zh") ? "选择课次" : "Select lesson"}</span>
+            <select className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm" value={selectedSessionId} onChange={(event) => selectSession(event.target.value)}>
+              {reviewableSessions.map((session) => <option key={session.id} value={session.id}>{session.title || copy.title}</option>)}
+            </select>
+          </label>
+        )}
+        {selectedSession && <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-lg font-semibold">{selectedSession.title || copy.title}</h2>
+          <time dateTime={selectedSession.startTime} className="text-xs text-muted-foreground">{new Date(selectedSession.startTime).toLocaleString(locale)}</time>
+        </div>}
         <Card className="overflow-hidden rounded-[22px] border border-border/70 bg-card shadow-[0_24px_70px_rgba(21,23,28,0.08)]">
           <CardContent className="p-0">
-            <div className="flex items-center justify-between gap-4 border-b border-border/60 p-5">
-              <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-foreground">
-                {course?.name || copy.title}
-              </h1>
-              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                {course?.teacherName && (
-                  <Badge variant="outline" className="text-xs">
-                    {copy.teacher}: {course.teacherName}
-                  </Badge>
-                )}
-              </div>
-            </div>
-
-            {hasReviewableSession && (
-              <div className="flex gap-2 overflow-x-auto border-b border-border/60 px-5 py-3">
-                {sessions
-                  .filter(
-                    (session) =>
-                      (session._count?.recordings || 0) > 0 ||
-                      session.status === "finished" ||
-                      session.status === "afterClass",
-                  )
-                  .map((session) => (
-                    <Button
-                      key={session.id}
-                      type="button"
-                      size="sm"
-                      variant={session.id === selectedSessionId ? "default" : "outline"}
-                      className="shrink-0 rounded-lg"
-                      onClick={() => setSelectedSessionId(session.id)}
-                    >
-                      <PlayCircle className="mr-1.5 h-3.5 w-3.5" />
-                      {session.title || copy.title}
-                    </Button>
-                  ))}
-              </div>
-            )}
-
             {selectedSessionId && recordingsError ? (
               <div className="flex min-h-[220px] flex-col items-center justify-center gap-3 p-8 text-center text-sm text-destructive" role="alert">
                 <span>{recordingsError}</span>
@@ -549,29 +654,49 @@ export default function CoursePlaybackPage({
                 <Loader2 className="h-5 w-5 animate-spin" />
                 {copy.loading}
               </div>
-            ) : canPlaySessionRecording ? (
-              <SessionRecordingPlayer
-                recordings={playableRecordings}
-                hlsUnsupportedMessage={copy.hlsUnsupported}
-              />
-            ) : canPlayMp4 || canPlayHls ? (
-              <div className="bg-black">
-                {canPlayHls ? (
-                  <HlsVideo
-                    src={recordUrl}
-                    className="aspect-video w-full bg-black"
-                    unsupportedMessage={copy.hlsUnsupported}
-                  />
-                ) : (
-                  <video
-                    className="aspect-video w-full bg-black"
-                    src={recordUrl}
-                    controls
-                    playsInline
-                    preload="metadata"
-                  />
+            ) : canPlayInApp ? (
+              <>
+                <PlaybackVideo
+                  key={`${selectedSessionId}:${selectedRecording?.id || recordUrl}`}
+                  src={selectedRecording?.playbackUrl || recordUrl}
+                  isHls={selectedRecording ? selectedRecording.playbackFormat === "hls" : canPlayHls}
+                  unsupportedMessage={copy.hlsUnsupported}
+                  seekRequest={seekRequest}
+                  onSeekComplete={() => setSeekRequest(null)}
+                  onTimeUpdate={setMediaTime}
+                  caption={videoCaption}
+                  translation={videoCaption ? selectedCaptionTranslation : ""}
+                  captionMode={captionMode}
+                  captionAppearance={captionAppearance}
+                />
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-[#141a27] px-4 py-3 text-white">
+                  <div className="flex items-center gap-2">
+                    <button type="button" disabled={!captionCanSync} aria-pressed={captionCanSync && captionMode !== "off"} aria-label={locale.startsWith("zh") ? "切换视频字幕" : "Toggle video captions"}
+                      onClick={() => setCaptionMode((mode) => mode === "off" ? "bilingual" : "off")}
+                      className={`rounded-md border px-2.5 py-1 text-xs font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40 ${!captionCanSync || captionMode === "off" ? "border-white/30 text-white/70" : "border-primary bg-primary text-primary-foreground"}`}>CC</button>
+                    <button type="button" aria-expanded={captionSettingsOpen} aria-controls="playback-caption-settings"
+                      aria-label={locale.startsWith("zh") ? "字幕设置" : "Caption settings"}
+                      onClick={() => setCaptionSettingsOpen((open) => !open)}
+                      className="rounded-md border border-white/30 p-1.5 text-white/80 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"><Settings2 className="h-4 w-4" /></button>
+                    <span className="text-xs text-white/60">{!selectedRecording?.startedAt || !selectedRecording?.stoppedAt ? (locale.startsWith("zh") ? "当前录像缺少字幕时间信息" : "Caption timing unavailable") : !lessonCaptions.length ? (locale.startsWith("zh") ? "暂无最终字幕" : "No final captions") : captionMode === "off" ? (locale.startsWith("zh") ? "视频字幕已关闭" : "Video captions off") : captionMode === "bilingual" ? (locale.startsWith("zh") ? "双语" : "Bilingual") : captionMode === "original" ? (locale.startsWith("zh") ? "原文" : "Original") : (locale.startsWith("zh") ? "译文" : "Translation")}</span>
+                  </div>
+                  <span className="text-xs text-white/50">{locale.startsWith("zh") ? "点击时间线发言可定位视频" : "Select an utterance to seek the video"}</span>
+                </div>
+                {captionSettingsOpen && (
+                  <CaptionSettings mode={captionMode} onModeChange={setCaptionMode}
+                    language={effectiveCaptionLanguage} languages={captionLanguages} onLanguageChange={setCaptionLanguage}
+                    appearance={captionAppearance} onAppearanceChange={setCaptionAppearance} chinese={locale.startsWith("zh")} />
                 )}
-              </div>
+                {playableRecordings.length > 1 && (
+                  <div className="flex gap-2 overflow-x-auto border-t border-border/60 bg-card px-4 py-3">
+                    {playableRecordings.map((recording) => <Button key={recording.id} type="button" size="sm"
+                      variant={recording.id === selectedRecording?.id ? "default" : "outline"}
+                      onClick={() => { setSelectedRecordingId(recording.id); setSeekRequest(null); setMediaTime(0); }}>
+                      {locale.startsWith("zh") ? `片段 ${recording.segment}` : `Segment ${recording.segment}`}
+                    </Button>)}
+                  </div>
+                )}
+              </>
             ) : (
               <div className="flex min-h-[300px] flex-col items-center justify-center gap-3 p-8 text-center">
                 <div className="rounded-full bg-amber-500/10 p-4 text-amber-500">
@@ -598,13 +723,20 @@ export default function CoursePlaybackPage({
             )}
           </CardContent>
         </Card>
+        </div>
         {selectedSessionId && (
+          <aside className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm" aria-label={locale.startsWith("zh") ? "课次内容" : "Lesson content"}>
           <LessonSummaryPanel
+            contentTab={contentTab}
+            onContentTabChange={setContentTab}
             summary={summary}
             captions={lessonCaptions}
             hasMoreCaptions={Boolean(nextCaptionCursor)}
             captionsLoadingMore={captionsLoadingMore}
             onLoadMoreCaptions={() => void loadMoreCaptions()}
+            recordings={playableRecordings}
+            activeCaptionId={activeCaption?.id || null}
+            onSeekToCaption={seekToCaption}
             loading={summaryLoading}
             error={summaryError}
             canManage={summaryCanManage}
@@ -615,18 +747,25 @@ export default function CoursePlaybackPage({
             onPublish={() => void updateSummary("publish")}
             onUnpublish={() => void updateSummary("unpublish")}
           />
+          </aside>
         )}
+        </div>
       </main>
     </PortalShell>
   );
 }
 
 function LessonSummaryPanel({
+  contentTab,
+  onContentTabChange,
   summary,
   captions,
   hasMoreCaptions,
   captionsLoadingMore,
   onLoadMoreCaptions,
+  recordings,
+  activeCaptionId,
+  onSeekToCaption,
   loading,
   error,
   canManage,
@@ -637,11 +776,16 @@ function LessonSummaryPanel({
   onPublish,
   onUnpublish,
 }: {
+  contentTab: "timeline" | "summary";
+  onContentTabChange: (tab: "timeline" | "summary") => void;
   summary: LessonSummary | null;
   captions: LessonCaption[];
   hasMoreCaptions: boolean;
   captionsLoadingMore: boolean;
   onLoadMoreCaptions: () => void;
+  recordings: PlaybackRecording[];
+  activeCaptionId: string | null;
+  onSeekToCaption: (caption: LessonCaption) => void;
   loading: boolean;
   error: string;
   canManage: boolean;
@@ -653,8 +797,19 @@ function LessonSummaryPanel({
   onUnpublish: () => void;
 }) {
   return (
-    <div className="mt-6 space-y-6">
-    <Card className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-none">
+    <div>
+    <div className="border-b border-border/60 px-5 pt-4">
+      <h2 className="text-sm font-semibold">{copy.title === "课后总结" ? "这堂课的内容" : "This lesson"}</h2>
+      <div className="mt-4 flex gap-5" role="tablist">
+        <button type="button" role="tab" aria-selected={contentTab === "timeline"} onClick={() => onContentTabChange("timeline")}
+          className={`border-b-2 pb-3 text-sm font-medium ${contentTab === "timeline" ? "border-primary text-primary" : "border-transparent text-muted-foreground"}`}>
+          {copy.title === "课后总结" ? "发言时间线" : "Utterance timeline"}</button>
+        <button type="button" role="tab" aria-selected={contentTab === "summary"} onClick={() => onContentTabChange("summary")}
+          className={`border-b-2 pb-3 text-sm font-medium ${contentTab === "summary" ? "border-primary text-primary" : "border-transparent text-muted-foreground"}`}>
+          {copy.title}</button>
+      </div>
+    </div>
+    {contentTab === "summary" && <Card className="overflow-hidden rounded-none border-0 bg-card shadow-none">
       <CardContent className="p-0">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/60 px-5 py-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
@@ -722,30 +877,37 @@ function LessonSummaryPanel({
           />
         )}
       </CardContent>
-    </Card>
-    {(canManage || summary?.status === "published") && (
-      <Card className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-none">
-        <CardContent className="p-5 sm:p-6">
-          <h2 className="text-base font-semibold text-foreground">
-            {copy.title === "课后总结" ? "课堂字幕时间线" : "Caption timeline"}
-          </h2>
+    </Card>}
+    {contentTab === "timeline" && (
+      <Card className="overflow-hidden rounded-none border-0 bg-card shadow-none">
+        <CardContent className="p-3">
+          {error && <p role="alert" className="mb-3 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
+          {loading && !captions.length && <p className="p-3 text-sm text-muted-foreground">{copy.saving}</p>}
           {captions.length ? (
             <>
-            <ol className="mt-4 max-h-[480px] space-y-4 overflow-y-auto">
-              {captions.map((caption) => (
-                <li key={caption.id} className="grid gap-1 border-l-2 border-primary/30 pl-4 text-sm">
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <time dateTime={caption.occurredAt}>
-                      {new Date(caption.occurredAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                    </time>
-                    <span>{caption.speakerName}</span>
-                  </div>
-                  <p className="text-foreground">{caption.text}</p>
-                  {Object.entries(caption.translations || {}).map(([language, translation]) => (
-                    <p key={language} className="text-muted-foreground">{language}: {translation}</p>
-                  ))}
-                </li>
-              ))}
+            <ol className="max-h-[650px] space-y-2 overflow-y-auto">
+              {captions.map((caption) => {
+                const position = captionPosition(caption.occurredAt, recordings);
+                const segment = position && recordings.find((recording) => recording.id === position.recordingId)?.segment;
+                const timeLabel = position
+                  ? `${recordings.length > 1 ? `${copy.title === "课后总结" ? "片段" : "Segment"} ${segment || 1} · ` : ""}${formatPlaybackTime(position.seconds)}`
+                  : "—";
+                return <li key={caption.id}>
+                  <button type="button" disabled={!position} onClick={() => onSeekToCaption(caption)}
+                    aria-current={caption.id === activeCaptionId ? "true" : undefined}
+                    title={!position ? (copy.title === "课后总结" ? "这条字幕缺少可定位的录像时间" : "No matching recording time for this caption") : undefined}
+                    className={`grid w-full gap-1 rounded-xl border-l-2 p-3 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-primary ${caption.id === activeCaptionId ? "border-primary bg-primary/10" : "border-primary/30 hover:bg-muted/50"} ${!position ? "cursor-not-allowed opacity-60" : ""}`}>
+                    <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <time dateTime={caption.occurredAt}>{timeLabel}</time>
+                      <span>{caption.speakerName}</span>
+                    </span>
+                    <span className="text-foreground">{caption.text}</span>
+                    {Object.entries(caption.translations || {}).map(([language, translation]) => (
+                      <span key={language} className="text-muted-foreground">{language}: {translation}</span>
+                    ))}
+                  </button>
+                </li>;
+              })}
             </ol>
             {hasMoreCaptions && (
               <Button type="button" size="sm" variant="outline" className="mt-4" disabled={captionsLoadingMore} onClick={onLoadMoreCaptions}>
@@ -754,11 +916,11 @@ function LessonSummaryPanel({
               </Button>
             )}
             </>
-          ) : (
+          ) : !loading ? (
             <p className="mt-3 text-sm text-muted-foreground">
               {copy.title === "课后总结" ? "本课次暂无已保存的最终字幕。" : "No final captions have been saved for this lesson."}
             </p>
-          )}
+          ) : null}
         </CardContent>
       </Card>
     )}
@@ -928,73 +1090,35 @@ function SummaryList({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-function SessionRecordingPlayer({
-  recordings,
-  hlsUnsupportedMessage,
-}: {
-  recordings: PlaybackRecording[];
-  hlsUnsupportedMessage: string;
-}) {
-  const [selectedRecordingId, setSelectedRecordingId] = useState(recordings[0]?.id || "");
-  const selectedRecording = recordings.find(
-    (recording) => recording.id === selectedRecordingId,
-  ) || recordings[0];
-
-  if (!selectedRecording?.playbackUrl) return null;
-  const isHls = selectedRecording.playbackFormat === "hls";
-
-  return (
-    <div className="bg-black">
-      {isHls ? (
-        <HlsVideo
-          src={selectedRecording.playbackUrl}
-          className="aspect-video w-full bg-black"
-          unsupportedMessage={hlsUnsupportedMessage}
-        />
-      ) : (
-        <video
-          className="aspect-video w-full bg-black"
-          src={selectedRecording.playbackUrl}
-          controls
-          playsInline
-          preload="metadata"
-        />
-      )}
-      {recordings.length > 1 && (
-        <div className="flex gap-2 overflow-x-auto border-t border-white/15 bg-black px-4 py-3">
-          {recordings.map((recording) => (
-            <Button
-              key={recording.id}
-              type="button"
-              size="sm"
-              variant={recording.id === selectedRecording.id ? "default" : "secondary"}
-              className="shrink-0 rounded-lg"
-              onClick={() => setSelectedRecordingId(recording.id)}
-            >
-              {recording.segment}
-            </Button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function HlsVideo({
+function PlaybackVideo({
   src,
-  className,
+  isHls,
   unsupportedMessage,
+  seekRequest,
+  onSeekComplete,
+  onTimeUpdate,
+  caption,
+  translation,
+  captionMode,
+  captionAppearance,
 }: {
   src: string;
-  className?: string;
+  isHls: boolean;
   unsupportedMessage: string;
+  seekRequest: PlaybackSeek | null;
+  onSeekComplete: () => void;
+  onTimeUpdate: (time: number) => void;
+  caption: LessonCaption | null;
+  translation: string;
+  captionMode: CaptionDisplayMode;
+  captionAppearance: CaptionAppearance;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video || !isHls) return;
 
     let destroyed = false;
     let hls: Hls | null = null;
@@ -1029,17 +1153,49 @@ function HlsVideo({
       destroyed = true;
       hls?.destroy();
     };
-  }, [src, unsupportedMessage]);
+  }, [isHls, src, unsupportedMessage]);
+
+  useEffect(() => {
+    if (!seekRequest) return;
+    const video = videoRef.current;
+    if (!video) return;
+    const applySeek = () => {
+      if (video.readyState < HTMLMediaElement.HAVE_METADATA) return;
+      const maxTime = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.1) : seekRequest.seconds;
+      video.currentTime = Math.min(seekRequest.seconds, maxTime);
+      onTimeUpdate(video.currentTime);
+      onSeekComplete();
+    };
+    video.addEventListener("loadedmetadata", applySeek);
+    applySeek();
+    return () => video.removeEventListener("loadedmetadata", applySeek);
+  }, [onSeekComplete, onTimeUpdate, seekRequest]);
+
+  const showOriginal = captionMode === "original" || captionMode === "bilingual";
+  const showTranslation = captionMode === "translated" || captionMode === "bilingual";
+  const hasVisibleText = Boolean((showOriginal && caption?.text.trim()) || (showTranslation && translation.trim()));
+  const captionSize = captionAppearance.size === "small" ? "text-xs sm:text-sm" : captionAppearance.size === "large" ? "text-base sm:text-lg" : "text-sm sm:text-base";
 
   return (
-    <div className="relative">
+    <div className="relative bg-black">
       <video
         ref={videoRef}
-        className={className}
+        className="aspect-video w-full bg-black object-contain"
+        src={isHls ? undefined : src}
         controls
         playsInline
         preload="metadata"
+        onTimeUpdate={(event) => onTimeUpdate(event.currentTarget.currentTime)}
+        onSeeking={(event) => onTimeUpdate(event.currentTarget.currentTime)}
       />
+      {captionMode !== "off" && hasVisibleText && (
+        <div className={`pointer-events-none absolute inset-x-4 flex justify-start ${captionAppearance.position === "top" ? "top-4" : "bottom-16"}`}>
+          <div className={`max-w-[70%] rounded-xl px-4 py-2 text-center leading-relaxed text-white shadow-lg ${captionSize} ${captionAppearance.background === "transparent" ? "bg-transparent [text-shadow:0_2px_5px_rgba(0,0,0,0.95),0_0_2px_#000]" : "bg-[#202124]/90"}`}>
+            {showOriginal && caption?.text.trim() && <p>{caption.text}</p>}
+            {showTranslation && translation.trim() && <p className={showOriginal ? "mt-1 text-violet-100" : ""}>{translation}</p>}
+          </div>
+        </div>
+      )}
       {error && (
         <div className="absolute inset-x-0 bottom-0 bg-black/75 px-4 py-3 text-sm text-white">
           {error}
@@ -1047,4 +1203,60 @@ function HlsVideo({
       )}
     </div>
   );
+}
+
+function CaptionSettings({
+  mode, onModeChange, language, languages, onLanguageChange, appearance, onAppearanceChange, chinese,
+}: {
+  mode: CaptionDisplayMode;
+  onModeChange: (mode: CaptionDisplayMode) => void;
+  language: string;
+  languages: string[];
+  onLanguageChange: (language: string) => void;
+  appearance: CaptionAppearance;
+  onAppearanceChange: (appearance: CaptionAppearance) => void;
+  chinese: boolean;
+}) {
+  const modes: Array<[CaptionDisplayMode, string, string]> = [
+    ["off", "关闭", "Off"], ["original", "只显示原文", "Original only"],
+    ["translated", "只显示译文", "Translation only"], ["bilingual", "原文与译文", "Both languages"],
+  ];
+  return <div id="playback-caption-settings" className="grid gap-4 border-t border-border/60 bg-card p-4 sm:grid-cols-2">
+    <fieldset className="space-y-2">
+      <legend className="text-xs font-semibold text-foreground">{chinese ? "视频字幕显示" : "Video captions"}</legend>
+      {modes.map(([value, zh, en]) => <label key={value} className="flex items-center gap-2 text-sm">
+        <input type="radio" name="playback-caption-mode" value={value} checked={mode === value} onChange={() => onModeChange(value)} className="accent-primary" />
+        {chinese ? zh : en}
+      </label>)}
+    </fieldset>
+    <div className="grid gap-3 text-xs">
+      <label className="grid gap-1"><span className="font-semibold">{chinese ? "翻译语言" : "Translation language"}</span>
+        <select value={language} disabled={!languages.length} onChange={(event) => onLanguageChange(event.target.value)} className="h-9 rounded-lg border border-border bg-background px-2 text-sm">
+          {languages.length ? languages.map((item) => <option key={item} value={item}>{item}</option>) : <option value="">{chinese ? "暂无译文" : "No translation available"}</option>}
+        </select>
+      </label>
+      <label className="grid gap-1"><span className="font-semibold">{chinese ? "字幕背景" : "Caption background"}</span>
+        <select value={appearance.background} onChange={(event) => onAppearanceChange({ ...appearance, background: event.target.value as CaptionAppearance["background"] })} className="h-9 rounded-lg border border-border bg-background px-2 text-sm">
+          <option value="solid">{chinese ? "深色" : "Dark"}</option><option value="transparent">{chinese ? "透明" : "Transparent"}</option>
+        </select>
+      </label>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="grid gap-1"><span className="font-semibold">{chinese ? "字号" : "Size"}</span>
+          <select value={appearance.size} onChange={(event) => onAppearanceChange({ ...appearance, size: event.target.value as CaptionAppearance["size"] })} className="h-9 rounded-lg border border-border bg-background px-2 text-sm">
+            <option value="small">{chinese ? "小" : "Small"}</option><option value="medium">{chinese ? "标准" : "Medium"}</option><option value="large">{chinese ? "大" : "Large"}</option>
+          </select>
+        </label>
+        <label className="grid gap-1"><span className="font-semibold">{chinese ? "位置" : "Position"}</span>
+          <select value={appearance.position} onChange={(event) => onAppearanceChange({ ...appearance, position: event.target.value as CaptionAppearance["position"] })} className="h-9 rounded-lg border border-border bg-background px-2 text-sm">
+            <option value="bottom">{chinese ? "下方" : "Bottom"}</option><option value="top">{chinese ? "上方" : "Top"}</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </div>;
+}
+
+function formatPlaybackTime(seconds: number) {
+  const whole = Math.max(0, Math.floor(seconds));
+  return `${String(Math.floor(whole / 60)).padStart(2, "0")}:${String(whole % 60).padStart(2, "0")}`;
 }

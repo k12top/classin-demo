@@ -6476,7 +6476,8 @@ export function ClassroomV3({
                 <Eye />
               </button>
             ) : null}
-            {!classEnded &&
+            {!isRecorder &&
+              !classEnded &&
               captionOverlayVisible &&
               captionDisplayMode !== "off" &&
               sessionData.runtime.interpretation.enabled &&

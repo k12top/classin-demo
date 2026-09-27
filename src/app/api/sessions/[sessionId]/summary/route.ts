@@ -40,8 +40,9 @@ export async function GET(request: NextRequest, context: Context) {
     ? publicCourseSessionSummary(summary)
     : null;
   const captionCursor = request.nextUrl.searchParams.get("captionCursor") || undefined;
-  const captions = visibleSummary || resolved.access.teaching
-    ? await prisma.classroomCaption.findMany({
+  // Final captions back the authorized playback timeline and CC controls even
+  // while the teacher's generated summary is still a private draft.
+  const captions = await prisma.classroomCaption.findMany({
         where: { sessionId, courseId: resolved.courseId, isFinal: true },
         orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
         select: {
@@ -54,8 +55,7 @@ export async function GET(request: NextRequest, context: Context) {
         },
         ...(captionCursor ? { cursor: { id: captionCursor }, skip: 1 } : {}),
         take: 101,
-      })
-    : [];
+      });
   return NextResponse.json({
     summary: visibleSummary,
     canManage: resolved.access.teaching,
