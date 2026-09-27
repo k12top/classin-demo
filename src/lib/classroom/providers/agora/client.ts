@@ -16,6 +16,7 @@ import {
   classroomVideoPresets,
 } from "@/lib/classroom/config";
 import { isScreenShareUserId } from "@/lib/classroom/screen-share";
+import { isClassroomScreenRtcUid } from "@/lib/classroom/rtc-uid";
 import { decodeClassroomSttCaption } from "@/lib/classroom/stt-caption";
 import {
   credentialCanPublish,
@@ -150,19 +151,33 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     for (const listener of this.listeners) listener(current);
   }
 
+  private cameraId() {
+    return this.credential ? String(this.credential.rtcUid) : undefined;
+  }
+
+  private screenId() {
+    return this.credential?.screenShare
+      ? String(this.credential.screenShare.rtcUid)
+      : undefined;
+  }
+
+  private isScreen(id: string) {
+    return isClassroomScreenRtcUid(id) || isScreenShareUserId(id);
+  }
+
   private isLocalParticipant(id: string) {
     return (
-      id === this.credential?.userId ||
-      id === this.credential?.screenShare?.userId
+      id === this.cameraId() ||
+      id === this.screenId()
     );
   }
 
   private displayNameFor(id: string) {
-    if (id === this.credential?.userId) return this.displayName;
-    if (id === this.credential?.screenShare?.userId) {
+    if (id === this.cameraId()) return this.displayName;
+    if (id === this.screenId()) {
       return `${this.displayName} · 屏幕`;
     }
-    return isScreenShareUserId(id) ? "共享屏幕" : id;
+    return this.isScreen(id) ? "共享屏幕" : id;
   }
 
   private upsertParticipant(
@@ -174,7 +189,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       id,
       displayName: this.displayNameFor(id),
       isLocal: this.isLocalParticipant(id),
-      kind: isScreenShareUserId(id) ? "screen" : "camera",
+      kind: this.isScreen(id) ? "screen" : "camera",
       hasAudio: existing?.hasAudio ?? false,
       hasVideo: existing?.hasVideo ?? false,
       ...existing,
@@ -184,10 +199,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   }
 
   private mediaStreamTrackFor(id: string): MediaStreamTrack | null {
-    if (id === this.credential?.userId) {
+    if (id === this.cameraId()) {
       return this.cameraTrack?.getMediaStreamTrack() ?? null;
     }
-    if (id === this.credential?.screenShare?.userId) {
+    if (id === this.screenId()) {
       return this.screenTrack?.getMediaStreamTrack() ?? null;
     }
     return this.remoteUsers.get(id)?.videoTrack?.getMediaStreamTrack() ?? null;
@@ -211,9 +226,9 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     video.autoplay = true;
     video.playsInline = true;
     video.muted = true;
-    video.dataset.fit = isScreenShareUserId(id) ? "contain" : "cover";
+    video.dataset.fit = this.isScreen(id) ? "contain" : "cover";
     video.dataset.mirror =
-      id === this.credential?.userId && !isScreenShareUserId(id)
+      id === this.cameraId() && !this.isScreen(id)
         ? "true"
         : "false";
     video.srcObject = new MediaStream([track]);
@@ -317,10 +332,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       credential.appId,
       credential.channelName,
       credential.token,
-      credential.userId,
+      credential.rtcUid,
     );
 
-    this.upsertParticipant(credential.userId, {
+    this.upsertParticipant(String(credential.rtcUid), {
       isLocal: true,
       displayName: this.displayName,
     });
@@ -352,7 +367,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
 
     // The primary client receives the separate local screen publisher too.
     // Render the local capture directly instead of subscribing to ourselves.
-    if (id === this.credential?.screenShare?.userId) {
+    if (id === this.screenId()) {
       this.upsertParticipant(id, {
         isLocal: true,
         hasVideo: mediaType === "video",
@@ -371,7 +386,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       await this.client
         .setRemoteVideoStreamType(
           user.uid,
-          isScreenShareUserId(id) ||
+          this.isScreen(id) ||
             this.snapshot.focusedParticipantId === id
             ? 0
             : 1,
@@ -408,7 +423,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       this.snapshot.local.microphoneOn = next;
     }
 
-    this.upsertParticipant(this.credential.userId, {
+    this.upsertParticipant(String(this.credential.rtcUid), {
       hasAudio: this.snapshot.local.microphoneOn,
     });
     return this.snapshot.local.microphoneOn;
@@ -457,13 +472,13 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       this.snapshot.local.cameraOn = next;
     }
 
-    this.upsertParticipant(this.credential.userId, {
+    this.upsertParticipant(String(this.credential.rtcUid), {
       hasVideo: this.snapshot.local.cameraOn,
     });
     if (this.snapshot.local.cameraOn) {
-      this.renderVideoTargets(this.credential.userId);
+      this.renderVideoTargets(String(this.credential.rtcUid));
     } else {
-      this.clearVideoTargets(this.credential.userId);
+      this.clearVideoTargets(String(this.credential.rtcUid));
     }
     return this.snapshot.local.cameraOn;
   }
@@ -516,17 +531,17 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         this.credential.appId,
         this.credential.channelName,
         this.credential.screenShare.token,
-        this.credential.screenShare.userId,
+        this.credential.screenShare.rtcUid,
       );
       await screenClient.publish(screenTrack);
       this.snapshot.local.screenSharing = true;
-      this.upsertParticipant(this.credential.screenShare.userId, {
+      this.upsertParticipant(String(this.credential.screenShare.rtcUid), {
         displayName: `${this.displayName} · 屏幕`,
         isLocal: true,
         kind: "screen",
         hasVideo: true,
       });
-      await this.focusParticipant(this.credential.screenShare.userId);
+      await this.focusParticipant(String(this.credential.screenShare.rtcUid));
     } catch (error) {
       screenTrack.close();
       this.screenTrack = null;
@@ -537,7 +552,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   }
 
   async stopScreenShare(): Promise<void> {
-    const screenId = this.credential?.screenShare?.userId;
+    const screenId = this.screenId();
     const track = this.screenTrack;
     const client = this.screenClient;
     if (!track && !client && !this.snapshot.local.screenSharing) return;
@@ -573,7 +588,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
           this.client
             .setRemoteVideoStreamType(
               user.uid,
-              isScreenShareUserId(id) || id === participantIdToFocus ? 0 : 1,
+              this.isScreen(id) || id === participantIdToFocus ? 0 : 1,
             )
             .catch(() => undefined),
         );
@@ -608,7 +623,8 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     }
     if (
       credential.channelName !== this.credential.channelName ||
-      credential.userId !== this.credential.userId
+      credential.userId !== this.credential.userId ||
+      credential.rtcUid !== this.credential.rtcUid
     ) {
       throw new Error("续期凭证与当前课堂不匹配");
     }
@@ -616,7 +632,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     if (this.screenClient && this.snapshot.local.screenSharing) {
       if (
         !credential.screenShare ||
-        credential.screenShare.userId !== this.credential.screenShare?.userId
+        credential.screenShare.rtcUid !== this.credential.screenShare?.rtcUid
       ) {
         throw new Error("共享屏幕续期凭证与当前课堂不匹配");
       }
@@ -736,8 +752,8 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         await this.cameraTrack.setMuted(true).catch(() => undefined);
         this.snapshot.local.cameraOn = false;
         if (this.credential) {
-          this.upsertParticipant(this.credential.userId, { hasVideo: false });
-          this.clearVideoTargets(this.credential.userId);
+          this.upsertParticipant(String(this.credential.rtcUid), { hasVideo: false });
+          this.clearVideoTargets(String(this.credential.rtcUid));
         } else {
           this.emit();
         }
@@ -766,7 +782,8 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     if (credential) {
       if (
         credential.channelName !== this.credential.channelName ||
-        credential.userId !== this.credential.userId
+        credential.userId !== this.credential.userId ||
+        credential.rtcUid !== this.credential.rtcUid
       ) {
         throw new Error("发布凭证与当前课堂不匹配");
       }
@@ -796,7 +813,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.cameraTrack = null;
     this.snapshot.local.microphoneOn = false;
     this.snapshot.local.cameraOn = false;
-    this.upsertParticipant(this.credential.userId, {
+    this.upsertParticipant(String(this.credential.rtcUid), {
       hasAudio: false,
       hasVideo: false,
     });

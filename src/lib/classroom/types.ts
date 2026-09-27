@@ -36,12 +36,14 @@ export type ClassroomJoinCredential = {
   appId: string;
   channelName: string;
   userId: string;
+  rtcUid: number;
   role: ClassroomRole;
   publishAllowed?: boolean;
   token: string;
   expiresInSeconds: number;
   screenShare?: {
     userId: string;
+    rtcUid: number;
     token: string;
   };
 };

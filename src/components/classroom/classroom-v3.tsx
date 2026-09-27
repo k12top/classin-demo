@@ -12,6 +12,7 @@ import {
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { classroomRtcUid } from "@/lib/classroom/rtc-uid";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   AlertCircle,
@@ -184,7 +185,15 @@ const EMPTY_MEDIA: ClassroomMediaSnapshot = {
   focusedParticipantId: null,
 };
 
-function participantOwnerId(participantId: string): string {
+function participantOwnerId(
+  participantId: string,
+  members: readonly { userId: string }[] = [],
+): string {
+  const owner = members.find((member) =>
+    String(classroomRtcUid(member.userId, "camera")) === participantId ||
+    String(classroomRtcUid(member.userId, "screen")) === participantId,
+  );
+  if (owner) return owner.userId;
   return participantId.endsWith("::screen")
     ? participantId.slice(0, -"::screen".length)
     : participantId;
@@ -789,7 +798,7 @@ function BoardCompositionLayer({
         const member = members.find((candidate) => candidate.userId === item.sourceId);
         const matchedParticipant = participants.find(
           (participant) =>
-            participantOwnerId(participant.id) === item.sourceId &&
+            participantOwnerId(participant.id, members) === item.sourceId &&
             participant.kind === (item.kind === "screen" ? "screen" : "camera"),
         ) ?? null;
         const file = courseware.find((candidate) => candidate.id === item.sourceId);
@@ -1282,7 +1291,7 @@ function LiveRail({
   const cameraParticipants = new Map(
     media.participants
       .filter((participant) => participant.kind === "camera")
-      .map((participant) => [participantOwnerId(participant.id), participant]),
+      .map((participant) => [participantOwnerId(participant.id, members), participant]),
   );
   const moveSeat = (userId: string, slots: number) => {
     const currentOrder = seatedMembers.map((member) => member.userId);
@@ -2524,7 +2533,7 @@ function BreakoutPanel({
           </header>
           <div>
             {roomMedia.participants.map((participant) => {
-              const ownerId = participantOwnerId(participant.id);
+              const ownerId = participantOwnerId(participant.id, activeSpace.members);
               const member = activeSpace.members.find((item) => item.userId === ownerId);
               return (
                 <MediaSurface
@@ -4010,7 +4019,9 @@ export function ClassroomV3({
           throw new Error(payload.error || t("classroom.v3.roomConnectFailed"));
         }
         setRoomScreenShareUserId(
-          payload.credential.screenShare?.userId ?? null,
+          payload.credential.screenShare
+            ? String(payload.credential.screenShare.rtcUid)
+            : null,
         );
         const provider = await createClassroomMediaProvider(
           payload.credential.provider,
@@ -4162,11 +4173,14 @@ export function ClassroomV3({
         });
         unsubscribeCaptions = provider.subscribeCaptions((caption) => {
           if (cancelled) return;
+          const runtime = sessionRef.current?.runtime ?? payload.runtime;
+          const speakerId = participantOwnerId(caption.speakerId, runtime.members);
           const localCaption: ClassroomCaptionSnapshot = {
             ...caption,
-            provider: payload.runtime.interpretation.provider,
+            speakerId,
+            provider: runtime.interpretation.provider,
             speakerName:
-              payload.runtime.members.find((member) => member.userId === caption.speakerId)
+              runtime.members.find((member) => member.userId === speakerId)
                 ?.displayName ||
               caption.speakerName ||
               t("classroom.v3.speaker"),
@@ -5452,7 +5466,7 @@ export function ClassroomV3({
   const decorateParticipant = (participant: ClassroomParticipant) => {
     const member = sessionData?.runtime.members.find(
       (candidate) =>
-        candidate.userId === participantOwnerId(participant.id),
+        candidate.userId === participantOwnerId(participant.id, sessionData?.runtime.members),
     );
     return {
       participant,
@@ -5470,7 +5484,9 @@ export function ClassroomV3({
     main: media,
     room: roomMedia,
     preferRoom: controlsRoomMedia,
-    mainScreenUserId: sessionData?.credential.screenShare?.userId,
+    mainScreenUserId: sessionData?.credential.screenShare
+      ? String(sessionData.credential.screenShare.rtcUid)
+      : null,
     roomScreenUserId: roomScreenShareUserId,
   });
   // Non-teacher large-class members publish through the room RTC provider.
@@ -5488,7 +5504,7 @@ export function ClassroomV3({
   );
   const spotlightParticipant = decoratedParticipants.find(
     ({ participant }) =>
-      participantOwnerId(participant.id) ===
+      participantOwnerId(participant.id, sessionData?.runtime.members) ===
       sessionData?.runtime.spotlightUserId,
   );
   const leadTeacher = sessionData?.runtime.members.find(
@@ -5497,7 +5513,7 @@ export function ClassroomV3({
   const teacherParticipant = decoratedParticipants.find(({ participant }) => {
     const member = sessionData?.runtime.members.find(
       (candidate) =>
-        candidate.userId === participantOwnerId(participant.id),
+        candidate.userId === participantOwnerId(participant.id, sessionData?.runtime.members),
     );
     return member?.role === "teacher" && participant.kind === "camera";
   });
@@ -5515,7 +5531,7 @@ export function ClassroomV3({
   const galleryParticipants = decoratedParticipants
     .filter(({ participant }) => {
       if (participant.kind !== "camera") return false;
-      const ownerId = participantOwnerId(participant.id);
+      const ownerId = participantOwnerId(participant.id, sessionData?.runtime.members);
       return sessionData?.runtime.members.some(
         (member) => member.userId === ownerId && member.onStage,
       );

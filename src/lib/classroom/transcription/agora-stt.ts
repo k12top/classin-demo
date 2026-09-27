@@ -1,8 +1,8 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
 import { RtcRole, RtcTokenBuilder } from "agora-token";
 import { classroomRuntimeDefaults } from "@/lib/classroom/config";
+import { classroomRtcUid } from "@/lib/classroom/rtc-uid";
 import {
   buildAgoraSttJoinPayload,
   buildAgoraSttUpdatePayload,
@@ -63,11 +63,6 @@ export function isAgoraTranscriptionConfigured() {
       config.customerId &&
       config.customerSecret,
   );
-}
-
-function stableUid(value: string, namespace: string) {
-  const digest = createHash("sha256").update(`${namespace}:${value}`).digest();
-  return (digest.readUInt32BE(0) % 2_000_000_000) + 1;
 }
 
 function botToken(
@@ -136,8 +131,8 @@ export async function startAgoraTranscription(input: AgoraTranscriptionInput) {
     throw new Error("Shengwang ASR is not configured");
   }
   const config = configuration();
-  const subscriberUid = stableUid(input.courseId, "stt-subscriber");
-  const publisherUid = stableUid(input.courseId, "stt-publisher");
+  const subscriberUid = classroomRtcUid(input.courseId, "stt-subscriber");
+  const publisherUid = classroomRtcUid(input.courseId, "stt-publisher");
   const payload = buildAgoraSttJoinPayload({
     channelName: input.channelName,
     sourceLanguage: input.sourceLanguage,

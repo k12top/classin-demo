@@ -1,9 +1,9 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
 import { RtcRole, RtcTokenBuilder } from "agora-token";
 import { classroomRuntimeDefaults } from "@/lib/classroom/config";
 import { buildScreenShareUserId } from "@/lib/classroom/screen-share";
+import { classroomRtcUid } from "@/lib/classroom/rtc-uid";
 import {
   ClassroomProviderConfigurationError,
   ClassroomProviderRequestError,
@@ -73,16 +73,16 @@ function agoraAppCredentials() {
 
 function buildRtcToken(
   channelName: string,
-  userId: string,
+  rtcUid: number,
   publisher: boolean,
   expiresInSeconds: number,
 ): string {
   const { appId, appCertificate } = agoraAppCredentials();
-  return RtcTokenBuilder.buildTokenWithUserAccount(
+  return RtcTokenBuilder.buildTokenWithUid(
     appId,
     appCertificate,
     channelName,
-    userId,
+    rtcUid,
     publisher ? RtcRole.PUBLISHER : RtcRole.SUBSCRIBER,
     expiresInSeconds,
     expiresInSeconds,
@@ -106,11 +106,12 @@ export class AgoraClassroomServerProvider implements ClassroomServerProvider {
       appId,
       channelName: input.channelName,
       userId: input.userId,
+      rtcUid: classroomRtcUid(input.userId, "camera"),
       role: input.role,
       publishAllowed: publisher,
       token: buildRtcToken(
         input.channelName,
-        input.userId,
+        classroomRtcUid(input.userId, "camera"),
         publisher,
         expiresInSeconds,
       ),
@@ -121,9 +122,10 @@ export class AgoraClassroomServerProvider implements ClassroomServerProvider {
       const screenUserId = buildScreenShareUserId(input.userId);
       credential.screenShare = {
         userId: screenUserId,
+        rtcUid: classroomRtcUid(input.userId, "screen"),
         token: buildRtcToken(
           input.channelName,
-          screenUserId,
+          classroomRtcUid(input.userId, "screen"),
           true,
           expiresInSeconds,
         ),
@@ -201,9 +203,7 @@ function recordingConfiguration() {
 }
 
 function recorderUserId(courseId: string): string {
-  const digest = createHash("sha256").update(courseId).digest();
-  const uid = digest.readUInt32BE(0) || 1;
-  return String(uid);
+  return String(classroomRtcUid(courseId, "recorder"));
 }
 
 function basicAuthorization(customerId: string, customerSecret: string) {
