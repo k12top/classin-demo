@@ -456,6 +456,7 @@
 
   .tabsShell {
     position: relative;
+    top: auto;
   }
 
   .scheduleDialog {
