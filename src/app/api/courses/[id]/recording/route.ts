@@ -13,12 +13,22 @@ import {
   requestRecordingStart,
   requestRecordingStop,
 } from "@/lib/classroom/server/recording-orchestrator";
-import { prisma } from "@/lib/db";
+import { isTransientDatabaseError, prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
 import { resolveCourseSessionAccess } from "@/lib/course-session-access";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+// Keep recording control near the current database endpoint. The previous
+// iad1 invocation timed out before it could read the recording state.
+export const preferredRegion = "sin1";
+
+function databaseUnavailableResponse() {
+  return NextResponse.json(
+    { error: "数据库暂时无法连接，请稍后重试", code: "database_unavailable" },
+    { status: 503, headers: { "Retry-After": "3" } },
+  );
+}
 
 async function teacherCourse(request: NextRequest, courseId: string) {
   const session = await getSessionFromRequest(request);
@@ -83,7 +93,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const resolved = await teacherCourse(request, id);
+  let resolved: Awaited<ReturnType<typeof teacherCourse>>;
+  try {
+    resolved = await teacherCourse(request, id);
+  } catch (error) {
+    if (isTransientDatabaseError(error)) return databaseUnavailableResponse();
+    throw error;
+  }
   if ("error" in resolved) {
     return NextResponse.json(
       { error: resolved.error },
@@ -133,28 +149,29 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const resolved = await teacherCourse(request, id);
-  if ("error" in resolved) {
-    return NextResponse.json(
-      { error: resolved.error },
-      { status: resolved.status },
-    );
-  }
-
-  const body = (await request.json().catch(() => ({}))) as {
-    action?: unknown;
-  };
-  const action = body.action;
-  if (action !== "start" && action !== "stop" && action !== "auto-start-whiteboard-ready") {
-    return NextResponse.json(
-      { error: 'action must be "start", "stop", or "auto-start-whiteboard-ready"' },
-      { status: 400 },
-    );
-  }
-
-  const { course, lesson } = resolved;
-  const latest = lesson.recordings[0];
+  let action: unknown = null;
   try {
+    const resolved = await teacherCourse(request, id);
+    if ("error" in resolved) {
+      return NextResponse.json(
+        { error: resolved.error },
+        { status: resolved.status },
+      );
+    }
+
+    const body = (await request.json().catch(() => ({}))) as {
+      action?: unknown;
+    };
+    action = body.action;
+    if (action !== "start" && action !== "stop" && action !== "auto-start-whiteboard-ready") {
+      return NextResponse.json(
+        { error: 'action must be "start", "stop", or "auto-start-whiteboard-ready"' },
+        { status: 400 },
+      );
+    }
+
+    const { course, lesson } = resolved;
+    const latest = lesson.recordings[0];
     if (action === "start") {
       const runtimeState = await prisma.classroomRuntime.findUnique({
         where: { sessionId: lesson.id },
@@ -223,12 +240,16 @@ export async function POST(
       action,
       error,
     });
+    if (isTransientDatabaseError(error)) {
+      return databaseUnavailableResponse();
+    }
     if (error instanceof ClassroomProviderConfigurationError) {
       return NextResponse.json(
         {
           error: "云端录制配置不完整",
           code: "recording_not_configured",
           missingVariables: error.missingVariables,
+          configurationIssue: error.message,
         },
         { status: 503 },
       );

@@ -430,7 +430,7 @@
   max-width: 620px;
   margin: 8px 0 0;
   color: hsl(var(--muted-foreground));
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.65;
 }
 
@@ -457,7 +457,7 @@
   padding: 0 12px;
   color: hsl(var(--muted-foreground));
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 660;
   cursor: pointer;
 }
@@ -500,7 +500,7 @@
   background: hsl(var(--muted));
   padding: 0 5px;
   font-family: "SFMono-Regular", "SF Mono", ui-monospace, monospace;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .libraryToolbar {
@@ -536,7 +536,7 @@
   color: hsl(var(--foreground));
   background: hsl(var(--background) / 0.78);
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .filters {
@@ -555,7 +555,7 @@
   color: hsl(var(--muted-foreground));
   background: hsl(var(--background) / 0.6);
   font: inherit;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 650;
   cursor: pointer;
 }
@@ -606,7 +606,7 @@
   color: #7065da;
   background: rgb(123 111 242 / 0.09);
   font-family: "SFMono-Regular", "SF Mono", ui-monospace, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 680;
   text-align: center;
 }
@@ -626,7 +626,7 @@
 .dateBlock[data-kind="series"] small {
   color: hsl(var(--muted-foreground));
   font-family: inherit;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 650;
 }
 
@@ -645,14 +645,14 @@
 
 .courseIdentity strong {
   color: hsl(var(--foreground));
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 710;
 }
 
 .courseIdentity small {
   margin-top: 5px;
   color: hsl(var(--muted-foreground));
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.45;
 }
 
@@ -672,7 +672,7 @@
   align-items: center;
   gap: 5px;
   color: hsl(var(--muted-foreground));
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 620;
 }
 
@@ -700,7 +700,7 @@
   border-radius: 999px;
   color: hsl(var(--muted-foreground));
   background: hsl(var(--background) / 0.62);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 680;
 }
 
@@ -742,7 +742,7 @@
   color: hsl(var(--foreground));
   background: hsl(var(--background) / 0.62);
   font: inherit;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 660;
   cursor: pointer;
   white-space: nowrap;
@@ -1015,6 +1015,37 @@
     gap: 8px;
   }
 
+}
+
+@media (max-width: 1024px) {
+  .heroMeta {
+    font-size: 13px;
+  }
+
+  .heroAction,
+  .heroSecondary {
+    min-height: 44px;
+    font-size: 13px;
+  }
+
+  .courseIdentity strong {
+    font-size: 16px;
+  }
+
+  .courseIdentity small,
+  .courseTeacher,
+  .courseType,
+  .courseStructure,
+  .dateBlock,
+  .status {
+    font-size: 12px;
+  }
+
+  .rowActions button,
+  .filters button {
+    min-height: 44px;
+    font-size: 13px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

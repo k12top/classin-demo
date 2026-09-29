@@ -6,6 +6,7 @@ import {
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const preferredRegion = "sin1";
 
 type Context = { params: Promise<{ sessionId: string }> };
 async function legacyContext(context: Context) {

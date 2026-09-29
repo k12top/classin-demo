@@ -49,4 +49,8 @@ test("recognizes managed PostgreSQL connection eviction errors", async () => {
     isTransientDatabaseError(new Error("too many clients already")),
     true,
   );
+  assert.equal(
+    isTransientDatabaseError(new Error("timeout exceeded when trying to connect")),
+    true,
+  );
 });

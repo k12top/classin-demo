@@ -141,6 +141,8 @@ export const th = {
       captionsWaitingHint: "คำพูดและคำแปลจะแสดงเมื่อผู้สอนเปิดล่ามสด",
       speaker: "ผู้พูด",
       classTimer: "ตัวจับเวลา",
+      hideTimer: "ซ่อนตัวจับเวลา",
+      showTimer: "แสดงตัวจับเวลา",
       minutes: "{count} นาที",
       resetTimer: "รีเซ็ตเวลา",
       fullscreen: "เต็มหน้าจอ",

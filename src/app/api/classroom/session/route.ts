@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
         });
     if (access && !access.ok) {
       return NextResponse.json(
-        { error: access.reason, code: access.code },
+        { error: access.reason, code: access.code, courseId: access.courseId },
         { status: access.httpStatus },
       );
     }
@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
         endTime: true,
         classroomProvider: true,
         recordingProvider: true,
-        course: { select: { name: true } },
+        course: { select: { name: true, autoStudentOnStage: true } },
         recordings: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -151,7 +151,10 @@ export async function POST(request: NextRequest) {
       );
     }
     const role: ClassroomRole = recorder ? "student" : access!.role;
-    const modePolicy = classroomModePolicy(lesson.roomType);
+    const modePolicy = classroomModePolicy(
+      lesson.roomType,
+      lesson.course.autoStudentOnStage,
+    );
     const channelName = lesson.roomUuid;
     const userId = recorder
       ? `recorder-${courseId.replace(/-/g, "").slice(0, 40)}`
@@ -213,12 +216,12 @@ export async function POST(request: NextRequest) {
         runtimeSnapshot.status !== "ended" &&
         (role === "teacher" ||
           (role === "assistant" && modePolicy.mode !== "largeClass") ||
-          (role === "student" && modePolicy.defaultStudentOnStage)),
+          (role === "student" && member?.onStage && member.stageState === "accepted")),
       allowScreenShare:
         !recorder &&
         (role === "teacher" ||
           (role === "assistant" && modePolicy.mode !== "largeClass") ||
-          (role === "student" && modePolicy.studentCanShareWhenOnStage)),
+          (role === "student" && modePolicy.studentCanShareWhenOnStage && member?.onStage)),
     });
 
     if (!recorder && role === "student") {
@@ -371,7 +374,16 @@ export async function POST(request: NextRequest) {
               canRunEngagement: false,
               canParticipateInEngagement: false,
             }
-          : classroomCapabilities(role, modePolicy),
+          : {
+              ...classroomCapabilities(role, modePolicy),
+              ...(role === "student" && {
+                canShareScreen: Boolean(
+                  modePolicy.studentCanShareWhenOnStage &&
+                  member?.onStage &&
+                  member.stageState === "accepted",
+                ),
+              }),
+            },
         signaling: recorder
           ? null
           : issueAgoraSignalingCredential(sessionId, session!.userId),

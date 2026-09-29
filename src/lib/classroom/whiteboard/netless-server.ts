@@ -6,10 +6,14 @@ import type {
   WhiteboardJoinInput,
 } from "@/lib/classroom/whiteboard/types";
 import { ensureClassroomRuntime } from "@/lib/classroom/server/runtime";
+import {
+  isTransientWhiteboardError,
+  retryWhiteboardRequest,
+} from "@/lib/classroom/whiteboard/retry";
 import { prisma } from "@/lib/db";
 
 const API_BASE = "https://api.netless.link/v5";
-const REQUEST_TIMEOUT_MS = 20_000;
+const REQUEST_TIMEOUT_MS = 10_000;
 const TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
 const VALID_REGIONS = new Set(["cn-hz", "us-sv", "sg", "in-mum", "eu"]);
 const roomCreationBySession = new Map<string, Promise<string>>();
@@ -19,6 +23,12 @@ type NetlessConfig = {
   sdkToken: string;
   region: "cn-hz" | "us-sv" | "sg" | "in-mum" | "eu";
 };
+
+class NetlessRequestError extends Error {
+  constructor(message: string, readonly retryable: boolean) {
+    super(message);
+  }
+}
 
 function configuration(): NetlessConfig | null {
   const appIdentifier = process.env.WHITEBOARD_APP_IDENTIFIER?.trim();
@@ -39,35 +49,46 @@ async function requestNetless(
   init: RequestInit,
   config: NetlessConfig,
 ) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      region: config.region,
-      token: config.sdkToken,
-      ...init.headers,
+  return retryWhiteboardRequest(
+    async () => {
+      const response = await fetch(`${API_BASE}${path}`, {
+        ...init,
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          region: config.region,
+          token: config.sdkToken,
+          ...init.headers,
+        },
+        cache: "no-store",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      const text = await response.text();
+      let payload: unknown = null;
+      if (text) {
+        try {
+          payload = JSON.parse(text);
+        } catch {
+          payload = text;
+        }
+      }
+      if (!response.ok) {
+        const detail =
+          payload && typeof payload === "object" && "message" in payload
+            ? String((payload as { message?: unknown }).message)
+            : `HTTP ${response.status}`;
+        throw new NetlessRequestError(
+          `白板服务请求失败：${detail}`,
+          response.status === 429 || response.status >= 500,
+        );
+      }
+      return payload;
     },
-    cache: "no-store",
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-  const text = await response.text();
-  let payload: unknown = null;
-  if (text) {
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      payload = text;
-    }
-  }
-  if (!response.ok) {
-    const detail =
-      payload && typeof payload === "object" && "message" in payload
-        ? String((payload as { message?: unknown }).message)
-        : `HTTP ${response.status}`;
-    throw new Error(`白板服务请求失败：${detail}`);
-  }
-  return payload;
+    (error) =>
+      error instanceof NetlessRequestError
+        ? error.retryable
+        : isTransientWhiteboardError(error),
+  );
 }
 
 async function ensureRoom(

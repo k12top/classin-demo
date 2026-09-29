@@ -69,6 +69,24 @@ type SpacesResponse = {
   enabled?: boolean;
   spaces?: ClassroomSpaceSnapshot[];
   error?: string;
+  code?: string;
+};
+
+type SessionRosterResponse = {
+  roster?: {
+    teachers: Array<{
+      userId: string;
+      displayName: string;
+      avatar: string;
+      role: "teacher" | "assistant";
+    }>;
+    students: Array<{
+      userId: string;
+      displayName: string;
+      avatar: string;
+    }>;
+  };
+  error?: string;
 };
 
 function initials(name: string): string {
@@ -114,6 +132,9 @@ export function LargeClassBreakoutManager({
   const [spaces, setSpaces] = useState<ClassroomSpaceSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadErrorCode, setLoadErrorCode] = useState("");
+  const [sessionRoster, setSessionRoster] = useState<SessionRosterResponse["roster"]>();
   const [busyKey, setBusyKey] = useState("");
   const [roomCount, setRoomCount] = useState(4);
   const [capacity, setCapacity] = useState(20);
@@ -122,6 +143,24 @@ export function LargeClassBreakoutManager({
   const classroomScopeId = sessionId || courseId;
 
   const roster = useMemo(() => {
+    if (sessionRoster) {
+      return [
+        ...sessionRoster.teachers
+          .filter((teacher) => teacher.role === "assistant")
+          .map((teacher) => ({
+            userId: teacher.userId,
+            displayName: teacher.displayName,
+            avatar: teacher.avatar,
+            role: "assistant" as const,
+          })),
+        ...sessionRoster.students.map((student) => ({
+          userId: student.userId,
+          displayName: student.displayName,
+          avatar: student.avatar,
+          role: "student" as const,
+        })),
+      ];
+    }
     const result = new Map<string, RosterMember>();
     for (const teacher of teachers) {
       if (teacher.teacherId === leadTeacherId) continue;
@@ -142,7 +181,7 @@ export function LargeClassBreakoutManager({
     }
     collectGroupMembers(groupLinks.map((link) => link.group), result);
     return [...result.values()];
-  }, [groupLinks, leadTeacherId, students, teachers]);
+  }, [groupLinks, leadTeacherId, sessionRoster, students, teachers]);
 
   const assistants = useMemo(
     () => roster.filter((member) => member.role === "assistant"),
@@ -156,6 +195,8 @@ export function LargeClassBreakoutManager({
   const loadSpaces = useCallback(async () => {
     setLoading(true);
     setError("");
+    setLoadFailed(false);
+    setLoadErrorCode("");
     try {
       const response = await fetch(`/api/sessions/${classroomScopeId}/classroom/spaces`, {
         cache: "no-store",
@@ -163,10 +204,25 @@ export function LargeClassBreakoutManager({
       });
       const data = (await response.json().catch(() => null)) as SpacesResponse | null;
       if (!response.ok) {
+        setLoadFailed(true);
+        setLoadErrorCode(data?.code || "");
         throw new Error(data?.error || t("courseDetail.breakouts.loadFailed"));
+      }
+      if (sessionId) {
+        const rosterResponse = await fetch(
+          `/api/courses/${encodeURIComponent(courseId)}/sessions/${encodeURIComponent(sessionId)}/roster`,
+          { cache: "no-store", credentials: "same-origin" },
+        );
+        const rosterData = (await rosterResponse.json().catch(() => null)) as SessionRosterResponse | null;
+        if (!rosterResponse.ok || !rosterData?.roster) {
+          setLoadFailed(true);
+          throw new Error(rosterData?.error || t("courseDetail.breakouts.loadFailed"));
+        }
+        setSessionRoster(rosterData.roster);
       }
       setSpaces(data?.spaces ?? []);
     } catch (cause) {
+      setLoadFailed(true);
       setError(
         cause instanceof Error
           ? cause.message
@@ -175,7 +231,7 @@ export function LargeClassBreakoutManager({
     } finally {
       setLoading(false);
     }
-  }, [classroomScopeId, t]);
+  }, [classroomScopeId, courseId, sessionId, t]);
 
   useEffect(() => {
     queueMicrotask(() => void loadSpaces());
@@ -250,6 +306,8 @@ export function LargeClassBreakoutManager({
     0,
   );
   const openRoomCount = spaces.filter((space) => space.status === "open").length;
+  const terminalLoadError =
+    loadErrorCode === "course_finished" || loadErrorCode === "course_cancelled";
 
   if (loading) {
     return (
@@ -268,26 +326,32 @@ export function LargeClassBreakoutManager({
           <h2 id="breakout-manager-title">{t("courseDetail.breakouts.title")}</h2>
           <p>{t("courseDetail.breakouts.description")}</p>
         </div>
-        <button
-          type="button"
-          className={styles.iconButton}
-          onClick={() => void loadSpaces()}
-          aria-label={t("courseDetail.breakouts.refresh")}
-          title={t("courseDetail.breakouts.refresh")}
-        >
-          <RefreshCw className="h-4 w-4" />
-        </button>
+        {!terminalLoadError ? (
+          <button
+            type="button"
+            className={styles.iconButton}
+            onClick={() => void loadSpaces()}
+            aria-label={t("courseDetail.breakouts.refresh")}
+            title={t("courseDetail.breakouts.refresh")}
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        ) : null}
       </header>
 
       {error ? (
         <div className={styles.error} role="alert">
           <span>{error}</span>
-          <button type="button" onClick={() => void loadSpaces()}>
-            {t("common.retry")}
-          </button>
+          {!terminalLoadError ? (
+            <button type="button" onClick={() => void loadSpaces()}>
+              {t("courseDetail.breakouts.refresh")}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
+      {loadFailed ? null : (
+        <>
       {!canManage ? (
         <div className={styles.readOnlyNotice}>
           <ShieldCheck className="h-4 w-4" />
@@ -561,6 +625,8 @@ export function LargeClassBreakoutManager({
               </div>
             </footer>
           ) : null}
+        </>
+      )}
         </>
       )}
     </section>

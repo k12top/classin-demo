@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const preferredRegion = "sin1";
 
 function publicMessage(message: {
   id: string;

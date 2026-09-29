@@ -64,6 +64,7 @@ export type RecordingQueryResult = {
 export interface RecordingProvider {
   readonly name: ClassroomProviderName;
   isConfigured(): boolean;
+  validateConfiguration(): void;
   start(input: RecordingStartInput): Promise<RecordingStartResult>;
   resume(input: RecordingStopInput): Promise<void>;
   stop(input: RecordingStopInput): Promise<RecordingStopResult>;

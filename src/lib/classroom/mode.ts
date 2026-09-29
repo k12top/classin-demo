@@ -103,8 +103,18 @@ export function classroomModeFromRoomType(roomType: number): ClassroomMode {
   return "smallClass";
 }
 
-export function classroomModePolicy(roomType: number): ClassroomModePolicy {
-  return POLICIES[classroomModeFromRoomType(roomType)];
+export function defaultAutoStudentOnStage(roomType: number): boolean {
+  return roomType === 0 || roomType === 4;
+}
+
+export function classroomModePolicy(
+  roomType: number,
+  autoStudentOnStage?: boolean | null,
+): ClassroomModePolicy {
+  const policy = POLICIES[classroomModeFromRoomType(roomType)];
+  return typeof autoStudentOnStage === "boolean"
+    ? { ...policy, defaultStudentOnStage: autoStudentOnStage }
+    : policy;
 }
 
 export function isInteractiveClassroomMode(mode: ClassroomMode): boolean {

@@ -738,6 +738,14 @@ export function CourseSessionManager({
       hour: "2-digit",
       minute: "2-digit",
     }).format(new Date(value));
+  const breakoutLeadTeacherId =
+    sessions.find((session) => session.id === breakoutSessionId)?.leadTeacherId ||
+    leadTeacherId;
+  const canManageBreakout =
+    canManage &&
+    currentUserIds.some((candidate) =>
+      casdoorUserIdsMatch(breakoutLeadTeacherId, candidate),
+    );
 
   return (
     <section className={styles.manager}>
@@ -809,7 +817,7 @@ export function CourseSessionManager({
                   <div className={styles.metadata}>
                     <span className={styles.avatar}>{initials(session.leadTeacherName)}</span>
                     <span>{session.leadTeacherName}</span>
-                    <span><Users className="h-3.5 w-3.5" />{session.studentMode === "inherit" ? t("courseSessions.inheritsStudents") : t("courseSessions.customStudents")}</span>
+                    <span title={t(session.studentMode === "inherit" ? "courseSessions.studentRosterCourseHint" : "courseSessions.studentRosterCustomHint")}><Users className="h-3.5 w-3.5" />{session.studentMode === "inherit" ? t("courseSessions.inheritsStudents") : t("courseSessions.customStudents")}</span>
                     {session._count?.recordings ? <span>{session._count.recordings} {t("courseSessions.recordings")}</span> : null}
                     {canManage && session.submissionSummary?.leaveCount ? (
                       <button type="button" className={styles.signalButton} onClick={() => void openSubmission(session)}>
@@ -851,7 +859,7 @@ export function CourseSessionManager({
                       <Pencil className="h-4 w-4" />
                     </button>
                   ) : null}
-                  {roomType === 2 && canManage ? (
+                  {session.roomType === 2 && canManage && canEnter ? (
                     <button type="button" onClick={() => setBreakoutSessionId(breakoutSessionId === session.id ? null : session.id)} title={t("courseSessions.breakouts")}>
                       <Network className="h-4 w-4" />
                     </button>
@@ -956,7 +964,7 @@ export function CourseSessionManager({
           <LargeClassBreakoutManager
             courseId={courseId}
             sessionId={breakoutSessionId}
-            canManage={canManage}
+            canManage={canManageBreakout}
             leadTeacherId={leadTeacherId}
             teachers={teachers}
             students={students}
@@ -1061,6 +1069,9 @@ export function CourseSessionManager({
             </div>
             <div>
               <header><strong>{t("courseSessions.students")}</strong><select value={studentMode} onChange={(event) => setStudentMode(event.target.value as "inherit" | "custom")}><option value="inherit">{t("courseSessions.inherit")}</option><option value="custom">{t("courseSessions.custom")}</option></select></header>
+              <p className={styles.rosterHint}>
+                {t(studentMode === "inherit" ? "courseSessions.studentRosterCourseHint" : "courseSessions.studentRosterCustomHint")}
+              </p>
               <div className={styles.people}>
                 {availableStudents.length ? availableStudents.map((student) => (
                   <label key={student.studentId}>

@@ -65,6 +65,7 @@ export type CourseSessionAccessResult =
       httpStatus: number;
       code: string;
       reason: string;
+      courseId?: string;
     };
 
 const ACCESS_CACHE_TTL_MS = 15_000;
@@ -156,6 +157,7 @@ async function resolveCourseSessionAccessUncached(
       httpStatus: 403,
       code: lesson.status === CourseStatus.CANCELLED ? "course_cancelled" : "course_finished",
       reason: lesson.status === CourseStatus.CANCELLED ? "课次已取消" : "课次已结束",
+      courseId: lesson.courseId,
     };
   }
   const earlyMinutes = getEarlyClassroomEntryMinutes();
@@ -165,6 +167,7 @@ async function resolveCourseSessionAccessUncached(
       httpStatus: 403,
       code: "course_not_started",
       reason: courseNotStartedReason(earlyMinutes),
+      courseId: lesson.courseId,
     };
   }
   const roster = await getEffectiveSessionRoster(lesson.id);

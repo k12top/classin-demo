@@ -440,19 +440,39 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     if (!this.cameraTrack) {
       const high =
         classroomVideoPresets[this.snapshot.local.videoQuality].camera.high;
-      const cameraTrack = await AgoraRTC.createCameraVideoTrack({
+      // Phone and tablet cameras can reject desktop encoder dimensions even
+      // after permission is granted. Let the SDK choose a supported size.
+      const touchCamera = window.matchMedia("(pointer: coarse)").matches;
+      const cameraOptions = {
         ...(this.preferredCameraId && {
           cameraId: this.preferredCameraId,
         }),
-        encoderConfig: {
-          width: high.width,
-          height: high.height,
-          frameRate: high.frameRate,
-          bitrateMin: Math.round(high.bitrateKbps * 0.65),
-          bitrateMax: high.bitrateKbps,
-        },
-        optimizationMode: "balanced",
-      });
+        ...(!touchCamera && {
+          encoderConfig: {
+            width: high.width,
+            height: high.height,
+            frameRate: high.frameRate,
+            bitrateMin: Math.round(high.bitrateKbps * 0.65),
+            bitrateMax: high.bitrateKbps,
+          },
+        }),
+        optimizationMode: "balanced" as const,
+      };
+      let cameraTrack: ICameraVideoTrack;
+      try {
+        cameraTrack = await AgoraRTC.createCameraVideoTrack(cameraOptions);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (!touchCamera || !/NotFound|Overconstrained|DEVICE_NOT_FOUND/i.test(message)) {
+          throw error;
+        }
+        // A remembered device id can become invalid after switching cameras
+        // or granting permission. Retry once with the browser's default lens.
+        this.preferredCameraId = undefined;
+        cameraTrack = await AgoraRTC.createCameraVideoTrack({
+          optimizationMode: "balanced",
+        });
+      }
       this.cameraTrack = cameraTrack;
       try {
         if (this.virtualBackgroundEffect.type !== "none") {

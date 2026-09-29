@@ -173,9 +173,7 @@ export async function requestRecordingStart(
   if (latest && ACTIVE_RECORDING_STATUSES.includes(latest.status)) return latest;
 
   const provider = getRecordingProvider(lesson.recordingProvider);
-  if (!provider.isConfigured()) {
-    throw new Error("Cloud recording is not configured");
-  }
+  provider.validateConfiguration();
 
   const previousRetries = shouldRecoverRecording(latest, MAX_PROVIDER_RETRIES)
     ? latest.retryCount

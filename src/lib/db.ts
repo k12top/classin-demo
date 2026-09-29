@@ -95,6 +95,7 @@ const TRANSIENT_DATABASE_MESSAGES = [
   "connection refused",
   "connection timeout",
   "connection timed out",
+  "timeout exceeded when trying to connect",
   "connection is closed",
   "can't reach database",
   "too many clients",

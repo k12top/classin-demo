@@ -1301,16 +1301,78 @@
   top: 18px;
   right: 18px;
   display: grid;
-  grid-template-columns: auto minmax(88px, 132px) auto;
+  grid-template-columns: 28px auto minmax(88px, 132px) auto;
   align-items: center;
   gap: 10px;
   min-width: 248px;
+  max-width: calc(100% - 36px);
   padding: 8px 9px 8px 11px;
   border: 1px solid rgb(123 111 242 / 0.32);
   border-radius: 12px;
   background: rgb(14 16 21 / 0.86);
   box-shadow: 0 14px 34px rgb(0 0 0 / 0.28);
   backdrop-filter: blur(18px) saturate(130%);
+}
+
+.classroom-v3-timer-overlay.is-fixed {
+  grid-template-columns: auto minmax(88px, 132px) auto;
+}
+
+.is-classin-layout .classroom-v3-timer-overlay {
+  right: 68px;
+  max-width: calc(100% - 86px);
+}
+
+.classroom-v3-timer-dismiss {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 8px;
+  color: #d8dce8;
+  background: rgb(255 255 255 / 0.07);
+  cursor: pointer;
+}
+
+.classroom-v3-timer-dismiss:hover {
+  color: #fff;
+  background: rgb(255 255 255 / 0.16);
+}
+
+.classroom-v3-timer-dismiss svg {
+  width: 15px;
+  height: 15px;
+}
+
+.classroom-v3-timer-restore {
+  position: absolute;
+  z-index: 10;
+  top: 18px;
+  right: 68px;
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid rgb(123 111 242 / 0.36);
+  border-radius: 9px;
+  color: #eeeaff;
+  background: rgb(14 16 21 / 0.86);
+  font-family: "SFMono-Regular", "SF Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.classroom-v3-timer-restore:hover {
+  background: rgb(44 39 77 / 0.94);
+}
+
+.classroom-v3-timer-restore svg {
+  width: 14px;
+  height: 14px;
+  color: #afa7ff;
 }
 
 .classroom-v3-timer-copy {
@@ -1398,6 +1460,31 @@
 
 .classroom-v3-timer-overlay.is-urgent .classroom-v3-timer-progress i {
   background: #ff5e69;
+}
+
+@media (max-width: 760px) {
+  .classroom-v3-timer-overlay,
+  .is-classin-layout .classroom-v3-timer-overlay {
+    right: 9px;
+    left: 9px;
+    grid-template-columns: 28px minmax(0, 1fr);
+    max-width: none;
+    min-width: 0;
+  }
+
+  .classroom-v3-timer-overlay.is-fixed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .classroom-v3-timer-progress,
+  .classroom-v3-timer-actions {
+    grid-column: 1 / -1;
+  }
+
+  .classroom-v3-timer-restore {
+    top: 9px;
+    right: 9px;
+  }
 }
 
 .classroom-v3-chat-scopes {
@@ -5143,6 +5230,24 @@ button.classroom-v3-seat-preview:focus-visible::after {
   margin-top: 5px;
   color: #8d9aa6;
   font-size: 9px;
+}
+
+.classroom-v3-confirm-error {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 15px 0 0;
+  color: #ffc5ca;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.classroom-v3-confirm-error svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin-top: 1px;
 }
 
 .classroom-v3-modal-backdrop .classroom-v3-confirm-dialog footer {

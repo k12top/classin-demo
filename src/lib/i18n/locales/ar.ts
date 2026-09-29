@@ -135,6 +135,8 @@ export const ar: typeof en = {
       captionsWaitingHint: "سيظهر النص والترجمة بعد تشغيل المعلم للترجمة الفورية.",
       speaker: "المتحدث",
       classTimer: "مؤقت الفصل",
+      hideTimer: "إخفاء المؤقت",
+      showTimer: "إظهار المؤقت",
       minutes: "{count} دقيقة",
       resetTimer: "إعادة ضبط المؤقت",
       fullscreen: "ملء الشاشة",

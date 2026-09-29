@@ -41,7 +41,11 @@ export async function POST(request: NextRequest) {
   const [lesson, member] = await Promise.all([
     prisma.courseSession.findUnique({
       where: { id: sessionId },
-      select: { classroomProvider: true, roomType: true },
+      select: {
+        classroomProvider: true,
+        roomType: true,
+        course: { select: { autoStudentOnStage: true } },
+      },
     }),
     prisma.classroomMemberState.findUnique({
       where: {
@@ -62,10 +66,11 @@ export async function POST(request: NextRequest) {
     resolved.access.role === "student" &&
     member.onStage &&
     member.stageState === "accepted";
-  const mode = classroomModePolicy(lesson.roomType);
-  const defaultStudentPublisher =
-    resolved.access.role === "student" && mode.defaultStudentOnStage;
-  if (!teachingRole && !acceptedStudent && !defaultStudentPublisher) {
+  const mode = classroomModePolicy(
+    lesson.roomType,
+    lesson.course.autoStudentOnStage,
+  );
+  if (!teachingRole && !acceptedStudent) {
     return NextResponse.json(
       { error: "接受老师的上台邀请后才能开启音视频" },
       { status: 403 },
@@ -86,8 +91,7 @@ export async function POST(request: NextRequest) {
     // remotely.
     allowScreenShare:
       teachingRole ||
-      ((acceptedStudent || defaultStudentPublisher) &&
-        mode.studentCanShareWhenOnStage),
+      (acceptedStudent && mode.studentCanShareWhenOnStage),
   });
   return NextResponse.json({ credential });
 }

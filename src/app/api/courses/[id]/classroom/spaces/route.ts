@@ -12,6 +12,13 @@ import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-ac
 import { classroomModePolicy } from "@/lib/classroom/mode";
 import { prisma } from "@/lib/db";
 import { databaseUnavailableResponse } from "@/lib/database-response";
+import { getSessionFromRequest } from "@/lib/session";
+import {
+  getEffectiveSessionRoster,
+  resolveCourseSessionReference,
+  rosterContainsUser,
+} from "@/lib/course-session-roster";
+import { CourseStatus } from "@/lib/course-status";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -26,10 +33,39 @@ async function resolveRequest(
     courseId,
     shareAccess,
   );
-  if (!resolved.ok) return resolved;
+  if (!resolved.ok) {
+    // Teachers configure breakout rooms on the course page before classroom
+    // entry opens. Keep the ordinary classroom access check for everyone else.
+    if (resolved.code !== "course_not_started") return resolved;
+    const session = await getSessionFromRequest(request);
+    const lesson = await resolveCourseSessionReference(courseId);
+    if (
+      !session ||
+      session.role !== "teacher" ||
+      !lesson ||
+      lesson.status !== "scheduled" ||
+      lesson.endedAt ||
+      lesson.endTime <= new Date()
+    ) return resolved;
+    const roster = await getEffectiveSessionRoster(lesson.id);
+    const member = roster && rosterContainsUser(roster, [session.userId, session.name]);
+    if (member?.kind !== "teacher" || member.member.role !== "teacher") {
+      return resolved;
+    }
+    return {
+      ok: true as const,
+      session,
+      access: {
+        courseId: lesson.courseId,
+        sessionId: lesson.id,
+        role: "teacher" as const,
+      },
+      modePolicy: classroomModePolicy(lesson.roomType),
+    };
+  }
   const lesson = await prisma.courseSession.findUnique({
     where: { id: resolved.access.sessionId },
-    select: { roomType: true },
+    select: { roomType: true, status: true, endedAt: true },
   });
   if (!lesson) {
     return {
@@ -37,6 +73,22 @@ async function resolveRequest(
       status: 404,
       error: "课程不存在",
       code: "course_not_found",
+    };
+  }
+  if (lesson.status === CourseStatus.CANCELLED) {
+    return {
+      ok: false as const,
+      status: 403,
+      error: "课次已取消",
+      code: "course_cancelled",
+    };
+  }
+  if (lesson.endedAt || lesson.status === CourseStatus.FINISHED) {
+    return {
+      ok: false as const,
+      status: 403,
+      error: "课次已结束",
+      code: "course_finished",
     };
   }
   return { ...resolved, modePolicy: classroomModePolicy(lesson.roomType) };

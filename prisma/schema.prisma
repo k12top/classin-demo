@@ -50,6 +50,7 @@ model Course {
   name              String
   description       String    @default("")
   roomType          Int       @default(0) // 0=一对一, 4=小班, 2=大班, 10=公开课
+  autoStudentOnStage Boolean? // null keeps the pre-setting behavior for existing courses
   passcode          String? // 6-digit passcode for public course
   ownerId           String // Course owner Casdoor user ID
   ownerName         String

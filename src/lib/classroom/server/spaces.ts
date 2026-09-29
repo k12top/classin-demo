@@ -312,8 +312,18 @@ async function largeClassRoster(sessionId: string): Promise<RosterMember[]> {
   return [
     ...roster.teachers
       .filter((teacher) => teacher.role === "assistant")
-      .map((teacher) => ({ ...teacher, role: "assistant" as const })),
-    ...roster.students.map((student) => ({ ...student, role: "student" as const })),
+      .map((teacher) => ({
+        userId: teacher.userId,
+        displayName: teacher.displayName,
+        avatar: teacher.avatar,
+        role: "assistant" as const,
+      })),
+    ...roster.students.map((student) => ({
+      userId: student.userId,
+      displayName: student.displayName,
+      avatar: student.avatar,
+      role: "student" as const,
+    })),
   ];
 }
 

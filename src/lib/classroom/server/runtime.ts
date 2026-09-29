@@ -206,19 +206,24 @@ export async function touchClassroomMember(
       ? Promise.resolve(null)
       : prisma.courseSession.findUnique({
           where: { id: sessionId },
-          select: { roomType: true },
+          select: {
+            roomType: true,
+            course: { select: { autoStudentOnStage: true } },
+          },
         }),
   ]);
   const mode =
-    suppliedModePolicy ?? classroomModePolicy(course?.roomType ?? 4);
+    suppliedModePolicy ?? classroomModePolicy(
+      course?.roomType ?? 4,
+      course?.course.autoStudentOnStage,
+    );
   const teachingRole = role === "teacher" || role === "assistant";
   const assistantStartsOnStage =
     role === "assistant" && mode.mode !== "largeClass";
   const studentStartsOnStage =
     role === "student" && mode.defaultStudentOnStage;
-  const startsOnStage =
-    role === "teacher" || assistantStartsOnStage || studentStartsOnStage;
-  return prisma.classroomMemberState.upsert({
+  const teachingStartsOnStage = role === "teacher" || assistantStartsOnStage;
+  const upsertInput = (startsOnStage: boolean) => ({
     where: { sessionId_userId: { sessionId, userId: session.userId } },
     create: {
       runtimeId: runtime.id,
@@ -246,7 +251,7 @@ export async function touchClassroomMember(
       role,
       presence: "online",
       lastSeenAt: new Date(),
-      ...(startsOnStage
+      ...(teachingStartsOnStage
         ? {
             onStage: true,
             stageState: "accepted",
@@ -259,6 +264,36 @@ export async function touchClassroomMember(
           }
         : {}),
     },
+  });
+  if (!studentStartsOnStage) {
+    return prisma.classroomMemberState.upsert(
+      upsertInput(teachingStartsOnStage),
+    );
+  }
+  const alreadyJoined = await prisma.classroomMemberState.findUnique({
+    where: { sessionId_userId: { sessionId, userId: session.userId } },
+    select: { id: true },
+  });
+  if (alreadyJoined) {
+    return prisma.classroomMemberState.upsert(upsertInput(false));
+  }
+  // Reserve an automatic seat only on the student's first entry. The lock
+  // keeps simultaneous joins within the mode's stage capacity, and later
+  // refreshes preserve a teacher's explicit removal from the stage.
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${sessionId}))::text`;
+    const existing = await tx.classroomMemberState.findUnique({
+      where: { sessionId_userId: { sessionId, userId: session.userId } },
+      select: { id: true },
+    });
+    const occupiedSeats = existing
+      ? 0
+      : await tx.classroomMemberState.count({
+          where: { sessionId, role: "student", onStage: true },
+        });
+    return tx.classroomMemberState.upsert(
+      upsertInput(Boolean(existing) || occupiedSeats < mode.maxStageStudents),
+    );
   });
 }
 
@@ -549,10 +584,16 @@ export async function applyClassroomAction(input: {
   const sessionId = input.sessionId || courseId;
   const courseMode = await prisma.courseSession.findFirst({
     where: { id: sessionId, courseId },
-    select: { roomType: true },
+    select: {
+      roomType: true,
+      course: { select: { autoStudentOnStage: true } },
+    },
   });
   if (!courseMode) throw new ClassroomActionError("课次不存在", 404);
-  const mode = classroomModePolicy(courseMode.roomType);
+  const mode = classroomModePolicy(
+    courseMode.roomType,
+    courseMode.course.autoStudentOnStage,
+  );
   await touchClassroomMember(courseId, session, role, mode, sessionId);
 
   if (action.type === "heartbeat") {
@@ -777,6 +818,9 @@ export async function applyClassroomAction(input: {
         break;
       case "requestScreenShare": {
         requireTeachingRole(role);
+        if (!mode.studentCanShareWhenOnStage) {
+          throw new ClassroomActionError("当前课堂模式不支持学生屏幕共享", 409);
+        }
         const target = await tx.classroomMemberState.findUnique({
           where: {
             sessionId_userId: {

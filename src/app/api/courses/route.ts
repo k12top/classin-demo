@@ -17,6 +17,7 @@ import {
   userOwnsCourse,
 } from "@/lib/course-teacher";
 import { generateCourseRoomUuid } from "@/lib/course-room";
+import { defaultAutoStudentOnStage } from "@/lib/classroom/mode";
 import {
   applyCourseListSort,
   courseListOrderBy,
@@ -434,6 +435,7 @@ export async function POST(request: NextRequest) {
       name,
       description,
       roomType,
+      autoStudentOnStage,
       startTime,
       endTime,
       studentRemarks,
@@ -449,6 +451,12 @@ export async function POST(request: NextRequest) {
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Course name is required" }, { status: 400 });
+    }
+    if (autoStudentOnStage !== undefined && typeof autoStudentOnStage !== "boolean") {
+      return NextResponse.json(
+        { error: "autoStudentOnStage must be a boolean" },
+        { status: 400 },
+      );
     }
 
     const normalizedCourseKind =
@@ -572,6 +580,8 @@ export async function POST(request: NextRequest) {
         name: name.trim(),
         description: description?.trim() || "",
         roomType: roomType ?? 0,
+        autoStudentOnStage:
+          autoStudentOnStage ?? defaultAutoStudentOnStage(roomType ?? 0),
         passcode: finalPasscode,
         ownerId: session.userId,
         ownerName,

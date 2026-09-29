@@ -390,9 +390,13 @@ async function recordingFilesFromStorage(
 export class AgoraCloudRecordingProvider implements RecordingProvider {
   readonly name = "agora" as const;
 
+  validateConfiguration(): void {
+    recordingConfiguration();
+  }
+
   isConfigured(): boolean {
     try {
-      recordingConfiguration();
+      this.validateConfiguration();
       return true;
     } catch {
       return false;

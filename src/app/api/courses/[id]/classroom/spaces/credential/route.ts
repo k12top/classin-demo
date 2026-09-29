@@ -6,6 +6,7 @@ import {
 } from "@/lib/classroom/server/spaces";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
 import { prisma } from "@/lib/db";
+import { CourseStatus } from "@/lib/course-status";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -35,20 +36,30 @@ export async function POST(
     );
   }
   try {
-    const [space, course] = await Promise.all([
-      getClassroomSpaceCredentialAccess({
-        courseId: resolved.access.courseId,
-        sessionId: resolved.access.sessionId,
-        spaceId,
-        viewerId: resolved.session.userId,
-        role: resolved.access.role,
-      }),
-      prisma.courseSession.findUnique({
-        where: { id: resolved.access.sessionId },
-        select: { classroomProvider: true },
-      }),
-    ]);
+    const course = await prisma.courseSession.findUnique({
+      where: { id: resolved.access.sessionId },
+      select: { classroomProvider: true, status: true, endedAt: true },
+    });
     if (!course) throw new ClassroomSpaceError("课程不存在", 404);
+    if (course.status === CourseStatus.CANCELLED) {
+      return NextResponse.json(
+        { error: "课次已取消", code: "course_cancelled" },
+        { status: 403 },
+      );
+    }
+    if (course.endedAt || course.status === CourseStatus.FINISHED) {
+      return NextResponse.json(
+        { error: "课次已结束", code: "course_finished" },
+        { status: 403 },
+      );
+    }
+    const space = await getClassroomSpaceCredentialAccess({
+      courseId: resolved.access.courseId,
+      sessionId: resolved.access.sessionId,
+      spaceId,
+      viewerId: resolved.session.userId,
+      role: resolved.access.role,
+    });
     const credential = getClassroomServerProvider(
       course.classroomProvider,
     ).issueCredential({

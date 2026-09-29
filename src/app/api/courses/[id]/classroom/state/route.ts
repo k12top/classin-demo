@@ -16,6 +16,7 @@ import { ensureClassroomTranscriptionForLiveSession } from "@/lib/classroom/serv
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const preferredRegion = "sin1";
 
 export async function GET(
   request: NextRequest,
@@ -65,6 +66,7 @@ export async function GET(
     where: { id: sessionId },
     select: {
       roomType: true,
+      course: { select: { autoStudentOnStage: true } },
       recordingProvider: true,
       recordings: {
         orderBy: { createdAt: "desc" },
@@ -77,7 +79,10 @@ export async function GET(
       },
     },
   });
-  const mode = classroomModePolicy(lesson?.roomType ?? 4);
+  const mode = classroomModePolicy(
+    lesson?.roomType ?? 4,
+    lesson?.course.autoStudentOnStage,
+  );
   const [runtimeSnapshot, engagement, courseware, captions, spaces, questions] = await Promise.all([
     getClassroomRuntimeSnapshot(resolvedCourseId, sessionId, {
       ensure: false,

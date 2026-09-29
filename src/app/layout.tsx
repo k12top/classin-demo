@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import { AppDocumentGuard } from "@/components/app-document-guard";
 import { AuthProvider } from "@/lib/auth-context";
@@ -13,6 +13,7 @@ import { PortalFeedbackProvider } from "@/components/portal/portal-feedback";
 import { getSession } from "@/lib/session";
 import "./globals.css";
 import "./classroom-classin.css";
+import "./classroom-light.css";
 
 export const metadata: Metadata = {
   title: siteTitle,
@@ -20,6 +21,12 @@ export const metadata: Metadata = {
   icons: {
     icon: siteIcon,
   },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default async function RootLayout({

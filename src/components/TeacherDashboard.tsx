@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ArrowRight, Calendar as CalendarIcon, CheckCircle2, Users, LogOut, ChevronLeft, ChevronRight, PlayCircle, Search, Trash2, UserPlus, Info, Globe, Key, Loader2, User, BookOpen, RefreshCw, Sparkles, Layers3, Video } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom } from "@/lib/course-status";
+import { defaultAutoStudentOnStage } from "@/lib/classroom/mode";
 import { useTranslation } from "@/lib/i18n/context";
 import { prefetchCourseDetail } from "@/lib/course-detail-client-cache";
 import { playbackPagePath } from "@/lib/playback-url";
@@ -156,6 +157,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const [createStartTime, setCreateStartTime] = useState(defaultCourseStartValue);
   const [createDuration, setCreateDuration] = useState(60);
   const [createRoomType, setCreateRoomType] = useState(0);
+  const [createAutoStudentOnStage, setCreateAutoStudentOnStage] = useState(true);
   const [createRequirePasscode, setCreateRequirePasscode] = useState(true);
   const [createPasscode, setCreatePasscode] = useState("");
   const [createLoading, setCreateLoading] = useState(false);
@@ -516,6 +518,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       startTime: standaloneStart?.toISOString(),
       endTime: standaloneEnd?.toISOString(),
       roomType: createRoomType,
+      autoStudentOnStage: createAutoStudentOnStage,
       requirePasscode: createRoomType === 10 ? createRequirePasscode : undefined,
       passcode: createRoomType === 10 && createRequirePasscode ? createPasscode : undefined,
       primaryTeacher: selectedPrimaryTeacher,
@@ -553,7 +556,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       }
       const { course } = await res.json();
       createRequestRef.current = null;
-      setCreateName(""); setCreateDesc(""); setCreateKind("series"); setCreateStartTime(defaultCourseStartValue()); setCreateDuration(60); setCreateRoomType(0); setCreateRequirePasscode(true); setCreatePasscode("");
+      setCreateName(""); setCreateDesc(""); setCreateKind("series"); setCreateStartTime(defaultCourseStartValue()); setCreateDuration(60); setCreateRoomType(0); setCreateAutoStudentOnStage(true); setCreateRequirePasscode(true); setCreatePasscode("");
       resetCreateTeacherSelection();
       router.push(`/courses/${course.id}`);
       navigating = true;
@@ -1461,6 +1464,21 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                         {minutes} min
                       </button>
                     ))}
+                    <label className={createCourseStyles.customDuration}>
+                      <span>{t("teacherDashboard.customDuration")}</span>
+                      <input
+                        type="number"
+                        min={10}
+                        max={720}
+                        value={createDuration}
+                        onChange={(event) => {
+                          setCreateDuration(Number(event.target.value));
+                          setCreateError("");
+                        }}
+                        aria-label={t("teacherDashboard.customDuration")}
+                      />
+                      <span>min</span>
+                    </label>
                   </div>
                   <p className={createCourseStyles.scheduleEndHint}>
                     {t("teacherDashboard.calculatedSchedule", {
@@ -1643,6 +1661,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                         type="button"
                         onClick={() => {
                           setCreateRoomType(rt.value);
+                          setCreateAutoStudentOnStage(defaultAutoStudentOnStage(rt.value));
                           if (rt.value === 10 && createRequirePasscode && !createPasscode) {
                             setCreatePasscode(Math.floor(100000 + Math.random() * 900000).toString());
                           }
@@ -1660,6 +1679,23 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                     );
                   })}
                 </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-4">
+                <div className="min-w-0">
+                  <strong className="text-sm font-semibold">{t("teacherDashboard.autoStudentOnStage")}</strong>
+                  <p className="mt-1 text-xs text-muted-foreground">{t("teacherDashboard.autoStudentOnStageHint")}</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={createAutoStudentOnStage}
+                  aria-label={t("teacherDashboard.autoStudentOnStage")}
+                  onClick={() => setCreateAutoStudentOnStage((current) => !current)}
+                  className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${createAutoStudentOnStage ? "bg-primary" : "bg-muted-foreground/35"}`}
+                >
+                  <span className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${createAutoStudentOnStage ? "translate-x-5" : "translate-x-0"}`} />
+                </button>
               </div>
 
               {createRoomType === 10 && (

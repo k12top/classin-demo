@@ -6,6 +6,7 @@ import type {
   ClassroomCoursewareSnapshot,
   ClassroomWhiteboardCredential,
 } from "@/lib/classroom/types";
+import { isTransientWhiteboardError } from "@/lib/classroom/whiteboard/retry";
 import { useTranslation } from "@/lib/i18n/context";
 
 let fastboardModulePromise: Promise<typeof import("@netless/fastboard")> | null = null;
@@ -95,6 +96,7 @@ export function FastboardSurface({
   const appRef = useRef<FastboardApp | null>(null);
   const activeToolRef = useRef<ClassroomWhiteboardTool>("selector");
   const insertedRef = useRef(new Set<string>());
+  const automaticRetryCountRef = useRef(0);
   const [error, setError] = useState<WhiteboardError | null>(null);
   const [ready, setReady] = useState(false);
   const [launchAttempt, setLaunchAttempt] = useState(0);
@@ -123,14 +125,13 @@ export function FastboardSurface({
     let ui: { destroy(): void } | null = null;
     let app: FastboardApp | null = null;
     let writableCheckId: number | null = null;
-    let writableTimedOut = false;
+    let retryTimerId: number | null = null;
     let launchStarted = false;
     let resizeFrameId = 0;
     setReady(false);
     setError(null);
     const timeoutId = window.setTimeout(() => {
       if (!cancelled) {
-        writableTimedOut = true;
         setError({ key: "classroom.v3.whiteboardLoadFailed" });
       }
     }, 12_000);
@@ -267,7 +268,7 @@ export function FastboardSurface({
           requestAnimationFrame(syncBoardViewport);
         });
         const publishControllerWhenReady = () => {
-          if (cancelled || writableTimedOut) return;
+          if (cancelled) return;
           // canOperate is true only after the room is connected and has a
           // writer token.  setAppliance before then is silently ignored by
           // the SDK, which was the cause of the highlighted-but-inert tools.
@@ -341,6 +342,7 @@ export function FastboardSurface({
             });
           }
           window.clearTimeout(timeoutId);
+          automaticRetryCountRef.current = 0;
           setError(null);
           setReady(true);
           onReadyChange?.(true);
@@ -354,6 +356,15 @@ export function FastboardSurface({
             ? { message: launchError.message }
             : { key: "classroom.v3.whiteboardLoadFailed" },
         );
+        if (
+          isTransientWhiteboardError(launchError) &&
+          automaticRetryCountRef.current < 2
+        ) {
+          automaticRetryCountRef.current += 1;
+          retryTimerId = window.setTimeout(() => {
+            if (!cancelled) setLaunchAttempt((value) => value + 1);
+          }, 600 * automaticRetryCountRef.current);
+        }
       }
     }
     // React Strict Mode mounts and immediately cleans up effects once in
@@ -369,6 +380,7 @@ export function FastboardSurface({
       cancelled = true;
       window.clearTimeout(launchTimerId);
       window.clearTimeout(timeoutId);
+      if (retryTimerId !== null) window.clearTimeout(retryTimerId);
       if (writableCheckId !== null) window.clearTimeout(writableCheckId);
       window.cancelAnimationFrame(resizeFrameId);
       resizeObserver.disconnect();
@@ -535,7 +547,13 @@ export function FastboardSurface({
           <span className="classroom-v3-board-mark">W</span>
           <strong>{t("classroom.v3.whiteboardLoadFailed")}</strong>
           <p>{error.key ? t(error.key) : error.message}</p>
-          <button type="button" onClick={() => setLaunchAttempt((value) => value + 1)}>
+          <button
+            type="button"
+            onClick={() => {
+              automaticRetryCountRef.current = 0;
+              setLaunchAttempt((value) => value + 1);
+            }}
+          >
             {t("classroom.v3.retry")}
           </button>
         </div>

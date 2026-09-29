@@ -215,7 +215,7 @@ function ClassroomContent() {
 
         const payload = (await response.json()) as
           | ClassroomSessionResponse
-          | { error?: string; code?: string };
+          | { error?: string; code?: string; courseId?: string };
         if (!response.ok || !("credential" in payload)) {
           if (response.status === 403 && "code" in payload) {
             router.replace(
@@ -224,7 +224,7 @@ function ClassroomContent() {
                   (payload.code as CourseAccessDeniedCode | undefined) ||
                   "default",
                 reason: payload.error || t("classroom.v3.accessDenied"),
-                courseId,
+                courseId: payload.courseId || courseId,
               }),
             );
             return;
