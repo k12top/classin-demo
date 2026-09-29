@@ -1127,6 +1127,7 @@
 .classroom-v3-room-monitor > header {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   color: #e7e9ee;
   font-size: 11px;
@@ -1135,6 +1136,15 @@
 .classroom-v3-room-monitor > header small {
   margin-inline-start: auto;
   color: #32d49a;
+}
+
+.classroom-v3-room-monitor > header button {
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  color: inherit;
+  font-size: 11px;
 }
 
 .classroom-v3-room-monitor > div {

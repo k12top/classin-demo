@@ -2331,6 +2331,7 @@ function BreakoutPanel({
   onSpaceAction,
   onAssign,
   onConnect,
+  onDisconnect,
 }: {
   spaces: ClassroomSpaceSnapshot[];
   members: ClassroomMemberSnapshot[];
@@ -2358,6 +2359,7 @@ function BreakoutPanel({
     role: "assistant" | "student",
   ) => void;
   onConnect: (spaceId: string) => void;
+  onDisconnect: () => void;
 }) {
   const { t } = useTranslation();
   const [count, setCount] = useState(4);
@@ -2595,6 +2597,11 @@ function BreakoutPanel({
           <header>
             <span><i />{activeSpace.name}</span>
             <small>{t("classroom.v3.roomAudioConnected")}</small>
+            {role === "teacher" ? (
+              <button type="button" disabled={busy} onClick={onDisconnect}>
+                {t("classroom.v3.returnToMainRoom")}
+              </button>
+            ) : null}
           </header>
           <div>
             {roomMedia.participants.map((participant) => {
@@ -4760,6 +4767,24 @@ export function ClassroomV3({
     sessionData,
     spaceBusy,
   ]);
+
+  useEffect(() => {
+    if (
+      loadingState !== "ready" ||
+      !sessionData ||
+      sessionData.credential.role !== "teacher" ||
+      !activeSpaceId ||
+      isRecorder
+    ) {
+      return;
+    }
+    const activeRoom = sessionData.spaces.find(
+      (space) => space.id === activeSpaceId,
+    );
+    if (activeRoom?.status === "open") return;
+    const timer = window.setTimeout(() => void disconnectRoom(), 0);
+    return () => window.clearTimeout(timer);
+  }, [activeSpaceId, disconnectRoom, isRecorder, loadingState, sessionData]);
 
   useEffect(() => {
     if (loadingState !== "ready") return;
@@ -6971,6 +6996,7 @@ export function ClassroomV3({
                       })
                     }
                     onConnect={(spaceId) => void connectRoom(spaceId)}
+                    onDisconnect={() => void disconnectRoom()}
                   />
                 )}
                 {activePanel === "questions" && (

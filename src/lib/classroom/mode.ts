@@ -55,7 +55,7 @@ const POLICIES: Record<ClassroomMode, ClassroomModePolicy> = {
     showHandRaise: true,
     showPublicQuestions: false,
     allowBreakouts: false,
-    defaultStudentOnStage: false,
+    defaultStudentOnStage: true,
     defaultStudentWhiteboardWritable: false,
     studentCanRequestStage: true,
     studentCanShareWhenOnStage: true,

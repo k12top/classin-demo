@@ -359,7 +359,7 @@ export function LargeClassBreakoutManager({
         </div>
       ) : null}
 
-      {canManage && spaces.length > 0 && (!assistants.length || !studentRoster.length) ? (
+      {canManage && spaces.length > 0 && !studentRoster.length ? (
         <div className={styles.rosterPrompt}>
           <div className={styles.rosterPromptCopy}>
             <span className={styles.rosterPromptIcon}>
@@ -371,18 +371,10 @@ export function LargeClassBreakoutManager({
             </div>
           </div>
           <div className={styles.rosterPromptActions}>
-            {!assistants.length ? (
-              <button type="button" onClick={() => onManageRoster("assistant")}>
-                <ShieldCheck className="h-4 w-4" />
-                {t("courseDetail.breakouts.addManagers")}
-              </button>
-            ) : null}
-            {!studentRoster.length ? (
-              <button type="button" onClick={() => onManageRoster("student")}>
-                <Users className="h-4 w-4" />
-                {t("courseDetail.breakouts.addStudents")}
-              </button>
-            ) : null}
+            <button type="button" onClick={() => onManageRoster("student")}>
+              <Users className="h-4 w-4" />
+              {t("courseDetail.breakouts.addStudents")}
+            </button>
           </div>
         </div>
       ) : null}
