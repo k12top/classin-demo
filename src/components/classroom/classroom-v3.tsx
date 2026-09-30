@@ -4933,37 +4933,57 @@ export function ClassroomV3({
     return () => window.clearTimeout(settleEndedState);
   }, [classEnded, disconnectRoom]);
 
-  // The teacher camera is the default classroom presence. Starting it here
-  // keeps the teaching stage useful on first entry, while the ref ensures a
-  // teacher who deliberately turns it off is never switched back on.
+  // Reuse an existing camera grant for the teacher. A first-time permission
+  // prompt should follow an explicit click on the camera control instead of
+  // being triggered by joining the classroom.
   useEffect(() => {
     if (
       isRecorder ||
       classEnded ||
-      !sessionData ||
       !mediaProvider ||
-      sessionData.credential.role !== "teacher" ||
+      sessionData?.credential.role !== "teacher" ||
       media.connectionState !== "connected" ||
       media.local.cameraOn ||
       teacherCameraAutostartedRef.current
     ) {
       return;
     }
-    teacherCameraAutostartedRef.current = true;
-    void mediaProvider.toggleCamera().catch((error: unknown) => {
-      setActionError(
-        error instanceof Error
-          ? error.message
-          : t("classroom.v3.mediaActionFailed"),
-      );
-    });
+    let cancelled = false;
+    void (async () => {
+      let permission: PermissionStatus | undefined;
+      try {
+        permission = await navigator.permissions?.query({
+          name: "camera" as PermissionName,
+        });
+      } catch {
+        if (!cancelled) teacherCameraAutostartedRef.current = true;
+        return;
+      }
+      if (cancelled) return;
+      teacherCameraAutostartedRef.current = true;
+      if (permission?.state !== "granted") return;
+      try {
+        await mediaProvider.toggleCamera();
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : "";
+        setActionError(
+          /PERMISSION_DENIED|NotAllowedError|Permission denied/i.test(message)
+            ? t("classroom.v3.cameraPermissionDenied")
+            : message || t("classroom.v3.mediaActionFailed"),
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [
     classEnded,
     isRecorder,
     media.connectionState,
     media.local.cameraOn,
     mediaProvider,
-    sessionData,
+    sessionData?.credential.role,
     t,
   ]);
 
@@ -5295,6 +5315,8 @@ export function ClassroomV3({
               ? t("classroom.v3.screenShareBrowserUnsupported")
               : name === "camera" && /PERMISSION_DENIED|NotAllowedError|Permission denied/i.test(message)
                 ? t("classroom.v3.cameraPermissionDenied")
+                : name === "microphone" && /PERMISSION_DENIED|NotAllowedError|Permission denied/i.test(message)
+                  ? t("classroom.v3.microphonePermissionDenied")
                 : message || t("classroom.v3.mediaActionFailed"),
         );
       } finally {
