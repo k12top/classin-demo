@@ -919,7 +919,7 @@ export function CourseSessionManager({
                       )}
                     </button>
                   ) : null}
-                  {effectiveStatus === "finished" && (session._count?.recordings || 0) > 0 ? (
+                  {(session._count?.recordings || 0) > 0 ? (
                     <button
                       type="button"
                       onClick={() => router.push(`/courses/${encodeURIComponent(courseId)}/playback?sessionId=${encodeURIComponent(session.id)}`)}

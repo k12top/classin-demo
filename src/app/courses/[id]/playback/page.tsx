@@ -166,6 +166,7 @@ export default function CoursePlaybackPage({
   const [captionSettingsOpen, setCaptionSettingsOpen] = useState(false);
   const [captionPrefsLoaded, setCaptionPrefsLoaded] = useState(false);
   const [selectedRecordingId, setSelectedRecordingId] = useState("");
+  const [continuePlaybackId, setContinuePlaybackId] = useState("");
   const [mediaTime, setMediaTime] = useState(0);
   const [seekRequest, setSeekRequest] = useState<PlaybackSeek | null>(null);
 
@@ -545,6 +546,7 @@ export default function CoursePlaybackPage({
   const selectSession = (sessionId: string) => {
     setSelectedSessionId(sessionId);
     setSelectedRecordingId("");
+    setContinuePlaybackId("");
     setMediaTime(0);
     setSeekRequest(null);
     const url = new URL(window.location.href);
@@ -555,7 +557,17 @@ export default function CoursePlaybackPage({
     const position = captionPositionFor(caption);
     if (!position) return;
     setSelectedRecordingId(position.recordingId);
+    setContinuePlaybackId("");
     setSeekRequest({ ...position, captionId: caption.id });
+  };
+  const playNextRecording = () => {
+    const index = playableRecordings.findIndex((recording) => recording.id === selectedRecording?.id);
+    const next = playableRecordings[index + 1];
+    if (!next) return;
+    setMediaTime(0);
+    setSeekRequest(null);
+    setContinuePlaybackId(next.id);
+    setSelectedRecordingId(next.id);
   };
 
   if (authLoading || loading || sessionsLoading) {
@@ -688,6 +700,8 @@ export default function CoursePlaybackPage({
                   seekRequest={seekRequest}
                   onSeekComplete={() => setSeekRequest(null)}
                   onTimeUpdate={setMediaTime}
+                  onEnded={playNextRecording}
+                  autoStart={continuePlaybackId === selectedRecording?.id}
                   caption={videoCaption}
                   translation={videoCaption ? selectedCaptionTranslation : ""}
                   captionMode={captionMode}
@@ -715,7 +729,7 @@ export default function CoursePlaybackPage({
                   <div className="flex gap-2 overflow-x-auto border-t border-border/60 bg-card px-4 py-3">
                     {playableRecordings.map((recording) => <Button key={recording.id} type="button" size="sm"
                       variant={recording.id === selectedRecording?.id ? "default" : "outline"}
-                      onClick={() => { setSelectedRecordingId(recording.id); setSeekRequest(null); setMediaTime(0); }}>
+                      onClick={() => { setSelectedRecordingId(recording.id); setContinuePlaybackId(""); setSeekRequest(null); setMediaTime(0); }}>
                       {locale.startsWith("zh") ? `片段 ${recording.segment}` : `Segment ${recording.segment}`}
                     </Button>)}
                   </div>
@@ -1100,6 +1114,8 @@ function PlaybackVideo({
   seekRequest,
   onSeekComplete,
   onTimeUpdate,
+  onEnded,
+  autoStart,
   caption,
   translation,
   captionMode,
@@ -1111,6 +1127,8 @@ function PlaybackVideo({
   seekRequest: PlaybackSeek | null;
   onSeekComplete: () => void;
   onTimeUpdate: (time: number) => void;
+  onEnded: () => void;
+  autoStart: boolean;
   caption: LessonCaption | null;
   translation: string;
   captionMode: CaptionDisplayMode;
@@ -1190,6 +1208,10 @@ function PlaybackVideo({
         preload="metadata"
         onTimeUpdate={(event) => onTimeUpdate(event.currentTarget.currentTime)}
         onSeeking={(event) => onTimeUpdate(event.currentTarget.currentTime)}
+        onEnded={onEnded}
+        onCanPlay={(event) => {
+          if (autoStart) void event.currentTarget.play().catch(() => {});
+        }}
       />
       {captionMode !== "off" && hasVisibleText && (
         <div className={`pointer-events-none absolute inset-x-4 flex justify-start ${captionAppearance.position === "top" ? "top-4" : "bottom-16"}`}>

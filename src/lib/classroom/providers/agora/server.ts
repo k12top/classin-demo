@@ -202,8 +202,10 @@ function recordingConfiguration() {
   };
 }
 
-function recorderUserId(courseId: string): string {
-  return String(classroomRtcUid(courseId, "recorder"));
+function recorderUserId(recordingId: string): string {
+  // A new attempt may start while the previous one is still finalizing.
+  // Separate RTC identities prevent the old recorder from replacing it.
+  return String(classroomRtcUid(recordingId, "recorder"));
 }
 
 function basicAuthorization(customerId: string, customerSecret: string) {
@@ -405,7 +407,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
 
   async start(input: RecordingStartInput): Promise<RecordingStartResult> {
     const config = recordingConfiguration();
-    const recorderUid = recorderUserId(input.courseId);
+    const recorderUid = recorderUserId(input.recordingId);
     const fileNamePrefix = [
       config.prefix,
       input.courseId,

@@ -5,6 +5,7 @@ import { resolveCoursewareAccess } from "@/lib/courseware-access";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
 import { reconcileRecordingAttempt } from "@/lib/classroom/server/recording-orchestrator";
+import { recordingPlaybackAssets } from "@/lib/classroom/recording-playback";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -52,22 +53,52 @@ export async function GET(request: NextRequest, context: Context) {
   }
   return NextResponse.json({
     refreshAfterMs: pending.length ? 2_500 : null,
-    recordings: recordings.map((recording, index) => ({
-      id: recording.id,
-      segment: index + 1,
-      provider: recording.provider,
-      status: recording.status,
-      mode: recording.mode,
-      fallbackFrom: recording.fallbackFrom,
-      startedAt: recording.startedAt?.toISOString() ?? null,
-      stoppedAt: recording.stoppedAt?.toISOString() ?? null,
-      playbackFormat: recording.playbackFormat,
-      playbackUrl: recording.playbackObjectKey
-        ? `/api/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recording.id)}/play`
-        : null,
-      errorMessage: access.teaching ? recording.errorMessage : null,
-      failureStage: access.teaching ? recording.failureStage : null,
-    })),
+    recordings: recordings.flatMap((recording): Array<{
+      id: string; segment: number; provider: string; status: string;
+      mode: string; fallbackFrom: string | null; startedAt: string | null;
+      stoppedAt: string | null; playbackFormat: string | null;
+      playbackUrl: string | null; errorMessage: string | null;
+      failureStage: string | null;
+    }> => {
+      const state = recording.providerState;
+      const prefix = state && typeof state === "object" && !Array.isArray(state) &&
+        Array.isArray(state.fileNamePrefix)
+        ? state.fileNamePrefix.filter((part): part is string => typeof part === "string")
+        : [];
+      const assets = recording.status === "completed"
+        ? recordingPlaybackAssets(recording.files, prefix, recording.playbackObjectKey, recording.playbackFormat)
+        : [];
+      if (!assets.length) return [{
+        id: recording.id,
+        segment: 0,
+        provider: recording.provider,
+        status: recording.status,
+        mode: recording.mode,
+        fallbackFrom: recording.fallbackFrom,
+        startedAt: recording.startedAt?.toISOString() ?? null,
+        stoppedAt: recording.stoppedAt?.toISOString() ?? null,
+        playbackFormat: recording.playbackFormat,
+        playbackUrl: null,
+        errorMessage: access.teaching ? recording.errorMessage : null,
+        failureStage: access.teaching ? recording.failureStage : null,
+      }];
+      return assets.map((asset, index) => ({
+        id: `${recording.id}:${index}`,
+        segment: 0,
+        provider: recording.provider,
+        status: recording.status,
+        mode: recording.mode,
+        fallbackFrom: recording.fallbackFrom,
+        // A single attempt can contain several MP4 files. Its wall-clock
+        // bounds cannot locate a caption within one particular file.
+        startedAt: assets.length === 1 ? recording.startedAt?.toISOString() ?? null : null,
+        stoppedAt: assets.length === 1 ? recording.stoppedAt?.toISOString() ?? null : null,
+        playbackFormat: asset.format,
+        playbackUrl: `/api/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recording.id)}/play?asset=${encodeURIComponent(asset.objectKey)}`,
+        errorMessage: access.teaching ? recording.errorMessage : null,
+        failureStage: access.teaching ? recording.failureStage : null,
+      }));
+    }).map((recording, index) => ({ ...recording, segment: index + 1 })),
   });
 }
 

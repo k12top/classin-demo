@@ -8,6 +8,7 @@ import {
 import { resolveCoursewareAccess } from "@/lib/courseware-access";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
+import { recordingPlaybackAssets } from "@/lib/classroom/recording-playback";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -39,8 +40,7 @@ function resolveRecordingAsset(
 
 function proxiedAssetUrl(request: NextRequest, objectKey: string) {
   const url = new URL(request.url);
-  url.search = "";
-  url.searchParams.set("asset", objectKey);
+  url.searchParams.set("hlsAsset", objectKey);
   return `${url.pathname}${url.search}`;
 }
 
@@ -93,6 +93,8 @@ export async function GET(request: NextRequest, context: Context) {
       courseId: true,
       playbackObjectKey: true,
       playbackFormat: true,
+      files: true,
+      providerState: true,
     },
   });
   if (!recording?.playbackObjectKey) {
@@ -111,12 +113,34 @@ export async function GET(request: NextRequest, context: Context) {
   }
 
   try {
-    const hls = recording.playbackFormat === "hls";
+    const state = recording.providerState;
+    const prefix = state && typeof state === "object" && !Array.isArray(state) &&
+      Array.isArray(state.fileNamePrefix)
+      ? state.fileNamePrefix.filter((part): part is string => typeof part === "string")
+      : [];
+    const assets = recordingPlaybackAssets(
+      recording.files, prefix, recording.playbackObjectKey, recording.playbackFormat,
+    );
+    const requestedAsset = request.nextUrl.searchParams.get("asset");
+    const legacyHlsAsset = requestedAsset && recording.playbackFormat === "hls" &&
+      !assets.some((asset) => asset.objectKey === requestedAsset) &&
+      resolveRecordingAsset(recording.playbackObjectKey, requestedAsset)
+      ? requestedAsset : null;
+    const selected = requestedAsset
+      ? assets.find((asset) => asset.objectKey === requestedAsset) ||
+        (legacyHlsAsset ? { objectKey: recording.playbackObjectKey, format: "hls" as const } : null)
+      : recording.playbackFormat === "hls" || recording.playbackFormat === "mp4"
+        ? { objectKey: recording.playbackObjectKey, format: recording.playbackFormat }
+        : null;
+    if (!selected) {
+      return NextResponse.json({ error: "Invalid recording asset" }, { status: 400 });
+    }
+    const hls = selected.format === "hls";
     const client = getCoursewareOssClient();
     if (hls) {
       const objectKey = resolveRecordingAsset(
-        recording.playbackObjectKey,
-        request.nextUrl.searchParams.get("asset"),
+        selected.objectKey,
+        request.nextUrl.searchParams.get("hlsAsset") || legacyHlsAsset,
       );
       if (!objectKey) {
         return NextResponse.json(
@@ -148,7 +172,7 @@ export async function GET(request: NextRequest, context: Context) {
         },
       });
     }
-    const url = client.signatureUrl(recording.playbackObjectKey, {
+    const url = client.signatureUrl(selected.objectKey, {
       expires: 60 * 60,
       response: {
         "content-type": "video/mp4",

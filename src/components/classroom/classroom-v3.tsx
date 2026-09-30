@@ -5607,7 +5607,7 @@ export function ClassroomV3({
   const controlRecording = useCallback(async (action: "start" | "stop") => {
     if (!courseId || actionBusy || isRecorder) return;
     if (
-      ["stopping", "processing"].includes(recordingStatus || "") ||
+      recordingStatus === "stopping" ||
       (action === "start" && ["starting", "recording"].includes(recordingStatus || ""))
     ) {
       return;
@@ -6360,9 +6360,7 @@ export function ClassroomV3({
                     Boolean(actionBusy) ||
                     (!sessionData.recording.enabled &&
                       !["starting", "recording"].includes(recordingStatus || "")) ||
-                    ["stopping", "processing"].includes(
-                      recordingStatus || "",
-                    )
+                    recordingStatus === "stopping"
                   }
                   onClick={onRecordingControl}
                   title={
@@ -6377,6 +6375,19 @@ export function ClassroomV3({
                   {["starting", "recording"].includes(recordingStatus || "") ? <CircleStop /> : <Radio />}
                 </button>
               )}
+            {recordingStatus && !isRecorder && (
+              <button
+                type="button"
+                onClick={() => window.open(
+                  `/courses/${encodeURIComponent(sessionData.course.id)}/playback?sessionId=${encodeURIComponent(sessionData.course.sessionId)}`,
+                  "_blank", "noopener,noreferrer",
+                )}
+                title={t("studentDashboard.viewPlayback")}
+                aria-label={t("studentDashboard.viewPlayback")}
+              >
+                <Play />
+              </button>
+            )}
             <button
               type="button"
               className="is-theme-toggle"
@@ -7365,9 +7376,7 @@ export function ClassroomV3({
                     Boolean(actionBusy) ||
                     (!sessionData.recording.enabled &&
                       !["starting", "recording"].includes(recordingStatus || "")) ||
-                    ["stopping", "processing"].includes(
-                      recordingStatus || "",
-                    )
+                    recordingStatus === "stopping"
                   }
                   onClick={onRecordingControl}
                   title={
@@ -7385,14 +7394,24 @@ export function ClassroomV3({
                       ? t("classroom.v3.stopRecording")
                       : recordingStatus === "stopping"
                         ? t("classroom.v3.recordingStopping")
-                        : recordingStatus === "processing"
-                          ? t("classroom.v3.recordingProcessing")
-                          : recordingStatus === "recording"
+                      : recordingStatus === "recording"
                             ? t("classroom.v3.stopRecording")
                             : t("classroom.v3.startRecording")}
                   </span>
                 </button>
               )}
+            {recordingStatus && !isRecorder && (
+              <button
+                type="button"
+                onClick={() => window.open(
+                  `/courses/${encodeURIComponent(sessionData.course.id)}/playback?sessionId=${encodeURIComponent(sessionData.course.sessionId)}`,
+                  "_blank", "noopener,noreferrer",
+                )}
+              >
+                <Play />
+                <span>{t("studentDashboard.viewPlayback")}</span>
+              </button>
+            )}
             <span className="classroom-v3-dock-divider" />
             <button
               type="button"
