@@ -157,8 +157,9 @@ export async function requestRecordingStart(
   if (!lesson) throw new Error("Course session not found");
   const runtime = await prisma.classroomRuntime.findUnique({
     where: { sessionId: lesson.id },
-    select: { status: true },
+    select: { status: true, recordingStartMode: true },
   });
+  if (runtime?.recordingStartMode === "disabled") throw new Error("Recording is disabled for this classroom");
   if (runtime?.status !== "live") {
     throw new Error("Recording cannot start before class begins");
   }
@@ -711,7 +712,7 @@ export async function stopActiveRecordingsForCourse(
 
 export async function retryFailedLiveRecordings(): Promise<number> {
   const runtimes = await prisma.classroomRuntime.findMany({
-    where: { status: "live" },
+    where: { status: "live", recordingStartMode: { not: "disabled" } },
     select: {
       courseId: true,
       sessionId: true,
@@ -766,7 +767,7 @@ export async function recoverInterruptedRecordingForSession(
   const [runtime, lesson] = await Promise.all([
     prisma.classroomRuntime.findFirst({
       where: { courseId, sessionId },
-      select: { status: true },
+      select: { status: true, recordingStartMode: true },
     }),
     prisma.courseSession.findFirst({
       where: { id: sessionId, courseId },
@@ -778,6 +779,7 @@ export async function recoverInterruptedRecordingForSession(
   const latest = lesson?.recordings[0];
   if (
     runtime?.status !== "live" ||
+    runtime.recordingStartMode === "disabled" ||
     !latest ||
     !lesson ||
     !getRecordingProvider(lesson.recordingProvider).isConfigured() ||

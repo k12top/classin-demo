@@ -1,4 +1,5 @@
 import "server-only";
+import { classroomActionRequiresRevision } from "@/lib/classroom/action-request";
 
 import { randomInt } from "node:crypto";
 import type { Prisma } from "@prisma/client";
@@ -632,7 +633,7 @@ export async function applyClassroomAction(input: {
       }
     }
     if (
-      action.type !== "submitBuzz" &&
+      classroomActionRequiresRevision(action) &&
       input.expectedRevision !== undefined &&
       input.expectedRevision !== runtime.revision
     ) {
@@ -667,7 +668,7 @@ export async function applyClassroomAction(input: {
         requireLeadTeacher(role);
         if (
           action.mode !== "classStart" && action.mode !== "scheduled" &&
-          action.mode !== "scheduledEarly"
+          action.mode !== "scheduledEarly" && action.mode !== "disabled"
         ) {
           throw new ClassroomActionError("录制启动方式无效");
         }
@@ -1235,10 +1236,11 @@ export async function applyClassroomAction(input: {
         break;
       }
       case "muteAllMicrophones":
+      case "unmuteAllMicrophones":
         requireTeachingRole(role);
         await tx.classroomMemberState.updateMany({
           where: { sessionId, role: "student" },
-          data: { microphoneAllowed: false },
+          data: { microphoneAllowed: action.type === "unmuteAllMicrophones" },
         });
         break;
       case "setStage":

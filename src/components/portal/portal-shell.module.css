@@ -666,3 +666,10 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+.headerPreferences { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 720px) {
+  .headerPreferences { gap: 4px; }
+  .headerPreferences > :first-child { width: 110px; }
+  .mobileBrand strong { max-width: 24vw; }
+}

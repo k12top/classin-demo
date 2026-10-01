@@ -603,7 +603,7 @@
   box-shadow: 0 6px 8px rgb(4 8 12 / 0.28);
 }
 
-.classroom-v3-tool-popover > button:last-child {
+.classroom-v3-tool-popover-close {
   position: absolute;
   top: 5px;
   right: 5px;
@@ -616,7 +616,7 @@
   background: transparent;
 }
 
-.classroom-v3-tool-popover > button:last-child svg {
+.classroom-v3-tool-popover-close svg {
   width: 13px;
 }
 

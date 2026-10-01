@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
 import { getWhiteboardProvider } from "@/lib/classroom/whiteboard/provider-factory";
+import { resolveRecorderAccess } from "@/lib/classroom/server/recorder-access";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,6 +12,8 @@ export async function POST(request: NextRequest) {
     courseId?: unknown;
     sessionId?: unknown;
     shareAccess?: unknown;
+    recorderToken?: unknown;
+    recordingId?: unknown;
   } | null;
   const referenceId =
     typeof body?.sessionId === "string" && body.sessionId.trim()
@@ -23,6 +26,19 @@ export async function POST(request: NextRequest) {
       { error: "sessionId or courseId is required" },
       { status: 400 },
     );
+  }
+
+  if (body?.recorderToken) {
+    const recording = await resolveRecorderAccess({ ...body, sessionId: referenceId });
+    if (!recording) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const whiteboard = await getWhiteboardProvider().issueJoinCredential({
+      courseId: recording.courseId,
+      sessionId: recording.sessionId,
+      userId: `recorder-${recording.id}`,
+      role: "student",
+      writable: false,
+    });
+    return NextResponse.json({ whiteboard }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   }
 
   const resolved = await resolveClassroomRequestAccess(

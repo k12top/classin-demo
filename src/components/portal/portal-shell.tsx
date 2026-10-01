@@ -221,6 +221,10 @@ export function PortalShell({
             <h1>{title}</h1>
           </div>
           <div className={styles.utility}>
+            <div className={styles.headerPreferences} aria-label={copy.language}>
+              <LanguageSwitcher className="w-[136px]" />
+              <ThemeToggle className="h-9 w-9" />
+            </div>
             <span className={styles.clock}>
               <strong>
                 {now
@@ -288,14 +292,6 @@ export function PortalShell({
                       </small>
                     </div>
                   </button>
-                  <div className={styles.accountPreference}>
-                    <span>{copy.language}</span>
-                    <LanguageSwitcher className="w-[136px]" />
-                  </div>
-                  <div className={styles.accountPreference}>
-                    <span>{copy.appearance}</span>
-                    <ThemeToggle className="h-9 w-9" />
-                  </div>
                   <button
                     type="button"
                     className={styles.accountLogout}

@@ -7,6 +7,7 @@ import {
   scheduledClassStartDue,
   shouldAutoStartRecordingAfterWhiteboard,
   shouldNotifyRecorderReady,
+  isRecorderReadyAcknowledged,
 } from "../src/lib/classroom/recording-start";
 
 const readyClassroom = {
@@ -38,6 +39,14 @@ test("page entry never starts automatic recording before class and whiteboard ar
     ...readyClassroom,
     status: "live",
   }), true);
+});
+
+test("pending provider startup does not count as a released recorder", () => {
+  assert.equal(isRecorderReadyAcknowledged(202, "pending"), false);
+  assert.equal(isRecorderReadyAcknowledged(200, "pending"), false);
+  assert.equal(isRecorderReadyAcknowledged(503, undefined), false);
+  assert.equal(isRecorderReadyAcknowledged(409, "stopped"), false);
+  assert.equal(isRecorderReadyAcknowledged(200, "ready"), true);
 });
 
 test("start-class recording waits for both live state and an open whiteboard", () => {
@@ -91,6 +100,12 @@ test("cloud recorder does not announce readiness while its whiteboard loads", ()
   assert.equal(shouldNotifyRecorderReady({
     pageReady: true,
     mediaConnected: true,
+    whiteboardEnabled: false,
+    whiteboardReady: false,
+  }), false, "missing or failed credentials must not release the loading screen");
+  assert.equal(shouldNotifyRecorderReady({
+    pageReady: true,
+    mediaConnected: true,
     whiteboardEnabled: true,
     whiteboardReady: false,
   }), false);
@@ -100,4 +115,18 @@ test("cloud recorder does not announce readiness while its whiteboard loads", ()
     whiteboardEnabled: true,
     whiteboardReady: true,
   }), true);
+  assert.equal(shouldNotifyRecorderReady({
+    pageReady: true,
+    mediaConnected: true,
+    whiteboardEnabled: false,
+    whiteboardReady: false,
+    whiteboardRequired: false,
+  }), true, "a screen share or camera-only stage does not require a whiteboard");
+  assert.equal(shouldNotifyRecorderReady({
+    pageReady: true,
+    mediaConnected: false,
+    whiteboardEnabled: true,
+    whiteboardReady: true,
+    whiteboardRequired: false,
+  }), false);
 });

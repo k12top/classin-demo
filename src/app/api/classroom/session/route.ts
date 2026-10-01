@@ -320,7 +320,7 @@ export async function POST(request: NextRequest) {
       interpretationAvailability,
     ] = await Promise.all([
       recorder
-        ? getClassroomCourseware(courseId, role, sessionId)
+        ? getClassroomCourseware(courseId, "teacher", sessionId)
         : Promise.resolve([]),
       recorder
         ? whiteboardProvider.issueJoinCredential({

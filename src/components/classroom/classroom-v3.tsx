@@ -1,5 +1,7 @@
 "use client";
 
+import { recorderCameraParticipants, recorderVideosHaveFrames } from "@/lib/classroom/recorder-surface";
+
 import {
   CSSProperties,
   ChangeEvent,
@@ -13,6 +15,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { requestClassroomAction } from "@/lib/classroom/action-request";
 import { optimisticClassroomRuntime } from "@/lib/classroom/optimistic-runtime";
 import { classroomCapabilities } from "@/lib/classroom/policy";
 import { languageOptions, type SupportedLocale } from "@/lib/i18n/locales";
@@ -145,6 +148,7 @@ import { shouldApplyClassroomRevision } from "@/lib/classroom/runtime-revision";
 import {
   shouldAutoStartRecordingAfterWhiteboard,
   shouldNotifyRecorderReady,
+  isRecorderReadyAcknowledged,
 } from "@/lib/classroom/recording-start";
 import {
   classroomLanguageLabel,
@@ -251,6 +255,9 @@ function readScreenShareSupport(): boolean {
     typeof navigator.mediaDevices?.getDisplayMedia === "function";
 }
 
+function readMobileControls() { return window.matchMedia("(max-width: 1024px)").matches; }
+function subscribeToViewport(callback: () => void) { window.addEventListener("resize", callback); return () => window.removeEventListener("resize", callback); }
+
 function subscribeToBrowserCapabilities(): () => void {
   return () => undefined;
 }
@@ -320,7 +327,7 @@ function MediaSurface({
   }, [participant.hasVideo, participant.id, provider]);
 
   return (
-    <div className={`classroom-v3-media ${className}`}>
+    <div className={`classroom-v3-media ${className}`} data-media-video={participant.hasVideo} data-participant-id={participant.id}>
       <div ref={targetRef} className="classroom-v3-media-video" />
       {!participant.hasVideo && (
         <div className="classroom-v3-media-fallback">
@@ -1452,6 +1459,7 @@ function DrawerNavigation({
   counts,
   visiblePanels,
   whiteboardActive,
+  canDraw,
   canShareScreen,
   screenSharing,
   onOpenWhiteboard,
@@ -1475,6 +1483,7 @@ function DrawerNavigation({
   };
   visiblePanels: DrawerPanel[];
   whiteboardActive: boolean;
+  canDraw: boolean;
   canShareScreen: boolean;
   screenSharing: boolean;
   onOpenWhiteboard: () => void;
@@ -1498,6 +1507,18 @@ function DrawerNavigation({
   const [classroomMenuOpen, setClassroomMenuOpen] = useState(false);
   const [clearBoardConfirming, setClearBoardConfirming] = useState(false);
   const clearBoardCancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!toolSettingsOpen && !classroomMenuOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if ((event.target as Element).closest(".classroom-v3-tool-rail, .classroom-v3-tool-popover")) return;
+      setToolSettingsOpen(false);
+      setClassroomMenuOpen(false);
+    };
+    const escape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { setToolSettingsOpen(false); setClassroomMenuOpen(false); } };
+    document.addEventListener("pointerdown", dismiss, true);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", dismiss, true); document.removeEventListener("keydown", escape); };
+  }, [toolSettingsOpen, classroomMenuOpen]);
   useEffect(() => {
     if (!clearBoardConfirming) return;
     const frame = window.requestAnimationFrame(() => {
@@ -1585,7 +1606,7 @@ function DrawerNavigation({
       aria-label={t("classroom.v3.classroomTools")}
       onPointerEnter={onInteract}
     >
-      <div className="classroom-v3-board-tools">
+      {canDraw && <div className="classroom-v3-board-tools">
         {(railLevel === "compact" ? [selectedBoardTool] : boardTools).map((tool) => {
           const Icon = tool.icon;
           return (
@@ -1650,6 +1671,7 @@ function DrawerNavigation({
           </>
         )}
       </div>
+      }
       <div className="classroom-v3-rail-primary">
         <button
           type="button"
@@ -1923,6 +1945,8 @@ function DrawerNavigation({
         )}
         <button
           type="button"
+          className="classroom-v3-tool-popover-close"
+          aria-label={t("classroom.v3.close")}
           onClick={() => {
             setToolSettingsOpen(false);
             setToolPopoverTop(null);
@@ -1936,9 +1960,6 @@ function DrawerNavigation({
       <div className="classroom-v3-tool-popover is-classroom-menu" role="menu">
         {items.filter((item) => visiblePanels.includes(item.id) && !["members", "chat", "captions"].includes(item.id)).map((item) => { const Icon = item.icon; return <button key={item.id} type="button" role="menuitem" onClick={() => { onChange(item.id); setClassroomMenuOpen(false); }}><Icon />{item.label}</button>; })}
         {canManageStage && <>
-        <button type="button" onClick={() => onClassroomAction({ type: "muteAllMicrophones" })}>
-          <MicOff />{t("classroom.v3.muteAllMicrophones")}
-        </button>
         <button type="button" onClick={() => onClassroomAction({ type: "authorizeAllOnStage" })}>
           <PenTool />{t("classroom.v3.authorizeAllOnStage")}
         </button>
@@ -1965,11 +1986,13 @@ function MemberPanel({
   members,
   canManage,
   canRequestScreenShare,
+  busy,
   onAction,
 }: {
   members: ClassroomMemberSnapshot[];
   canManage: boolean;
   canRequestScreenShare: boolean;
+  busy: string | null;
   onAction: (action: ClassroomAction) => void;
 }) {
   const { t } = useTranslation();
@@ -1996,16 +2019,10 @@ function MemberPanel({
           })}
         </span>
       </div>
-      {canManage && (
-        <button
-          type="button"
-          className="classroom-v3-wide-action"
-          onClick={() => onAction({ type: "muteAll", muted: true })}
-        >
-          <MessageCircle />
-          {t("classroom.v3.muteAll")}
-        </button>
-      )}
+      {canManage && <div className="classroom-v3-bulk-actions">
+        <button type="button" disabled={Boolean(busy)} aria-busy={busy === "muteAllMicrophones"} onClick={() => onAction({ type: "muteAllMicrophones" })}>{busy === "muteAllMicrophones" ? <Loader2 className="animate-spin" /> : <MicOff />}{t("classroom.v3.muteAllMicrophones")}</button>
+        <button type="button" disabled={Boolean(busy)} aria-busy={busy === "unmuteAllMicrophones"} onClick={() => onAction({ type: "unmuteAllMicrophones" })}>{busy === "unmuteAllMicrophones" ? <Loader2 className="animate-spin" /> : <Mic />}{t("classroom.v3.unmuteAllMicrophones")}</button>
+      </div>}
       <div className="classroom-v3-member-list">
         {sorted.map((member) => (
           <article
@@ -2184,6 +2201,8 @@ function ChatPanel({
   disabled,
   onSend,
   onDelete,
+  onMuteAll,
+  busy,
 }: {
   messages: ClassroomMessageSnapshot[];
   currentUserId: string;
@@ -2200,6 +2219,8 @@ function ChatPanel({
     },
   ) => Promise<boolean>;
   onDelete: (messageId: string) => void;
+  onMuteAll: (muted: boolean) => void;
+  busy: boolean;
 }) {
   const { t, locale } = useTranslation();
   const [value, setValue] = useState("");
@@ -2237,6 +2258,10 @@ function ChatPanel({
         </div>
         <span>{t("classroom.v3.messageCount", { count: visibleMessages.length })}</span>
       </div>
+      {canManage && <div className="classroom-v3-bulk-actions">
+        <button type="button" disabled={busy} onClick={() => onMuteAll(true)}><MessageCircle />{t("classroom.v3.muteAll")}</button>
+        <button type="button" disabled={busy} onClick={() => onMuteAll(false)}><MessageCircle />{t("classroom.v3.unmuteAllChat")}</button>
+      </div>}
       <nav className="classroom-v3-chat-scopes">
         <button type="button" className={scope === "classroom" ? "is-active" : ""} onClick={() => setScope("classroom")}>
           {t("classroom.v3.mainChannel")}
@@ -2884,7 +2909,7 @@ function CaptionsPanel({
   onDisplayModeChange: (mode: CaptionDisplayMode) => void;
   onOverlayVisibleChange: (visible: boolean) => void;
   onPreferredLanguageChange: (language: string) => void;
-  onAction: (action: ClassroomAction) => void;
+  onAction: (action: ClassroomAction) => Promise<boolean>;
 }) {
   const { t, locale } = useTranslation();
   const [enabled, setEnabled] = useState(runtime.interpretation.enabled);
@@ -2894,6 +2919,7 @@ function CaptionsPanel({
   const [targetLanguages, setTargetLanguages] = useState<string[]>(
     runtime.interpretation.targetLanguages,
   );
+  const [saveState, setSaveState] = useState<"idle" | "saved" | "failed">("idle");
   const configuredProvider = runtime.interpretation.provider;
   const effectiveProvider = availability[configuredProvider]
     ? configuredProvider
@@ -3004,7 +3030,7 @@ function CaptionsPanel({
             <button
               type="button"
               className={enabled ? "is-on" : ""}
-              onClick={() => setEnabled((current) => !current)}
+              onClick={() => { setEnabled((current) => !current); setSaveState("idle"); }}
               aria-pressed={enabled}
             >
               <i />
@@ -3018,6 +3044,7 @@ function CaptionsPanel({
             <select
               value={sourceLanguage}
               onChange={(event) => {
+                setSaveState("idle");
                 setSourceLanguage(event.target.value);
                 setTargetLanguages((current) =>
                   current.filter((language) => language !== event.target.value),
@@ -3050,13 +3077,14 @@ function CaptionsPanel({
                       type="button"
                       className={selected ? "is-selected" : ""}
                       disabled={!selected && targetLanguages.length >= limit}
-                      onClick={() =>
+                      onClick={() => {
+                        setSaveState("idle");
                         setTargetLanguages((current) =>
                           selected
                             ? current.filter((item) => item !== language.code)
                             : [...current, language.code],
-                        )
-                      }
+                        );
+                      }}
                     >
                       {language.nativeLabel}
                     </button>
@@ -3069,20 +3097,21 @@ function CaptionsPanel({
             className="classroom-v3-interpretation-save"
             disabled={busy}
             aria-busy={busy}
-            onClick={() =>
-              onAction({
+            onClick={async () => {
+              const saved = await onAction({
                 type: "setInterpretation",
                 enabled,
                 provider: effectiveProvider,
                 sourceLanguage,
                 targetLanguages,
-              })
-            }
+              });
+              setSaveState(saved ? "saved" : "failed");
+            }}
           >
-            <Languages />
             {busy ? <Loader2 className="animate-spin" /> : <Languages />}
             {t(busy ? "classroom.v3.applyingInterpretation" : "classroom.v3.applyInterpretation")}
           </button>
+          {saveState !== "idle" && <p role="status">{t(saveState === "saved" ? "classroom.v3.interpretationSaved" : "classroom.v3.interpretationSaveFailed")}</p>}
           {runtime.interpretation.error ? (
             <p className="classroom-v3-interpretation-error">
               <AlertCircle />
@@ -3545,7 +3574,7 @@ function DeviceSettings({
   captionDisplayMode: CaptionDisplayMode;
   captionBackgroundMode: CaptionBackgroundMode;
   captionBackgroundColor: string;
-  onRecordingStartModeChange: (mode: "classStart" | "scheduled" | "scheduledEarly") => void;
+  onRecordingStartModeChange: (mode: "classStart" | "scheduled" | "scheduledEarly" | "disabled") => void;
   onCaptionDisplayModeChange: (mode: CaptionDisplayMode) => void;
   onCaptionBackgroundModeChange: (mode: CaptionBackgroundMode) => void;
   onCaptionBackgroundColorChange: (color: string) => void;
@@ -3902,7 +3931,8 @@ function DeviceSettings({
                     <legend>{locale.startsWith("zh") ? "开课与自动录制" : "Class start and recording"}</legend>
                     <label>
                       <span>{locale.startsWith("zh") ? "开始时机" : "Start when"}</span>
-                      <select value={runtime.recordingStartMode} onChange={(event) => onRecordingStartModeChange(event.target.value as "classStart" | "scheduled" | "scheduledEarly")}>
+                      <select value={runtime.recordingStartMode} onChange={(event) => onRecordingStartModeChange(event.target.value as "classStart" | "scheduled" | "scheduledEarly" | "disabled")}>
+                        <option value="disabled">{t("classroom.v3.noRecording")}</option>
                         <option value="classStart">{locale.startsWith("zh") ? "点击开始上课后" : "Class starts"}</option>
                         <option value="scheduled">{locale.startsWith("zh") ? "计划上课时间自动开课" : "At scheduled time"}</option>
                         <option value="scheduledEarly">{locale.startsWith("zh") ? "计划上课前 10 分钟自动开课" : "10 minutes before scheduled time"}</option>
@@ -3966,6 +3996,7 @@ export function ClassroomV3({
   const mediaBusyRef = useRef(new Set<string>());
   const [mediaBusy, setMediaBusy] = useState<string[]>([]);
   const [mediaIntent, setMediaIntent] = useState<{ camera?: boolean; microphone?: boolean }>({});
+  const mobileControls = useSyncExternalStore(subscribeToViewport, readMobileControls, () => false);
   const [dockMoreOpen, setDockMoreOpen] = useState(false);
   const [stageExpanded, setStageExpanded] = useState(false);
   const pendingRuntimeActionRef = useRef(false);
@@ -3988,9 +4019,22 @@ export function ClassroomV3({
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
   const [spaceBusy, setSpaceBusy] = useState(false);
   const signalingRef = useRef<ClassroomSignalingProvider | null>(null);
-  const [activePanel, setActivePanel] = useState<DrawerPanel | null>(
+  const [selectedPanel, setActivePanel] = useState<DrawerPanel | null>(
     isRecorder ? "chat" : null,
   );
+  const activePanel = selectedPanel === "members" && sessionData && !sessionData.capabilities.canManageMembers ? null : selectedPanel;
+  useEffect(() => {
+    if (!dockMoreOpen && !activePanel) return;
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target as Element;
+      if (!target.closest(".classroom-v3-dock-wrap")) setDockMoreOpen(false);
+      if (!target.closest(".classroom-v3-drawer, .classroom-v3-side, .classroom-v3-dock-wrap") && target.closest(".classroom-v3-stage")) setActivePanel(null);
+    };
+    const escape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { setDockMoreOpen(false); setActivePanel(null); } };
+    document.addEventListener("pointerdown", dismiss, true);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", dismiss, true); document.removeEventListener("keydown", escape); };
+  }, [dockMoreOpen, activePanel]);
   const [timerOverlayVisible, setTimerOverlayVisible] = useState(true);
   const [pendingMessages, setPendingMessages] = useState<
     ClassroomMessageSnapshot[]
@@ -4017,6 +4061,20 @@ export function ClassroomV3({
   );
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
+  const rewardCountsRef = useRef<Map<string, number> | null>(null);
+  const [awardNotice, setAwardNotice] = useState<{ id: number; names: string[] } | null>(null);
+  useEffect(() => {
+    if (!sessionData) return;
+    const previous = rewardCountsRef.current;
+    const recipients = sessionData.runtime.members.filter((member) => previous?.has(member.userId) && member.rewardCount > (previous.get(member.userId) ?? 0));
+    rewardCountsRef.current = new Map(sessionData.runtime.members.map((member) => [member.userId, member.rewardCount]));
+    if (recipients.length) setAwardNotice({ id: Date.now(), names: recipients.map((member) => member.displayName) });
+  }, [sessionData]);
+  useEffect(() => {
+    if (!awardNotice) return;
+    const timer = window.setTimeout(() => setAwardNotice(null), 3_200);
+    return () => window.clearTimeout(timer);
+  }, [awardNotice]);
   const screenShareSupported = useSyncExternalStore(
     subscribeToBrowserCapabilities,
     readScreenShareSupport,
@@ -4122,23 +4180,26 @@ export function ClassroomV3({
     return () => window.cancelAnimationFrame(frame);
   }, [recordingStopConfirming]);
 
+  const recorderCanRelease = Boolean(isRecorder && sessionData && shouldNotifyRecorderReady({
+    pageReady: loadingState === "ready",
+    mediaConnected: media.connectionState === "connected",
+    whiteboardEnabled: sessionData.whiteboard.enabled,
+    whiteboardReady,
+    whiteboardRequired:
+      ((classinLayout && sessionData.mode !== "publicLive") || sessionData.runtime.stageMode === "whiteboard") &&
+      !media.participants.some((participant) => participant.kind === "screen" && participant.hasVideo),
+  }));
   useEffect(() => {
-    if (
-      !isRecorder ||
-      recorderReleasedRef.current ||
-      !sessionData ||
-      !shouldNotifyRecorderReady({
-        pageReady: loadingState === "ready",
-        mediaConnected: media.connectionState === "connected",
-        whiteboardEnabled: sessionData?.whiteboard.enabled ?? false,
-        whiteboardReady,
-      })
-    ) {
-      return;
-    }
+    if (!recorderCanRelease || recorderReleasedRef.current || !recordingId || !recorderToken) return;
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const notify = async () => {
+      if (cancelled) return;
+      const surface = stageElementRef.current?.closest<HTMLElement>(".classroom-v3-shell");
+      if (!surface || !recorderVideosHaveFrames(surface)) {
+        retryTimer = setTimeout(() => void notify(), 500);
+        return;
+      }
       const recorderNavigator = window.navigator as Navigator & {
         notifyReady?: () => void;
       };
@@ -4146,7 +4207,6 @@ export function ClassroomV3({
         recorderReadyNotifiedRef.current = true;
         recorderNavigator.notifyReady?.();
       }
-      if (!recordingId || !recorderToken) return;
       try {
         const response = await fetch("/api/classroom/recorder/ready", {
           method: "POST",
@@ -4154,7 +4214,9 @@ export function ClassroomV3({
           body: JSON.stringify({ sessionId: courseId, recordingId, recorderToken }),
         });
         if (cancelled) return;
-        if (response.ok) {
+        const acknowledgment = response.ok ? await response.json() as { state?: unknown } : null;
+        if (cancelled) return;
+        if (isRecorderReadyAcknowledged(response.status, acknowledgment?.state)) {
           recorderReleasedRef.current = true;
           return;
         }
@@ -4164,21 +4226,17 @@ export function ClassroomV3({
       }
       if (!cancelled) retryTimer = setTimeout(() => void notify(), 1_500);
     };
-    const frame = window.requestAnimationFrame(() => void notify());
+    // Let remote subscriptions mount and decode before releasing on-hold capture.
+    retryTimer = setTimeout(() => void notify(), 1_000);
     return () => {
       cancelled = true;
-      window.cancelAnimationFrame(frame);
       if (retryTimer) clearTimeout(retryTimer);
     };
   }, [
     courseId,
-    isRecorder,
-    loadingState,
-    media.connectionState,
+    recorderCanRelease,
     recordingId,
     recorderToken,
-    sessionData,
-    whiteboardReady,
   ]);
 
   const handleWhiteboardControllerChange = useCallback(
@@ -4708,17 +4766,18 @@ export function ClassroomV3({
     }, 30_000);
     try {
       if (isRecorder) {
-        const payload = await fetchInitialSession();
-        if (controller.signal.aborted || requestId !== refreshRequestIdRef.current) return;
-        updateSession({
-          runtime: payload.runtime,
-          engagement: payload.engagement,
-          courseware: payload.courseware,
-          messages: payload.messages,
-          captions: payload.captions,
-          whiteboard: payload.whiteboard,
-          recording: payload.recording,
+        const response = await fetch("/api/classroom/recorder/state", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId: courseId, recordingId, recorderToken }),
+          cache: "no-store",
+          signal: controller.signal,
         });
+        if (!response.ok) throw new Error(`Recorder state refresh failed (${response.status})`);
+        const payload = await response.json() as Pick<ClassroomSessionResponse, "runtime" | "engagement" | "courseware" | "recording">;
+        if (controller.signal.aborted || requestId !== refreshRequestIdRef.current) return;
+        // Content changes must not replace RTC or whiteboard join credentials.
+        updateSession(payload);
         setRecordingStatus(payload.recording.status);
         setRecordingFallback(payload.recording.fallbackFrom);
         return;
@@ -4761,8 +4820,9 @@ export function ClassroomV3({
     }
   }, [
     courseId,
-    fetchInitialSession,
     isRecorder,
+    recordingId,
+    recorderToken,
     shareAccess,
     updateSession,
   ]);
@@ -4852,8 +4912,8 @@ export function ClassroomV3({
       recordingStatus || "",
     )
       ? 2_000
-      : 1_500;
-    const timer = window.setInterval(() => void refreshState(), interval);
+      : 5_000;
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refreshState(); }, interval);
     return () => {
       window.clearTimeout(initialRefresh);
       window.clearInterval(timer);
@@ -5151,11 +5211,10 @@ export function ClassroomV3({
   useEffect(() => {
     const whiteboardPending = whiteboardCredentialError === "whiteboard_pending" || Boolean(whiteboardCredentialError);
     const studentPermissionChanged =
-      whiteboardCredentialRole === "student" &&
+      !isRecorder && whiteboardCredentialRole === "student" &&
       memberWhiteboardWritable !== undefined &&
       memberWhiteboardWritable !== whiteboardCredentialWritable;
     if (
-      isRecorder ||
       loadingState !== "ready" ||
       !courseId ||
       (!whiteboardPending && !studentPermissionChanged)
@@ -5171,6 +5230,7 @@ export function ClassroomV3({
       body: JSON.stringify({
         sessionId: courseId,
         ...(shareAccess && { shareAccess }),
+        ...(isRecorder && { recordingId, recorderToken }),
       }),
     })
       .then(async (response) => {
@@ -5213,6 +5273,8 @@ export function ClassroomV3({
     isRecorder,
     loadingState,
     memberWhiteboardWritable,
+    recordingId,
+    recorderToken,
     shareAccess,
     t,
     updateSession,
@@ -5232,7 +5294,7 @@ export function ClassroomV3({
   const performAction = useCallback(
     async (action: ClassroomAction) => {
       if (!courseId || !sessionRef.current || isRecorder ||
-        (actionBusy && action.type !== "updateBoardItem")) {
+        (pendingRuntimeActionRef.current && action.type !== "updateBoardItem")) {
         return false;
       }
       pendingRuntimeActionRef.current = true;
@@ -5272,30 +5334,15 @@ export function ClassroomV3({
       }
       const optimisticRuntime = optimisticClassroomRuntime(sessionRef.current.runtime, action, sessionRef.current.credential.userId);
       if (optimisticRuntime) updateSession({ runtime: optimisticRuntime });
+      let confirmedRuntime: ClassroomRuntimeSnapshot | undefined;
       setActionBusy(action.type);
       setActionError("");
       try {
-        const response = await fetch(
+        const { response, payload } = await requestClassroomAction(
           `/api/sessions/${encodeURIComponent(courseId)}/classroom/actions`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              clientId: clientId,
-              action,
-              ...(action.type !== "submitBuzz" &&
-                action.type !== "updateBoardItem" && {
-                expectedRevision: sessionRef.current.runtime.revision,
-              }),
-              ...(shareAccess && { shareAccess }),
-            }),
-          },
+          { clientId, action, expectedRevision: originalRuntime.revision, ...(shareAccess && { shareAccess }) },
         );
-        const payload = (await response.json()) as {
-          error?: string;
-          runtime?: ClassroomRuntimeSnapshot;
-          engagement?: ClassroomSessionResponse["engagement"];
-        };
+        confirmedRuntime = payload.runtime;
         if (!response.ok) {
           if (payload.runtime || payload.engagement) {
             updateSession({
@@ -5304,7 +5351,7 @@ export function ClassroomV3({
             });
           }
           throw new Error(
-            payload.error || t("classroom.v3.classroomActionFailed"),
+            payload.code === "database_unavailable" ? t("classroom.v3.databaseRetryFailed") : payload.error || t("classroom.v3.classroomActionFailed"),
           );
         }
         if (payload.runtime) {
@@ -5329,7 +5376,7 @@ export function ClassroomV3({
         }
         return true;
       } catch (error) {
-        if (optimisticComposition || optimisticRuntime) updateSession({ runtime: originalRuntime });
+        if (!confirmedRuntime && (optimisticComposition || optimisticRuntime)) updateSession({ runtime: originalRuntime });
         pendingRuntimeActionRef.current = false;
         void refreshState();
         setActionError(
@@ -5344,7 +5391,6 @@ export function ClassroomV3({
       }
     },
     [
-      actionBusy,
       clientId,
       courseId,
       isRecorder,
@@ -6027,6 +6073,12 @@ export function ClassroomV3({
       sessionData?.runtime.stageMode === "whiteboard",
   );
   const showWhiteboard = Boolean(!screenParticipant && whiteboardStageEnabled);
+  const recorderCameras = isRecorder ? recorderCameraParticipants(
+    media.participants,
+    sessionData?.runtime.members ?? [],
+    compositionBoardItems.filter((item) => !hiddenBoardItemIds.has(item.id)),
+    !showWhiteboard,
+  ) : [];
   const useMediaGallery = Boolean(
     !screenParticipant &&
       !showWhiteboard &&
@@ -6248,7 +6300,7 @@ export function ClassroomV3({
     ? captionTranslation(latestCaption, effectiveCaptionLanguage)
     : "";
   const visibleDrawerPanels: DrawerPanel[] = [
-    ...(sessionData?.modePolicy.showMemberRoster && (sessionData.credential.role !== "assistant" || sessionData.capabilities.canManageMembers)
+    ...(sessionData?.modePolicy.showMemberRoster && sessionData.capabilities.canManageMembers
       ? (["members"] as DrawerPanel[])
       : []),
     ...(sessionData?.modePolicy.allowBreakouts
@@ -6308,6 +6360,7 @@ export function ClassroomV3({
       data-runtime-status={sessionData.runtime.status}
       data-classroom-mode={sessionData.mode}
       data-composite-source={isRecorder ? "whiteboard-stage" : undefined}
+      data-recorder-cameras={isRecorder && recorderCameras.length > 0}
     >
       <header className="classroom-v3-topbar">
         <div className="classroom-v3-course-identity">
@@ -6355,7 +6408,6 @@ export function ClassroomV3({
         </div>
         {!isRecorder && (
           <div className="classroom-v3-top-actions">
-            {sessionData.credential.role === "teacher" && <button type="button" className="classroom-v3-header-leave" title={t("classroom.v3.leaveTemporarily")} onClick={leaveClassroom}><LogOut /></button>}
             <span
               className={`classroom-v3-role-context is-${sessionData.credential.role}`}
               title={
@@ -6407,6 +6459,7 @@ export function ClassroomV3({
                 </button>
               </>
             )}
+            {sessionData.credential.role === "teacher" && <button type="button" className="classroom-v3-header-leave" title={t("classroom.v3.leaveTemporarily")} onClick={leaveClassroom}><LogOut /></button>}
             {sessionData.capabilities.canStartClass &&
               sessionData.runtime.status === "waiting" && (
                 <button
@@ -6449,7 +6502,7 @@ export function ClassroomV3({
                   }
                   disabled={
                     Boolean(actionBusy) ||
-                    (!sessionData.recording.enabled &&
+                    ((!sessionData.recording.enabled || sessionData.runtime.recordingStartMode === "disabled") &&
                       !["starting", "recording"].includes(recordingStatus || "")) ||
                     recordingStatus === "stopping"
                   }
@@ -6457,7 +6510,9 @@ export function ClassroomV3({
                   title={
                     ["starting", "recording"].includes(recordingStatus || "")
                       ? t("classroom.v3.stopRecording")
-                      : sessionData.recording.enabled
+                      : sessionData.runtime.recordingStartMode === "disabled"
+                        ? t("classroom.v3.noRecording")
+                        : sessionData.recording.enabled
                         ? t("classroom.v3.startRecording")
                         : t("classroom.v3.recordingNotConfigured")
                   }
@@ -6499,7 +6554,7 @@ export function ClassroomV3({
         )}
       </header>
 
-      {(sessionData.modePolicy.showLiveRail ||
+      {!isRecorder && (sessionData.modePolicy.showLiveRail ||
         (classinLayout && sessionData.mode !== "publicLive")) && (
         <LiveRail
           members={sessionData.runtime.members}
@@ -6577,6 +6632,16 @@ export function ClassroomV3({
           }
           previewPlacesOnBoard={classinLayout}
         />
+      )}
+
+      {isRecorder && mediaProvider && recorderCameras.length > 0 && (
+        <section className="classroom-v3-recorder-cameras" aria-label={t("classroom.v3.stageSeats")}>
+          {recorderCameras.map((participant) => (
+            <div className="classroom-v3-recorder-camera" key={participant.id}>
+              <MediaSurface participant={participant} provider={mediaProvider} displayName={decorateParticipant(participant).displayName} />
+            </div>
+          ))}
+        </section>
       )}
 
       <section className="classroom-v3-workspace" data-panel-open={Boolean(activePanel)}>
@@ -7030,6 +7095,8 @@ export function ClassroomV3({
 
         <section
           className={`classroom-v3-side ${activePanel ? "is-open" : ""}`}
+          data-board-writable={showWhiteboard && sessionData.whiteboard.writable}
+          data-panel-open={Boolean(activePanel)}
           onPointerEnter={wakeToolRail}
           onFocusCapture={wakeToolRail}
         >
@@ -7039,6 +7106,7 @@ export function ClassroomV3({
               onChange={setActivePanel}
               visiblePanels={visibleDrawerPanels}
               whiteboardActive={showWhiteboard}
+              canDraw={showWhiteboard && sessionData.whiteboard.writable}
               canShareScreen={isScreenShareAllowed && (screenShareSupported || controlMedia.local.screenSharing)}
               screenSharing={controlMedia.local.screenSharing}
               onOpenWhiteboard={openWhiteboard}
@@ -7050,7 +7118,7 @@ export function ClassroomV3({
               whiteboardController={whiteboardController}
               whiteboardTool={whiteboardTool}
               onWhiteboardToolChange={setWhiteboardTool}
-              railLevel={toolRailLevel}
+              railLevel={mobileControls && sessionData.whiteboard.writable ? "expanded" : toolRailLevel}
               onInteract={wakeToolRail}
               canManageStage={
                 sessionData.capabilities.canManageStage && !isRecorder
@@ -7092,6 +7160,7 @@ export function ClassroomV3({
                     members={sessionData.runtime.members}
                     canManage={sessionData.capabilities.canManageMembers}
                     canRequestScreenShare={sessionData.modePolicy.studentCanShareWhenOnStage}
+                    busy={actionBusy}
                     onAction={(action) => void performAction(action)}
                   />
                 )}
@@ -7149,17 +7218,13 @@ export function ClassroomV3({
                     disabled={chatDisabled}
                     onSend={sendMessage}
                     onDelete={(messageId) => void deleteMessage(messageId)}
+                    busy={Boolean(actionBusy)}
+                    onMuteAll={(muted) => void performAction({ type: "muteAll", muted })}
                   />
                 )}
                 {activePanel === "captions" && (
                   <CaptionsPanel
                     busy={actionBusy === "setInterpretation"}
-                    key={[
-                      sessionData.runtime.interpretation.enabled,
-                      sessionData.runtime.interpretation.provider,
-                      sessionData.runtime.interpretation.sourceLanguage,
-                      ...sessionData.runtime.interpretation.targetLanguages,
-                    ].join(":")}
                     runtime={sessionData.runtime}
                     captions={sessionData.captions}
                     availability={sessionData.interpretationAvailability}
@@ -7183,6 +7248,7 @@ export function ClassroomV3({
                         const preferred = action.targetLanguages[0];
                         if (preferred) setCaptionLanguage(preferred);
                       }
+                      return applied;
                     }}
                   />
                 )}
@@ -7480,7 +7546,7 @@ export function ClassroomV3({
                   }
                   disabled={
                     Boolean(actionBusy) ||
-                    (!sessionData.recording.enabled &&
+                    ((!sessionData.recording.enabled || sessionData.runtime.recordingStartMode === "disabled") &&
                       !["starting", "recording"].includes(recordingStatus || "")) ||
                     recordingStatus === "stopping"
                   }
@@ -7488,7 +7554,9 @@ export function ClassroomV3({
                   title={
                     ["starting", "recording"].includes(recordingStatus || "")
                       ? t("classroom.v3.stopRecording")
-                      : sessionData.recording.enabled
+                      : sessionData.runtime.recordingStartMode === "disabled"
+                        ? t("classroom.v3.noRecording")
+                        : sessionData.recording.enabled
                         ? t("classroom.v3.startRecording")
                         : t("classroom.v3.recordingNotConfigured")
                   }
@@ -7520,7 +7588,7 @@ export function ClassroomV3({
             )}
             <button type="button" onClick={toggleFullscreen} title={t("classroom.v3.fullscreen")}><Expand /><span>{t("classroom.v3.fullscreen")}</span></button>
             <button type="button" className="is-dock-secondary" onClick={() => void runMediaAction("recover", (provider) => provider.recoverMedia(true))}><RefreshCw /><span>{t("classroom.v3.resetMedia")}</span></button>
-            <button type="button" className="is-dock-more" aria-expanded={dockMoreOpen} onClick={() => setDockMoreOpen((value) => !value)}><MoreHorizontal /><span>{t("classroom.v3.more")}</span></button>
+            <button type="button" className={`is-dock-more ${dockMoreOpen ? "is-active" : ""}`} aria-expanded={dockMoreOpen} onClick={() => setDockMoreOpen((value) => !value)}><MoreHorizontal /><span>{t("classroom.v3.more")}</span></button>
             <span className="classroom-v3-dock-divider" />
             <button
               type="button"
@@ -7573,6 +7641,12 @@ export function ClassroomV3({
       </AnimatePresence>
 
       <AnimatePresence>
+        {awardNotice && !isRecorder && <motion.div key={awardNotice.id} className="classroom-v3-award-notice" role="status" initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
+          <div className="classroom-v3-award-symbol" aria-hidden="true"><Trophy />{Array.from({ length: 8 }, (_, index) => <i key={index} style={{ "--award-angle": `${index * 45}deg` } as CSSProperties} />)}</div>
+          <strong>{t("classroom.v3.awardReceived")}</strong><span>{awardNotice.names.join(" · ")}</span>
+        </motion.div>}
+      </AnimatePresence>
+      <AnimatePresence>
         {!isRecorder &&
           currentMember?.screenShareState === "requested" && (
             <motion.div
@@ -7585,7 +7659,7 @@ export function ClassroomV3({
               <div>
                 <small>{t("classroom.v3.screenShareRequestEyebrow")}</small>
                 <strong>{t("classroom.v3.screenShareRequestTitle")}</strong>
-                <p>{t("classroom.v3.screenShareRequestHint")}</p>
+                <p>{t(screenShareSupported ? "classroom.v3.screenShareRequestHint" : "classroom.v3.screenShareBrowserUnsupported")}</p>
               </div>
               <button
                 type="button"
@@ -7596,9 +7670,12 @@ export function ClassroomV3({
               <button
                 type="button"
                 className="is-accept"
-                onClick={() => void performAction({ type: "acceptScreenShare" })}
+                onClick={() => {
+                  if (!screenShareSupported) { void performAction({ type: "declineScreenShare" }); return; }
+                  void performAction({ type: "acceptScreenShare" });
+                }}
               >
-                {t("classroom.v3.accept")}
+                {t(screenShareSupported ? "classroom.v3.accept" : "classroom.v3.close")}
               </button>
             </motion.div>
           )}

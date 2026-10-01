@@ -64,6 +64,14 @@ export const fr = {
     verifyingAccess: "Vérification des accès...",
     initializing: "Initialisation de la classe...",
     v3: {
+      databaseRetryFailed: "La base de données est temporairement indisponible. Réessayez dans un instant.",
+      noRecording: "Ne pas enregistrer",
+      unmuteAllMicrophones: "Autoriser tous les élèves à parler",
+      unmuteAllChat: "Réactiver toutes les discussions",
+      awardReceived: "Trophée attribué",
+      interpretationSaved: "Paramètres enregistrés. Vérifiez le statut ci-dessus.",
+      interpretationSaveFailed: "Échec de l’enregistrement. Vos choix sont conservés. Réessayez.",
+
       more: "Plus",
       resetMedia: "Réinitialiser audio et vidéo",
       giveTrophy: "Offrir un trophée",

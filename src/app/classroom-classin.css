@@ -23,8 +23,8 @@
 }
 
 /* Agora's web recorder captures this route as one composited surface.
-   Fastboard is the base layer and board composition supplies camera and
-   courseware overlays, so chrome must stay outside the recorded frame. */
+   Keep the podium cameras alongside the stage; board composition may supply
+   additional overlays, while classroom controls stay outside the frame. */
 .classroom-v3-shell.is-classin-layout.is-recorder {
   width: 100vw;
   height: 100vh;
@@ -48,6 +48,51 @@
   height: 100vh;
   padding: 0;
   background: #05080b;
+}
+
+.classroom-v3-shell.is-classin-layout.is-recorder[data-recorder-cameras="true"] {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.classroom-v3-shell.is-classin-layout.is-recorder[data-recorder-cameras="true"] .classroom-v3-workspace {
+  height: auto;
+  min-height: 0;
+}
+
+.classroom-v3-recorder-cameras {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px;
+  background: #05080b;
+}
+
+.classroom-v3-recorder-camera {
+  position: relative;
+  width: 160px;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.classroom-v3-recorder-camera .classroom-v3-media {
+  width: 100%;
+  height: 100%;
+}
+
+.classroom-v3-recorder-camera .classroom-v3-media-caption {
+  right: 4px;
+  bottom: 4px;
+  left: 4px;
+  min-width: 0;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.classroom-v3-recorder-camera .classroom-v3-media-caption span:last-child {
+  display: none;
 }
 
 .classroom-v3-shell.is-classin-layout.is-recorder .classroom-v3-stage,
@@ -1148,7 +1193,7 @@
   }
 
   .is-classin-layout .classroom-v3-drawer-close,
-  .is-classin-layout .classroom-v3-tool-popover > button:last-child {
+  .is-classin-layout .classroom-v3-tool-popover-close {
     width: 44px;
     height: 44px;
   }
@@ -1257,4 +1302,81 @@
     padding-inline: 3px;
   }
   .is-classin-layout .classroom-v3-dock button > span { max-width: 100%; white-space: nowrap; }
+}
+
+/* Feedback follow-up: preserve stage size and keep touch controls reachable. */
+.is-classin-layout .classroom-v3-tool-popover.is-brush { padding-top: 16px; }
+.is-classin-layout .classroom-v3-tool-popover-header { padding-inline-end: 40px; }
+.is-classin-layout .classroom-v3-tool-popover-close {
+  position: absolute; inset: 6px 6px auto auto; width: 36px; height: 36px;
+  display: grid; place-items: center; margin: 0;
+}
+.is-classin-layout .classroom-v3-workspace[data-panel-open="true"] .fastboard-bottom-right { visibility: hidden; pointer-events: none; }
+.is-classin-layout .classroom-v3-board-canvas .fastboard-bottom-right { right: 64px; }
+.is-classin-layout .classroom-v3-bulk-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.classroom-v3-bulk-actions button {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  flex: 1 1 140px; min-height: 44px; padding: 8px;
+  border: 1px solid var(--classroom-mist); border-radius: 8px;
+  color: var(--classroom-frost); background: var(--classroom-panel-raised); font-size: 12px;
+}
+.classroom-v3-bulk-actions svg { width: 16px; height: 16px; flex-shrink: 0; }
+html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-dock > .is-dock-more {
+  opacity: 1; color: var(--classroom-frost); pointer-events: auto;
+}
+html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-dock > .is-dock-more.is-active { color: var(--classroom-iris, #a99ff9); background: var(--classroom-panel-raised); }
+.classroom-v3-award-notice {
+  position: fixed; z-index: 95; inset: 35% auto auto 50%; translate: -50% 0;
+  display: grid; justify-items: center; gap: 8px; width: min(320px, calc(100vw - 32px));
+  padding: 24px; border-radius: 16px; color: var(--classroom-frost);
+  background: var(--classroom-panel); box-shadow: 0 14px 40px rgb(0 0 0 / 0.24); pointer-events: none;
+}
+.classroom-v3-award-notice > strong { font-size: 22px; }
+.classroom-v3-award-notice > span { max-width: 100%; text-align: center; overflow-wrap: anywhere; }
+.classroom-v3-award-symbol { position: relative; width: 96px; height: 96px; display: grid; place-items: center; color: #d99c23; }
+.classroom-v3-award-symbol > svg { width: 64px; height: 64px; animation: classroom-award-trophy 650ms cubic-bezier(0.16, 1, 0.3, 1); }
+.classroom-v3-award-symbol > i { position: absolute; width: 5px; height: 12px; border-radius: 2px; background: #d99c23; animation: classroom-award-burst 850ms cubic-bezier(0.16, 1, 0.3, 1) both; transform: rotate(var(--award-angle)) translateY(-44px); }
+@keyframes classroom-award-trophy { from { transform: rotate(-14deg) scale(0.55); } 60% { transform: rotate(8deg) scale(1.1); } to { transform: rotate(0) scale(1); } }
+@keyframes classroom-award-burst { from { opacity: 0; transform: rotate(var(--award-angle)) translateY(-20px) scale(0.2); } 40% { opacity: 1; } to { opacity: 0; transform: rotate(var(--award-angle)) translateY(-65px) scale(0.8); } }
+@media (max-width: 1024px) {
+  html[lang] .classroom-v3-shell.is-classin-layout.is-rail-collapsed:not(.is-mode-publicLive):not(.is-recorder) { grid-template-rows: 44px 32px minmax(0, 1fr) calc(66px + env(safe-area-inset-bottom)); }
+  html[lang] .is-classin-layout .classroom-v3-live-rail[data-collapsed="true"] { height: 32px; min-height: 32px; }
+  html[lang] .is-classin-layout .classroom-v3-workspace { display: block; padding-top: 4px; }
+  html[lang] .is-classin-layout .classroom-v3-stage { height: 100%; min-height: 0; }
+  html[lang] .is-classin-layout .classroom-v3-workspace[data-panel-open="true"] .classroom-v3-drawer[data-panel] {
+    position: fixed; inset: 52px 8px calc(76px + env(safe-area-inset-bottom));
+    width: auto; height: auto; max-height: none; border-radius: 12px;
+  }
+  .is-classin-layout .classroom-v3-drawer .classroom-v3-panel-heading { padding-inline-end: 48px; min-height: 52px; }
+  .is-classin-layout .classroom-v3-drawer .classroom-v3-panel-heading h2 { font-size: 20px; }
+  .is-classin-layout .classroom-v3-drawer .classroom-v3-panel-body { padding: 16px; }
+  .is-classin-layout .classroom-v3-drawer .classroom-v3-chat-form input { font-size: 16px; }
+  html[lang] .is-classin-layout .classroom-v3-side[data-board-writable="true"] {
+    position: absolute; z-index: 40; inset: auto 12px 12px; display: block; width: auto; height: 52px;
+    border: 0; background: transparent; pointer-events: none;
+  }
+  html[lang] .is-classin-layout .classroom-v3-side[data-panel-open="true"] { display: none; }
+  html[lang] .is-classin-layout .classroom-v3-side[data-board-writable="true"] .classroom-v3-tool-rail {
+    display: flex; width: 100%; height: 52px; padding: 4px; border-radius: 10px;
+    background: var(--classroom-panel); pointer-events: auto;
+  }
+  html[lang] .is-classin-layout .classroom-v3-side .classroom-v3-board-tools { display: flex; flex-direction: row; width: 100%; gap: 4px; margin: 0; overflow-x: auto; }
+  html[lang] .is-classin-layout .classroom-v3-side .classroom-v3-tool-rail > :not(.classroom-v3-board-tools) { display: none; }
+  html[lang] .is-classin-layout .classroom-v3-side .classroom-v3-board-tools button { width: 44px; height: 44px; min-width: 44px; flex-shrink: 0; }
+  html[lang] .is-classin-layout .classroom-v3-side .classroom-v3-tool-popover { inset: auto 0 60px auto; top: auto !important; width: min(280px, calc(100vw - 24px)); max-width: 100%; transform: none; pointer-events: auto; }
+  html[lang] .is-classin-layout .classroom-v3-side .classroom-v3-tool-popover::after { display: none; }
+  .is-classin-layout .classroom-v3-board-canvas .fastboard-bottom-right { right: 8px; }
+  .is-classin-layout .classroom-v3-invite.is-screen-share { gap: 8px; }
+  .is-classin-layout .classroom-v3-invite.is-screen-share p { display: block; font-size: 12px; line-height: 1.5; }
+  .is-classin-layout .classroom-v3-invite.is-screen-share > button { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) { .classroom-v3-award-symbol > :is(svg, i) { animation: none; } .classroom-v3-award-symbol > i { display: none; } }
+html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-tool-popover-close {
+  position: absolute; inset: 6px 6px auto auto; margin: 0;
+}
+@media (max-width: 1024px) {
+  html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-side[data-board-writable="true"] .classroom-v3-tool-rail {
+    position: static; inset: auto; transform: none; flex-direction: row; overflow: hidden;
+  }
+  html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-side .classroom-v3-board-tools { padding-bottom: 0; height: 44px; }
 }

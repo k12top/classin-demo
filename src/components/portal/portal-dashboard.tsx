@@ -20,6 +20,7 @@ import {
 import { canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
 import styles from "./portal-dashboard.module.css";
+import { formatTimeUntilClass } from "@/lib/classroom/countdown";
 
 export type PortalCourse = {
   id: string;
@@ -189,15 +190,14 @@ function countdownLabel(
   course: PortalCourse | undefined,
   now: Date,
   copy: ReturnType<typeof copyFor>,
+  locale: string,
 ) {
   if (!course) return "—";
   if (course.status === "live") return copy.liveNow;
   if (!course.startTime) return "—";
   const diff = new Date(course.startTime).getTime() - now.getTime();
   if (diff <= 0) return copy.ready;
-  const hours = Math.floor(diff / 3_600_000);
-  const minutes = Math.max(0, Math.floor((diff % 3_600_000) / 60_000));
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  return formatTimeUntilClass(diff, locale);
 }
 
 export function PortalDashboardHero({
@@ -324,7 +324,7 @@ export function PortalDashboardHero({
             <small>
               {nextCourse?.status === "live" ? copy.live : copy.countdown}
             </small>
-            <strong>{countdownLabel(nextCourse, now, copy)}</strong>
+            <strong>{countdownLabel(nextCourse, now, copy, locale)}</strong>
             <p>
               {nextCourse
                 ? copy.status[nextCourse.status] || nextCourse.status

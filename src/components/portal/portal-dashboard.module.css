@@ -1053,3 +1053,5 @@
     animation: none;
   }
 }
+
+.countdown strong { font-family: inherit; font-size: clamp(24px, 3vw, 42px); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; line-height: 1.25; }

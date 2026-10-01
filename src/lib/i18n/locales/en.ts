@@ -70,6 +70,14 @@ export const en: typeof zhCN = {
     verifyingAccess: "Verifying access permissions...",
     initializing: "Initializing classroom...",
     v3: {
+      databaseRetryFailed: "The database is temporarily unavailable. Please try again shortly.",
+      noRecording: "No recording",
+      unmuteAllMicrophones: "Allow all students to speak",
+      unmuteAllChat: "Unmute all chat",
+      awardReceived: "Trophy awarded",
+      interpretationSaved: "Settings saved. Check the interpretation status above.",
+      interpretationSaveFailed: "Settings were not saved. Your selections are kept; try again.",
+
       more: "More",
       resetMedia: "Reset media",
       giveTrophy: "Give trophy",

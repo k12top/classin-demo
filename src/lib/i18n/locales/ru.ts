@@ -64,6 +64,14 @@ export const ru = {
     verifyingAccess: "Проверка прав доступа...",
     initializing: "Инициализация класса...",
     v3: {
+      databaseRetryFailed: "База данных временно недоступна. Повторите попытку немного позже.",
+      noRecording: "Без записи",
+      unmuteAllMicrophones: "Разрешить всем ученикам говорить",
+      unmuteAllChat: "Разрешить чат всем",
+      awardReceived: "Получен кубок",
+      interpretationSaved: "Настройки сохранены. Проверьте статус перевода выше.",
+      interpretationSaveFailed: "Не удалось сохранить. Выбор сохранён. Повторите попытку.",
+
       more: "Ещё",
       resetMedia: "Сбросить аудио и видео",
       giveTrophy: "Вручить кубок",

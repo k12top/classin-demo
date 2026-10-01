@@ -298,7 +298,7 @@ export type ClassroomRuntimeSnapshot = {
   assistantPermissions?: Record<string, boolean>;
   revision: number;
   status: "waiting" | "live" | "ended";
-  recordingStartMode: "classStart" | "scheduled" | "scheduledEarly";
+  recordingStartMode: "classStart" | "scheduled" | "scheduledEarly" | "disabled";
   startedAt: string | null;
   graceEndsAt: string | null;
   stageMode: ClassroomStageMode;
@@ -398,7 +398,7 @@ export type ClassroomAction =
   | { type: "heartbeat" }
   | { type: "setAssistantPermission"; targetUserId: string; allowed: boolean }
   | { type: "startClass" }
-  | { type: "setRecordingStartMode"; mode: "classStart" | "scheduled" | "scheduledEarly" }
+  | { type: "setRecordingStartMode"; mode: "classStart" | "scheduled" | "scheduledEarly" | "disabled" }
   | { type: "raiseHand" }
   | { type: "lowerHand" }
   | { type: "inviteStage"; targetUserId: string }
@@ -445,6 +445,7 @@ export type ClassroomAction =
   | { type: "deauthorizeAll" }
   | { type: "removeAllStudentsFromStage" }
   | { type: "muteAllMicrophones" }
+  | { type: "unmuteAllMicrophones" }
   | {
       type: "setStage";
       mode: ClassroomStageMode;

@@ -4,6 +4,7 @@ import type { ClassroomAction, ClassroomRuntimeSnapshot } from "./types";
 export function optimisticClassroomRuntime(runtime: ClassroomRuntimeSnapshot, action: ClassroomAction, actorId: string): ClassroomRuntimeSnapshot | null {
  const patchMember = (userId: string, patch: Partial<ClassroomRuntimeSnapshot["members"][number]>) => ({ ...runtime, members: runtime.members.map((member) => member.userId === userId ? { ...member, ...patch } : member) });
  switch (action.type) {
+  case "setRecordingStartMode": return { ...runtime, recordingStartMode: action.mode };
   case "setWhiteboardWritable": return patchMember(action.targetUserId, { whiteboardWritable: action.writable });
   case "setMediaAllowed": return patchMember(action.targetUserId, { microphoneAllowed: action.microphoneAllowed, cameraAllowed: action.cameraAllowed });
   case "setMemberMuted": return patchMember(action.targetUserId, { chatMuted: action.muted });
@@ -15,8 +16,10 @@ export function optimisticClassroomRuntime(runtime: ClassroomRuntimeSnapshot, ac
   case "resetComposition": return { ...runtime, composition: emptyClassroomComposition() };
   case "startTimer": return { ...runtime, timerStartedAt: new Date().toISOString(), timerPausedAt: null, timerDurationSec: action.durationSec };
   case "resetTimer": return { ...runtime, timerStartedAt: null, timerPausedAt: null, timerDurationSec: null };
-  case "giveReward": return { ...runtime, members: runtime.members.map(member => action.targetUserIds.includes(member.userId) ? { ...member, rewardCount: member.rewardCount + 1 } : member) };
+  // Rewards are celebrated only after the server confirms the award.
+  case "giveReward": return null;
   case "muteAll": return { ...runtime, members: runtime.members.map(member => member.role === "student" ? { ...member, chatMuted: action.muted } : member) };
+  case "unmuteAllMicrophones": return { ...runtime, members: runtime.members.map(member => member.role === "student" ? { ...member, microphoneAllowed: true } : member) };
   case "muteAllMicrophones": return { ...runtime, members: runtime.members.map(member => member.role === "student" ? { ...member, microphoneAllowed: false } : member) };
   case "authorizeAllOnStage": return { ...runtime, members: runtime.members.map(member => member.role === "student" && member.onStage ? { ...member, whiteboardWritable: true } : member) };
   case "deauthorizeAll": return { ...runtime, members: runtime.members.map(member => member.role === "student" ? { ...member, whiteboardWritable: false } : member) };

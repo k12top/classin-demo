@@ -175,8 +175,11 @@ export async function POST(
     if (action === "start") {
       const runtimeState = await prisma.classroomRuntime.findUnique({
         where: { sessionId: lesson.id },
-        select: { status: true },
+        select: { status: true, recordingStartMode: true },
       });
+      if (runtimeState?.recordingStartMode === "disabled") {
+        return NextResponse.json({ error: "当前课堂设置为不录制，请先修改录制设置" }, { status: 409 });
+      }
       if (runtimeState?.status !== "live") {
         return NextResponse.json(
           { error: "开始上课后才能录制" },

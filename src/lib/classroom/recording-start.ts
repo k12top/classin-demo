@@ -1,7 +1,7 @@
-export type RecordingStartMode = "classStart" | "scheduled" | "scheduledEarly";
+export type RecordingStartMode = "classStart" | "scheduled" | "scheduledEarly" | "disabled";
 
 export function normalizeRecordingStartMode(mode: string): RecordingStartMode {
-  return mode === "scheduled" || mode === "scheduledEarly" ? mode : "classStart";
+  return mode === "scheduled" || mode === "scheduledEarly" || mode === "disabled" ? mode : "classStart";
 }
 
 export function scheduledClassStartDue(
@@ -45,7 +45,13 @@ export function shouldNotifyRecorderReady(input: {
   mediaConnected: boolean;
   whiteboardEnabled: boolean;
   whiteboardReady: boolean;
+  whiteboardRequired?: boolean;
 }) {
   return input.pageReady && input.mediaConnected &&
-    (!input.whiteboardEnabled || input.whiteboardReady);
+    (input.whiteboardRequired === false || (input.whiteboardEnabled && input.whiteboardReady));
+}
+
+/** 202 means provider startup is still pending and must be retried. */
+export function isRecorderReadyAcknowledged(status: number, state: unknown): boolean {
+  return status === 200 && state === "ready";
 }

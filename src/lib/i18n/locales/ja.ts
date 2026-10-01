@@ -64,6 +64,14 @@ export const ja = {
     verifyingAccess: "アクセス権限を検証中…",
     initializing: "教室を初期化中…",
     v3: {
+      databaseRetryFailed: "データベースに接続できません。しばらくしてから再試行してください。",
+      noRecording: "録画しない",
+      unmuteAllMicrophones: "全員の発言を許可",
+      unmuteAllChat: "全員のチャットを許可",
+      awardReceived: "トロフィーを獲得",
+      interpretationSaved: "設定を保存しました。上の通訳状況をご確認ください。",
+      interpretationSaveFailed: "保存できませんでした。選択は保持されています。再試行してください。",
+
       more: "その他",
       resetMedia: "音声・映像をリセット",
       giveTrophy: "トロフィーを贈る",

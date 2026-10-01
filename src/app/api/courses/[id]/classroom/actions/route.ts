@@ -13,10 +13,13 @@ import {
   ensureClassroomTranscriptionForLiveSession,
   syncClassroomTranscription,
 } from "@/lib/classroom/server/transcription-orchestrator";
+import { prisma } from "@/lib/db";
+import { requestRecordingStop, processRecordingStop } from "@/lib/classroom/server/recording-orchestrator";
 import { databaseUnavailableResponse } from "@/lib/database-response";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const preferredRegion = "sin1";
 
 const ACTION_TYPES = new Set<ClassroomAction["type"]>([
   "heartbeat",
@@ -50,6 +53,7 @@ const ACTION_TYPES = new Set<ClassroomAction["type"]>([
   "deauthorizeAll",
   "removeAllStudentsFromStage",
   "muteAllMicrophones",
+  "unmuteAllMicrophones",
   "setStage",
   "setChatEnabled",
   "setInterpretation",
@@ -108,8 +112,8 @@ export async function POST(
     const resolvedCourseId = resolved.access.courseId;
     const sessionId = resolved.access.sessionId;
     const clientId = normalizeClassroomClientId(body.clientId);
-    if (clientId) await touchClassroomConnection(sessionId, resolved.session.userId, clientId);
-    let runtimeSnapshot = await applyClassroomAction({
+    if (clientId && body.action.type === "heartbeat") await touchClassroomConnection(sessionId, resolved.session.userId, clientId);
+    const runtimeSnapshot = await applyClassroomAction({
       courseId: resolvedCourseId,
       sessionId,
       session: resolved.session,
@@ -120,8 +124,20 @@ export async function POST(
           : undefined,
       action: body.action,
     });
+    if (body.action.type === "setRecordingStartMode" && body.action.mode === "disabled") {
+      const recordings = await prisma.classroomRecording.findMany({
+        where: { sessionId, status: { in: ["starting", "recording", "stopping"] } },
+      });
+      const stopping = await Promise.all(recordings.map(requestRecordingStop));
+      after(async () => {
+        await Promise.all(stopping.map((recording) => processRecordingStop(recording.id).catch((error) => {
+          console.error("[classroom:actions] disable recording stop failed", { sessionId, recordingId: recording.id, error: error instanceof Error ? error.message : String(error) });
+        })));
+      });
+    }
     if (
       (body.action.type === "startClass" ||
+        (body.action.type === "heartbeat" && runtimeSnapshot.status === "live") ||
         (body.action.type === "setRecordingStartMode" && runtimeSnapshot.status === "live")) &&
       resolved.access.role === "teacher"
     ) {
@@ -136,11 +152,6 @@ export async function POST(
           });
         }),
       );
-      runtimeSnapshot = await getClassroomRuntimeSnapshot(
-        resolvedCourseId,
-        sessionId,
-        { ensure: false },
-      );
     }
     if (
       body.action.type === "setInterpretation" &&
@@ -152,15 +163,10 @@ export async function POST(
           error: error instanceof Error ? error.message : String(error),
         });
       }));
-      runtimeSnapshot = await getClassroomRuntimeSnapshot(
-        resolvedCourseId,
-        sessionId,
-        { ensure: false },
-      );
     }
     return NextResponse.json({
       runtime: runtimeSnapshot,
-      engagement: await getClassroomEngagementSnapshot(sessionId),
+      ...(body.action.type !== "heartbeat" && { engagement: await getClassroomEngagementSnapshot(sessionId) }),
     });
   } catch (error) {
     const unavailable = databaseUnavailableResponse(error);

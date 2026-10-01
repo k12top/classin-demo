@@ -68,6 +68,14 @@ export const zhCN = {
     verifyingAccess: "正在验证访问权限…",
     initializing: "正在初始化课堂…",
     v3: {
+      databaseRetryFailed: "数据库连接暂时不可用，请稍后重试。",
+      noRecording: "不录制",
+      unmuteAllMicrophones: "全体恢复发言",
+      unmuteAllChat: "全体解除禁言",
+      awardReceived: "获得奖杯",
+      interpretationSaved: "设置已保存，同传连接状态见上方。",
+      interpretationSaveFailed: "设置未保存，已保留选择，请重试。",
+
       more: "更多",
       resetMedia: "恢复音视频",
       giveTrophy: "发奖杯",

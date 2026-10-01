@@ -45,6 +45,14 @@ export const zhTW = {
     ...zhCN.classroom,
     v3: {
       ...zhCN.classroom.v3,
+      databaseRetryFailed: "資料庫連線暫時無法使用，請稍後重試。",
+      noRecording: "不錄製",
+      unmuteAllMicrophones: "全體恢復發言",
+      unmuteAllChat: "全體解除禁言",
+      awardReceived: "獲得獎盃",
+      interpretationSaved: "設定已儲存，同傳連線狀態見上方。",
+      interpretationSaveFailed: "設定未儲存，已保留選擇，請重試。",
+
       more: "更多", resetMedia: "重置音訊與視訊", giveTrophy: "發獎盃", interfaceLanguage: "介面語言",
       assistantPermissions: "助教管理權限",
       assistantPermissionsHint: "主講老師始終擁有管理權限。開啟後，該助教可管理成員、白板、聊天和課堂工具。",
