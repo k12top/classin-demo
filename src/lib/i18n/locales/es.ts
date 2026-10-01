@@ -57,7 +57,14 @@ export const es: typeof en = {
     verifyingAccess: "Verificando permisos…",
     initializing: "Preparando el aula…",
     v3: {
+
       ...en.classroom.v3,
+      more: "Más",
+      resetMedia: "Restablecer audio y vídeo",
+      giveTrophy: "Dar un trofeo",
+      interfaceLanguage: "Idioma de la interfaz",
+      leaveTemporarily: "Salir temporalmente",
+      applyingInterpretation: "Aplicando ajustes de interpretación…",
       roleLead: "Docente principal", roleAssistant: "Asistente docente", roleStudent: "Estudiante", me: "Yo",
       connected: "Conectado", reconnecting: "Reconectando", liveClass: "Clase en directo",
       classEndedLabel: "La clase ha terminado", readyRoom: "Sala lista", classDuration: "Duración de la clase",

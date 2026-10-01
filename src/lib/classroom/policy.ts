@@ -10,9 +10,10 @@ export const classroomStageSeatLimit = 6;
 export function classroomCapabilities(
   role: ClassroomRole,
   mode?: ClassroomModePolicy,
+  managementAllowed = role !== "assistant",
 ): ClassroomCapabilities {
   const teacher = role === "teacher";
-  const teachingRole = teacher || role === "assistant";
+  const teachingRole = teacher || (role === "assistant" && managementAllowed);
   const interactive = mode?.mode !== "publicLive";
   return {
     canStartClass: teacher,
@@ -24,7 +25,7 @@ export function classroomCapabilities(
     canManageWhiteboard: teachingRole,
     canManageInterpretation: teacher,
     canShareScreen:
-      teachingRole ||
+      role === "teacher" || role === "assistant" ||
       (role === "student" && mode?.defaultStudentOnStage === true),
     canGiveReward: teachingRole && interactive,
     canRunEngagement: teachingRole && interactive,

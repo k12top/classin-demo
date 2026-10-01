@@ -1,3 +1,4 @@
+import { normalizeClassroomClientId, touchClassroomConnection } from "@/lib/classroom/server/connections";
 import { after, NextRequest, NextResponse } from "next/server";
 import type { ClassroomAction } from "@/lib/classroom/types";
 import {
@@ -19,6 +20,7 @@ export const runtime = "nodejs";
 
 const ACTION_TYPES = new Set<ClassroomAction["type"]>([
   "heartbeat",
+  "setAssistantPermission",
   "startClass",
   "setRecordingStartMode",
   "raiseHand",
@@ -69,6 +71,7 @@ export async function POST(
 ) {
   const { id: courseId } = await params;
   const body = (await request.json().catch(() => null)) as {
+    clientId?: unknown;
     action?: ClassroomAction;
     expectedRevision?: unknown;
     shareAccess?: unknown;
@@ -104,6 +107,8 @@ export async function POST(
   try {
     const resolvedCourseId = resolved.access.courseId;
     const sessionId = resolved.access.sessionId;
+    const clientId = normalizeClassroomClientId(body.clientId);
+    if (clientId) await touchClassroomConnection(sessionId, resolved.session.userId, clientId);
     let runtimeSnapshot = await applyClassroomAction({
       courseId: resolvedCourseId,
       sessionId,
@@ -141,12 +146,12 @@ export async function POST(
       body.action.type === "setInterpretation" &&
       resolved.access.role === "teacher"
     ) {
-      await syncClassroomTranscription(resolvedCourseId, { restart: true, sessionId }).catch((error) => {
+      after(() => syncClassroomTranscription(resolvedCourseId, { restart: true, sessionId }).catch((error) => {
         console.error("[classroom:actions] transcription settings failed", {
           courseId,
           error: error instanceof Error ? error.message : String(error),
         });
-      });
+      }));
       runtimeSnapshot = await getClassroomRuntimeSnapshot(
         resolvedCourseId,
         sessionId,

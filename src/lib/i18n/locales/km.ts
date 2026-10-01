@@ -64,6 +64,13 @@ export const km = {
     verifyingAccess: "កំពុងផ្ទៀងផ្ទាត់សិទ្ធិចូលប្រើប្រាស់…",
     initializing: "កំពុងរៀបចំថ្នាក់រៀន…",
     v3: {
+      more: "បន្ថែម",
+      resetMedia: "កំណត់សំឡេង និងវីដេអូឡើងវិញ",
+      giveTrophy: "ផ្តល់ពានរង្វាន់",
+      interfaceLanguage: "ភាសាចំណុចប្រទាក់",
+      leaveTemporarily: "ចាកចេញបណ្ដោះអាសន្ន",
+      applyingInterpretation: "កំពុងអនុវត្តការកំណត់បកប្រែ…",
+
       roleLead: "គ្រូបង្រៀនសំខាន់", roleAssistant: "ជំនួយការគ្រូ", roleStudent: "សិស្ស", me: "ខ្ញុំ",
       connected: "បានភ្ជាប់", reconnecting: "កំពុងភ្ជាប់ឡើងវិញ", liveClass: "ថ្នាក់រៀនផ្ទាល់",
       classEndedLabel: "ថ្នាក់រៀនបានបញ្ចប់", readyRoom: "បន្ទប់រួចរាល់", classDuration: "រយៈពេលថ្នាក់រៀន",

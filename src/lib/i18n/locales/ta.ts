@@ -64,6 +64,13 @@ export const ta = {
     verifyingAccess: "அணுகல் அனுமதிகளைச் சரிபார்க்கிறது…",
     initializing: "வகுப்பறையைத் தொடக்குகிறது…",
     v3: {
+      more: "மேலும்",
+      resetMedia: "ஒலி மற்றும் காணொளியை மீட்டமை",
+      giveTrophy: "கோப்பை வழங்கு",
+      interfaceLanguage: "இடைமுக மொழி",
+      leaveTemporarily: "தற்காலிகமாக வெளியேறு",
+      applyingInterpretation: "மொழிபெயர்ப்பு அமைப்புகள் செயல்படுத்தப்படுகின்றன…",
+
       roleLead: "முதன்மை ஆசிரியர்", roleAssistant: "கற்பித்தல் உதவியாளர்", roleStudent: "மாணவர்", me: "நான்",
       connected: "இணைக்கப்பட்டது", reconnecting: "மீண்டும் இணைக்கிறது", liveClass: "நேரலை வகுப்பு",
       classEndedLabel: "வகுப்பு முடிந்தது", readyRoom: "அறை தயாராக உள்ளது", classDuration: "வகுப்பு நேரம்",

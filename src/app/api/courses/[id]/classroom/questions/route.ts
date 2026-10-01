@@ -1,3 +1,4 @@
+import { canManageClassroom } from "@/lib/classroom/server/management";
 import { NextRequest, NextResponse } from "next/server";
 import {
   ClassroomQuestionError,
@@ -96,6 +97,9 @@ export async function PATCH(
   );
   if (!resolved.ok) {
     return NextResponse.json({ error: resolved.error }, { status: resolved.status });
+  }
+  if (!await canManageClassroom(resolved.access.sessionId, resolved.session.userId, resolved.access.role)) {
+    return NextResponse.json({ error: "主讲老师尚未授予管理权限" }, { status: 403 });
   }
   const action = body?.action;
   if (

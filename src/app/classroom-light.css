@@ -556,3 +556,17 @@ html.light .classroom-v3-shell:not(.is-recorder) .classroom-v3-confirm-error {
 .classroom-v3-device-dialog fieldset button > span {
   font-size: 12px;
 }
+
+/* Selected controls stay legible, including while their own request runs. */
+html.light .classroom-v3-shell:not(.is-recorder) button:is(.is-on, .is-active, .is-selected) {
+  color: var(--classroom-iris);
+  opacity: 1;
+}
+html.light .classroom-v3-shell:not(.is-recorder) .classroom-v3-interpretation-save {
+  color: #fff;
+  background: var(--classroom-iris);
+}
+html.light .classroom-v3-shell:not(.is-recorder) .classroom-v3-tool-popover button:not(:disabled) {
+  color: var(--classroom-frost);
+  opacity: 1;
+}

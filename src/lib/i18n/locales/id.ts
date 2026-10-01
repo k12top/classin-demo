@@ -64,6 +64,13 @@ export const id = {
     verifyingAccess: "Memverifikasi hak akses...",
     initializing: "Menginisialisasi kelas...",
     v3: {
+      more: "Lainnya",
+      resetMedia: "Atur ulang audio dan video",
+      giveTrophy: "Berikan trofi",
+      interfaceLanguage: "Bahasa antarmuka",
+      leaveTemporarily: "Keluar sementara",
+      applyingInterpretation: "Menerapkan pengaturan interpretasi…",
+
       roleLead: "Pengajar utama", roleAssistant: "Asisten pengajar", roleStudent: "Siswa", me: "Saya",
       connected: "Terhubung", reconnecting: "Menyambungkan kembali", liveClass: "Kelas langsung",
       classEndedLabel: "Kelas telah berakhir", readyRoom: "Ruang siap", classDuration: "Durasi kelas",

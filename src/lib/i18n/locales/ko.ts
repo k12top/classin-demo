@@ -64,6 +64,13 @@ export const ko = {
     verifyingAccess: "접근 권한 확인 중…",
     initializing: "교실 초기화 중…",
     v3: {
+      more: "더 보기",
+      resetMedia: "미디어 재설정",
+      giveTrophy: "트로피 수여",
+      interfaceLanguage: "화면 언어",
+      leaveTemporarily: "잠시 나가기",
+      applyingInterpretation: "통역 설정 적용 중…",
+
       roleLead: "주강사", roleAssistant: "보조 교사", roleStudent: "학생", me: "나",
       connected: "연결됨", reconnecting: "재연결 중", liveClass: "실시간 수업",
       classEndedLabel: "수업이 종료되었습니다", readyRoom: "준비된 교실", classDuration: "수업 시간",

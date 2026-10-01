@@ -64,6 +64,13 @@ export const ja = {
     verifyingAccess: "アクセス権限を検証中…",
     initializing: "教室を初期化中…",
     v3: {
+      more: "その他",
+      resetMedia: "音声・映像をリセット",
+      giveTrophy: "トロフィーを贈る",
+      interfaceLanguage: "表示言語",
+      leaveTemporarily: "一時退出",
+      applyingInterpretation: "通訳設定を適用中…",
+
       roleLead: "主講師", roleAssistant: "講師アシスタント", roleStudent: "受講者", me: "自分",
       connected: "接続済み", reconnecting: "再接続中", liveClass: "ライブ授業",
       classEndedLabel: "授業が終了しました", readyRoom: "準備中の教室", classDuration: "授業時間",

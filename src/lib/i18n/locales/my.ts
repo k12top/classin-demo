@@ -64,6 +64,13 @@ export const my = {
     verifyingAccess: "ဝင်ရောက်ခွင့်ကို စစ်ဆေးနေသည်…",
     initializing: "စာသင်ခန်းကို စတင်ပြင်ဆင်နေသည်…",
     v3: {
+      more: "နောက်ထပ်",
+      resetMedia: "အသံနှင့်ဗီဒီယို ပြန်သတ်မှတ်ရန်",
+      giveTrophy: "ဆုဖလားပေးရန်",
+      interfaceLanguage: "မျက်နှာပြင်ဘာသာစကား",
+      leaveTemporarily: "ခေတ္တထွက်ရန်",
+      applyingInterpretation: "ဘာသာပြန်ဆက်တင်များ အသုံးပြုနေသည်…",
+
       roleLead: "အဓိကဆရာ", roleAssistant: "သင်ကြားရေးအကူ", roleStudent: "ကျောင်းသား", me: "ကျွန်ုပ်",
       connected: "ချိတ်ဆက်ပြီး", reconnecting: "ပြန်လည်ချိတ်ဆက်နေသည်", liveClass: "တိုက်ရိုက်စာသင်ခန်း",
       classEndedLabel: "စာသင်ခန်းပြီးဆုံးပြီ", readyRoom: "အခန်းအဆင်သင့်", classDuration: "စာသင်ချိန်",

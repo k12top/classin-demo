@@ -64,6 +64,13 @@ export const ru = {
     verifyingAccess: "Проверка прав доступа...",
     initializing: "Инициализация класса...",
     v3: {
+      more: "Ещё",
+      resetMedia: "Сбросить аудио и видео",
+      giveTrophy: "Вручить кубок",
+      interfaceLanguage: "Язык интерфейса",
+      leaveTemporarily: "Временно выйти",
+      applyingInterpretation: "Применение настроек перевода…",
+
       roleLead: "Ведущий преподаватель", roleAssistant: "Ассистент преподавателя", roleStudent: "Ученик", me: "Я",
       connected: "Подключено", reconnecting: "Переподключение", liveClass: "Онлайн-урок",
       classEndedLabel: "Урок завершён", readyRoom: "Комната готова", classDuration: "Длительность урока",

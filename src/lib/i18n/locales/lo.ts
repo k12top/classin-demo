@@ -64,6 +64,13 @@ export const lo = {
     verifyingAccess: "ກຳລັງກວດສອບສິດການເຂົ້າເຖິງ…",
     initializing: "ກຳລັງເລີ່ມຕົ້ນຫ້ອງຮຽນ…",
     v3: {
+      more: "ເພີ່ມເຕີມ",
+      resetMedia: "ຕັ້ງຄ່າສຽງ ແລະວິດີໂອຄືນໃໝ່",
+      giveTrophy: "ມອບຖ້ວຍລາງວັນ",
+      interfaceLanguage: "ພາສາຂອງໜ້າຈໍ",
+      leaveTemporarily: "ອອກຊົ່ວຄາວ",
+      applyingInterpretation: "ກຳລັງນຳໃຊ້ການຕັ້ງຄ່າແປພາສາ…",
+
       roleLead: "ອາຈານຫຼັກ", roleAssistant: "ຜູ້ຊ່ວຍສອນ", roleStudent: "ນັກຮຽນ", me: "ຂ້ອຍ",
       connected: "ເຊື່ອມຕໍ່ແລ້ວ", reconnecting: "ກຳລັງເຊື່ອມຕໍ່ຄືນ", liveClass: "ຫ້ອງຮຽນສົດ",
       classEndedLabel: "ຫ້ອງຮຽນສິ້ນສຸດແລ້ວ", readyRoom: "ຫ້ອງພ້ອມ", classDuration: "ໄລຍະເວລາຮຽນ",

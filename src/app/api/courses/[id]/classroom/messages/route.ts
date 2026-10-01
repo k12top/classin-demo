@@ -1,3 +1,4 @@
+import { canManageClassroom } from "@/lib/classroom/server/management";
 import { NextRequest, NextResponse } from "next/server";
 import type { ClassroomMessageSnapshot } from "@/lib/classroom/types";
 import {
@@ -278,8 +279,7 @@ export async function DELETE(
     );
   }
   if (
-    resolved.access.role !== "teacher" &&
-    resolved.access.role !== "assistant"
+    !await canManageClassroom(resolved.access.sessionId, resolved.session.userId, resolved.access.role)
   ) {
     return NextResponse.json(
       { error: "只有教师可以撤回课堂消息" },

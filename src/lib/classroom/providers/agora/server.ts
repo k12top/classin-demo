@@ -106,12 +106,12 @@ export class AgoraClassroomServerProvider implements ClassroomServerProvider {
       appId,
       channelName: input.channelName,
       userId: input.userId,
-      rtcUid: classroomRtcUid(input.userId, "camera"),
+      rtcUid: classroomRtcUid(input.clientId ? `${input.userId}:${input.clientId}` : input.userId, "camera"),
       role: input.role,
       publishAllowed: publisher,
       token: buildRtcToken(
         input.channelName,
-        classroomRtcUid(input.userId, "camera"),
+        classroomRtcUid(input.clientId ? `${input.userId}:${input.clientId}` : input.userId, "camera"),
         publisher,
         expiresInSeconds,
       ),
@@ -122,10 +122,10 @@ export class AgoraClassroomServerProvider implements ClassroomServerProvider {
       const screenUserId = buildScreenShareUserId(input.userId);
       credential.screenShare = {
         userId: screenUserId,
-        rtcUid: classroomRtcUid(input.userId, "screen"),
+        rtcUid: classroomRtcUid(input.clientId ? `${input.userId}:${input.clientId}` : input.userId, "screen"),
         token: buildRtcToken(
           input.channelName,
-          classroomRtcUid(input.userId, "screen"),
+          classroomRtcUid(input.clientId ? `${input.userId}:${input.clientId}` : input.userId, "screen"),
           true,
           expiresInSeconds,
         ),

@@ -64,6 +64,13 @@ export const vi = {
     verifyingAccess: "Đang xác thực quyền truy cập...",
     initializing: "Đang khởi tạo lớp học...",
     v3: {
+      more: "Thêm",
+      resetMedia: "Đặt lại âm thanh và video",
+      giveTrophy: "Tặng cúp",
+      interfaceLanguage: "Ngôn ngữ giao diện",
+      leaveTemporarily: "Tạm thời rời lớp",
+      applyingInterpretation: "Đang áp dụng cài đặt phiên dịch…",
+
       roleLead: "Giáo viên chính", roleAssistant: "Trợ giảng", roleStudent: "Học viên", me: "Tôi",
       connected: "Đã kết nối", reconnecting: "Đang kết nối lại", liveClass: "Lớp học trực tiếp",
       classEndedLabel: "Lớp học đã kết thúc", readyRoom: "Phòng học sẵn sàng", classDuration: "Thời lượng lớp học",

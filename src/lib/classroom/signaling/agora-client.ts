@@ -27,13 +27,16 @@ export class AgoraRtmSignalingProvider
 {
   private client: AgoraRtmClient | null = null;
   private channelName = "";
+  private generation = 0;
 
   async connect(
     credential: ClassroomSignalingCredential,
     onEvent: (event: ClassroomSignalingEvent) => void,
   ): Promise<void> {
     if (this.client) return;
+    const generation = ++this.generation;
     const rtmModule = await import("agora-rtm");
+    if (generation !== this.generation) return;
     const RTM = rtmModule.default.RTM as unknown as new (
       appId: string,
       userId: string,
@@ -58,10 +61,21 @@ export class AgoraRtmSignalingProvider
         // The channel may be shared with older clients. Ignore unknown payloads.
       }
     });
-    await client.login({ token: credential.token });
-    await client.subscribe(credential.channelName);
     this.client = client;
     this.channelName = credential.channelName;
+    try {
+      await client.login({ token: credential.token });
+      if (generation !== this.generation) { await client.logout().catch(() => undefined); return; }
+      await client.subscribe(credential.channelName);
+      if (generation !== this.generation) {
+        await client.unsubscribe(credential.channelName).catch(() => undefined);
+        await client.logout().catch(() => undefined);
+      }
+    } catch (error) {
+      if (this.client === client) { this.client = null; this.channelName = ""; }
+      await client.logout().catch(() => undefined);
+      throw error;
+    }
   }
 
   async publish(event: ClassroomSignalingEvent): Promise<void> {
@@ -72,6 +86,7 @@ export class AgoraRtmSignalingProvider
   }
 
   async disconnect(): Promise<void> {
+    this.generation += 1;
     const client = this.client;
     const channelName = this.channelName;
     this.client = null;

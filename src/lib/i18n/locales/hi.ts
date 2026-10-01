@@ -57,7 +57,14 @@ export const hi: typeof en = {
     verifyingAccess: "अनुमति जाँची जा रही है…",
     initializing: "कक्षा तैयार की जा रही है…",
     v3: {
+
       ...en.classroom.v3,
+      more: "और",
+      resetMedia: "ऑडियो और वीडियो रीसेट करें",
+      giveTrophy: "ट्रॉफ़ी दें",
+      interfaceLanguage: "इंटरफ़ेस की भाषा",
+      leaveTemporarily: "अस्थायी रूप से बाहर जाएँ",
+      applyingInterpretation: "अनुवाद सेटिंग लागू हो रही हैं…",
       roleLead: "मुख्य शिक्षक", roleAssistant: "सहायक शिक्षक", roleStudent: "विद्यार्थी", me: "मैं",
       connected: "कनेक्टेड", reconnecting: "पुनः कनेक्ट हो रहा है", liveClass: "लाइव कक्षा",
       classEndedLabel: "कक्षा समाप्त हो गई", readyRoom: "कक्ष तैयार है", classDuration: "कक्षा अवधि",

@@ -32,7 +32,7 @@ const POLICIES: Record<ClassroomMode, ClassroomModePolicy> = {
     maxStageStudents: 1,
     showLiveRail: false,
     showMemberRoster: true,
-    showHandRaise: false,
+    showHandRaise: true,
     showPublicQuestions: false,
     allowBreakouts: false,
     defaultStudentOnStage: true,

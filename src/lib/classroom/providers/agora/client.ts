@@ -335,6 +335,12 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       credential.rtcUid,
     );
 
+    if (this.client !== client) {
+      client.removeAllListeners();
+      await client.leave().catch(() => undefined);
+      return;
+    }
+
     this.upsertParticipant(String(credential.rtcUid), {
       isLocal: true,
       displayName: this.displayName,
@@ -397,6 +403,43 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     }
   }
 
+  async recoverMedia(force = false): Promise<void> {
+    if (!this.client || !this.credential) return;
+    if (this.client.connectionState === "DISCONNECTED") {
+      await this.client.join(this.credential.appId, this.credential.channelName, this.credential.token, this.credential.rtcUid);
+      const tracks = [this.cameraTrack, this.microphoneTrack].filter((track): track is ICameraVideoTrack | IMicrophoneAudioTrack => Boolean(track));
+      if (tracks.length) await this.client.publish(tracks);
+    }
+    // Mobile browsers suspend playback and capture on app switches. Rebind all video targets.
+    for (const id of this.videoElements.keys()) this.renderVideoTargets(id);
+    for (const user of this.remoteUsers.values()) user.audioTrack?.play();
+    if (force) {
+      for (const user of this.client.remoteUsers) {
+        for (const kind of ["video", "audio"] as const) {
+          if (!(kind === "video" ? user.hasVideo : user.hasAudio)) continue;
+          await this.client.unsubscribe(user, kind).catch(() => undefined);
+          await this.onUserPublished(user, kind);
+        }
+      }
+    }
+    const cameraWasOn = this.snapshot.local.cameraOn;
+    if (cameraWasOn && this.cameraTrack && (force || this.cameraTrack.getMediaStreamTrack().readyState === "ended" || this.cameraTrack.getMediaStreamTrack().muted)) {
+      const track = this.cameraTrack;
+      this.cameraTrack = null;
+      this.snapshot.local.cameraOn = false;
+      await this.client.unpublish(track).catch(() => undefined);
+      track.close();
+      await this.toggleCamera();
+    }
+    if (this.snapshot.local.microphoneOn && this.microphoneTrack && (force || this.microphoneTrack.getMediaStreamTrack().readyState === "ended" || this.microphoneTrack.getMediaStreamTrack().muted)) {
+      const track = this.microphoneTrack;
+      this.microphoneTrack = null;
+      this.snapshot.local.microphoneOn = false;
+      await this.client.unpublish(track).catch(() => undefined);
+      track.close();
+      await this.toggleMicrophone();
+    }
+  }
   async toggleMicrophone(): Promise<boolean> {
     if (!this.client || !this.credential) {
       throw new Error("课堂尚未连接");
@@ -415,12 +458,19 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         ANS: true,
         encoderConfig: "speech_standard",
       });
-      await this.client.publish(this.microphoneTrack);
       this.snapshot.local.microphoneOn = true;
+      this.upsertParticipant(String(this.credential.rtcUid), { hasAudio: true });
+      try { await this.client.publish(this.microphoneTrack); }
+      catch (error) { this.microphoneTrack.close(); this.microphoneTrack = null; this.snapshot.local.microphoneOn = false; this.upsertParticipant(String(this.credential.rtcUid), { hasAudio: false }); throw error; }
     } else {
       const next = !this.snapshot.local.microphoneOn;
-      await this.microphoneTrack.setMuted(!next);
+      const track = this.microphoneTrack;
+      track.getMediaStreamTrack().enabled = next;
       this.snapshot.local.microphoneOn = next;
+      this.upsertParticipant(String(this.credential.rtcUid), { hasAudio: next });
+
+      try { await track.setMuted(!next); }
+      catch (error) { track.getMediaStreamTrack().enabled = !next; this.snapshot.local.microphoneOn = !next; this.upsertParticipant(String(this.credential.rtcUid), { hasAudio: !next });  throw error; }
     }
 
     this.upsertParticipant(String(this.credential.rtcUid), {
@@ -478,18 +528,29 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         if (this.virtualBackgroundEffect.type !== "none") {
           await this.applyVirtualBackground();
         }
+        this.snapshot.local.cameraOn = true;
+        this.upsertParticipant(String(this.credential.rtcUid), { hasVideo: true });
+        this.renderVideoTargets(String(this.credential.rtcUid));
         await this.client.publish(cameraTrack);
       } catch (error) {
         await this.releaseVirtualBackgroundProcessor();
         cameraTrack.close();
         this.cameraTrack = null;
+        this.snapshot.local.cameraOn = false;
+        this.upsertParticipant(String(this.credential.rtcUid), { hasVideo: false });
+        this.clearVideoTargets(String(this.credential.rtcUid));
         throw error;
       }
       this.snapshot.local.cameraOn = true;
     } else {
       const next = !this.snapshot.local.cameraOn;
-      await this.cameraTrack.setMuted(!next);
+      const track = this.cameraTrack;
+      track.getMediaStreamTrack().enabled = next;
       this.snapshot.local.cameraOn = next;
+      this.upsertParticipant(String(this.credential.rtcUid), { hasVideo: next });
+      if (!next) this.clearVideoTargets(String(this.credential.rtcUid)); else this.renderVideoTargets(String(this.credential.rtcUid));
+      try { await track.setMuted(!next); }
+      catch (error) { track.getMediaStreamTrack().enabled = !next; this.snapshot.local.cameraOn = !next; this.upsertParticipant(String(this.credential.rtcUid), { hasVideo: !next }); this.renderVideoTargets(String(this.credential.rtcUid)); throw error; }
     }
 
     this.upsertParticipant(String(this.credential.rtcUid), {

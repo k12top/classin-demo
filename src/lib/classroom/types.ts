@@ -108,6 +108,7 @@ export interface ClassroomMediaProvider {
   subscribe(listener: ClassroomMediaListener): () => void;
   subscribeCaptions(listener: ClassroomCaptionListener): () => void;
   getSnapshot(): ClassroomMediaSnapshot;
+  recoverMedia(force?: boolean): Promise<void>;
   toggleMicrophone(): Promise<boolean>;
   toggleCamera(): Promise<boolean>;
   startScreenShare(): Promise<void>;
@@ -172,6 +173,8 @@ export type ClassroomMemberSnapshot = {
   displayName: string;
   avatar: string;
   role: ClassroomRole;
+  rtcUids?: number[];
+  screenUids?: number[];
   online: boolean;
   onStage: boolean;
   stageState: "offstage" | "invited" | "accepted";
@@ -292,6 +295,7 @@ export type ClassroomEngagementSnapshot = {
 };
 
 export type ClassroomRuntimeSnapshot = {
+  assistantPermissions?: Record<string, boolean>;
   revision: number;
   status: "waiting" | "live" | "ended";
   recordingStartMode: "classStart" | "scheduled" | "scheduledEarly";
@@ -392,6 +396,7 @@ export function credentialCanPublish(
 
 export type ClassroomAction =
   | { type: "heartbeat" }
+  | { type: "setAssistantPermission"; targetUserId: string; allowed: boolean }
   | { type: "startClass" }
   | { type: "setRecordingStartMode"; mode: "classStart" | "scheduled" | "scheduledEarly" }
   | { type: "raiseHand" }

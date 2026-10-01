@@ -36,6 +36,7 @@ import {
 } from "@/lib/classroom/languages";
 import { classroomSelectorCycle } from "@/lib/classroom/engagement";
 import {
+  arrangeClassroomVideoGallery,
   bringClassroomBoardItemToFront,
   defaultBoardRect,
   emptyClassroomComposition,
@@ -289,7 +290,7 @@ export async function touchClassroomMember(
     const occupiedSeats = existing
       ? 0
       : await tx.classroomMemberState.count({
-          where: { sessionId, role: "student", onStage: true },
+          where: { sessionId, role: "student", onStage: true, presence: "online", lastSeenAt: { gte: new Date(Date.now() - ONLINE_WINDOW_MS) } },
         });
     return tx.classroomMemberState.upsert(
       upsertInput(Boolean(existing) || occupiedSeats < mode.maxStageStudents),
@@ -346,7 +347,7 @@ function publicMember(
     online:
       member.presence === "online" &&
       now - member.lastSeenAt.getTime() <= ONLINE_WINDOW_MS,
-    onStage: member.onStage,
+    onStage: member.onStage && member.presence === "online" && now - member.lastSeenAt.getTime() <= ONLINE_WINDOW_MS,
     stageState,
     screenShareState,
     screenShareRequestedAt: requestExpired
@@ -369,7 +370,7 @@ export async function getClassroomRuntimeSnapshot(
   if (options.ensure !== false) {
     await ensureClassroomRuntime(courseId, sessionId);
   }
-  const [runtime, rewardTotals] = await Promise.all([
+  const [runtime, rewardTotals, connections] = await Promise.all([
     prisma.classroomRuntime.findUniqueOrThrow({
       where: { sessionId },
       include: {
@@ -388,11 +389,16 @@ export async function getClassroomRuntimeSnapshot(
       where: { sessionId },
       _sum: { points: true },
     }),
+    prisma.classroomConnection.findMany({ where: { sessionId } }),
   ]);
+  const activeConnections = connections.filter((connection) => !connection.leftAt && Date.now() - connection.lastSeenAt.getTime() <= ONLINE_WINDOW_MS);
+  const connectedUsers = new Set(activeConnections.map((connection) => connection.userId));
+  const knownUsers = new Set(connections.map((connection) => connection.userId));
   const rewardCountByUserId = new Map(
     rewardTotals.map((item) => [item.recipientId, item._sum.points ?? 0]),
   );
   return {
+    assistantPermissions: runtime.assistantPermissions as Record<string, boolean>,
     revision: runtime.revision,
     status:
       runtime.status === "live"
@@ -432,7 +438,10 @@ export async function getClassroomRuntimeSnapshot(
     },
     composition: normalizeClassroomComposition(runtime.composition),
     members: runtime.members.map((member) =>
-      publicMember(member, Date.now(), rewardCountByUserId.get(member.userId) ?? 0),
+      ({ ...publicMember(member, Date.now(), rewardCountByUserId.get(member.userId) ?? 0),
+        ...(knownUsers.has(member.userId) ? { online: connectedUsers.has(member.userId), onStage: member.onStage && connectedUsers.has(member.userId) } : {}),
+        rtcUids: activeConnections.filter((connection) => connection.userId === member.userId).map((connection) => connection.rtcUid),
+        screenUids: activeConnections.filter((connection) => connection.userId === member.userId).map((connection) => connection.screenUid) }),
     ),
   };
 }
@@ -617,6 +626,11 @@ export async function applyClassroomAction(input: {
     const runtime = await tx.classroomRuntime.findUniqueOrThrow({
       where: { sessionId },
     });
+    if (role === "assistant" && !["raiseHand", "lowerHand", "acceptStage", "declineStage", "acceptScreenShare", "declineScreenShare", "stopScreenShare", "submitBuzz"].includes(action.type)) {
+      if ((runtime.assistantPermissions as Record<string, boolean>)[session.userId] !== true) {
+        throw new ClassroomActionError("主讲老师尚未授予管理权限", 403);
+      }
+    }
     if (
       action.type !== "submitBuzz" &&
       input.expectedRevision !== undefined &&
@@ -661,6 +675,13 @@ export async function applyClassroomAction(input: {
           where: { id: runtime.id },
           data: { recordingStartMode: action.mode },
         });
+        break;
+      }
+      case "setAssistantPermission": {
+        requireLeadTeacher(role);
+        const target = await tx.classroomMemberState.findUnique({ where: { sessionId_userId: { sessionId, userId: action.targetUserId } } });
+        if (target?.role !== "assistant" || typeof action.allowed !== "boolean") throw new ClassroomActionError("无效助教权限", 400);
+        await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { assistantPermissions: { ...(runtime.assistantPermissions as Record<string, boolean>), [action.targetUserId]: action.allowed } } });
         break;
       }
       case "startClass": {
@@ -745,7 +766,7 @@ export async function applyClassroomAction(input: {
           throw new ClassroomActionError("上台邀请已失效", 409);
         }
         const stageCount = await tx.classroomMemberState.count({
-          where: { sessionId, role: "student", onStage: true },
+          where: { sessionId, role: "student", onStage: true, presence: "online", lastSeenAt: { gte: new Date(Date.now() - ONLINE_WINDOW_MS) } },
         });
         if (stageCount >= mode.maxStageStudents) {
           throw new ClassroomActionError("学生席位已满", 409);
@@ -866,7 +887,7 @@ export async function applyClassroomAction(input: {
         }
         if (!member.onStage) {
           const stageCount = await tx.classroomMemberState.count({
-            where: { sessionId, role: "student", onStage: true },
+            where: { sessionId, role: "student", onStage: true, presence: "online", lastSeenAt: { gte: new Date(Date.now() - ONLINE_WINDOW_MS) } },
           });
           if (stageCount >= mode.maxStageStudents) {
             throw new ClassroomActionError("学生席位已满，暂时无法共享屏幕", 409);
@@ -992,12 +1013,10 @@ export async function applyClassroomAction(input: {
           });
           if (
             !targetMember ||
-            targetMember.role !== "student" ||
-            !targetMember.onStage ||
-            targetMember.stageState !== "accepted"
+            targetMember.role !== "student"
           ) {
             throw new ClassroomActionError(
-              "学生接受上台邀请后才能获得标注权限",
+              "请选择课堂中的学生",
               409,
             );
           }
@@ -1123,6 +1142,7 @@ export async function applyClassroomAction(input: {
           where: {
             sessionId,
             presence: "online",
+            lastSeenAt: { gte: new Date(Date.now() - ONLINE_WINDOW_MS) },
             OR: [{ role: { not: "student" } }, { onStage: true }],
           },
           select: { userId: true, role: true },
@@ -1132,41 +1152,7 @@ export async function applyClassroomAction(input: {
         if (galleryMembers.length === 0) {
           throw new ClassroomActionError("当前没有可编排的视频席位", 409);
         }
-        const galleryOrder = [...galleryMembers].sort((left, right) => {
-          const roleOrder = { teacher: 0, assistant: 1, student: 2 } as const;
-          return roleOrder[left.role as keyof typeof roleOrder] -
-            roleOrder[right.role as keyof typeof roleOrder];
-        });
-        const columns = Math.ceil(Math.sqrt(galleryOrder.length));
-        const rows = Math.ceil(galleryOrder.length / columns);
-        const gap = 0.018;
-        const itemWidth = (1 - gap * (columns + 1)) / columns;
-        const itemHeight = (1 - gap * (rows + 1)) / rows;
-        let galleryComposition = normalizeClassroomComposition({
-          ...currentComposition,
-          seatOrder: galleryOrder.map((member) => member.userId),
-          boardItems: currentComposition.boardItems.filter(
-            (item) => item.kind !== "camera",
-          ),
-        });
-        galleryOrder.forEach((member, index) => {
-          const column = index % columns;
-          const row = Math.floor(index / columns);
-          galleryComposition = placeClassroomBoardItem(galleryComposition, {
-            id: `camera:${member.userId}`,
-            kind: "camera",
-            sourceId: member.userId,
-            rect: {
-              x: gap + column * (itemWidth + gap),
-              y: gap + row * (itemHeight + gap),
-              width: itemWidth,
-              height: itemHeight,
-            },
-            locked: false,
-            visible: true,
-          });
-        });
-        await writeComposition(galleryComposition);
+        await writeComposition(arrangeClassroomVideoGallery(currentComposition, galleryMembers.map(member => ({ ...member, role: member.role as ClassroomRole }))));
         break;
       }
       case "swapSeats": {

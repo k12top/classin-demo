@@ -64,6 +64,13 @@ export const fr = {
     verifyingAccess: "Vérification des accès...",
     initializing: "Initialisation de la classe...",
     v3: {
+      more: "Plus",
+      resetMedia: "Réinitialiser audio et vidéo",
+      giveTrophy: "Offrir un trophée",
+      interfaceLanguage: "Langue de l’interface",
+      leaveTemporarily: "Quitter temporairement",
+      applyingInterpretation: "Application des paramètres d’interprétation…",
+
       roleLead: "Enseignant principal", roleAssistant: "Assistant pédagogique", roleStudent: "Élève", me: "Moi",
       connected: "Connecté", reconnecting: "Reconnexion", liveClass: "Cours en direct",
       classEndedLabel: "Le cours est terminé", readyRoom: "Salle prête", classDuration: "Durée du cours",

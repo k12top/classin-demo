@@ -493,6 +493,7 @@ model ClassroomRuntime {
   spotlightUserId            String?
   activeCoursewareId         String?
   composition                Json      @default("{}")
+  assistantPermissions       Json      @default("{}")
   chatEnabled                Boolean   @default(true)
   timerStartedAt             DateTime?
   timerDurationSec           Int?
@@ -780,4 +781,16 @@ model CourseSessionSummary {
 
   @@index([courseId, status, updatedAt])
   @@index([sessionId, status])
+}
+
+// Each browser tab/device has an independent media and presence lease.
+model ClassroomConnection {
+  id String @id
+  sessionId String
+  userId String
+  rtcUid Int
+  screenUid Int
+  lastSeenAt DateTime @default(now())
+  leftAt DateTime?
+  @@index([sessionId, userId, lastSeenAt])
 }

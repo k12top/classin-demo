@@ -57,9 +57,7 @@ export async function POST(request: NextRequest) {
     resolved.access.role === "assistant";
   const writable =
     teachingRole ||
-    (member.whiteboardWritable &&
-      member.onStage &&
-      member.stageState === "accepted");
+    member.whiteboardWritable;
   const whiteboard = await getWhiteboardProvider().issueJoinCredential({
     courseId,
     sessionId,

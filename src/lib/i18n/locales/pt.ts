@@ -57,7 +57,14 @@ export const pt: typeof en = {
     verifyingAccess: "A verificar permissões…",
     initializing: "A preparar a aula…",
     v3: {
+
       ...en.classroom.v3,
+      more: "Mais",
+      resetMedia: "Repor áudio e vídeo",
+      giveTrophy: "Dar um troféu",
+      interfaceLanguage: "Idioma da interface",
+      leaveTemporarily: "Sair temporariamente",
+      applyingInterpretation: "A aplicar as definições de interpretação…",
       roleLead: "Professor principal", roleAssistant: "Assistente de ensino", roleStudent: "Aluno", me: "Eu",
       connected: "Ligado", reconnecting: "A ligar novamente", liveClass: "Aula ao vivo",
       classEndedLabel: "A aula terminou", readyRoom: "Sala pronta", classDuration: "Duração da aula",

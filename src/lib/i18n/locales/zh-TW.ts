@@ -43,6 +43,16 @@ export const zhTW = {
   },
   classroom: {
     ...zhCN.classroom,
+    v3: {
+      ...zhCN.classroom.v3,
+      more: "更多", resetMedia: "重置音訊與視訊", giveTrophy: "發獎盃", interfaceLanguage: "介面語言",
+      assistantPermissions: "助教管理權限",
+      assistantPermissionsHint: "主講老師始終擁有管理權限。開啟後，該助教可管理成員、白板、聊天和課堂工具。",
+      leaveTemporarily: "暫時離開", applyingInterpretation: "正在套用同傳設定…",
+      loginExpired: "登入已失效，請重新登入後停止錄製。",
+      recordingForbidden: "目前帳號不是本課次主講老師，無法控制錄製。",
+      endClassDescription: "結束後所有人將退出課堂，錄製會自動停止並儲存。若只是暫時離開，請選擇暫時離開。",
+    },
     launchError: "無法啟動課堂",
     sdkTimeout: "課堂資源載入逾時，請檢查網路連線。",
     noAccess: "無權存取",

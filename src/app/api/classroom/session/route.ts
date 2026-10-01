@@ -1,3 +1,4 @@
+import { normalizeClassroomClientId, touchClassroomConnection } from "@/lib/classroom/server/connections";
 import { after, NextRequest, NextResponse } from "next/server";
 import { classroomMediaProfile } from "@/lib/classroom/config";
 import type {
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
   const bootstrapStartedAt = performance.now();
   try {
     const body = (await request.json()) as {
+      clientId?: unknown;
       courseId?: unknown;
       sessionId?: unknown;
       shareAccess?: unknown;
@@ -92,6 +94,7 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+    const clientId = normalizeClassroomClientId(body.clientId);
     const recorderToken =
       typeof body.recorderToken === "string" ? body.recorderToken.trim() : "";
     const recorder = recorderToken
@@ -180,6 +183,7 @@ export async function POST(request: NextRequest) {
         });
       }
     }
+    if (!recorder && clientId) await touchClassroomConnection(sessionId, userId, clientId, true);
     const [runtimeSnapshot, engagementSnapshot] = await Promise.all([
       getClassroomRuntimeSnapshot(courseId, sessionId, { ensure: false }),
       getClassroomEngagementSnapshot(sessionId),
@@ -207,6 +211,7 @@ export async function POST(request: NextRequest) {
     );
     const recordingProvider = getRecordingProvider(lesson.recordingProvider);
     const credential = classroomProvider.issueCredential({
+      clientId,
       channelName,
       userId,
       role,
@@ -375,7 +380,7 @@ export async function POST(request: NextRequest) {
               canParticipateInEngagement: false,
             }
           : {
-              ...classroomCapabilities(role, modePolicy),
+              ...classroomCapabilities(role, modePolicy, role !== "assistant" || runtimeSnapshot.assistantPermissions?.[userId] === true),
               ...(role === "student" && {
                 canShareScreen: Boolean(
                   modePolicy.studentCanShareWhenOnStage &&
@@ -386,7 +391,7 @@ export async function POST(request: NextRequest) {
             },
         signaling: recorder
           ? null
-          : issueAgoraSignalingCredential(sessionId, session!.userId),
+          : issueAgoraSignalingCredential(sessionId, clientId ? `${session!.userId}:${clientId}` : session!.userId),
         whiteboard,
         courseware,
         messages: messages.reverse().map(publicMessage),

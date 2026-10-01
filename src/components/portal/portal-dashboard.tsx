@@ -407,13 +407,14 @@ export function PortalDashboardHero({
 }
 
 export function PortalCourseLibrary({
+  onCreate,
   courses,
   enteringCourseId,
   onEnter,
   onOpen,
   onPlayback,
   onPrefetch,
-}: Omit<DashboardProps, "role" | "onCreate">) {
+}: Omit<DashboardProps, "role">) {
   const { locale, t } = useTranslation();
   const copy = copyFor(t);
   const [query, setQuery] = useState("");
@@ -464,6 +465,7 @@ export function PortalCourseLibrary({
           <h1>{copy.library}</h1>
           <p>{copy.libraryDesc}</p>
         </div>
+        {onCreate && <button type="button" className={styles.heroSecondary} onClick={onCreate}><Plus />{copy.create}</button>}
       </header>
 
       <div className={styles.libraryKinds} role="tablist" aria-label={copy.library}>

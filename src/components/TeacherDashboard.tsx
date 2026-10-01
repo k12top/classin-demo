@@ -1020,6 +1020,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         {activePage === "courses" && (
           <div className="max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-300">
             <PortalCourseLibrary
+              onCreate={openCreateDialog}
               courses={courses}
               enteringCourseId={enteringCourseId}
               onEnter={(course) =>

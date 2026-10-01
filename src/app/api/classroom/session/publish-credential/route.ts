@@ -1,3 +1,4 @@
+import { normalizeClassroomClientId } from "@/lib/classroom/server/connections";
 import { NextRequest, NextResponse } from "next/server";
 import { getClassroomServerProvider } from "@/lib/classroom/server/provider-factory";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
@@ -9,6 +10,7 @@ export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as {
+    clientId?: unknown;
     courseId?: unknown;
     sessionId?: unknown;
     shareAccess?: unknown;
@@ -80,6 +82,7 @@ export async function POST(request: NextRequest) {
   const credential = getClassroomServerProvider(
     lesson.classroomProvider,
   ).issueCredential({
+    clientId: normalizeClassroomClientId(body?.clientId),
     channelName: resolved.access.roomUuid,
     userId: resolved.session.userId,
     role: resolved.access.role,

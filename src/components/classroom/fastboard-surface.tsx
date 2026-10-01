@@ -27,6 +27,10 @@ type WhiteboardError = {
   message?: string;
 };
 
+function cursorColor(identity: string) {
+  let hash = 0; for (const char of identity) hash = (Math.imul(hash, 31) + char.charCodeAt(0)) >>> 0;
+  return `hsl(${((hash / 0xffffffff) * 360).toFixed(3)} 70% 35%)`;
+}
 const EMPTY_CONVERSION_ERROR = "CLASSROOM_EMPTY_CONVERSION";
 
 export type ClassroomWhiteboardTool =
@@ -76,6 +80,8 @@ function enqueueFastboardLifecycle(task: () => Promise<void>) {
 
 export function FastboardSurface({
   credential,
+  identity,
+  displayName,
   courseware,
   recorderMode = false,
   onControllerChange,
@@ -83,6 +89,8 @@ export function FastboardSurface({
   onRetry,
 }: {
   credential: ClassroomWhiteboardCredential;
+  identity: string;
+  displayName: string;
   courseware: ClassroomCoursewareSnapshot | null;
   recorderMode?: boolean;
   onControllerChange?: (
@@ -141,7 +149,9 @@ export function FastboardSurface({
       if (width > 0 && height > 0 && app) {
         const ratio = height / width;
         if (Math.abs(app.manager.containerSizeRatio - ratio) > 0.001) {
+          const camera = { ...app.manager.mainView.camera };
           app.manager.setContainerSizeRatio(ratio);
+          app.manager.mainView.moveCamera(camera);
         }
       }
       window.dispatchEvent(new Event("resize"));
@@ -213,7 +223,8 @@ export function FastboardSurface({
             },
           },
           joinRoom: {
-            uid: `web-${crypto.randomUUID()}`,
+            uid: `web-${identity}`,
+            userPayload: { nickName: displayName, cursorTagBackgroundColor: cursorColor(identity) },
             uuid: credential.roomUuid!,
             roomToken: credential.roomToken!,
             isWritable: credential.writable,
@@ -416,6 +427,8 @@ export function FastboardSurface({
       });
     };
   }, [
+    identity,
+    displayName,
     credential.appIdentifier,
     credential.enabled,
     credential.region,

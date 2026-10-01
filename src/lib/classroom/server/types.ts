@@ -8,6 +8,7 @@ import type {
 export type IssueClassroomCredentialInput = {
   channelName: string;
   userId: string;
+  clientId?: string;
   role: ClassroomRole;
   scenario?: "communication" | "liveBroadcasting";
   publisher?: boolean;

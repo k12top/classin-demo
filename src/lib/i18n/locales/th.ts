@@ -64,6 +64,13 @@ export const th = {
     verifyingAccess: "กำลังตรวจสอบสิทธิ์การเข้าถึง...",
     initializing: "กำลังเริ่มการทำงานของห้องเรียน...",
     v3: {
+      more: "เพิ่มเติม",
+      resetMedia: "รีเซ็ตเสียงและวิดีโอ",
+      giveTrophy: "มอบถ้วยรางวัล",
+      interfaceLanguage: "ภาษาของอินเทอร์เฟซ",
+      leaveTemporarily: "ออกชั่วคราว",
+      applyingInterpretation: "กำลังใช้การตั้งค่าล่าม…",
+
       roleLead: "ผู้สอนหลัก",
       roleAssistant: "ผู้ช่วยสอน",
       roleStudent: "นักเรียน",

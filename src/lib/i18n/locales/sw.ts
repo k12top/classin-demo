@@ -64,6 +64,13 @@ export const sw = {
     verifyingAccess: "Inathibitisha ufikiaji…",
     initializing: "Inaanzisha darasa…",
     v3: {
+      more: "Zaidi",
+      resetMedia: "Weka upya sauti na video",
+      giveTrophy: "Toa kombe",
+      interfaceLanguage: "Lugha ya kiolesura",
+      leaveTemporarily: "Ondoka kwa muda",
+      applyingInterpretation: "Inatumia mipangilio ya ukalimani…",
+
       roleLead: "Mwalimu mkuu", roleAssistant: "Msaidizi wa mwalimu", roleStudent: "Mwanafunzi", me: "Mimi",
       connected: "Imeunganishwa", reconnecting: "Inaunganisha tena", liveClass: "Darasa la moja kwa moja",
       classEndedLabel: "Darasa limeisha", readyRoom: "Chumba kiko tayari", classDuration: "Muda wa darasa",

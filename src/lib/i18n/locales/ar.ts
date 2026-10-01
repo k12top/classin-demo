@@ -57,7 +57,14 @@ export const ar: typeof en = {
     verifyingAccess: "جارٍ التحقق من الصلاحيات…",
     initializing: "جارٍ تجهيز الفصل…",
     v3: {
+
       ...en.classroom.v3,
+      more: "المزيد",
+      resetMedia: "إعادة ضبط الصوت والفيديو",
+      giveTrophy: "منح كأس",
+      interfaceLanguage: "لغة الواجهة",
+      leaveTemporarily: "مغادرة مؤقتة",
+      applyingInterpretation: "جارٍ تطبيق إعدادات الترجمة…",
       roleLead: "المعلم الرئيسي",
       roleAssistant: "المعلم المساعد",
       roleStudent: "طالب",

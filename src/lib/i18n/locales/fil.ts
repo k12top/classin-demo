@@ -64,6 +64,13 @@ export const fil = {
     verifyingAccess: "Pinapatunayan ang pag-access...",
     initializing: "Pinasisimulan ang classroom...",
     v3: {
+      more: "Higit pa",
+      resetMedia: "I-reset ang audio at video",
+      giveTrophy: "Magbigay ng tropeo",
+      interfaceLanguage: "Wika ng interface",
+      leaveTemporarily: "Pansamantalang umalis",
+      applyingInterpretation: "Inilalapat ang mga setting ng interpretasyon…",
+
       roleLead: "Pangunahing guro", roleAssistant: "Katulong na guro", roleStudent: "Mag-aaral", me: "Ako",
       connected: "Nakakonekta", reconnecting: "Muling kumokonekta", liveClass: "Live na klase",
       classEndedLabel: "Tapos na ang klase", readyRoom: "Handa ang silid", classDuration: "Tagal ng klase",

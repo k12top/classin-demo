@@ -64,6 +64,13 @@ export const ms = {
     verifyingAccess: "Mengesahkan hak akses...",
     initializing: "Menginisialisasi kelas...",
     v3: {
+      more: "Lagi",
+      resetMedia: "Tetapkan semula audio dan video",
+      giveTrophy: "Berikan trofi",
+      interfaceLanguage: "Bahasa antara muka",
+      leaveTemporarily: "Keluar sementara",
+      applyingInterpretation: "Menerapkan tetapan tafsiran…",
+
       roleLead: "Guru utama", roleAssistant: "Pembantu pengajar", roleStudent: "Pelajar", me: "Saya",
       connected: "Disambungkan", reconnecting: "Menyambung semula", liveClass: "Kelas langsung",
       classEndedLabel: "Kelas telah tamat", readyRoom: "Bilik sedia", classDuration: "Tempoh kelas",
