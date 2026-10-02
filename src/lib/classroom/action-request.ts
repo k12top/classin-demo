@@ -39,6 +39,7 @@ export async function requestClassroomAction(
   fetcher: typeof fetch = fetch,
   wait: (ms: number) => Promise<void> = (ms) =>
     new Promise((resolve) => setTimeout(resolve, ms)),
+  signal?: AbortSignal,
 ) {
   const { expectedRevision, ...rest } = body;
   const requestBody = {
@@ -47,7 +48,9 @@ export async function requestClassroomAction(
       expectedRevision !== undefined ? { expectedRevision } : {}),
   };
   for (let attempt = 0; ; attempt++) {
+    signal?.throwIfAborted();
     const response = await fetcher(url, {
+      signal,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),

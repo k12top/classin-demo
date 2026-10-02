@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
   );
   if (!resolved.ok) {
     return NextResponse.json(
-      { error: resolved.error },
+      { error: resolved.error, code: resolved.code },
       { status: resolved.status },
     );
   }

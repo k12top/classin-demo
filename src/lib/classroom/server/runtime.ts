@@ -1,5 +1,6 @@
 import "server-only";
 import { classroomActionRequiresRevision } from "@/lib/classroom/action-request";
+import { classroomMemberPresence } from "@/lib/classroom/session-lifecycle";
 
 import { randomInt } from "node:crypto";
 import type { Prisma } from "@prisma/client";
@@ -345,10 +346,7 @@ function publicMember(
     displayName: member.displayName || member.userId,
     avatar: member.avatar,
     role,
-    online:
-      member.presence === "online" &&
-      now - member.lastSeenAt.getTime() <= ONLINE_WINDOW_MS,
-    onStage: member.onStage && member.presence === "online" && now - member.lastSeenAt.getTime() <= ONLINE_WINDOW_MS,
+    ...classroomMemberPresence(member, now, ONLINE_WINDOW_MS),
     stageState,
     screenShareState,
     screenShareRequestedAt: requestExpired
@@ -440,7 +438,7 @@ export async function getClassroomRuntimeSnapshot(
     composition: normalizeClassroomComposition(runtime.composition),
     members: runtime.members.map((member) =>
       ({ ...publicMember(member, Date.now(), rewardCountByUserId.get(member.userId) ?? 0),
-        ...(knownUsers.has(member.userId) ? { online: connectedUsers.has(member.userId), onStage: member.onStage && connectedUsers.has(member.userId) } : {}),
+        ...(knownUsers.has(member.userId) ? { online: connectedUsers.has(member.userId) } : {}),
         rtcUids: activeConnections.filter((connection) => connection.userId === member.userId).map((connection) => connection.rtcUid),
         screenUids: activeConnections.filter((connection) => connection.userId === member.userId).map((connection) => connection.screenUid) }),
     ),

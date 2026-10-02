@@ -74,7 +74,7 @@ export async function GET(
   );
   if (!resolved.ok) {
     return NextResponse.json(
-      { error: resolved.error },
+      { error: resolved.error, code: resolved.code },
       { status: resolved.status },
     );
   }
@@ -143,7 +143,7 @@ export async function POST(
   );
   if (!resolved.ok) {
     return NextResponse.json(
-      { error: resolved.error },
+      { error: resolved.error, code: resolved.code },
       { status: resolved.status },
     );
   }
@@ -274,7 +274,7 @@ export async function DELETE(
   );
   if (!resolved.ok) {
     return NextResponse.json(
-      { error: resolved.error },
+      { error: resolved.error, code: resolved.code },
       { status: resolved.status },
     );
   }
