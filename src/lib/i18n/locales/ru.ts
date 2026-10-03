@@ -1,6 +1,7 @@
 import { zhCN } from "./zh-CN";
+import type { DeepPartial } from "../types";
 
-export const ru: typeof zhCN = {
+export const ru = {
   common: {
     loading: "Загрузка...",
     submitting: "Отправка...",
@@ -30,6 +31,11 @@ export const ru: typeof zhCN = {
     teachingTeachers: "Teaching teachers",
     added: "Added",
     makeLeadTeacher: "Make lead",
+    language: "Язык",
+    dismiss: "Закрыть",
+    pleaseConfirm: "Подтвердите действие",
+    switchToDarkMode: "Переключить на тёмную тему",
+    switchToLightMode: "Переключить на светлую тему",
   },
   login: {
     title: "Онлайн-класс",
@@ -57,6 +63,32 @@ export const ru: typeof zhCN = {
     exit: "Выйти",
     verifyingAccess: "Проверка прав доступа...",
     initializing: "Инициализация класса...",
+    v3: {
+      databaseRetryFailed: "База данных временно недоступна. Повторите попытку немного позже.",
+      noRecording: "Без записи",
+      unmuteAllMicrophones: "Разрешить всем ученикам говорить",
+      unmuteAllChat: "Разрешить чат всем",
+      awardReceived: "Получен кубок",
+      interpretationSaved: "Настройки сохранены. Проверьте статус перевода выше.",
+      interpretationSaveFailed: "Не удалось сохранить. Выбор сохранён. Повторите попытку.",
+
+      more: "Ещё",
+      resetMedia: "Сбросить аудио и видео",
+      giveTrophy: "Вручить кубок",
+      interfaceLanguage: "Язык интерфейса",
+      leaveTemporarily: "Временно выйти",
+      applyingInterpretation: "Применение настроек перевода…",
+
+      roleLead: "Ведущий преподаватель", roleAssistant: "Ассистент преподавателя", roleStudent: "Ученик", me: "Я",
+      connected: "Подключено", reconnecting: "Переподключение", liveClass: "Онлайн-урок",
+      classEndedLabel: "Урок завершён", readyRoom: "Комната готова", classDuration: "Длительность урока",
+      startClass: "Начать урок", endClass: "Завершить урок", screenShare: "Демонстрация экрана",
+      whiteboard: "Интерактивная доска", members: "Участники", chat: "Чат", captions: "Субтитры",
+      courseware: "Учебные материалы", tools: "Инструменты", raiseHand: "Поднять руку", cancelHand: "Опустить руку",
+      backToCourse: "Вернуться к курсу", leave: "Выйти", waitingForSharedContent: "Ожидание общего содержимого",
+      cameraOff: "Камера выключена", muted: "Без звука", screenSharing: "Идёт демонстрация экрана",
+      online: "В сети", offline: "Не в сети", speaking: "Говорит",
+    },
   },
   accessDenied: {
     title: "Доступ ограничен",
@@ -326,4 +358,4 @@ export const ru: typeof zhCN = {
     errInvalidPasscode: "Incorrect passcode, please try again",
     successJoin: "Verification successful! Joining classroom...",
   },
-};
+} satisfies DeepPartial<typeof zhCN>;

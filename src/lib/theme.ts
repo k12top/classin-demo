@@ -16,4 +16,5 @@ export function setClientTheme(theme: Theme) {
     root.classList.remove("dark");
   }
   document.cookie = `NEXT_THEME=${theme}; path=/; max-age=31536000; SameSite=Lax`;
+  window.dispatchEvent(new Event("app-theme-change"));
 }

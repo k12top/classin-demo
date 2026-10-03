@@ -6,7 +6,11 @@ import {
   type CasdoorUser,
 } from "@/lib/casdoor-server";
 import { casdoorUserIdsMatch, resolveCasdoorUserId } from "@/lib/casdoor-user";
-import { prisma } from "@/lib/db";
+import {
+  isTransientDatabaseError,
+  prisma,
+  withDatabaseReadRetry,
+} from "@/lib/db";
 
 export type DirectoryUserRole = "teacher" | "student";
 
@@ -38,16 +42,28 @@ async function profileAvatarMap(userIds: string[]): Promise<Map<string, string>>
   if (!ids.length) return new Map();
 
   try {
-    const profiles = await prisma.userProfile.findMany({
-      where: { userId: { in: ids } },
-      select: { userId: true, avatar: true },
-    });
+    const profiles = await withDatabaseReadRetry(
+      () => prisma.userProfile.findMany({
+        where: { userId: { in: ids } },
+        select: { userId: true, avatar: true },
+      }),
+      { retries: 1, baseDelayMs: 80 },
+    );
     return new Map(profiles.map((profile) => [profile.userId, profile.avatar]));
   } catch (error) {
     const code = typeof error === "object" && error && "code" in error
       ? (error as { code?: string }).code
       : undefined;
     if (code === "P2021" || code === "P2022") {
+      return new Map();
+    }
+    // Profile avatars are a local enhancement. Directory results already
+    // contain the Casdoor avatar, so a temporary database outage must not
+    // prevent teachers from scheduling or creating a course.
+    if (isTransientDatabaseError(error)) {
+      console.warn("[user-directory] profile avatars temporarily unavailable", {
+        count: ids.length,
+      });
       return new Map();
     }
     throw error;

@@ -1,6 +1,6 @@
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import type { CourseAccessDeniedCode } from "@/lib/access-denied-codes";
-import type { ClassroomAccessRole } from "@/lib/agora-classroom-role";
+import type { ClassroomRole } from "@/lib/classroom/types";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
 import {
   canEnterClassroom,
@@ -25,7 +25,7 @@ export type CourseAccessDenied = {
 
 export type CourseAccessOk = {
   ok: true;
-  role: ClassroomAccessRole;
+  role: ClassroomRole;
   roomType: number;
   roomUuid: string;
   roomName: string;

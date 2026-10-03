@@ -2,7 +2,14 @@
 
 import React, { createContext, useContext, useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { getSiteName } from "@/lib/site-brand";
-import { locales, SupportedLocale, getTranslation } from "./locales";
+import {
+  locales,
+  SupportedLocale,
+  getTranslation,
+  localeDirection,
+  normalizeSupportedLocale,
+  resolveLocalePreference,
+} from "./locales";
 
 const SYNC_CHANNEL_NAME = "matrix_sync_channel";
 const ALLOWED_ORIGINS = [
@@ -29,14 +36,6 @@ function isOriginAllowed(origin: string): boolean {
     return false;
   }
   return false;
-}
-
-function mapToSupportedLocale(lang: string): SupportedLocale | null {
-  if (lang in locales) return lang as SupportedLocale;
-  const prefix = lang.split("-")[0];
-  if (prefix in locales) return prefix as SupportedLocale;
-  if (prefix === "zh") return "zh-CN";
-  return null;
 }
 
 interface I18nContextType {
@@ -87,36 +86,12 @@ function setCookie(name: string, value: string, days = 365) {
 
 function detectDefaultLocale(): SupportedLocale {
   if (typeof window === "undefined") return "en";
-
-  // 0. URL lang parameter (highest priority, for iframe embed scenarios)
-  const urlLang = new URLSearchParams(window.location.search).get("lang");
-  if (urlLang) {
-    // Direct match (e.g. "en", "zh-CN")
-    if (urlLang in locales) return urlLang as SupportedLocale;
-    // Prefix fallback (e.g. "zh" -> "zh-CN")
-    if (urlLang === "zh") return "zh-CN";
-  }
-
-  // 1. Cookie
-  const cookieVal = getCookie("NEXT_LOCALE");
-  if (cookieVal && cookieVal in locales) return cookieVal as SupportedLocale;
-
-  // 2. LocalStorage
-  const saved = localStorage.getItem("locale");
-  if (saved && saved in locales) return saved as SupportedLocale;
-
-  // 3. Browser Navigator Language
-  const navLang = navigator.language;
-  if (navLang) {
-    // Exact match
-    if (navLang in locales) return navLang as SupportedLocale;
-    // Prefix match (e.g. 'en-US' -> 'en')
-    const prefix = navLang.split("-")[0];
-    if (prefix in locales) return prefix as SupportedLocale;
-    if (prefix === "zh") return "zh-CN";
-  }
-
-  return "en";
+  return resolveLocalePreference({
+    url: new URLSearchParams(window.location.search).get("lang"),
+    cookie: getCookie("NEXT_LOCALE"),
+    storage: localStorage.getItem("locale"),
+    browser: navigator.language,
+  });
 }
 
 export function I18nProvider({
@@ -143,6 +118,7 @@ export function I18nProvider({
     setCookie("NEXT_LOCALE", newLocale, 365);
     if (typeof document !== "undefined") {
       document.documentElement.lang = newLocale;
+      document.documentElement.dir = localeDirection(newLocale);
     }
   };
 
@@ -183,12 +159,20 @@ export function I18nProvider({
   useEffect(() => {
     if (typeof document !== "undefined") {
       document.documentElement.lang = locale;
+      document.documentElement.dir = localeDirection(locale);
     }
   }, [locale]);
 
   // Setup message listeners and initial handshake
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    // The server can initialize from the cookie, while URL, LocalStorage and
+    // browser-language preferences are only visible after hydration.
+    const detectedLocale = detectDefaultLocale();
+    if (detectedLocale !== localeRef.current) {
+      queueMicrotask(() => applyLocale(detectedLocale));
+    }
 
     // Clear any host-only NEXT_LOCALE cookie on mount if we are on a shared domain
     // to ensure we read the wildcard cookie correctly.
@@ -207,7 +191,7 @@ export function I18nProvider({
           console.warn("Blocked unauthorized postMessage from origin:", event.origin);
           return;
         }
-        const mappedLang = mapToSupportedLocale(event.data.value);
+        const mappedLang = normalizeSupportedLocale(event.data.value);
         if (mappedLang && mappedLang !== localeRef.current) {
           applyLocale(mappedLang);
         }
@@ -233,7 +217,7 @@ export function I18nProvider({
       channel = new BroadcastChannel(SYNC_CHANNEL_NAME);
       channel.onmessage = (event) => {
         if (event.data && event.data.type === "LANG_CHANGED") {
-          const mappedLang = mapToSupportedLocale(event.data.value);
+          const mappedLang = normalizeSupportedLocale(event.data.value);
           if (mappedLang && mappedLang !== localeRef.current) {
             applyLocale(mappedLang);
           }

@@ -1,0 +1,23 @@
+{
+  "name": "@xiangyu/classroom-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Secure Electron classroom shell for Xiangyu Wenshu Live.",
+  "main": "src/main.cjs",
+  "scripts": {
+    "dev": "electron .",
+    "package": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^37.2.3",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "cn.xiangyuwenshu.classroom",
+    "productName": "翔宇文淑课堂",
+    "files": ["src/**/*", "package.json"],
+    "mac": { "category": "public.app-category.education" },
+    "win": { "target": "nsis" }
+  }
+}

@@ -4,6 +4,7 @@
  * Authorization: Bearer CRON_SECRET or x-cron-secret header
  */
 import { NextRequest, NextResponse } from "next/server";
+import { deliverClassroomEvents } from "@/lib/classroom/server/integration-events";
 import { promoteCoursesIfDue } from "@/lib/course-promote";
 
 export const maxDuration = 60;
@@ -27,7 +28,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const count = await promoteCoursesIfDue();
+    // Deliver even when provider reconciliation fails; a failed recorder must
+    // not starve notifications about an already committed lesson end.
+    let count: number;
+    try { count = await promoteCoursesIfDue(); }
+    finally { await deliverClassroomEvents(10); }
     return NextResponse.json({ ok: true, promoted: count });
   } catch (error) {
     console.error("Cron promote-course-status failed:", error);
