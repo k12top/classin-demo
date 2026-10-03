@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
 import { listDirectoryUsers } from "@/lib/user-directory";
-import { databaseUnavailableResponse } from "@/lib/database-response";
 
 export const dynamic = "force-dynamic";
 
@@ -38,8 +37,6 @@ export async function GET(request: NextRequest) {
     );
   } catch (error) {
     console.error("Failed to list teachers:", error);
-    const unavailable = databaseUnavailableResponse(error);
-    if (unavailable) return unavailable;
     return NextResponse.json({ error: "Failed to list teachers" }, { status: 500 });
   }
 }

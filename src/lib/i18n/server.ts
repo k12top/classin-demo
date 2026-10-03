@@ -1,23 +1,19 @@
 import { cookies } from "next/headers";
 import { getSiteName } from "@/lib/site-brand";
-import {
-  locales,
-  SupportedLocale,
-  getTranslation,
-  normalizeSupportedLocale,
-} from "./locales";
+import { locales, SupportedLocale, getTranslation } from "./locales";
 
 export async function getServerTranslation(lang?: string) {
   let locale: SupportedLocale = "en";
 
   // URL lang parameter has highest priority (for iframe embed scenarios)
-  const urlLocale = normalizeSupportedLocale(lang);
-  if (urlLocale) locale = urlLocale;
+  if (lang && lang in locales) {
+    locale = lang as SupportedLocale;
+  }
 
   try {
     const cookieStore = await cookies();
     const cookieVal = cookieStore.get("NEXT_LOCALE")?.value;
-    if (!urlLocale && cookieVal && cookieVal in locales) {
+    if (cookieVal && cookieVal in locales) {
       locale = cookieVal as SupportedLocale;
     }
   } catch (err) {

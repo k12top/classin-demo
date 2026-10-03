@@ -4,10 +4,7 @@ import {
   getCoursewareObjectKey,
   getCoursewareOssClient,
 } from "@/lib/aliyun-oss";
-import {
-  isCoursewareAvailableInSession,
-  resolveCoursewareAccess,
-} from "@/lib/courseware-access";
+import { canAccessCourseware } from "@/lib/courseware-access";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
 
@@ -22,44 +19,15 @@ export async function GET(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: courseId, coursewareId } = await params;
-  const requestedSessionId = request.nextUrl.searchParams.get("sessionId")?.trim() || null;
-  const access = await resolveCoursewareAccess(
-    session,
-    courseId,
-    requestedSessionId,
-  );
-  if (!access.allowed) {
+  if (!(await canAccessCourseware(session, courseId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const courseware = await prisma.courseware.findFirst({
     where: { id: coursewareId, courseId },
-    select: {
-      id: true,
-      courseId: true,
-      sessionId: true,
-      name: true,
-      url: true,
-      studentCanView: true,
-      studentCanDownload: true,
-    },
+    select: { name: true, url: true },
   });
   if (!courseware) return NextResponse.json({ error: "Courseware not found" }, { status: 404 });
-  if (
-    requestedSessionId &&
-    !(await isCoursewareAvailableInSession(courseware, requestedSessionId))
-  ) {
-    return NextResponse.json({ error: "该课件未开放给此课次" }, { status: 403 });
-  }
-  if (!requestedSessionId && courseware.sessionId && !access.teaching) {
-    return NextResponse.json({ error: "该课件仅对指定课次开放" }, { status: 403 });
-  }
-  if (
-    !access.teaching &&
-    (!courseware.studentCanView || !courseware.studentCanDownload)
-  ) {
-    return NextResponse.json({ error: "该课件未开放下载" }, { status: 403 });
-  }
 
   const objectKey = getCoursewareObjectKey(courseware.url);
   if (!objectKey) return NextResponse.redirect(courseware.url);

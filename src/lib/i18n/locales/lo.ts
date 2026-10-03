@@ -1,7 +1,6 @@
 import { zhCN } from "./zh-CN";
-import type { DeepPartial } from "../types";
 
-export const lo = {
+export const lo: typeof zhCN = {
   common: {
     loading: "ກຳລັງໂຫລດ…",
     submitting: "ກຳລັງສົ່ງ…",
@@ -31,11 +30,6 @@ export const lo = {
     teachingTeachers: "Teaching teachers",
     added: "Added",
     makeLeadTeacher: "Make lead",
-    language: "ພາສາ",
-    dismiss: "ປິດ",
-    pleaseConfirm: "ກະລຸນາຢືນຢັນ",
-    switchToDarkMode: "ປ່ຽນເປັນໂໝດມືດ",
-    switchToLightMode: "ປ່ຽນເປັນໂໝດສະຫວ່າງ",
   },
   login: {
     title: "ຫ້ອງຮຽນອອນໄລນ໌",
@@ -63,24 +57,6 @@ export const lo = {
     exit: "ອອກ",
     verifyingAccess: "ກຳລັງກວດສອບສິດການເຂົ້າເຖິງ…",
     initializing: "ກຳລັງເລີ່ມຕົ້ນຫ້ອງຮຽນ…",
-    v3: {
-      more: "ເພີ່ມເຕີມ",
-      resetMedia: "ຕັ້ງຄ່າສຽງ ແລະວິດີໂອຄືນໃໝ່",
-      giveTrophy: "ມອບຖ້ວຍລາງວັນ",
-      interfaceLanguage: "ພາສາຂອງໜ້າຈໍ",
-      leaveTemporarily: "ອອກຊົ່ວຄາວ",
-      applyingInterpretation: "ກຳລັງນຳໃຊ້ການຕັ້ງຄ່າແປພາສາ…",
-
-      roleLead: "ອາຈານຫຼັກ", roleAssistant: "ຜູ້ຊ່ວຍສອນ", roleStudent: "ນັກຮຽນ", me: "ຂ້ອຍ",
-      connected: "ເຊື່ອມຕໍ່ແລ້ວ", reconnecting: "ກຳລັງເຊື່ອມຕໍ່ຄືນ", liveClass: "ຫ້ອງຮຽນສົດ",
-      classEndedLabel: "ຫ້ອງຮຽນສິ້ນສຸດແລ້ວ", readyRoom: "ຫ້ອງພ້ອມ", classDuration: "ໄລຍະເວລາຮຽນ",
-      startClass: "ເລີ່ມຫ້ອງຮຽນ", endClass: "ຈົບຫ້ອງຮຽນ", screenShare: "ແບ່ງປັນໜ້າຈໍ",
-      whiteboard: "ກະດານຂາວແບບໂຕ້ຕອບ", members: "ສະມາຊິກ", chat: "ສົນທະນາ", captions: "ຄຳບັນຍາຍ",
-      courseware: "ເອກະສານການຮຽນ", tools: "ເຄື່ອງມື", raiseHand: "ຍົກມື", cancelHand: "ຫຼຸດມື",
-      backToCourse: "ກັບໄປຫາວິຊາ", leave: "ອອກ", waitingForSharedContent: "ກຳລັງລໍຖ້າເນື້ອຫາທີ່ແບ່ງປັນ",
-      cameraOff: "ປິດກ້ອງແລ້ວ", muted: "ປິດສຽງແລ້ວ", screenSharing: "ກຳລັງແບ່ງປັນໜ້າຈໍ",
-      online: "ອອນລາຍ", offline: "ອອບລາຍ", speaking: "ກຳລັງເວົ້າ",
-    },
   },
   accessDenied: {
     title: "ຈຳກັດການເຂົ້າເຖິງ",
@@ -350,4 +326,4 @@ export const lo = {
     errInvalidPasscode: "Incorrect passcode, please try again",
     successJoin: "Verification successful! Joining classroom...",
   },
-} satisfies DeepPartial<typeof zhCN>;
+};

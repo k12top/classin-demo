@@ -1,5 +1,5 @@
-import { ClassroomLoading } from "@/components/classroom/classroom-loading";
+import { PageLoadingState } from "@/components/ui/page-loading-state";
 
 export default function Loading() {
-  return <ClassroomLoading />;
+  return <PageLoadingState message="Preparing classroom..." variant="classroom" />;
 }

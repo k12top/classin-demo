@@ -1,16 +1,16 @@
 /**
  * Live share-link entry: valid token + auth session + course access -> live classroom.
  */
-import { normalizeParentOrigin } from "@/lib/classroom/integration-events";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { AlertCircle, ArrowRight, Video } from "lucide-react";
 import JoinLinkPasscodeGate from "@/components/JoinLinkPasscodeGate";
 import { getSession } from "@/lib/session";
 import {
-  buildAccessDeniedUrl,
-  type CourseAccessDeniedCode,
-} from "@/lib/access-denied-codes";
+  courseIdToRoomUuid,
+  resolveCourseAccess,
+} from "@/lib/course-access";
+import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
+import { ensureStudentEnrolledInCourse } from "@/lib/course-enrollment";
 import {
   createShareAccessToken,
   recordJoinLinkUse,
@@ -18,27 +18,34 @@ import {
 } from "@/lib/join-link";
 import { prisma } from "@/lib/db";
 import { getServerTranslation } from "@/lib/i18n/server";
-import { resolveCourseSessionAccess } from "@/lib/course-session-access";
-import { resolveCourseSessionReference } from "@/lib/course-session-roster";
 
 export default async function JoinPage({
   params,
   searchParams,
 }: {
   params: Promise<{ token: string }>;
-  searchParams: Promise<{ embed?: string; lang?: string; parentOrigin?: string }>;
+  searchParams: Promise<{ embed?: string; lang?: string }>;
 }) {
   const { token } = await params;
-  const { embed: embedParam, lang: langParam, parentOrigin: originParam } = await searchParams;
-  const parentOrigin = normalizeParentOrigin(originParam);
+  const { embed: embedParam, lang: langParam } = await searchParams;
   const wantEmbed = embedParam === "1" || embedParam === "true";
-  const { t } = await getServerTranslation(langParam);
-  const copy = {
-    linkLabel: t("join.liveShareLabel"),
-    passcodeTitle: t("join.livePasscodeTitle"),
-    passcodeDesc: t("join.livePasscodeDescription"),
-    passcodeButton: t("join.livePasscodeButton"),
-  };
+  const { locale, t } = await getServerTranslation(langParam);
+  const copy =
+    locale === "zh-CN"
+      ? {
+          linkLabel: "直播分享链接",
+          passcodeTitle: "输入密码进入直播",
+          passcodeDesc:
+            "老师为这个直播分享链接设置了入会密码，请输入 6 位数字密码继续。",
+          passcodeButton: "验证并进入",
+        }
+      : {
+          linkLabel: "Live share link",
+          passcodeTitle: "Enter passcode to join live",
+          passcodeDesc:
+            "The teacher protected this live share link. Enter the 6-digit passcode to continue.",
+          passcodeButton: "Verify and enter",
+        };
 
   const resolved = await resolveJoinLink(token);
   if (!resolved.ok) {
@@ -48,33 +55,20 @@ export default async function JoinPage({
       expired: t("join.expired"),
     };
     return (
-      <main className="grid min-h-screen place-items-center bg-background px-5 py-10">
-        <section className="relative w-full max-w-xl overflow-hidden rounded-[26px] border border-white/10 bg-[#15171c] p-7 text-[#f4f6f8] shadow-[0_30px_90px_rgba(12,13,17,0.24)] sm:p-10">
-          <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[#7b6ff2]/25 blur-[70px]" />
-          <div className="relative">
-            <span className="inline-flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.16em] text-[#a7afbd]">
-              <Video className="h-4 w-4 text-[#bcb5ff]" />
-              {copy.linkLabel}
-            </span>
-            <div className="mt-12 flex h-14 w-14 items-center justify-center rounded-2xl border border-[#ff5e69]/20 bg-[#ff5e69]/10 text-[#ff7a84]">
-              <AlertCircle className="h-7 w-7" />
-            </div>
-            <h1 className="mt-6 text-3xl font-semibold tracking-[-0.05em]">
-              {t("classroom.launchError")}
-            </h1>
-            <p className="mt-3 max-w-md text-sm leading-7 text-[#a7afbd]">
+      <>
+        <div className="page-bg" />
+        <div className="auth-container">
+          <div className="card" style={{ textAlign: "center", padding: 40 }}>
+            <h2>{t("classroom.launchError")}</h2>
+            <p style={{ marginTop: 12, color: "var(--color-text-secondary)" }}>
               {messages[resolved.reason]}
             </p>
-            <Link
-              href="/"
-              className="mt-9 inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#6c60df] px-5 text-sm font-semibold text-white shadow-[0_12px_32px_rgba(61,48,172,0.28)] transition-transform hover:-translate-y-0.5"
-            >
+            <Link href="/" className="btn btn-primary" style={{ marginTop: 24, display: "inline-block" }}>
               {t("common.backToHome")}
-              <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
-        </section>
-      </main>
+        </div>
+      </>
     );
   }
 
@@ -82,7 +76,6 @@ export default async function JoinPage({
   if (!session) {
     const nextPath = `/join/${token}`;
     const nextQs = new URLSearchParams();
-    if (parentOrigin) nextQs.set("parentOrigin", parentOrigin);
     if (wantEmbed) nextQs.set("embed", "1");
     if (langParam) nextQs.set("lang", langParam);
     const next = nextQs.size > 0 ? `${nextPath}?${nextQs.toString()}` : nextPath;
@@ -124,55 +117,39 @@ export default async function JoinPage({
           "{name}",
           course.teacherName
         )}
-        parentOrigin={parentOrigin}
         embed={wantEmbed}
         lang={langParam}
       />
     );
   }
 
-  const lesson = await resolveCourseSessionReference(
-    resolved.sessionId || resolved.courseId,
-  );
-  if (!lesson || lesson.courseId !== resolved.courseId) {
-    redirect(buildAccessDeniedUrl({ code: "not_found", reason: t("join.courseNotExist") }));
-  }
-
-  let access = await resolveCourseSessionAccess(lesson.id, session.userId, {
+  const access = await resolveCourseAccess(resolved.courseId, session.userId, {
     userIdAliases: [session.name],
   });
   if (!access.ok) {
     if (access.code === "not_enrolled") {
-      await prisma.courseSessionStudent.upsert({
-        where: {
-          sessionId_studentId: {
-            sessionId: lesson.id,
-            studentId: session.userId,
-          },
-        },
-        create: {
-          courseId: course.id,
-          sessionId: lesson.id,
-          studentId: session.userId,
-          studentName: session.displayName || session.name || session.userId,
-          studentAvatar: session.avatar || "",
-          action: "include",
-        },
-        update: {
-          studentName: session.displayName || session.name || session.userId,
-          studentAvatar: session.avatar || "",
-          action: "include",
-        },
+      await ensureStudentEnrolledInCourse(course.id, session);
+      await recordJoinLinkUse(resolved.linkId);
+      const shareAccess = createShareAccessToken({
+        userId: session.userId,
+        courseId: course.id,
+        linkId: resolved.linkId,
       });
-      access = await resolveCourseSessionAccess(lesson.id, session.userId, {
-        userIdAliases: [session.name],
+      const roomUuid = courseIdToRoomUuid(course.id, course.roomUuid);
+      const qs = new URLSearchParams({
+        roomUuid,
+        roomType: String(course.roomType),
+        roomName: course.name,
+        courseId: course.id,
+        shareAccess,
       });
+      if (wantEmbed) qs.set("embed", "1");
+      if (langParam) qs.set("lang", langParam);
+      redirect(`/classroom?${qs.toString()}`);
     }
-  }
-  if (!access.ok) {
     redirect(
       buildAccessDeniedUrl({
-        code: access.code as CourseAccessDeniedCode,
+        code: access.code,
         reason: access.reason,
         course: t("teacherDashboard.fieldName"),
         courseId: resolved.courseId,
@@ -182,17 +159,12 @@ export default async function JoinPage({
 
   await recordJoinLinkUse(resolved.linkId);
 
-  const shareAccess = createShareAccessToken({
-    userId: session.userId,
-    courseId: course.id,
-    sessionId: lesson.id,
-    linkId: resolved.linkId,
-  });
   const qs = new URLSearchParams({
-    sessionId: lesson.id,
-    shareAccess,
+    roomUuid: access.roomUuid,
+    roomType: String(course.roomType),
+    roomName: course.name,
+    courseId: course.id,
   });
-  if (parentOrigin) qs.set("parentOrigin", parentOrigin);
   if (wantEmbed) {
     qs.set("embed", "1");
   }

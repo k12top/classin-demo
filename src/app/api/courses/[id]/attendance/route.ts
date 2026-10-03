@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { closeOpenAttendanceSessionsForLesson } from "@/lib/course-attendance";
+import { closeOpenAttendanceSessions } from "@/lib/course-attendance";
+import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
-import { resolveCourseSessionAccess } from "@/lib/course-session-access";
-import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
-import { assertCanTeachCourse } from "@/lib/course-teacher";
+import { userCanTeachCourse } from "@/lib/course-teacher";
 
 export const dynamic = "force-dynamic";
 
@@ -23,14 +22,12 @@ type AttendanceSummary = {
   studentName: string;
   studentAvatar: string;
   sessionCount: number;
-  firstEnteredAt: Date | null;
-  latestEnteredAt: Date | null;
+  firstEnteredAt: Date;
+  latestEnteredAt: Date;
   lastActivityAt: Date | null;
   totalDurationSec: number;
   online: boolean;
   closedByCourseEnd: boolean;
-  status: "attended" | "excused";
-  leaveReason: string;
 };
 
 const TRANSIENT_DATABASE_ERROR_CODES = new Set([
@@ -168,8 +165,6 @@ function summarizeAttendanceRows(
         totalDurationSec: durationSec,
         online: row.leftAt === null && rowEndTime === null,
         closedByCourseEnd,
-        status: "attended",
-        leaveReason: "",
       });
       continue;
     }
@@ -184,10 +179,10 @@ function summarizeAttendanceRows(
     if (!existing.studentAvatar && row.studentAvatar) {
       existing.studentAvatar = row.studentAvatar;
     }
-    if (!existing.firstEnteredAt || row.enteredAt < existing.firstEnteredAt) {
+    if (row.enteredAt < existing.firstEnteredAt) {
       existing.firstEnteredAt = row.enteredAt;
     }
-    if (!existing.latestEnteredAt || row.enteredAt > existing.latestEnteredAt) {
+    if (row.enteredAt > existing.latestEnteredAt) {
       existing.latestEnteredAt = row.enteredAt;
     }
     if (
@@ -226,39 +221,21 @@ export async function GET(
       );
     }
 
-    const canTeach = session.role === "teacher" &&
-      ((await withDatabaseRetry(() => assertCanTeachCourse(session.userId, id))) ||
-        (session.name
-          ? await withDatabaseRetry(() => assertCanTeachCourse(session.name, id))
-          : false));
-    if (!canTeach) {
-      return NextResponse.json(
-        { error: "Forbidden", code: "FORBIDDEN" },
-        { status: 403, headers: { "Cache-Control": "no-store" } },
-      );
-    }
-    const requestedSessionId = request.nextUrl.searchParams.get("sessionId")?.trim() || "";
-    const lessons = await withDatabaseRetry(() =>
-      prisma.courseSession.findMany({
-        where: { courseId: id },
-        orderBy: [{ startTime: "asc" }, { position: "asc" }],
-        select: { id: true, status: true, startTime: true, endTime: true, endedAt: true },
-      }),
+    const course = await withDatabaseRetry(() =>
+      prisma.course.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          name: true,
+          ownerId: true,
+          teacherId: true,
+          endTime: true,
+          teachers: { select: { teacherId: true } },
+        },
+      })
     );
-    const now = new Date();
-    const lesson =
-      (requestedSessionId
-        ? lessons.find((item) => item.id === requestedSessionId)
-        : null) ||
-      lessons.find(
-        (item) => !item.endedAt && (item.status === "live" || item.status === "afterClass"),
-      ) ||
-      lessons.find(
-        (item) => !item.endedAt && item.status === "scheduled" && item.endTime >= now,
-      ) ||
-      lessons.at(-1);
 
-    if (!lesson) {
+    if (!course) {
       return NextResponse.json(
         { error: "Course not found", code: "COURSE_NOT_FOUND" },
         {
@@ -267,40 +244,25 @@ export async function GET(
         }
       );
     }
-    const [rows, activeLeaves] = await withDatabaseRetry(() =>
-      Promise.all([prisma.courseAttendance.findMany({
-        where: { sessionId: lesson.id },
+    if (!userCanTeachCourse(course, [session.userId, session.name])) {
+      return NextResponse.json(
+        { error: "Forbidden", code: "FORBIDDEN" },
+        {
+          status: 403,
+          headers: { "Cache-Control": "no-store" },
+        }
+      );
+    }
+
+    const rows = await withDatabaseRetry(() =>
+      prisma.courseAttendance.findMany({
+        where: { courseId: id },
         orderBy: [{ enteredAt: "asc" }],
-      }), prisma.courseSessionStudentSubmission.findMany({
-        where: { sessionId: lesson.id, leaveStatus: "active" },
-      })])
+      })
     );
 
-    const attendance = summarizeAttendanceRows(rows, lesson.endTime, now);
-    for (const leave of activeLeaves) {
-      if (
-        attendance.some((row) => casdoorUserIdsMatch(row.studentId, leave.studentId))
-      ) continue;
-      attendance.push({
-        studentId: leave.studentId,
-        studentName: leave.studentName,
-        studentAvatar: leave.studentAvatar,
-        sessionCount: 0,
-        firstEnteredAt: null,
-        latestEnteredAt: null,
-        lastActivityAt: leave.leaveRequestedAt,
-        totalDurationSec: 0,
-        online: false,
-        closedByCourseEnd: false,
-        status: "excused",
-        leaveReason: leave.leaveReason,
-      });
-    }
-    attendance.sort((a, b) => {
-      if (a.online !== b.online) return a.online ? -1 : 1;
-      if (a.status !== b.status) return a.status === "excused" ? 1 : -1;
-      return (a.studentName || a.studentId).localeCompare(b.studentName || b.studentId);
-    });
+    const now = new Date();
+    const attendance = summarizeAttendanceRows(rows, course.endTime, now);
 
     if (request.nextUrl.searchParams.get("format") === "csv") {
       const header = [
@@ -314,8 +276,6 @@ export async function GET(
         "totalDuration",
         "online",
         "closedByCourseEnd",
-        "status",
-        "leaveReason",
       ];
       const lines = [
         header.map(csvEscape).join(","),
@@ -324,15 +284,13 @@ export async function GET(
             row.studentId,
             row.studentName,
             row.sessionCount,
-            row.firstEnteredAt?.toISOString() ?? "",
-            row.latestEnteredAt?.toISOString() ?? "",
+            row.firstEnteredAt.toISOString(),
+            row.latestEnteredAt.toISOString(),
             row.lastActivityAt?.toISOString() ?? "",
             row.totalDurationSec,
             formatDuration(row.totalDurationSec),
             row.online ? "true" : "false",
             row.closedByCourseEnd ? "true" : "false",
-            row.status,
-            row.leaveReason,
           ]
             .map(csvEscape)
             .join(",")
@@ -341,7 +299,7 @@ export async function GET(
       return new NextResponse(lines.join("\n"), {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
-          "Content-Disposition": `attachment; filename="attendance-${lesson.id}.csv"`,
+          "Content-Disposition": `attachment; filename="attendance-${id}.csv"`,
           "Cache-Control": "no-store, max-age=0, must-revalidate",
         },
       });
@@ -351,8 +309,8 @@ export async function GET(
       {
         attendance: attendance.map((row) => ({
           ...row,
-          firstEnteredAt: row.firstEnteredAt?.toISOString() ?? null,
-          latestEnteredAt: row.latestEnteredAt?.toISOString() ?? null,
+          firstEnteredAt: row.firstEnteredAt.toISOString(),
+          latestEnteredAt: row.latestEnteredAt.toISOString(),
           lastActivityAt: row.lastActivityAt?.toISOString() ?? null,
         })),
       },
@@ -395,19 +353,40 @@ export async function PATCH(
     return NextResponse.json({ error: "Unsupported attendance event" }, { status: 400 });
   }
 
-  const access = await resolveCourseSessionAccess(id, session.userId, {
-    userIdAliases: [session.name],
+  const course = await prisma.course.findUnique({
+    where: { id },
+    include: {
+      students: { select: { studentId: true } },
+      groupLinks: {
+        include: {
+          group: { include: { members: { select: { userId: true } } } },
+        },
+      },
+      teachers: { select: { teacherId: true } },
+    },
   });
-  if (!access.ok) {
-    return NextResponse.json(
-      { error: access.reason, code: access.code },
-      { status: access.httpStatus },
-    );
+
+  if (!course) {
+    return NextResponse.json({ error: "Course not found" }, { status: 404 });
   }
 
-  const result = await closeOpenAttendanceSessionsForLesson(
-    access.sessionId,
+  const isTeacher = userCanTeachCourse(course, [
     session.userId,
+    session.name,
+  ]);
+  const isDirectStudent = course.students.some((student) =>
+    casdoorUserIdsMatch(student.studentId, session.userId)
   );
+  const isGroupStudent = course.groupLinks.some((link) =>
+    link.group.members.some((member) =>
+      casdoorUserIdsMatch(member.userId, session.userId)
+    )
+  );
+
+  if (!isTeacher && !isDirectStudent && !isGroupStudent) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const result = await closeOpenAttendanceSessions(id, session.userId);
   return NextResponse.json({ success: true, ...result });
 }

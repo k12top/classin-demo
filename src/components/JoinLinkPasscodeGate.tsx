@@ -24,7 +24,6 @@ type JoinLinkPasscodeGateProps = {
   errorFallback: string;
   courseName?: string;
   teacherName?: string;
-  parentOrigin?: string;
   embed?: boolean;
   lang?: string;
 };
@@ -42,7 +41,6 @@ export default function JoinLinkPasscodeGate({
   teacherName,
   embed,
   lang,
-  parentOrigin,
 }: JoinLinkPasscodeGateProps) {
   const router = useRouter();
   const [digits, setDigits] = useState<string[]>(Array(6).fill(""));
@@ -110,7 +108,7 @@ export default function JoinLinkPasscodeGate({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ purpose, passcode, embed, lang, parentOrigin }),
+          body: JSON.stringify({ purpose, passcode, embed, lang }),
         }
       );
       const data = await response.json().catch(() => ({}));

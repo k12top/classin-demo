@@ -1,7 +1,6 @@
 import { zhCN } from "./zh-CN";
-import type { DeepPartial } from "../types";
 
-export const fr = {
+export const fr: typeof zhCN = {
   common: {
     loading: "Chargement...",
     submitting: "Envoi...",
@@ -31,11 +30,6 @@ export const fr = {
     teachingTeachers: "Teaching teachers",
     added: "Added",
     makeLeadTeacher: "Make lead",
-    language: "Langue",
-    dismiss: "Fermer",
-    pleaseConfirm: "Veuillez confirmer",
-    switchToDarkMode: "Passer en mode sombre",
-    switchToLightMode: "Passer en mode clair",
   },
   login: {
     title: "Classe en ligne",
@@ -63,32 +57,6 @@ export const fr = {
     exit: "Quitter",
     verifyingAccess: "Vérification des accès...",
     initializing: "Initialisation de la classe...",
-    v3: {
-      databaseRetryFailed: "La base de données est temporairement indisponible. Réessayez dans un instant.",
-      noRecording: "Ne pas enregistrer",
-      unmuteAllMicrophones: "Autoriser tous les élèves à parler",
-      unmuteAllChat: "Réactiver toutes les discussions",
-      awardReceived: "Trophée attribué",
-      interpretationSaved: "Paramètres enregistrés. Vérifiez le statut ci-dessus.",
-      interpretationSaveFailed: "Échec de l’enregistrement. Vos choix sont conservés. Réessayez.",
-
-      more: "Plus",
-      resetMedia: "Réinitialiser audio et vidéo",
-      giveTrophy: "Offrir un trophée",
-      interfaceLanguage: "Langue de l’interface",
-      leaveTemporarily: "Quitter temporairement",
-      applyingInterpretation: "Application des paramètres d’interprétation…",
-
-      roleLead: "Enseignant principal", roleAssistant: "Assistant pédagogique", roleStudent: "Élève", me: "Moi",
-      connected: "Connecté", reconnecting: "Reconnexion", liveClass: "Cours en direct",
-      classEndedLabel: "Le cours est terminé", readyRoom: "Salle prête", classDuration: "Durée du cours",
-      startClass: "Démarrer le cours", endClass: "Terminer le cours", screenShare: "Partager l’écran",
-      whiteboard: "Tableau blanc interactif", members: "Membres", chat: "Discussion", captions: "Sous-titres",
-      courseware: "Supports de cours", tools: "Outils", raiseHand: "Lever la main", cancelHand: "Baisser la main",
-      backToCourse: "Retour au cours", leave: "Quitter", waitingForSharedContent: "En attente du contenu partagé",
-      cameraOff: "Caméra désactivée", muted: "Micro coupé", screenSharing: "Partage d’écran en cours",
-      online: "En ligne", offline: "Hors ligne", speaking: "Parle",
-    },
   },
   accessDenied: {
     title: "Accès Restreint",
@@ -358,4 +326,4 @@ export const fr = {
     errInvalidPasscode: "Incorrect passcode, please try again",
     successJoin: "Verification successful! Joining classroom...",
   },
-} satisfies DeepPartial<typeof zhCN>;
+};

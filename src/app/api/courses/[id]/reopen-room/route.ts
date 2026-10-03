@@ -1,10 +1,9 @@
 /**
- * Rotate a course to a fresh provider channel while keeping the course and share
+ * Rotate a course to a fresh classroom session while keeping the course and share
  * links stable.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { CourseStatus } from "@/lib/course-status";
-import { stopActiveRecordingsForCourse } from "@/lib/classroom/server/recording-orchestrator";
 import { serializeCourse } from "@/lib/course-serialize";
 import { userCanTeachCourse } from "@/lib/course-teacher";
 import { generateCourseRoomUuid } from "@/lib/course-room";
@@ -50,7 +49,6 @@ export async function POST(
   }
 
   try {
-    await stopActiveRecordingsForCourse(id);
     const roomUuid = generateCourseRoomUuid();
     const course = await prisma.course.update({
       where: { id },
@@ -67,7 +65,7 @@ export async function POST(
       "[course-status]",
       JSON.stringify({
         action: "applied",
-        source: "manual-channel-reopen",
+        source: "manual-room-reopen",
         courseId: id,
         previousStatus: existing.status,
         nextStatus: CourseStatus.LIVE,
@@ -83,7 +81,7 @@ export async function POST(
       course: serializeCourse(course),
     });
   } catch (error) {
-    console.error("Failed to reopen classroom channel:", error);
+    console.error("Failed to reopen classroom session:", error);
     return NextResponse.json(
       { error: "Failed to reopen classroom" },
       { status: 500 },

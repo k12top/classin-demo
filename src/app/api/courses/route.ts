@@ -5,8 +5,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
-import { prisma, withDatabaseReadRetry } from "@/lib/db";
-import { databaseUnavailableResponse } from "@/lib/database-response";
+import { prisma } from "@/lib/db";
 import { buildCourseShareUrl, buildJoinUrl, joinLinkStatus } from "@/lib/join-link";
 import { serializeCourse, serializeCourses } from "@/lib/course-serialize";
 import { promoteCoursesIfDue } from "@/lib/course-promote";
@@ -17,7 +16,6 @@ import {
   userOwnsCourse,
 } from "@/lib/course-teacher";
 import { generateCourseRoomUuid } from "@/lib/course-room";
-import { defaultAutoStudentOnStage } from "@/lib/classroom/mode";
 import {
   applyCourseListSort,
   courseListOrderBy,
@@ -38,7 +36,7 @@ function sessionStudentIdCandidates(session: { userId: string; name?: string }):
   return Array.from(new Set(values.filter(Boolean)));
 }
 
-async function getCoursesOnce(request: NextRequest) {
+export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -58,6 +56,9 @@ async function getCoursesOnce(request: NextRequest) {
   const statusWhere = courseListStatusWhere(statusParsed);
 
   try {
+    // Auto-promote any overdue course statuses before listing
+    await promoteCoursesIfDue();
+
     if (session.role === "teacher") {
       // A platform teacher can also join another teacher's course as a student.
       // Keep both teaching courses and student-enrolled courses visible here.
@@ -81,37 +82,8 @@ async function getCoursesOnce(request: NextRequest) {
             { teacherId: { in: userIdCandidates } },
             { teachers: { some: { teacherId: { in: userIdCandidates } } } },
             {
-              sessions: {
-                some: {
-                  OR: [
-                    { leadTeacherId: { in: userIdCandidates } },
-                    {
-                      teachers: {
-                        some: {
-                          teacherId: { in: userIdCandidates },
-                          action: "include",
-                        },
-                      },
-                    },
-                  ],
-                },
-              },
-            },
-            {
               students: {
                 some: { studentId: { in: studentIdCandidates } },
-              },
-            },
-            {
-              sessions: {
-                some: {
-                  students: {
-                    some: {
-                      studentId: { in: studentIdCandidates },
-                      action: "include",
-                    },
-                  },
-                },
               },
             },
             ...(groupIds.length > 0
@@ -122,21 +94,6 @@ async function getCoursesOnce(request: NextRequest) {
         },
         include: {
           teachers: { orderBy: { createdAt: "asc" } },
-          sessions: {
-            orderBy: { startTime: "asc" },
-            include: {
-              _count: {
-                select: {
-                  recordings: {
-                    where: {
-                      status: "completed",
-                      playbackObjectKey: { not: null },
-                    },
-                  },
-                },
-              },
-            },
-          },
           students: { select: { studentId: true, studentName: true, studentAvatar: true } },
           groupLinks: {
             include: {
@@ -173,7 +130,7 @@ async function getCoursesOnce(request: NextRequest) {
       });
       const origin = request.nextUrl.origin.replace(/\/$/, "");
       const courses = applyCourseListSort(
-        serializeCourses(coursesRaw.map(({ joinLinks, ...course }) => {
+        coursesRaw.map(({ joinLinks, ...course }) => {
           const canTeach = userCanTeachCourse(course, userIdCandidates);
           return {
             ...course,
@@ -220,11 +177,11 @@ async function getCoursesOnce(request: NextRequest) {
                   }))
               : [],
           };
-        })),
+        }),
         sortParsed
       );
       return NextResponse.json(
-        { courses },
+        { courses: serializeCourses(courses) },
         {
           headers: {
             "Cache-Control": "no-store, max-age=0, must-revalidate",
@@ -234,65 +191,25 @@ async function getCoursesOnce(request: NextRequest) {
     } else {
       // Student sees courses they're assigned to plus public classes.
       const studentIdCandidates = sessionStudentIdCandidates(session);
+      const directCourses = await prisma.course.findMany({
+        where: {
+          students: { some: { studentId: { in: studentIdCandidates } } },
+          ...statusWhere,
+        },
+        include: {
+          teachers: { orderBy: { createdAt: "asc" } },
+          students: { select: { studentId: true, studentName: true, studentAvatar: true } },
+        },
+        orderBy,
+      });
+
+      // Also find courses via group membership
       const groupMemberships = await prisma.groupMember.findMany({
         where: { userId: { in: studentIdCandidates } },
         select: { groupId: true },
       });
       const groupIds = groupMemberships.map((m: { groupId: string }) => m.groupId);
-      const directCourses = await prisma.course.findMany({
-        where: {
-          OR: [
-            { students: { some: { studentId: { in: studentIdCandidates } } } },
-            {
-              sessions: {
-                some: {
-                  students: {
-                    some: {
-                      studentId: { in: studentIdCandidates },
-                      action: "include",
-                    },
-                  },
-                },
-              },
-            },
-            ...(groupIds.length > 0
-              ? [
-                  {
-                    sessions: {
-                      some: {
-                        groupLinks: {
-                          some: { groupId: { in: groupIds }, action: "include" },
-                        },
-                      },
-                    },
-                  },
-                ]
-              : []),
-          ],
-          ...statusWhere,
-        },
-        include: {
-          teachers: { orderBy: { createdAt: "asc" } },
-          sessions: {
-            orderBy: { startTime: "asc" },
-            include: {
-              _count: {
-                select: {
-                  recordings: {
-                    where: {
-                      status: "completed",
-                      playbackObjectKey: { not: null },
-                    },
-                  },
-                },
-              },
-            },
-          },
-          students: { select: { studentId: true, studentName: true, studentAvatar: true } },
-        },
-        orderBy,
-      });
-      // Also find courses via course-level group membership.
+
       let groupCourses: typeof directCourses = [];
       if (groupIds.length > 0) {
         groupCourses = await prisma.course.findMany({
@@ -303,21 +220,6 @@ async function getCoursesOnce(request: NextRequest) {
           },
           include: {
             teachers: { orderBy: { createdAt: "asc" } },
-            sessions: {
-              orderBy: { startTime: "asc" },
-              include: {
-                _count: {
-                  select: {
-                    recordings: {
-                      where: {
-                        status: "completed",
-                        playbackObjectKey: { not: null },
-                      },
-                    },
-                  },
-                },
-              },
-            },
             students: { select: { studentId: true, studentName: true, studentAvatar: true } },
           },
           orderBy,
@@ -339,28 +241,13 @@ async function getCoursesOnce(request: NextRequest) {
         },
         include: {
           teachers: { orderBy: { createdAt: "asc" } },
-          sessions: {
-            orderBy: { startTime: "asc" },
-            include: {
-              _count: {
-                select: {
-                  recordings: {
-                    where: {
-                      status: "completed",
-                      playbackObjectKey: { not: null },
-                    },
-                  },
-                },
-              },
-            },
-          },
           students: { select: { studentId: true, studentName: true, studentAvatar: true } },
         },
         orderBy,
       });
 
       const courses = applyCourseListSort(
-        serializeCourses([
+        [
           ...directCourses.map((course) => ({
             ...course,
             requiresPasscode: course.roomType === 10 && Boolean(course.passcode),
@@ -379,11 +266,11 @@ async function getCoursesOnce(request: NextRequest) {
             publicListing: true,
             passcode: undefined,
           })),
-        ]),
+        ],
         sortParsed
       );
       return NextResponse.json(
-        { courses },
+        { courses: serializeCourses(courses) },
         {
           headers: {
             "Cache-Control": "no-store, max-age=0, must-revalidate",
@@ -392,26 +279,8 @@ async function getCoursesOnce(request: NextRequest) {
       );
     }
   } catch (error) {
-    throw error;
-  }
-}
-
-export async function GET(request: NextRequest) {
-  try {
-    // Status promotion is an idempotent write, so keep it outside the read-only
-    // retry boundary. Provider reconciliation remains owned by the minute cron.
-    await promoteCoursesIfDue(undefined, { reconcileRecordings: false }).catch(
-      (error) => {
-        console.warn("Course status promotion was deferred:", error);
-      },
-    );
-    return await withDatabaseReadRetry(() => getCoursesOnce(request));
-  } catch (error) {
     console.error("Failed to fetch courses:", error);
-    return (
-      databaseUnavailableResponse(error) ||
-      NextResponse.json({ error: "Failed to fetch courses" }, { status: 500 })
-    );
+    return NextResponse.json({ error: "Failed to fetch courses" }, { status: 500 });
   }
 }
 
@@ -424,18 +293,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Only teachers can create courses" }, { status: 403 });
   }
 
-  const creationRequestId = request.headers
-    .get("idempotency-key")
-    ?.trim()
-    .slice(0, 160) || null;
-
   try {
     const body = await request.json();
     const {
       name,
       description,
       roomType,
-      autoStudentOnStage,
       startTime,
       endTime,
       studentRemarks,
@@ -446,58 +309,32 @@ export async function POST(request: NextRequest) {
       primaryTeacherName,
       teachers,
       teacherIds,
-      courseKind,
     } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Course name is required" }, { status: 400 });
     }
-    if (autoStudentOnStage !== undefined && typeof autoStudentOnStage !== "boolean") {
-      return NextResponse.json(
-        { error: "autoStudentOnStage must be a boolean" },
-        { status: 400 },
-      );
+
+    if (!startTime) {
+      return NextResponse.json({ error: "开始时间不能为空" }, { status: 400 });
+    }
+    if (!endTime) {
+      return NextResponse.json({ error: "结束时间不能为空" }, { status: 400 });
     }
 
-    const normalizedCourseKind =
-      courseKind === "standalone" ||
-      (courseKind === undefined && Boolean(startTime))
-        ? "standalone"
-        : "series";
-    if (courseKind !== undefined && !["series", "standalone"].includes(courseKind)) {
-      return NextResponse.json(
-        { error: "courseKind must be series or standalone" },
-        { status: 400 },
-      );
+    const parsedStartTime = new Date(startTime);
+    const parsedEndTime = new Date(endTime);
+    if (Number.isNaN(parsedStartTime.getTime()) || Number.isNaN(parsedEndTime.getTime())) {
+      return NextResponse.json({ error: "课程时间格式无效" }, { status: 400 });
     }
-    if (
-      normalizedCourseKind === "standalone" &&
-      (!startTime || !endTime)
-    ) {
-      return NextResponse.json(
-        { error: "单独课程必须填写开始时间和结束时间" },
-        { status: 400 },
-      );
-    }
-    if (Boolean(startTime) !== Boolean(endTime)) {
-      return NextResponse.json(
-        { error: "创建首个课次时必须同时填写开始和结束时间" },
-        { status: 400 },
-      );
-    }
-    const parsedStartTime = startTime ? new Date(startTime) : null;
-    const parsedEndTime = endTime ? new Date(endTime) : null;
-    if (
-      (parsedStartTime && Number.isNaN(parsedStartTime.getTime())) ||
-      (parsedEndTime && Number.isNaN(parsedEndTime.getTime()))
-    ) {
-      return NextResponse.json({ error: "课次时间格式无效" }, { status: 400 });
-    }
-    if (parsedStartTime && parsedStartTime < new Date(Date.now() - 120000)) {
+    if (parsedStartTime < new Date(Date.now() - 120000)) {
       return NextResponse.json({ error: "开始时间不能早于当前时间" }, { status: 400 });
     }
-    if (parsedStartTime && parsedEndTime && parsedEndTime <= parsedStartTime) {
+    if (parsedEndTime <= parsedStartTime) {
       return NextResponse.json({ error: "结束时间必须晚于开始时间" }, { status: 400 });
+    }
+    if (parsedEndTime < new Date()) {
+      return NextResponse.json({ error: "结束时间不能早于当前时间" }, { status: 400 });
     }
 
     let finalPasscode: string | null = null;
@@ -542,28 +379,13 @@ export async function POST(request: NextRequest) {
     }
     const leadTeacher = normalizedTeachers[0] ?? fallbackTeacher;
 
-    if (creationRequestId) {
-      const existingRequest = await prisma.course.findUnique({
-        where: { creationRequestId },
-        include: {
-          teachers: { orderBy: { createdAt: "asc" } },
-          sessions: { orderBy: { position: "asc" } },
-        },
-      });
-      if (existingRequest) {
-        return NextResponse.json({
-          course: serializeCourse(existingRequest),
-          duplicate: true,
-        });
-      }
-    }
-
     // Backend double-submit protection: check if a course with same owner, name, startTime, and endTime was created within the last 5 seconds
     const existing = await prisma.course.findFirst({
       where: {
         ownerId: session.userId,
         name: name.trim(),
-        courseKind: normalizedCourseKind,
+        startTime: parsedStartTime,
+        endTime: parsedEndTime,
         createdAt: {
           gte: new Date(Date.now() - 5000), // created in last 5 seconds
         },
@@ -573,15 +395,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "检测到重复提交，请勿在 5 秒内重复创建相同课程" }, { status: 409 });
     }
 
-    const initialRoomUuid = parsedStartTime ? generateCourseRoomUuid() : null;
     const course = await prisma.course.create({
       data: {
-        roomUuid: initialRoomUuid,
+        roomUuid: generateCourseRoomUuid(),
         name: name.trim(),
         description: description?.trim() || "",
         roomType: roomType ?? 0,
-        autoStudentOnStage:
-          autoStudentOnStage ?? defaultAutoStudentOnStage(roomType ?? 0),
         passcode: finalPasscode,
         ownerId: session.userId,
         ownerName,
@@ -589,9 +408,6 @@ export async function POST(request: NextRequest) {
         teacherId: leadTeacher.teacherId,
         teacherName: leadTeacher.teacherName,
         teacherAvatar: leadTeacher.teacherAvatar,
-        creationRequestId,
-        courseKind: normalizedCourseKind,
-        lifecycleStatus: parsedStartTime ? "active" : "draft",
         startTime: parsedStartTime,
         endTime: parsedEndTime,
         studentRemarks: studentRemarks?.trim() || "",
@@ -602,53 +418,13 @@ export async function POST(request: NextRequest) {
             teacherAvatar: teacher.teacherAvatar,
           })),
         },
-        ...(parsedStartTime && parsedEndTime && initialRoomUuid
-          ? {
-              sessions: {
-                create: {
-                  title: `${name.trim()} · 第 1 课`,
-                  position: 1,
-                  roomUuid: initialRoomUuid,
-                  roomType: roomType ?? 0,
-                  leadTeacherId: leadTeacher.teacherId,
-                  leadTeacherName: leadTeacher.teacherName,
-                  leadTeacherAvatar: leadTeacher.teacherAvatar,
-                  startTime: parsedStartTime,
-                  endTime: parsedEndTime,
-                  createdBy: session.userId,
-                },
-              },
-            }
-          : {}),
       },
-      include: {
-        teachers: { orderBy: { createdAt: "asc" } },
-        sessions: { orderBy: { position: "asc" } },
-      },
+      include: { teachers: { orderBy: { createdAt: "asc" } } },
     });
 
     return NextResponse.json({ course: serializeCourse(course) }, { status: 201 });
   } catch (error) {
     console.error("Failed to create course:", error);
-    if (creationRequestId) {
-      const existingRequest = await prisma.course
-        .findUnique({
-          where: { creationRequestId },
-          include: {
-            teachers: { orderBy: { createdAt: "asc" } },
-            sessions: { orderBy: { position: "asc" } },
-          },
-        })
-        .catch(() => null);
-      if (existingRequest) {
-        return NextResponse.json({
-          course: serializeCourse(existingRequest),
-          duplicate: true,
-        });
-      }
-    }
-    const unavailable = databaseUnavailableResponse(error);
-    if (unavailable) return unavailable;
     return NextResponse.json({ error: "Failed to create course" }, { status: 500 });
   }
 }

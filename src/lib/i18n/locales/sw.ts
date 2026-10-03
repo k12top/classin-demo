@@ -1,7 +1,6 @@
 import { zhCN } from "./zh-CN";
-import type { DeepPartial } from "../types";
 
-export const sw = {
+export const sw: typeof zhCN = {
   common: {
     loading: "Inapakia…",
     submitting: "Inatuma…",
@@ -31,11 +30,6 @@ export const sw = {
     teachingTeachers: "Teaching teachers",
     added: "Added",
     makeLeadTeacher: "Make lead",
-    language: "Lugha",
-    dismiss: "Funga",
-    pleaseConfirm: "Tafadhali thibitisha",
-    switchToDarkMode: "Badili hadi hali nyeusi",
-    switchToLightMode: "Badili hadi hali angavu",
   },
   login: {
     title: "Darasa la Mtandaoni",
@@ -63,24 +57,6 @@ export const sw = {
     exit: "Ondoka",
     verifyingAccess: "Inathibitisha ufikiaji…",
     initializing: "Inaanzisha darasa…",
-    v3: {
-      more: "Zaidi",
-      resetMedia: "Weka upya sauti na video",
-      giveTrophy: "Toa kombe",
-      interfaceLanguage: "Lugha ya kiolesura",
-      leaveTemporarily: "Ondoka kwa muda",
-      applyingInterpretation: "Inatumia mipangilio ya ukalimani…",
-
-      roleLead: "Mwalimu mkuu", roleAssistant: "Msaidizi wa mwalimu", roleStudent: "Mwanafunzi", me: "Mimi",
-      connected: "Imeunganishwa", reconnecting: "Inaunganisha tena", liveClass: "Darasa la moja kwa moja",
-      classEndedLabel: "Darasa limeisha", readyRoom: "Chumba kiko tayari", classDuration: "Muda wa darasa",
-      startClass: "Anza darasa", endClass: "Maliza darasa", screenShare: "Shiriki skrini",
-      whiteboard: "Ubao mweupe shirikishi", members: "Wanachama", chat: "Gumzo", captions: "Manukuu",
-      courseware: "Vifaa vya kujifunzia", tools: "Zana", raiseHand: "Inua mkono", cancelHand: "Shusha mkono",
-      backToCourse: "Rudi kwenye kozi", leave: "Ondoka", waitingForSharedContent: "Inasubiri maudhui yaliyoshirikiwa",
-      cameraOff: "Kamera imezimwa", muted: "Sauti imezimwa", screenSharing: "Inashiriki skrini",
-      online: "Mtandaoni", offline: "Nje ya mtandao", speaking: "Anazungumza",
-    },
   },
   accessDenied: {
     title: "Ufikiaji Umezuiliwa",
@@ -350,4 +326,4 @@ export const sw = {
     errInvalidPasscode: "Incorrect passcode, please try again",
     successJoin: "Verification successful! Joining classroom...",
   },
-} satisfies DeepPartial<typeof zhCN>;
+};

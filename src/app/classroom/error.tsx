@@ -1,8 +1,5 @@
 "use client";
 
-import { AlertCircle, ArrowLeft, RefreshCw } from "lucide-react";
-import { useTranslation } from "@/lib/i18n/context";
-
 export default function ClassroomError({
   error,
   reset,
@@ -10,44 +7,12 @@ export default function ClassroomError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  const { t } = useTranslation();
-  const retry = () => {
-    if (/loading chunk|chunkloaderror/i.test(error.message)) {
-      window.location.reload();
-      return;
-    }
-    reset();
-  };
-
   return (
-    <main className="classroom-v3-shell is-error-page">
-      <section className="classroom-v3-error-card" role="alert">
-        <AlertCircle />
-        <small>{t("classroom.v3.unavailableEyebrow")}</small>
-        <h1>
-          {t("classroom.v3.classroomInterrupted")}
-        </h1>
-        <p>
-          {error.message || t("classroom.v3.unexpectedError")}
-        </p>
-        <div className="classroom-v3-error-actions">
-          <button
-            type="button"
-            className="is-primary"
-            onClick={retry}
-          >
-            <RefreshCw />
-            {t("classroom.v3.retry")}
-          </button>
-          <button
-            type="button"
-            onClick={() => window.location.assign("/")}
-          >
-            <ArrowLeft />
-            {t("common.backToHome")}
-          </button>
-        </div>
-      </section>
-    </main>
+    <div className="classroom-error">
+      <h2>课堂运行异常</h2>
+      <p>{error.message || "发生了未预期的错误"}</p>
+      <button type="button" onClick={reset}>重试</button>
+      <a href="/">返回首页</a>
+    </div>
   );
 }

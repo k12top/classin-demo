@@ -3,7 +3,6 @@
 import { useEffect } from "react";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { useTranslation } from "@/lib/i18n/context";
-import { PageLoadingState } from "@/components/ui/page-loading-state";
 
 /** Legacy URL — immediately continue to SSO login. */
 export default function SessionExpiredPage() {
@@ -13,5 +12,13 @@ export default function SessionExpiredPage() {
     redirectToSsoLogin();
   }, []);
 
-  return <PageLoadingState message={t("login.redirecting")} variant="dashboard" />;
+  return (
+    <>
+      <div className="page-bg" />
+      <div className="dashboard-loading">
+        <div className="loader" />
+        <p>{t("login.redirecting")}</p>
+      </div>
+    </>
+  );
 }

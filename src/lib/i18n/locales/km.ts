@@ -1,7 +1,6 @@
 import { zhCN } from "./zh-CN";
-import type { DeepPartial } from "../types";
 
-export const km = {
+export const km: typeof zhCN = {
   common: {
     loading: "កំពុងផ្ទុក…",
     submitting: "កំពុងដាក់ជូន…",
@@ -31,11 +30,6 @@ export const km = {
     teachingTeachers: "Teaching teachers",
     added: "Added",
     makeLeadTeacher: "Make lead",
-    language: "ភាសា",
-    dismiss: "បិទ",
-    pleaseConfirm: "សូមបញ្ជាក់",
-    switchToDarkMode: "ប្ដូរទៅរបៀបងងឹត",
-    switchToLightMode: "ប្ដូរទៅរបៀបភ្លឺ",
   },
   login: {
     title: "ថ្នាក់រៀនអនឡាញ",
@@ -63,24 +57,6 @@ export const km = {
     exit: "ចាកចេញ",
     verifyingAccess: "កំពុងផ្ទៀងផ្ទាត់សិទ្ធិចូលប្រើប្រាស់…",
     initializing: "កំពុងរៀបចំថ្នាក់រៀន…",
-    v3: {
-      more: "បន្ថែម",
-      resetMedia: "កំណត់សំឡេង និងវីដេអូឡើងវិញ",
-      giveTrophy: "ផ្តល់ពានរង្វាន់",
-      interfaceLanguage: "ភាសាចំណុចប្រទាក់",
-      leaveTemporarily: "ចាកចេញបណ្ដោះអាសន្ន",
-      applyingInterpretation: "កំពុងអនុវត្តការកំណត់បកប្រែ…",
-
-      roleLead: "គ្រូបង្រៀនសំខាន់", roleAssistant: "ជំនួយការគ្រូ", roleStudent: "សិស្ស", me: "ខ្ញុំ",
-      connected: "បានភ្ជាប់", reconnecting: "កំពុងភ្ជាប់ឡើងវិញ", liveClass: "ថ្នាក់រៀនផ្ទាល់",
-      classEndedLabel: "ថ្នាក់រៀនបានបញ្ចប់", readyRoom: "បន្ទប់រួចរាល់", classDuration: "រយៈពេលថ្នាក់រៀន",
-      startClass: "ចាប់ផ្តើមថ្នាក់រៀន", endClass: "បញ្ចប់ថ្នាក់រៀន", screenShare: "ចែករំលែកអេក្រង់",
-      whiteboard: "ក្តារខៀនអន្តរកម្ម", members: "សមាជិក", chat: "ជជែក", captions: "ចំណងជើងរង",
-      courseware: "សម្ភារៈសិក្សា", tools: "ឧបករណ៍", raiseHand: "លើកដៃ", cancelHand: "ដាក់ដៃចុះ",
-      backToCourse: "ត្រឡប់ទៅវគ្គសិក្សា", leave: "ចាកចេញ", waitingForSharedContent: "កំពុងរង់ចាំមាតិកាដែលបានចែករំលែក",
-      cameraOff: "កាមេរ៉ាបិទ", muted: "បិទសំឡេង", screenSharing: "កំពុងចែករំលែកអេក្រង់",
-      online: "អនឡាញ", offline: "ក្រៅបណ្តាញ", speaking: "កំពុងនិយាយ",
-    },
   },
   accessDenied: {
     title: "ការចូលប្រើត្រូវបានកန့်សត",
@@ -350,4 +326,4 @@ export const km = {
     errInvalidPasscode: "Incorrect passcode, please try again",
     successJoin: "Verification successful! Joining classroom...",
   },
-} satisfies DeepPartial<typeof zhCN>;
+};

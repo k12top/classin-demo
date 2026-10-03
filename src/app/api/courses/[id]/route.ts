@@ -5,98 +5,29 @@
  * DELETE /api/courses/:id
  */
 import { NextRequest, NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { serializeCourse } from "@/lib/course-serialize";
 import {
   CourseStatus,
-  getFinishedDelayMinutes,
   isValidCourseStatus,
 } from "@/lib/course-status";
+import { closeOpenAttendanceSessionsForCourse } from "@/lib/course-attendance";
 import { promoteCourseIfDueById } from "@/lib/course-promote";
-import { stopActiveRecordingsForCourse } from "@/lib/classroom/server/recording-orchestrator";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import {
-  casdoorUserIdCandidates,
   normalizeCourseTeachers,
   userCanTeachCourse,
   userOwnsCourse,
 } from "@/lib/course-teacher";
-import {
-  getEffectiveSessionRoster,
-  rosterContainsUser,
-} from "@/lib/course-session-roster";
 
 export const dynamic = "force-dynamic";
 
-const courseDetailInclude = {
-  teachers: { orderBy: { createdAt: "asc" } },
-  sessions: {
-    orderBy: [
-      { startTime: "asc" },
-      { position: "asc" },
-    ],
-    include: {
-      series: true,
-      teachers: { orderBy: { createdAt: "asc" } },
-      students: { orderBy: { createdAt: "asc" } },
-      groupLinks: { orderBy: { createdAt: "asc" } },
-      _count: {
-        select: {
-          teachers: true,
-          students: true,
-          attendances: true,
-          // Show a review entry as soon as recording has started. The
-          // playback page owns processing/failed/ready presentation.
-          recordings: true,
-        },
-      },
-    },
-  },
-  students: true,
-  groupLinks: {
-    include: {
-      group: {
-        include: {
-          members: true,
-        },
-      },
-    },
-  },
-} satisfies Prisma.CourseInclude;
-
-function needsStatusReconciliation(course: {
-  status: string;
-  startTime: Date | null;
-  endTime: Date | null;
-  sessions: Array<{ status: string; startTime: Date; endTime: Date }>;
-}) {
-  const now = new Date();
-  const finishThreshold = new Date(
-    now.getTime() - getFinishedDelayMinutes() * 60_000,
-  );
-  const activeStatuses = new Set<string>([
-    CourseStatus.SCHEDULED,
-    CourseStatus.LIVE,
-    CourseStatus.AFTER_CLASS,
-  ]);
-  const lessonNeedsUpdate = course.sessions.some((lesson) =>
-    (lesson.status === CourseStatus.SCHEDULED &&
-      lesson.startTime <= now &&
-      lesson.endTime > finishThreshold) ||
-    (activeStatuses.has(lesson.status) && lesson.endTime <= finishThreshold),
-  );
-  if (lessonNeedsUpdate) return true;
-  return Boolean(
-    course.startTime &&
-      course.endTime &&
-      ((course.status === CourseStatus.SCHEDULED &&
-        course.startTime <= now &&
-        course.endTime > finishThreshold) ||
-        (activeStatuses.has(course.status) &&
-          course.endTime <= finishThreshold)),
-  );
+function courseAttendanceCloseTime(
+  endTime: Date | null | undefined,
+  now = new Date()
+): Date {
+  return endTime && endTime <= now ? endTime : now;
 }
 
 export async function GET(
@@ -110,91 +41,41 @@ export async function GET(
 
   const { id } = await params;
   try {
-    let course = await prisma.course.findUnique({
+    await promoteCourseIfDueById(id);
+    const course = await prisma.course.findUnique({
       where: { id },
-      include: courseDetailInclude,
+      include: {
+        teachers: { orderBy: { createdAt: "asc" } },
+        students: true,
+        groupLinks: {
+          include: {
+            group: {
+              include: {
+                members: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
     }
 
-    // The minute-level reconciler remains authoritative. Detail reads only
-    // run the fallback when this course is actually crossing a time boundary;
-    // normal navigation therefore stays a single database round trip.
-    if (needsStatusReconciliation(course)) {
-      await promoteCourseIfDueById(id, { reconcileRecordings: false });
-      course = await prisma.course.findUnique({
-        where: { id },
-        include: courseDetailInclude,
-      });
-      if (!course) {
-        return NextResponse.json({ error: "Course not found" }, { status: 404 });
-      }
-    }
-
     const isTeacher = userCanTeachCourse(course, [
       session.userId,
       session.name,
     ]);
-    const identityCandidates = Array.from(
-      new Set(
-        [session.userId, session.name || ""]
-          .flatMap(casdoorUserIdCandidates)
-          .filter(Boolean),
-      ),
-    );
-    const isCourseStudent =
-      course.students.some((student) =>
-        identityCandidates.some((candidate) =>
-          casdoorUserIdsMatch(student.studentId, candidate),
-        ),
-      ) ||
-      course.groupLinks.some((link) =>
-        link.group.members.some((member) =>
-          identityCandidates.some((candidate) =>
-            casdoorUserIdsMatch(member.userId, candidate),
-          ),
-        ),
-      );
-    const visibleSessionIds = new Set<string>();
-    if (!isTeacher) {
-      await Promise.all(
-        course.sessions.map(async (lesson) => {
-          const roster = await getEffectiveSessionRoster(lesson.id);
-          if (roster && rosterContainsUser(roster, identityCandidates)) {
-            visibleSessionIds.add(lesson.id);
-          }
-        }),
-      );
-      if (!isCourseStudent && visibleSessionIds.size === 0) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
-    }
-    // A learner can belong to the course while being excluded from a specific
-    // lesson through its roster override. Keep the detail payload aligned with
-    // the classroom authorization rule so lesson titles, times and recordings
-    // do not leak across those overrides.
-    const visibleSessions = isTeacher
-      ? course.sessions
-      : course.sessions.filter((lesson) => visibleSessionIds.has(lesson.id));
     type SerializedCourse = Omit<typeof course, "passcode"> & {
       statusLabel: string;
       isCourseOwner: boolean;
       canTeach: boolean;
       requiresPasscode: boolean;
-      nextSession: unknown;
-      sessionCount: number;
-      completedSessionCount: number;
       passcode?: string | null;
     };
     const serialized = serializeCourse({
       ...course,
-      sessions: visibleSessions,
-      ...(!isTeacher ? { students: [], groupLinks: [] } : {}),
-      ...(!isTeacher && !isCourseStudent
-        ? { limitedToSessionId: visibleSessions[0]?.id || null }
-        : {}),
       isCourseOwner: userOwnsCourse(course, session.userId),
       canTeach: isTeacher,
       requiresPasscode: course.roomType === 10 && Boolean(course.passcode),
@@ -420,10 +301,7 @@ export async function PUT(
     const course =
       (await prisma.course.findUnique({
         where: { id: promoted?.id ?? id },
-        include: {
-          teachers: { orderBy: { createdAt: "asc" } },
-          sessions: { orderBy: [{ startTime: "asc" }, { position: "asc" }] },
-        },
+        include: { teachers: { orderBy: { createdAt: "asc" } } },
       })) ?? promoted;
     if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
@@ -487,15 +365,71 @@ export async function PATCH(
   }
 
   try {
-    await request.json().catch(() => ({}));
-    return NextResponse.json(
-      {
-        error:
-          "课程状态和学生要求必须按课次更新，请使用课次状态或课次学生反馈接口",
-        code: "SESSION_SCOPED_OPERATION_REQUIRED",
-      },
-      { status: 409 },
-    );
+    const body = await request.json();
+    const { status, studentRemarks } = body;
+
+    const dataToUpdate: Record<string, unknown> = {};
+
+    if (status !== undefined) {
+      if (typeof status !== "string" || !isValidCourseStatus(status)) {
+        return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+      }
+
+      if (isTeacher) {
+        dataToUpdate.status = status;
+        if (status === CourseStatus.AFTER_CLASS && !existing.endedAt) {
+          dataToUpdate.endedAt = new Date();
+        }
+        if (status === CourseStatus.SCHEDULED || status === CourseStatus.LIVE) {
+          dataToUpdate.endedAt = null;
+        }
+      } else if (status === CourseStatus.CANCELLED) {
+        dataToUpdate.status = status;
+      } else {
+        return NextResponse.json(
+          { error: "Only teachers can correct course status" },
+          { status: 403 }
+        );
+      }
+    }
+    
+    // Students can update remarks. Teachers could theoretically update it too but usually they read it.
+    if (studentRemarks !== undefined) {
+      dataToUpdate.studentRemarks = studentRemarks.trim();
+    }
+
+    const course = await prisma.course.update({
+      where: { id },
+      data: dataToUpdate,
+    });
+
+    if (
+      typeof dataToUpdate.status === "string" &&
+      dataToUpdate.status !== existing.status
+    ) {
+      console.info(
+        "[course-status]",
+        JSON.stringify({
+          action: "applied",
+          source: "manual-course-patch",
+          courseId: id,
+          previousStatus: existing.status,
+          nextStatus: dataToUpdate.status,
+          occurredAt: new Date().toISOString(),
+        }),
+      );
+    }
+
+    if (dataToUpdate.status === CourseStatus.FINISHED) {
+      await closeOpenAttendanceSessionsForCourse(
+        id,
+        courseAttendanceCloseTime(course.endTime)
+      );
+    }
+
+    const promoted = await promoteCourseIfDueById(id);
+
+    return NextResponse.json({ course: serializeCourse(promoted ?? course) });
   } catch (error) {
     console.error("Failed to patch course:", error);
     return NextResponse.json({ error: "Failed to patch course" }, { status: 500 });
@@ -522,7 +456,6 @@ export async function DELETE(
   }
 
   try {
-    await stopActiveRecordingsForCourse(id);
     await prisma.course.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error) {

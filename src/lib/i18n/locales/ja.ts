@@ -1,7 +1,6 @@
 import { zhCN } from "./zh-CN";
-import type { DeepPartial } from "../types";
 
-export const ja = {
+export const ja: typeof zhCN = {
   common: {
     loading: "読み込み中…",
     submitting: "送信中…",
@@ -31,11 +30,6 @@ export const ja = {
     teachingTeachers: "Teaching teachers",
     added: "Added",
     makeLeadTeacher: "Make lead",
-    language: "言語",
-    dismiss: "閉じる",
-    pleaseConfirm: "確認してください",
-    switchToDarkMode: "ダークモードに切り替える",
-    switchToLightMode: "ライトモードに切り替える",
   },
   login: {
     title: "オンライン教室",
@@ -63,32 +57,6 @@ export const ja = {
     exit: "退出",
     verifyingAccess: "アクセス権限を検証中…",
     initializing: "教室を初期化中…",
-    v3: {
-      databaseRetryFailed: "データベースに接続できません。しばらくしてから再試行してください。",
-      noRecording: "録画しない",
-      unmuteAllMicrophones: "全員の発言を許可",
-      unmuteAllChat: "全員のチャットを許可",
-      awardReceived: "トロフィーを獲得",
-      interpretationSaved: "設定を保存しました。上の通訳状況をご確認ください。",
-      interpretationSaveFailed: "保存できませんでした。選択は保持されています。再試行してください。",
-
-      more: "その他",
-      resetMedia: "音声・映像をリセット",
-      giveTrophy: "トロフィーを贈る",
-      interfaceLanguage: "表示言語",
-      leaveTemporarily: "一時退出",
-      applyingInterpretation: "通訳設定を適用中…",
-
-      roleLead: "主講師", roleAssistant: "講師アシスタント", roleStudent: "受講者", me: "自分",
-      connected: "接続済み", reconnecting: "再接続中", liveClass: "ライブ授業",
-      classEndedLabel: "授業が終了しました", readyRoom: "準備中の教室", classDuration: "授業時間",
-      startClass: "授業を開始", endClass: "授業を終了", screenShare: "画面共有",
-      whiteboard: "インタラクティブホワイトボード", members: "参加者", chat: "チャット", captions: "字幕",
-      courseware: "教材", tools: "ツール", raiseHand: "挙手", cancelHand: "手を下げる",
-      backToCourse: "コースに戻る", leave: "退出", waitingForSharedContent: "共有コンテンツを待機中",
-      cameraOff: "カメラオフ", muted: "ミュート中", screenSharing: "画面共有中",
-      online: "オンライン", offline: "オフライン", speaking: "発言中",
-    },
   },
   accessDenied: {
     title: "アクセス制限",
@@ -358,4 +326,4 @@ export const ja = {
     errInvalidPasscode: "Incorrect passcode, please try again",
     successJoin: "Verification successful! Joining classroom...",
   },
-} satisfies DeepPartial<typeof zhCN>;
+};
