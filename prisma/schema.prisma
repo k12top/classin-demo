@@ -67,6 +67,7 @@ model Course {
   studentRemarks    String    @default("")
   recordUrl         String? // Authenticated internal or external recording playback URL
   creationRequestId String?   @unique // Client-generated idempotency key for create
+  publicApiManaged  Boolean   @default(false) // Anonymous REST API manages only explicitly public courses
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -95,10 +96,21 @@ model Course {
   sessionCoursewareRules    CourseSessionCourseware[]
   sessionStudentSubmissions CourseSessionStudentSubmission[]
   sessionSummaries          CourseSessionSummary[]
+  playbackProgress          CoursePlaybackProgress[]
 
   @@index([ownerId])
   @@index([teacherId])
   @@index([status])
+  @@index([publicApiManaged, id])
+}
+
+// Successful anonymous create responses persist with their request digest.
+// No relation: request retries retain the original result after deletion.
+model PublicApiRequest {
+  id          String   @id
+  requestHash String
+  response    Json
+  createdAt   DateTime @default(now())
 }
 
 // ── Course → scheduled lesson/session ──
@@ -155,6 +167,25 @@ model CourseSession {
   @@index([courseId, status])
   @@index([seriesId, startTime])
   @@index([leadTeacherId, startTime])
+}
+
+// Durable, signed third-party lifecycle notifications. Retained independently
+// of course deletion so committed notifications can finish delivery.
+model ClassroomIntegrationEvent {
+  id            String    @id
+  dedupeKey     String    @unique
+  sessionId     String
+  payload       Json
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now())
+  deliveredAt   DateTime?
+  lockedUntil   DateTime?
+  claim         String?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+
+  @@index([deliveredAt, nextAttemptAt])
+  @@index([sessionId, createdAt])
 }
 
 model CourseSessionSeries {
@@ -793,4 +824,31 @@ model ClassroomConnection {
   lastSeenAt DateTime @default(now())
   leftAt DateTime?
   @@index([sessionId, userId, lastSeenAt])
+}
+
+// Keep the historical progress table in the schema so schema tools preserve it.
+model CoursePlaybackProgress {
+  id                  String   @id @default(uuid())
+  courseId            String
+  studentId           String
+  studentName         String   @default("")
+  studentAvatar       String   @default("")
+  firstViewedAt       DateTime @default(now())
+  lastViewedAt        DateTime @default(now())
+  totalDurationSec    Int      @default(0)
+  sessionCount        Int      @default(0)
+  activeSessionId     String?
+  heartbeatNonceHash  String?
+  lastHeartbeatAt     DateTime?
+  lastPositionSec     Float?
+  lastPlaybackRate    Float?
+  lastPlaybackState   String   @default("inactive")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  course              Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, studentId])
+  @@index([courseId])
+  @@index([studentId])
+  @@index([courseId, lastViewedAt])
 }

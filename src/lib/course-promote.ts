@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { CourseStatus, getFinishedDelayMinutes } from "@/lib/course-status";
 import {
   closeAllOpenAttendanceForLesson,
@@ -10,6 +11,7 @@ import { requestRecordingStart } from "@/lib/classroom/server/recording-orchestr
 import { startScheduledClassroomIfDue } from "@/lib/classroom/server/runtime";
 import { reconcileActiveClassroomTranscriptions } from "@/lib/classroom/server/transcription-orchestrator";
 import { reconcileCourseSessionSummaries } from "@/lib/course-session-summary";
+import { enqueueClassroomEvent } from "@/lib/classroom/server/integration-events";
 import { prisma } from "@/lib/db";
 
 function courseAttendanceCloseTime(
@@ -53,53 +55,30 @@ export async function promoteCoursesIfDue(
   const sessionScope = courseIds?.length
     ? { courseId: { in: courseIds } }
     : {};
-  const sessionsToFinish = await prisma.courseSession.findMany({
-    where: {
-      ...sessionScope,
-      status: {
-        in: [
-          CourseStatus.SCHEDULED,
-          CourseStatus.LIVE,
-          CourseStatus.AFTER_CLASS,
-        ],
-      },
-      endTime: { lte: threshold },
-    },
-    select: {
-      id: true,
-      courseId: true,
-      endTime: true,
-      endedAt: true,
-    },
-  });
-
-  const [finishedSessions, liveSessions] = await prisma.$transaction([
-    prisma.courseSession.updateMany({
-      where: {
-        ...sessionScope,
-        status: {
-          in: [
-            CourseStatus.SCHEDULED,
-            CourseStatus.LIVE,
-            CourseStatus.AFTER_CLASS,
-          ],
-        },
-        endTime: { lte: threshold },
-      },
+  const { sessionsToFinish, finishedSessions, liveSessions } = await prisma.$transaction(async (tx) => {
+    const sessionsToFinish = await tx.courseSession.findMany({
+      where: { ...sessionScope, status: { in: [CourseStatus.SCHEDULED, CourseStatus.LIVE, CourseStatus.AFTER_CLASS] }, endTime: { lte: threshold } },
+      select: { id: true, courseId: true, endTime: true, endedAt: true },
+    });
+    const ids = sessionsToFinish.map((lesson) => lesson.id);
+    if (ids.length) await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`;
+    // Update only the rows read in this transaction, then persist their final
+    // runtime state and events before committing.
+    const finishedSessions = await tx.courseSession.updateMany({
+      where: { id: { in: sessionsToFinish.map((lesson) => lesson.id) }, status: { in: [CourseStatus.SCHEDULED, CourseStatus.LIVE, CourseStatus.AFTER_CLASS] } },
       data: { status: CourseStatus.FINISHED },
-    }),
-    prisma.courseSession.updateMany({
-      where: {
-        ...sessionScope,
-        status: CourseStatus.SCHEDULED,
-        startTime: { lte: now },
-        // A delayed cron must never revive a lesson that already passed its
-        // grace deadline in the same reconciliation run.
-        endTime: { gt: threshold },
-      },
+    });
+    await tx.classroomRuntime.updateMany({
+      where: { sessionId: { in: sessionsToFinish.map((lesson) => lesson.id) }, status: { not: "ended" } },
+      data: { status: "ended", revision: { increment: 1 } },
+    });
+    for (const lesson of sessionsToFinish) await enqueueClassroomEvent(tx, lesson.id, "classroom.ended", lesson.endedAt ? "teacher_end" : "scheduled_end");
+    const liveSessions = await tx.courseSession.updateMany({
+      where: { ...sessionScope, status: CourseStatus.SCHEDULED, startTime: { lte: now }, endTime: { gt: threshold } },
       data: { status: CourseStatus.LIVE },
-    }),
-  ]);
+    });
+    return { sessionsToFinish, finishedSessions, liveSessions };
+  }, { timeout: 30_000 });
 
   // A manually ended/cancelled lesson may not be part of sessionsToFinish,
   // but it still needs stale attendance, runtime and recorder cleanup.
@@ -129,22 +108,17 @@ export async function promoteCoursesIfDue(
     lessonsToClose.set(lesson.id, lesson);
   }
 
-  await prisma.classroomRuntime.updateMany({
-    where: {
-      ...sessionScope,
-      status: { not: "ended" },
-      session: {
-        status: {
-          in: [
-            CourseStatus.AFTER_CLASS,
-            CourseStatus.FINISHED,
-            CourseStatus.CANCELLED,
-          ],
-        },
-      },
-    },
-    data: { status: "ended", revision: { increment: 1 } },
-  });
+  await prisma.$transaction(async (tx) => {
+    const terminal = await tx.classroomRuntime.findMany({
+      where: { ...sessionScope, status: { not: "ended" }, session: { status: { in: [CourseStatus.AFTER_CLASS, CourseStatus.FINISHED, CourseStatus.CANCELLED] } } },
+      select: { sessionId: true, session: { select: { status: true, endedAt: true } } },
+    });
+    await tx.classroomRuntime.updateMany({
+      where: { sessionId: { in: terminal.map((room) => room.sessionId) }, status: { not: "ended" } },
+      data: { status: "ended", revision: { increment: 1 } },
+    });
+    for (const room of terminal) await enqueueClassroomEvent(tx, room.sessionId, "classroom.ended", room.session.status === CourseStatus.CANCELLED ? "cancelled" : room.session.endedAt ? "teacher_end" : "scheduled_end");
+  }, { timeout: 30_000 });
 
   for (const lesson of lessonsToClose.values()) {
     await closeAllOpenAttendanceForLesson(
@@ -195,10 +169,11 @@ export async function promoteCoursesIfDue(
     data: { status: CourseStatus.FINISHED },
   });
   if (coursesToFinish.length > 0) {
-    await prisma.classroomRuntime.updateMany({
-      where: { courseId: { in: coursesToFinish.map((course) => course.id) } },
-      data: { status: "ended", revision: { increment: 1 } },
-    });
+    await prisma.$transaction(async (tx) => {
+      const activeRooms = await tx.classroomRuntime.findMany({ where: { courseId: { in: coursesToFinish.map((course) => course.id) }, status: { not: "ended" } }, select: { sessionId: true } });
+      await tx.classroomRuntime.updateMany({ where: { sessionId: { in: activeRooms.map((room) => room.sessionId) }, status: { not: "ended" } }, data: { status: "ended", revision: { increment: 1 } } });
+      for (const room of activeRooms) await enqueueClassroomEvent(tx, room.sessionId, "classroom.ended", "scheduled_end");
+    }, { timeout: 30_000 });
   }
 
   if (resultScheduledEnd.count > 0) {

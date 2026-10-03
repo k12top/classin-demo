@@ -1,6 +1,7 @@
 /**
  * Live share-link entry: valid token + auth session + course access -> live classroom.
  */
+import { normalizeParentOrigin } from "@/lib/classroom/integration-events";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { AlertCircle, ArrowRight, Video } from "lucide-react";
@@ -25,10 +26,11 @@ export default async function JoinPage({
   searchParams,
 }: {
   params: Promise<{ token: string }>;
-  searchParams: Promise<{ embed?: string; lang?: string }>;
+  searchParams: Promise<{ embed?: string; lang?: string; parentOrigin?: string }>;
 }) {
   const { token } = await params;
-  const { embed: embedParam, lang: langParam } = await searchParams;
+  const { embed: embedParam, lang: langParam, parentOrigin: originParam } = await searchParams;
+  const parentOrigin = normalizeParentOrigin(originParam);
   const wantEmbed = embedParam === "1" || embedParam === "true";
   const { t } = await getServerTranslation(langParam);
   const copy = {
@@ -80,6 +82,7 @@ export default async function JoinPage({
   if (!session) {
     const nextPath = `/join/${token}`;
     const nextQs = new URLSearchParams();
+    if (parentOrigin) nextQs.set("parentOrigin", parentOrigin);
     if (wantEmbed) nextQs.set("embed", "1");
     if (langParam) nextQs.set("lang", langParam);
     const next = nextQs.size > 0 ? `${nextPath}?${nextQs.toString()}` : nextPath;
@@ -121,6 +124,7 @@ export default async function JoinPage({
           "{name}",
           course.teacherName
         )}
+        parentOrigin={parentOrigin}
         embed={wantEmbed}
         lang={langParam}
       />
@@ -188,6 +192,7 @@ export default async function JoinPage({
     sessionId: lesson.id,
     shareAccess,
   });
+  if (parentOrigin) qs.set("parentOrigin", parentOrigin);
   if (wantEmbed) {
     qs.set("embed", "1");
   }

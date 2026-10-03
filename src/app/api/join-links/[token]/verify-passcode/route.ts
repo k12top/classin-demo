@@ -1,3 +1,4 @@
+import { normalizeParentOrigin } from "@/lib/classroom/integration-events";
 import { NextRequest, NextResponse } from "next/server";
 import {
   ensureShareLinkCourseAccess,
@@ -31,6 +32,7 @@ export async function POST(
   const purpose = isJoinLinkPurpose(body.purpose) ? body.purpose : null;
   const passcode = typeof body.passcode === "string" ? body.passcode.trim() : "";
   const embed = body.embed === true || body.embed === "1";
+  const parentOrigin = normalizeParentOrigin(body.parentOrigin);
   const lang = typeof body.lang === "string" ? body.lang : undefined;
   const { t } = await getServerTranslation(lang);
 
@@ -151,6 +153,7 @@ export async function POST(
     sessionId: lesson.id,
     shareAccess,
   });
+  if (parentOrigin) qs.set("parentOrigin", parentOrigin);
   if (embed) qs.set("embed", "1");
   if (lang) qs.set("lang", lang);
 

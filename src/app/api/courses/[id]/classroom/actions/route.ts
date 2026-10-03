@@ -13,6 +13,7 @@ import {
   ensureClassroomTranscriptionForLiveSession,
   syncClassroomTranscription,
 } from "@/lib/classroom/server/transcription-orchestrator";
+import { deliverClassroomEvents } from "@/lib/classroom/server/integration-events";
 import { prisma } from "@/lib/db";
 import { requestRecordingStop, processRecordingStop } from "@/lib/classroom/server/recording-orchestrator";
 import { databaseUnavailableResponse } from "@/lib/database-response";
@@ -124,6 +125,7 @@ export async function POST(
           : undefined,
       action: body.action,
     });
+    if (body.action.type === "startClass") after(() => deliverClassroomEvents());
     if (body.action.type === "setRecordingStartMode" && body.action.mode === "disabled") {
       const recordings = await prisma.classroomRecording.findMany({
         where: { sessionId, status: { in: ["starting", "recording", "stopping"] } },

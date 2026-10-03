@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/db";
+import { enqueueClassroomEvent } from "./integration-events";
 import { classroomRtcUid } from "@/lib/classroom/rtc-uid";
 export function normalizeClassroomClientId(value: unknown): string | undefined {
   return typeof value === "string" && /^[a-zA-Z0-9-]{8,64}$/.test(value) ? value : undefined;
@@ -19,7 +20,12 @@ export async function touchClassroomConnection(sessionId: string, userId: string
 export async function leaveClassroomConnection(sessionId: string, userId: string, clientId?: string, voluntary = false) {
   await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "ClassroomMemberState" WHERE "sessionId" = ${sessionId} AND "userId" = ${userId} FOR UPDATE`;
-    await tx.classroomConnection.updateMany({ where: { sessionId, userId, ...(clientId ? { id: `${sessionId}:${userId}:${clientId}` } : {}) }, data: { leftAt: new Date() } });
+    const now = new Date();
+    const departed = await tx.classroomConnection.updateMany({ where: { sessionId, userId, leftAt: null, ...(clientId ? { id: `${sessionId}:${userId}:${clientId}` } : {}) }, data: { leftAt: now } });
+    if (departed.count) {
+      const member = await tx.classroomMemberState.findUnique({ where: { sessionId_userId: { sessionId, userId } }, select: { role: true } });
+      await enqueueClassroomEvent(tx, sessionId, "classroom.user_left", voluntary ? "user_leave" : "pagehide", { userId, role: member?.role ?? "student" }, `${userId}:${clientId ?? "all"}:${now.toISOString()}`);
+    }
     const active = await tx.classroomConnection.count({ where: { sessionId, userId, leftAt: null, lastSeenAt: { gte: new Date(Date.now() - 45_000) } } });
     if (!active) {
       await tx.classroomMemberState.updateMany({ where: { sessionId, userId }, data: { presence: "offline", ...(voluntary ? { onStage: false, stageState: "offstage", handRaisedAt: null, screenShareState: "idle", whiteboardWritable: false } : {}) } });

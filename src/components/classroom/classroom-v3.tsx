@@ -1,5 +1,6 @@
 "use client";
 
+import { useClassroomHostEvents } from "@/lib/classroom/use-host-events";
 import { recorderCameraParticipants, recorderVideosHaveFrames } from "@/lib/classroom/recorder-surface";
 import { isEndedClassroomResponse } from "@/lib/classroom/session-lifecycle";
 import { stopDisallowedMicrophone } from "@/lib/classroom/media-permissions";
@@ -3988,6 +3989,7 @@ export function ClassroomV3({
     recorderMode ||
     searchParams.get("is_recorder") === "1" ||
     Boolean(recorderToken);
+  const emitHostEvent = useClassroomHostEvents(searchParams.get("parentOrigin"), isRecorder);
   const [loadingState, setLoadingState] = useState<LoadingState>("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [launchAttempt, setLaunchAttempt] = useState(0);
@@ -4352,7 +4354,7 @@ export function ClassroomV3({
   }, [isRecorder, liveRailCollapsed]);
 
   const updateSession = useCallback(
-    (update: Partial<ClassroomSessionResponse>) => {
+    (update: Partial<ClassroomSessionResponse>, confirmed = true) => {
       const current = sessionRef.current;
       if (!current || (current.runtime.status === "ended" && update.runtime && update.runtime.status !== "ended") || !shouldApplyClassroomRevision(current.runtime.revision, update.runtime?.revision)) return;
       const next = { ...current, ...update };
@@ -4362,9 +4364,16 @@ export function ClassroomV3({
       sessionRef.current = next;
       if (next.runtime.status === "ended") liveRequestsRef.current?.abort();
       setSessionData(next);
+      if (confirmed) emitHostEvent(next, "state_sync");
     },
-    [],
+    [emitHostEvent],
   );
+
+  // The initial server snapshot may already be live or ended. Optimistic
+  // start actions must wait for the successful server response below.
+  useEffect(() => {
+    if (loadingState === "ready" && !pendingRuntimeActionRef.current) emitHostEvent(sessionData, "state_sync");
+  }, [emitHostEvent, loadingState, sessionData]);
 
   const stopEndedSession = useCallback((status: number, body: unknown) => {
     const current = sessionRef.current;
@@ -5402,7 +5411,7 @@ export function ClassroomV3({
         });
       }
       const optimisticRuntime = optimisticClassroomRuntime(sessionRef.current.runtime, action, sessionRef.current.credential.userId);
-      if (optimisticRuntime) updateSession({ runtime: optimisticRuntime });
+      if (optimisticRuntime) updateSession({ runtime: optimisticRuntime }, false);
       let confirmedRuntime: ClassroomRuntimeSnapshot | undefined;
       setActionBusy(action.type);
       setActionError("");
@@ -5450,7 +5459,7 @@ export function ClassroomV3({
         return true;
       } catch (error) {
         if (liveRequestsRef.current?.signal.aborted) return false;
-        if (!confirmedRuntime && (optimisticComposition || optimisticRuntime)) updateSession({ runtime: originalRuntime });
+        if (!confirmedRuntime && (optimisticComposition || optimisticRuntime)) updateSession({ runtime: originalRuntime }, false);
         pendingRuntimeActionRef.current = false;
         void refreshState();
         setActionError(
@@ -5962,18 +5971,15 @@ export function ClassroomV3({
           payload.error || t("classroom.v3.classroomActionFailed"),
         );
       }
-      setSessionData((value) =>
-        value
-          ? {
-              ...value,
-              runtime: payload.runtime || { ...value.runtime, status: "ended" },
-              course: {
-                ...value.course,
-                status: payload.session!.status!,
-              },
-            }
-          : value,
-      );
+      const endedSession = {
+        ...current,
+        runtime: payload.runtime || { ...current.runtime, status: "ended" as const },
+        course: { ...current.course, status: payload.session.status },
+      };
+      sessionRef.current = endedSession;
+      liveRequestsRef.current?.abort();
+      setSessionData(endedSession);
+      emitHostEvent(endedSession, "teacher_end");
       if (
         ["starting", "recording", "stopping"].includes(recordingStatus || "")
       ) {
@@ -5998,6 +6004,7 @@ export function ClassroomV3({
     actionBusy,
     courseId,
     exitClassroom,
+    emitHostEvent,
     isRecorder,
     publishInvalidation,
     recordingStatus,
@@ -6006,6 +6013,7 @@ export function ClassroomV3({
 
   const leaveClassroom = useCallback(() => {
     if (isLeaving) return;
+    emitHostEvent(sessionRef.current, "user_leave", true);
     if (!isRecorder && courseId && classroomRole === "student") {
       void fetch(
         `/api/sessions/${encodeURIComponent(courseId)}/attendance`,
@@ -6021,7 +6029,7 @@ export function ClassroomV3({
       void fetch("/api/classroom/session/leave", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: courseId, clientId: clientId, shareAccess, voluntary: true }), keepalive: true }).catch(() => undefined);
     }
     exitClassroom();
-  }, [clientId, shareAccess, classroomRole, courseId, exitClassroom, isLeaving, isRecorder]);
+  }, [clientId, shareAccess, classroomRole, courseId, emitHostEvent, exitClassroom, isLeaving, isRecorder]);
 
   const toggleFullscreen = useCallback(() => {
     setActivePanel(null);
@@ -6036,10 +6044,14 @@ export function ClassroomV3({
   }, []);
   useEffect(() => {
     if (isRecorder || loadingState !== "ready") return;
-    const onPageHide = () => navigator.sendBeacon("/api/classroom/session/leave", new Blob([JSON.stringify({ sessionId: courseId, clientId: clientId, shareAccess })], { type: "application/json" }));
+    const onPageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
+      emitHostEvent(sessionRef.current, "pagehide", true);
+      navigator.sendBeacon("/api/classroom/session/leave", new Blob([JSON.stringify({ sessionId: courseId, clientId, shareAccess })], { type: "application/json" }));
+    };
     window.addEventListener("pagehide", onPageHide);
     return () => window.removeEventListener("pagehide", onPageHide);
-  }, [clientId, courseId, isRecorder, loadingState, shareAccess]);
+  }, [clientId, courseId, emitHostEvent, isRecorder, loadingState, shareAccess]);
 
   const acceptedStudentOnStage =
     sessionData?.credential.role === "student" &&

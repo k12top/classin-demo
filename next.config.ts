@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import path from "node:path";
 import { loadEnvConfig } from "@next/env";
+import { classroomEmbedOrigins } from "./src/lib/classroom/embed-policy";
 
 /**
  * Monorepo: parent folder may have another lockfile, so Turbopack/Next can infer
@@ -52,6 +53,20 @@ const nextConfig: NextConfig = {
   },
 
   async headers() {
+    const origins = classroomEmbedOrigins();
+    if (origins.length) return [
+      {
+        source: "/:path((?!join(?:/|$)|classroom(?:/|$)|courses(?:/|$)|course-share(?:/|$)|access-denied(?:/|$)|session-expired(?:/|$)|login(?:/|$)).*)",
+        headers: [
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
+      ...["/join/:path*", "/classroom/:path*", "/courses/:path*", "/course-share/:path*", "/access-denied", "/session-expired", "/login"].map((source) => ({
+        source,
+        headers: [{ key: "Content-Security-Policy", value: `frame-ancestors 'self' ${origins.join(" ")}` }],
+      })),
+    ];
     return [
       {
         source: "/:path*",

@@ -1,5 +1,6 @@
 import "server-only";
 import { classroomActionRequiresRevision } from "@/lib/classroom/action-request";
+import { enqueueClassroomEvent } from "./integration-events";
 import { classroomMemberPresence } from "@/lib/classroom/session-lifecycle";
 
 import { randomInt } from "node:crypto";
@@ -85,19 +86,25 @@ export async function ensureClassroomRuntime(
   const ended =
     lesson.status === CourseStatus.FINISHED ||
     lesson.status === CourseStatus.CANCELLED;
-  const runtime = await prisma.classroomRuntime.upsert({
-    where: { sessionId },
-    create: {
-      courseId,
-      sessionId,
-      status: ended ? "ended" : "waiting",
-      graceEndsAt: classroomGraceEndAt(lesson.endTime),
-      startedAt: null,
-    },
-    update: {
-      graceEndsAt: classroomGraceEndAt(lesson.endTime),
-      ...(ended ? { status: "ended" } : {}),
-    },
+  const runtime = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
+    const previous = await tx.classroomRuntime.findUnique({ where: { sessionId }, select: { status: true } });
+    const runtime = await tx.classroomRuntime.upsert({
+      where: { sessionId },
+      create: {
+        courseId,
+        sessionId,
+        status: ended ? "ended" : "waiting",
+        graceEndsAt: classroomGraceEndAt(lesson.endTime),
+        startedAt: null,
+      },
+      update: {
+        graceEndsAt: classroomGraceEndAt(lesson.endTime),
+        ...(ended ? { status: "ended" } : {}),
+      },
+    });
+    if (ended && previous && previous.status !== "ended") await enqueueClassroomEvent(tx, sessionId, "classroom.ended", lesson.status === CourseStatus.CANCELLED ? "cancelled" : "scheduled_end");
+    return runtime;
   });
 
   if (
@@ -105,16 +112,13 @@ export async function ensureClassroomRuntime(
     runtime.graceEndsAt &&
     runtime.graceEndsAt.getTime() <= Date.now()
   ) {
-    const [, updated] = await prisma.$transaction([
-      prisma.courseSession.update({
-        where: { id: sessionId },
-        data: { status: CourseStatus.FINISHED },
-      }),
-      prisma.classroomRuntime.update({
-        where: { id: runtime.id },
-        data: { status: "ended", revision: { increment: 1 } },
-      }),
-    ]);
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
+      await tx.courseSession.update({ where: { id: sessionId }, data: { status: CourseStatus.FINISHED } });
+      const endedRuntime = await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { status: "ended", revision: { increment: 1 } } });
+      await enqueueClassroomEvent(tx, sessionId, "classroom.ended", "scheduled_end");
+      return endedRuntime;
+    });
     return updated;
   }
   if (
@@ -159,6 +163,9 @@ export async function startScheduledClassroomIfDue(
   const sourceLanguage = normalizeClassroomLanguage(runtime.sourceLanguage);
   const targets = normalizeTargetLanguages(runtime.targetLanguages, sourceLanguage);
   const started = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
+    const currentLesson = await tx.courseSession.findUniqueOrThrow({ where: { id: sessionId }, select: { status: true } });
+    if (currentLesson.status !== CourseStatus.SCHEDULED && currentLesson.status !== CourseStatus.LIVE) return false;
     const claimed = await tx.classroomRuntime.updateMany({
       where: {
         id: runtime.id,
@@ -188,6 +195,7 @@ export async function startScheduledClassroomIfDue(
       where: { id: runtime.courseId, status: CourseStatus.SCHEDULED },
       data: { status: CourseStatus.LIVE },
     });
+    await enqueueClassroomEvent(tx, sessionId, "classroom.started", "scheduled_start");
     return true;
   });
   return started;
@@ -622,6 +630,7 @@ export async function applyClassroomAction(input: {
   }
 
   await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
     const runtime = await tx.classroomRuntime.findUniqueOrThrow({
       where: { sessionId },
     });
@@ -737,6 +746,7 @@ export async function applyClassroomAction(input: {
             revision: { increment: 1 },
           },
         });
+        if (runtime.status !== "live") await enqueueClassroomEvent(tx, sessionId, "classroom.started", "teacher_start", { userId: session.userId, role });
         return;
       }
       case "raiseHand":

@@ -1,4 +1,5 @@
 import { after, NextRequest, NextResponse } from "next/server";
+import { enqueueClassroomEvent, deliverClassroomEvents } from "@/lib/classroom/server/integration-events";
 import { closeAllOpenAttendanceForLesson } from "@/lib/course-attendance";
 import {
   stopActiveRecordingsForCourse,
@@ -171,6 +172,7 @@ async function handlePost(request: NextRequest, context: Context) {
       );
     }
     const updated = await prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${resolved.sessionId} FOR UPDATE`;
       await closeAllOpenAttendanceForLesson(resolved.sessionId, now, transaction);
       await transaction.classroomRuntime.updateMany({
         where: { sessionId: resolved.sessionId },
@@ -193,7 +195,7 @@ async function handlePost(request: NextRequest, context: Context) {
           failureStage: null,
         },
       });
-      return transaction.courseSession.update({
+      const lesson = await transaction.courseSession.update({
         where: { id: resolved.sessionId },
         // Keep a manually ended lesson in AFTER_CLASS during its grace window.
         // Existing classroom members can then receive the terminal runtime
@@ -207,6 +209,8 @@ async function handlePost(request: NextRequest, context: Context) {
           _count: { select: { attendances: true, recordings: true } },
         },
       });
+      await enqueueClassroomEvent(transaction, resolved.sessionId, "classroom.ended", "teacher_end", { userId: resolved.identity.userId, role: "teacher" });
+      return lesson;
     });
     clearCourseSessionAccessCache();
     let courseStatusSynced = false;
@@ -222,6 +226,7 @@ async function handlePost(request: NextRequest, context: Context) {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+    after(() => deliverClassroomEvents());
     after(async () => {
       if (!courseStatusSynced) {
         try {
@@ -294,6 +299,7 @@ async function handlePost(request: NextRequest, context: Context) {
     );
   }
   const updated = await prisma.$transaction(async (transaction) => {
+    await transaction.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${resolved.sessionId} FOR UPDATE`;
     await transaction.classroomRuntime.updateMany({
       where: { sessionId: resolved.sessionId },
       data: {
@@ -309,7 +315,7 @@ async function handlePost(request: NextRequest, context: Context) {
         transcriptionError: null,
       },
     });
-    return transaction.courseSession.update({
+    const lesson = await transaction.courseSession.update({
       where: { id: resolved.sessionId },
       data: { status: CourseStatus.LIVE, endedAt: null },
       include: {
@@ -320,9 +326,12 @@ async function handlePost(request: NextRequest, context: Context) {
         _count: { select: { attendances: true, recordings: true } },
       },
     });
+    await enqueueClassroomEvent(transaction, resolved.sessionId, "classroom.started", "reopened", { userId: resolved.identity.userId, role: "teacher" });
+    return lesson;
   });
   clearCourseSessionAccessCache();
   await syncCourseStatusFromSessions(resolved.courseId);
+  after(() => deliverClassroomEvents());
   after(async () => {
     await syncClassroomTranscription(resolved.courseId, {
       sessionId: resolved.sessionId,
