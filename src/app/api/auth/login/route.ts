@@ -5,9 +5,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSignInUrl } from "@/lib/casdoor-server";
 import { AUTH_RETURN_COOKIE, safeNextPath } from "@/lib/auth-login";
 import { classroomCookiePolicy } from "@/lib/classroom/embed-policy";
+import { classroomAuthOrigin } from "@/lib/auth-origin";
 
 export async function GET(request: NextRequest) {
-  const origin = request.nextUrl.origin;
+  const origin = classroomAuthOrigin(request.nextUrl.origin);
   const redirectUri = `${origin}/api/auth/callback`;
   const signInUrl = getServerSignInUrl(redirectUri);
   const nextPath = safeNextPath(request.nextUrl.searchParams.get("next"));

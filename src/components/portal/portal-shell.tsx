@@ -41,6 +41,7 @@ type PortalShellProps = {
   onPageChange: (page: PortalPage) => void;
   onLogout: () => void;
   children: ReactNode;
+  embedded?: boolean;
 };
 
 function portalCopy(t: ReturnType<typeof useTranslation>["t"]) {
@@ -68,6 +69,7 @@ export function PortalShell({
   onPageChange,
   onLogout,
   children,
+  embedded = false,
 }: PortalShellProps) {
   const { t, locale } = useTranslation();
   const copy = portalCopy(t);
@@ -132,6 +134,7 @@ export function PortalShell({
   }, [accountOpen]);
 
   useEffect(() => {
+    if (embedded) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey)) return;
       const index = Number(event.key) - 1;
@@ -142,7 +145,7 @@ export function PortalShell({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [navItems, onPageChange]);
+  }, [embedded, navItems, onPageChange]);
 
   const title =
     activePage === "settings"
@@ -178,6 +181,8 @@ export function PortalShell({
       })}
     </>
   );
+
+  if (embedded) return <div className={`${styles.shell} p-4 sm:p-6`}>{children}</div>;
 
   return (
     <div className={styles.shell}>

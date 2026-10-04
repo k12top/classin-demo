@@ -135,10 +135,14 @@ type SummaryCopy = {
 
 export default function CoursePlaybackPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ embed?: string }>;
 }) {
   const { id } = use(params);
+  const { embed } = use(searchParams);
+  const embedded = embed === "1" || embed === "true";
   const router = useRouter();
   const { user, loading: authLoading, logout } = useAuth();
   const { locale, t } = useTranslation();
@@ -616,6 +620,7 @@ export default function CoursePlaybackPage({
 
   return (
     <PortalShell
+      embedded={embedded}
       role={isTeacher ? "teacher" : "student"}
       user={user!}
       activePage="courses"
@@ -625,7 +630,7 @@ export default function CoursePlaybackPage({
       onLogout={logout}
     >
       <main className="mx-auto max-w-[1540px]">
-        <Button
+        {!embedded && <Button
           variant="ghost"
           size="sm"
           className="mb-4 rounded-xl text-muted-foreground hover:text-foreground"
@@ -633,7 +638,7 @@ export default function CoursePlaybackPage({
         >
           <ChevronLeft className="h-4 w-4" />
           {copy.back}
-        </Button>
+        </Button>}
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Lesson replay</p>

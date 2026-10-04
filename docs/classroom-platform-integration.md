@@ -51,6 +51,53 @@ CLASSROOM_SESSION_COOKIE_SAME_SITE=none
 
 使用现有“直播分享”链接 `/join/<token>`，追加 `embed=1` 和父平台的 `parentOrigin`。该参数会穿过登录、口令验证，传到课堂。它只指定消息接收来源，不提供课程访问权限。
 
+### 共用 Casdoor 的单点登录
+
+本次 RC 与课堂接入同一个 Casdoor、同一组织。分享地址中的 token 标识分享入口，用户身份通过现有 OAuth 授权码流程确认，无需在 iframe URL 中追加 RC 的用户 access_token。
+
+用户在 RC 登录后，打开分享链接；已有课堂登录态时直接进入，否则由 `/api/auth/login?next=...` 跳转到 Casdoor。Casdoor 会话有效且应用授权允许时，用户无需再次输入账号密码；Casdoor 回调 `/api/auth/callback` 后，课堂签发自己的 HttpOnly 登录 Cookie，返回原分享链接，再按课次状态进入课堂或回放。原链接中的 embed、parentOrigin 和 lang 参数会保留。
+
+双方应指向同一 Casdoor 服务，课堂应用需允许回调地址 `https://课堂域名/api/auth/callback`，并允许该组织用户访问。首次课堂授权可能出现应用授权确认。若 Casdoor 禁止 iframe 登录，应先在顶层窗口访问 joinUrl 完成课堂 SSO，再返回 RC 加载 embedUrl；跨站 iframe 的课堂 Cookie 仍需上述 HTTPS、SameSite=None 配置，并确认实际浏览器允许第三方 Cookie。共用 Casdoor 不会自动绕过浏览器的 Cookie 或嵌入限制。
+
+生成链接接口直接返回 SSO 地址，RC 无需构造登录地址或额外调用登录接口。使用 `link.ssoEmbedUrl` 作为 iframe.src：
+
+```js
+// link 是下方生成链接接口返回的 response.link。
+document.getElementById("classroom").src = link.ssoEmbedUrl;
+```
+
+`ssoEmbedUrl` 形如 `https://课堂域名/api/auth/login?next=%2Fjoin%2Fabc%3Fembed%3D1%26parentOrigin%3Dhttps%253A%252F%252Frc.example.com`，每次打开均经 Casdoor 授权，再返回固定课次的内嵌入口；`ssoUrl` 对应普通窗口的 SSO 入口。原 `joinUrl`、`embedUrl`、`embedSnippet` 继续返回，已有课堂登录态时可直接进入，仅在缺少登录态时才启动 SSO。两组地址使用同一个分享 token，都会保留原有口令、有效期和结束后回放规则。
+
+Casdoor 应用配置的 redirect_uri 始终为课堂 `/api/auth/callback`，每个课次的返回地址通过 next 保存，无需为每个课次注册 OAuth 回调。反向代理部署时，登录入口和授权回调统一使用 CLASSROOM_PUBLIC_BASE_URL 的公开 origin，需与 Casdoor 登记的回调地址一致。接口已完成 next 的编码；next 必须是课堂站内相对路径，不能改为 RC 的完整 URL。显式在顶层打开 ssoUrl 后，当前实现返回课堂分享入口；登录后自动回到 RC 页面并通知父窗口的流程尚未实现。SSO 地址不会改变 Casdoor 的 iframe 限制或浏览器第三方 Cookie 策略，仍需按上节完成部署与实际平台联调。
+
+### 生成固定课次内嵌链接
+
+RC 的接入顺序：创建课程取得 courseId → 创建课次取得 sessionId → 调用下面的 join-links 接口 → 保存 `link.ssoEmbedUrl` 并作为 iframe.src。可直接复制的 curl、响应和 iframe 示例见 [RC 接入步骤与完整示例](./public-course-api.md#rc-接入步骤与完整示例)。
+
+页面入口：课程详情 → 分享 → 直播分享链接 → 生成链接。登录的课程教师也可调用 `POST /api/courses/{courseId}/join-links`，提交 `{ "purpose": "live", "sessionId": "具体课次ID" }`；创建与列表响应同时包含普通链接及 `link.ssoUrl`、`link.ssoEmbedUrl`。不提交 sessionId 时系统选择当前可分享课次，第三方应明确指定课次，避免系列课混淆。
+
+通过公开 REST 创建的课程，第三方可完全匿名调用以下接口，直接获取 iframe 地址（原有非公开课程仍使用教师鉴权接口）：
+
+```http
+POST /api/public/v1/courses/{courseId}/sessions/{sessionId}/join-links
+Content-Type: application/json
+Idempotency-Key: rc-embed-lesson-1001
+```
+
+```json
+{ "parentOrigin": "https://rc.example.com", "label": "第一课入口", "lang": "zh-CN" }
+```
+
+返回 link 字段：`joinUrl`、`embedUrl`、`embedSnippet` 为普通入口，`ssoUrl`、`ssoEmbedUrl` 为经过单点登录的入口，另含 id、courseId、sessionId、requiresPasscode、passcode、expiresAt 等信息。RC 把 ssoEmbedUrl 设置为 iframe 的 src 即可，无需自行拼接用户 token 或 next 参数。生成链接无需登录，访问链接的用户通过 Casdoor 完成身份认证。
+
+可选 `requirePasscode: true` 自动生成六位口令，或提交 `passcode: "123456"` 指定口令；`expiresAt` 为未来的带时区 ISO 时间，不提交则链接不过期。设置 `CLASSROOM_PUBLIC_BASE_URL` 为课堂外部 HTTPS origin，可保证反向代理后的返回地址正确。parentOrigin 只填写父平台 origin，不能包含路径，也不会自动修改服务端的 iframe 白名单。
+
+### 下课后再次打开
+
+保存并始终使用同一条 `/join/<token>` 链接：未结束时进入该课次课堂；老师下课、runtime 结束、排期已结束（含宽限期）后再次打开，自动进入 `/courses/{courseId}/playback?sessionId={sessionId}&embed=1`。保留父平台 origin 和语言参数，回放内嵌模式隐藏平台侧栏和返回课程按钮。录制还在 processing / stopping 时，回放页显示生成中并轮询；没有录制时显示无可播放内容，不重新开课。
+
+回放跳转仍先验证链接有效性、登录和口令。首次通过有效分享链接进入的用户仅获得对应课次的回放权限，不自动加入整个课程。过期、撤销链接仍不可使用；已取消的课次保持原访问拒绝行为。本次只处理再次打开链接，已打开的课堂仍通过 postMessage 通知父平台结束，由父平台决定何时关闭或重新加载 iframe。
+
 ```html
 <iframe id="classroom" allow="camera; microphone; display-capture; autoplay; fullscreen"></iframe>
 <script>

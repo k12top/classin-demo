@@ -20,6 +20,7 @@ import { prisma } from "@/lib/db";
 import { getServerTranslation } from "@/lib/i18n/server";
 import { resolveCourseSessionAccess } from "@/lib/course-session-access";
 import { resolveCourseSessionReference } from "@/lib/course-session-roster";
+import { resolveJoinLinkPlayback } from "@/lib/join-link-playback";
 
 export default async function JoinPage({
   params,
@@ -136,6 +137,14 @@ export default async function JoinPage({
   );
   if (!lesson || lesson.courseId !== resolved.courseId) {
     redirect(buildAccessDeniedUrl({ code: "not_found", reason: t("join.courseNotExist") }));
+  }
+
+  const playback = await resolveJoinLinkPlayback(lesson, session, {
+    embed: wantEmbed, lang: langParam, parentOrigin,
+  });
+  if (playback) {
+    await recordJoinLinkUse(resolved.linkId);
+    redirect(playback);
   }
 
   let access = await resolveCourseSessionAccess(lesson.id, session.userId, {

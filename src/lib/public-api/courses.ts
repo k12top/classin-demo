@@ -8,7 +8,8 @@ import { aggregateCourseSessionStatus } from "@/lib/course-session-status-logic"
 import { clearCourseSessionAccessCache } from "@/lib/course-session-access";
 import { closeAllOpenAttendanceForLesson } from "@/lib/course-attendance";
 import { enqueueClassroomEvent } from "@/lib/classroom/server/integration-events";
-import { PublicApiError, type PublicCourseInput, type PublicSessionInput } from "./input";
+import { buildJoinUrl, buildEmbedSnippet, buildSsoEntryUrl, createJoinToken, createJoinPasscode } from "@/lib/join-link";
+import { PublicApiError, type PublicCourseInput, type PublicSessionInput, type PublicJoinLinkInput } from "./input";
 
 const courseSelect = {
   id: true, name: true, description: true, roomType: true, autoStudentOnStage: true,
@@ -164,6 +165,38 @@ export async function createPublicSession(courseId: string, input: PublicSession
   });
   clearCourseSessionAccessCache();
   return result;
+}
+
+export async function createPublicJoinLink(courseId: string, sessionId: string, input: PublicJoinLinkInput, origin: string, key?: string) {
+  const result = await createOnce(`join:${courseId}:${sessionId}`, key, input, async (tx) => {
+    const course = await publicCourse(tx, courseId, true);
+    if (course.lifecycleStatus === "archived") conflict("Archived courses cannot have new links");
+    const session = await sessionOf(tx, courseId, sessionId);
+    if (session.status === "cancelled") conflict("Cancelled sessions cannot have new links");
+    const requirePasscode = input.requirePasscode ?? Boolean(input.passcode);
+    const link = await tx.courseJoinLink.create({ data: {
+      courseId, sessionId, purpose: "live", token: createJoinToken(),
+      label: input.label || session.title || course.name, createdBy: course.ownerId,
+      passcode: requirePasscode ? input.passcode || createJoinPasscode() : null,
+      expiresAt: input.expiresAt,
+    } });
+    return { link: {
+      id: link.id, courseId, sessionId, purpose: "live", label: link.label,
+      requiresPasscode: Boolean(link.passcode), passcode: link.passcode,
+      expiresAt: link.expiresAt?.toISOString() ?? null,
+      joinUrl: buildJoinUrl(origin, link.token, false, input.lang, input.parentOrigin),
+      embedUrl: buildJoinUrl(origin, link.token, true, input.lang, input.parentOrigin),
+      embedSnippet: buildEmbedSnippet(origin, link.token, input.lang, input.parentOrigin),
+    } };
+  });
+  // Enrich the saved snapshot too, so retries of older creations receive the
+  // new entry URLs without generating another token or changing their target.
+  const body = result.body as { link: { joinUrl: string; embedUrl: string } };
+  const ssoEmbedUrl = buildSsoEntryUrl(body.link.embedUrl);
+  return { ...result, body: { ...body, link: {
+    ...body.link, ssoUrl: buildSsoEntryUrl(body.link.joinUrl),
+    ssoEmbedUrl,
+  } } };
 }
 
 export async function listPublicSessions(courseId: string, page: { limit: number; after?: string }) {

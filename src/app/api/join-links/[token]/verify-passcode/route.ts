@@ -15,6 +15,7 @@ import {
 import { getSessionFromRequest } from "@/lib/session";
 import { resolveCourseSessionAccess } from "@/lib/course-session-access";
 import { resolveCourseSessionReference } from "@/lib/course-session-roster";
+import { resolveJoinLinkPlayback } from "@/lib/join-link-playback";
 
 export const dynamic = "force-dynamic";
 
@@ -99,6 +100,11 @@ export async function POST(
   const lesson = await resolveCourseSessionReference(link.sessionId || course.id);
   if (!lesson || lesson.courseId !== course.id) {
     return NextResponse.json({ error: t("join.courseNotExist") }, { status: 404 });
+  }
+  const playback = await resolveJoinLinkPlayback(lesson, session, { embed, lang, parentOrigin });
+  if (playback) {
+    await recordJoinLinkUse(link.id);
+    return NextResponse.json({ success: true, redirectTo: playback });
   }
   let access = await resolveCourseSessionAccess(lesson.id, session.userId, {
     userIdAliases: [session.name],
