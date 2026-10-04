@@ -139,6 +139,19 @@
   letter-spacing: 0;
 }
 
+.classroom-v3-shell .classroom-v3-top-actions > button.classroom-v3-header-leave,
+.classroom-v3-shell.is-classin-layout .classroom-v3-top-actions > button.classroom-v3-header-leave {
+  display: inline-flex;
+  width: auto;
+  min-width: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding-inline: 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .is-classin-layout .classroom-v3-session-metrics {
   gap: 7px;
 }
