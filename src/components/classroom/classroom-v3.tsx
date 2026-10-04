@@ -6562,7 +6562,23 @@ export function ClassroomV3({
                 </button>
               </>
             )}
-            {sessionData.credential.role === "teacher" && <button type="button" className="classroom-v3-header-leave" title={t("classroom.v3.leaveTemporarily")} onClick={leaveClassroom}><LogOut /></button>}
+            <button
+              type="button"
+              className="classroom-v3-header-leave"
+              disabled={isLeaving}
+              aria-busy={isLeaving}
+              title={t(
+                sessionData.credential.role === "teacher"
+                  ? "classroom.v3.leaveTemporarily"
+                  : "classroom.v3.leave",
+              )}
+              onClick={leaveClassroom}
+            >
+              <LogOut aria-hidden="true" />
+              <span>
+                {t(isLeaving ? "classroom.v3.leaving" : "classroom.v3.leave")}
+              </span>
+            </button>
             {sessionData.capabilities.canStartClass &&
               sessionData.runtime.status === "waiting" && (
                 <button
