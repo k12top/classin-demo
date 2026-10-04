@@ -1,0 +1,496 @@
+.workspace {
+  width: 100%;
+}
+
+.workspace :global(.shadow-sm) {
+  box-shadow: none !important;
+}
+
+.workspace :global(.rounded-2xl) {
+  border-radius: 12px !important;
+}
+
+.workspace :global(.rounded-xl) {
+  border-radius: 8px !important;
+}
+
+.hero {
+  position: relative;
+  overflow: visible;
+  border: 1px solid hsl(var(--border) / 0.72);
+  border-radius: 12px;
+  color: hsl(var(--foreground));
+  background: hsl(var(--card));
+  box-shadow: none;
+}
+
+.hero::after {
+  display: none;
+}
+
+.heroContent {
+  position: relative;
+  z-index: 1;
+  padding: 22px 24px;
+}
+
+.heroTopline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.heroTopline > :not(.heroEyebrow) {
+  min-height: 22px;
+  border-color: hsl(var(--border) / 0.8) !important;
+  border-radius: 5px !important;
+  color: hsl(var(--muted-foreground)) !important;
+  background: transparent !important;
+  font-size: 10px !important;
+  font-weight: 550 !important;
+}
+
+.heroEyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 5px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.heroEyebrow::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #32d49a;
+  content: "";
+}
+
+.heroTitle {
+  color: hsl(var(--foreground)) !important;
+  max-width: 760px;
+  font-size: 28px !important;
+  font-weight: 620 !important;
+  line-height: 1.2 !important;
+  letter-spacing: -0.025em !important;
+  text-wrap: balance;
+}
+
+.heroPill {
+  min-height: 26px;
+  padding-inline: 0 !important;
+  border-color: transparent !important;
+  color: hsl(var(--muted-foreground)) !important;
+  background: transparent !important;
+}
+
+.heroPill svg {
+  width: 14px;
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+.heroPill span {
+  color: inherit !important;
+}
+
+.primaryAction {
+  min-height: 36px;
+  border-color: hsl(var(--primary)) !important;
+  color: #fff !important;
+  background: hsl(var(--primary)) !important;
+  box-shadow: none !important;
+}
+
+.secondaryAction {
+  min-height: 34px;
+  border-color: hsl(var(--border)) !important;
+  color: hsl(var(--muted-foreground)) !important;
+  background: hsl(var(--background)) !important;
+}
+
+.heroActionPanel {
+  width: min(100%, 190px);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.heroActionLabel {
+  display: block;
+  margin-bottom: 9px;
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.heroStatusControl {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid hsl(var(--border) / 0.7);
+}
+
+.heroStatusControl > span {
+  display: block;
+  margin-bottom: 7px;
+  color: hsl(var(--muted-foreground));
+  font-size: 9px;
+  font-weight: 620;
+}
+
+.heroStatusSelect {
+  border-color: hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
+  background: hsl(var(--background)) !important;
+}
+
+.heroStatusSelect:hover {
+  border-color: hsl(var(--primary) / 0.35) !important;
+  background: hsl(var(--muted) / 0.4) !important;
+}
+
+.secondaryAction:hover {
+  color: hsl(var(--foreground)) !important;
+  background: hsl(var(--muted) / 0.4) !important;
+}
+
+.heroHoverAction {
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.hero:hover .heroHoverAction,
+.hero:focus-within .heroHoverAction {
+  opacity: 1;
+  transform: none;
+}
+
+.tabsShell {
+  position: sticky;
+  z-index: 20;
+  top: 78px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.tabsScroller {
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+  border: 0 !important;
+  border-bottom: 1px solid hsl(var(--border) / 0.72) !important;
+  border-radius: 0 !important;
+  background: hsl(var(--background) / 0.96) !important;
+  box-shadow: none;
+  backdrop-filter: none;
+  scroll-padding-inline: 38px;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+
+.tabsScroller::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs {
+  position: static;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  justify-content: flex-start !important;
+  height: 42px !important;
+  padding: 0 34px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.tabs :global([role="tab"]) {
+  height: 42px;
+  border-radius: 0 !important;
+  padding-inline: 13px;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: none !important;
+}
+
+.tabs :global([role="tab"][data-state="active"]) {
+  color: hsl(var(--foreground)) !important;
+  background: transparent !important;
+  box-shadow: inset 0 -2px hsl(var(--primary)) !important;
+}
+
+.tabsScrollButton {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid hsl(var(--border) / 0.78);
+  border-radius: 7px;
+  color: hsl(var(--foreground));
+  background: hsl(var(--card) / 0.96);
+  box-shadow: none;
+  opacity: 0;
+  transform: translateY(-50%) scale(0.92);
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.tabsScrollButton[data-visible="true"] {
+  opacity: 1;
+  transform: translateY(-50%) scale(1);
+  pointer-events: auto;
+}
+
+.tabsScrollButton:hover {
+  color: hsl(var(--primary));
+  background: hsl(var(--muted));
+}
+
+.tabsScrollButton:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.tabsScrollBack {
+  inset-inline-start: 6px;
+}
+
+.tabsScrollForward {
+  inset-inline-end: 6px;
+}
+
+.sectionCard {
+  border-color: hsl(var(--border) / 0.7) !important;
+  border-radius: 12px !important;
+  background: hsl(var(--card)) !important;
+  box-shadow: none !important;
+}
+
+.scheduleDialog {
+  width: min(720px, calc(100vw - 32px)) !important;
+  max-width: none !important;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border) / 0.72) !important;
+  border-radius: 12px !important;
+  background: hsl(var(--background)) !important;
+  padding: 0 !important;
+  box-shadow: 0 20px 60px rgb(9 10 13 / 0.18) !important;
+}
+
+.scheduleDialog form {
+  display: grid;
+}
+
+.scheduleDialog form > div:first-child {
+  padding: 22px 24px 16px;
+  border-bottom: 1px solid hsl(var(--border) / 0.62);
+  background: hsl(var(--card));
+}
+
+.scheduleDialog h2 {
+  font-size: 20px;
+  letter-spacing: -0.025em;
+}
+
+.scheduleEyebrow {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 7px;
+  color: #6c60df;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.scheduleEyebrow svg {
+  width: 13px;
+  height: 13px;
+}
+
+.scheduleDialogBody {
+  display: grid;
+  gap: 16px;
+  padding: 20px 24px;
+}
+
+.scheduleDialogGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(110px, 0.62fr) minmax(0, 1.25fr);
+  gap: 10px;
+}
+
+.scheduleDialogGrid label {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.scheduleDialogGrid label > span {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.scheduleDialogGrid input {
+  height: 40px;
+  min-width: 0;
+  border-radius: 8px;
+  background: hsl(var(--muted) / 0.36);
+  font-size: 11px;
+}
+
+.scheduleDialogGrid label:nth-child(2) input {
+  font-family: "SFMono-Regular", "SF Mono", ui-monospace, monospace;
+  text-align: center;
+}
+
+.schedulePresets {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.schedulePresets button {
+  flex: 0 0 auto;
+  min-height: 31px;
+  border: 1px solid hsl(var(--border) / 0.82);
+  border-radius: 7px;
+  background: hsl(var(--card));
+  padding: 0 11px;
+  color: hsl(var(--muted-foreground));
+  font: inherit;
+  font-size: 9px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.schedulePresets button:hover,
+.schedulePresets button[data-active="true"] {
+  border-color: rgb(123 111 242 / 0.38);
+  color: #6257ce;
+  background: rgb(123 111 242 / 0.09);
+}
+
+.scheduleSummary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  background: hsl(var(--muted) / 0.32);
+  padding: 11px 13px;
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+}
+
+.scheduleSummary svg {
+  width: 14px;
+  height: 14px;
+  color: #6c60df;
+}
+
+.scheduleSummary strong {
+  margin-left: auto;
+  color: hsl(var(--foreground));
+  font-family: "SFMono-Regular", "SF Mono", ui-monospace, monospace;
+  font-size: 11px;
+}
+
+.scheduleError {
+  border: 1px solid rgb(255 94 105 / 0.22);
+  border-radius: 11px;
+  background: rgb(255 94 105 / 0.07);
+  padding: 10px 12px;
+  color: #e43f4c;
+  font-size: 10px;
+}
+
+.scheduleFooter {
+  padding: 14px 24px !important;
+  border-top: 1px solid hsl(var(--border) / 0.62);
+  background: hsl(var(--card) / 0.92);
+}
+
+.scheduleFooter button {
+  min-width: 96px;
+  border-radius: 8px;
+}
+
+@media (max-width: 720px) {
+  .hero {
+    border-radius: 10px;
+  }
+
+  .heroContent {
+    padding: 18px 16px;
+  }
+
+  .heroTitle {
+    font-size: 24px !important;
+  }
+
+  .heroHoverAction {
+    opacity: 1;
+    transform: none;
+  }
+
+  .heroActionPanel {
+    width: 100%;
+  }
+
+  .tabsShell {
+    position: relative;
+    top: auto;
+  }
+
+  .scheduleDialog {
+    width: min(94vw, 620px) !important;
+    border-radius: 10px !important;
+  }
+
+  .scheduleDialogGrid {
+    grid-template-columns: 1fr 105px;
+  }
+
+  .scheduleDialogGrid label:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .scheduleDialog form > div:first-child,
+  .scheduleDialogBody,
+  .scheduleFooter {
+    padding-right: 20px !important;
+    padding-left: 20px !important;
+  }
+}
+
+@media (hover: none) {
+  .heroHoverAction {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero *,
+  .tabsShell * {
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

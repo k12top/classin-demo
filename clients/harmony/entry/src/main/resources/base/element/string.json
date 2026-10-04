@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "翔宇文淑课堂入口模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "翔宇文淑在线课堂"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "翔宇文淑课堂"
+    }
+  ]
+}

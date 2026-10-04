@@ -6,8 +6,10 @@ import {
   isCoursewareObjectKey,
   toCoursewareStorageUrl,
 } from "@/lib/aliyun-oss";
-import { canAccessCourseware } from "@/lib/courseware-access";
+import { resolveCoursewareAccess } from "@/lib/courseware-access";
 import { assertCanTeachCourse } from "@/lib/course-teacher";
+import { getWhiteboardConversionStatus } from "@/lib/whiteboard-convert";
+import type { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -21,23 +23,108 @@ export async function GET(
   }
 
   const { id: courseId } = await params;
+  const requestedSessionId = request.nextUrl.searchParams.get("sessionId")?.trim() || null;
 
   try {
-    if (!(await canAccessCourseware(session, courseId))) {
+    const access = await resolveCoursewareAccess(
+      session,
+      courseId,
+      requestedSessionId,
+    );
+    if (!access.allowed) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const teaching = access.teaching;
+    let lessonFilter: Prisma.CoursewareWhereInput = { sessionId: null };
+    if (requestedSessionId) {
+      const lesson = await prisma.courseSession.findFirst({
+        where: { id: requestedSessionId, courseId },
+        select: { id: true },
+      });
+      if (!lesson) {
+        return NextResponse.json({ error: "Course session not found" }, { status: 404 });
+      }
+      const rules = await prisma.courseSessionCourseware.findMany({
+        where: { sessionId: lesson.id },
+        select: { coursewareId: true, action: true },
+      });
+      const excludedIds = rules
+        .filter((rule) => rule.action === "exclude")
+        .map((rule) => rule.coursewareId);
+      const includedIds = rules
+        .filter((rule) => rule.action === "include")
+        .map((rule) => rule.coursewareId);
+      lessonFilter = {
+        OR: [
+          { sessionId: null, id: { notIn: excludedIds } },
+          { sessionId: lesson.id },
+          ...(includedIds.length ? [{ id: { in: includedIds } }] : []),
+        ],
+      };
+    }
+    const itemWhere: Prisma.CoursewareWhereInput = {
+      courseId,
+      ...lessonFilter,
+      ...(!teaching ? { studentCanView: true } : {}),
+    };
 
-    const items = await prisma.courseware.findMany({
-      where: { courseId },
+    let items = await prisma.courseware.findMany({
+      where: itemWhere,
       orderBy: { createdAt: "desc" },
     });
+
+    const converting = items.filter(
+      (item) => item.whiteboardEnabled &&
+        item.taskUuid &&
+        (item.taskStatus === "Pending" || item.taskStatus === "Converting"),
+    );
+    if (converting.length > 0) {
+      await Promise.all(
+        converting.map(async (item) => {
+          try {
+            const result = await getWhiteboardConversionStatus(
+              item.taskUuid!,
+              item.type === "dynamic" ? "dynamic" : "static",
+            );
+            await prisma.courseware.update({
+              where: { id: item.id },
+              data: {
+                taskStatus: result.status,
+                conversion: result as unknown as Prisma.InputJsonValue,
+                conversionError: null,
+              },
+            });
+          } catch (error) {
+            await prisma.courseware.update({
+              where: { id: item.id },
+              data: {
+                taskStatus: "Failed",
+                conversionError:
+                  error instanceof Error ? error.message : "课件转换失败",
+              },
+            });
+          }
+        }),
+      );
+      items = await prisma.courseware.findMany({
+        where: itemWhere,
+        orderBy: { createdAt: "desc" },
+      });
+    }
 
     return NextResponse.json(
       {
         courseware: items.map((item) => ({
           ...item,
           url: undefined,
-          downloadUrl: `/api/courses/${courseId}/courseware/${item.id}/download`,
+          downloadUrl:
+            teaching || item.studentCanDownload
+              ? `/api/courses/${courseId}/courseware/${item.id}/download${
+                  requestedSessionId
+                    ? `?sessionId=${encodeURIComponent(requestedSessionId)}`
+                    : ""
+                }`
+              : null,
         })),
       },
       {
@@ -102,6 +189,9 @@ export async function POST(
         url: toCoursewareStorageUrl(cleanObjectKey),
         type: "file",
         taskStatus: "Finished",
+        studentCanView: true,
+        studentCanDownload: true,
+        whiteboardEnabled: false,
       },
     });
 

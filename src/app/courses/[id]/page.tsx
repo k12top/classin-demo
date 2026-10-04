@@ -1,22 +1,28 @@
 "use client";
 
-import { useState, useEffect, useCallback, use } from "react";
+import { useState, useEffect, useCallback, use, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { ChevronLeft, AlertTriangle, Key, Loader2, User, Users } from "lucide-react";
+import { AlertTriangle, Key, Loader2 } from "lucide-react";
 
 import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
 import TeacherCourseDetail from "@/components/TeacherCourseDetail";
 import StudentCourseDetail from "@/components/StudentCourseDetail";
-import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { PageLoadingState } from "@/components/ui/page-loading-state";
 import { useTranslation } from "@/lib/i18n/context";
+import {
+  readCourseDetailCache,
+  writeCourseDetailCache,
+} from "@/lib/course-detail-client-cache";
+import {
+  PortalShell,
+  type PortalPage,
+} from "@/components/portal/portal-shell";
 
 interface CourseDetail {
   id: string;
@@ -50,14 +56,17 @@ interface CourseDetail {
 
 export default function CourseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, logout } = useAuth();
   const { t } = useTranslation();
   const router = useRouter();
-  const [course, setCourse] = useState<CourseDetail | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [course, setCourse] = useState<CourseDetail | null>(() =>
+    readCourseDetailCache<CourseDetail>(id),
+  );
+  const [loading, setLoading] = useState(() => !readCourseDetailCache<CourseDetail>(id));
   const [redirecting, setRedirecting] = useState(false);
   const [enterLoading, setEnterLoading] = useState(false);
   const [error, setError] = useState("");
+  const requestedCourseRef = useRef("");
 
   const fetchCourse = useCallback(async () => {
     let keepLoadingForRedirect = false;
@@ -74,7 +83,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
       }
       if (res.ok) {
         const data = await res.json();
-        setCourse(data.course);
+        setCourse(writeCourseDetailCache(id, data.course));
       } else {
         setError("not_found");
       }
@@ -95,9 +104,13 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
       });
       return;
     }
-    queueMicrotask(() => {
-      void fetchCourse();
-    });
+    if (requestedCourseRef.current === id) return;
+    const cachedCourse = readCourseDetailCache<CourseDetail>(id);
+    setError("");
+    setCourse(cachedCourse);
+    setLoading(!cachedCourse);
+    requestedCourseRef.current = id;
+    void fetchCourse();
   }, [authLoading, fetchCourse, id, user]);
 
   const isTeacher = Boolean(user && course?.canTeach);
@@ -106,6 +119,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   const handleEnterClassroom = async () => {
     if (!course || !user) return;
     setEnterLoading(true);
+    let navigating = false;
 
     try {
       const res = await fetch(`/api/courses/${id}/verify-access`);
@@ -135,18 +149,41 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
         return;
       }
       router.push(data.classroomUrl);
+      navigating = true;
     } catch {
       setError("verify_failed");
-      setEnterLoading(false);
+    } finally {
+      if (!navigating) setEnterLoading(false);
     }
   };
 
-  if (authLoading || loading || redirectingToLogin) {
+  if (authLoading || redirectingToLogin) {
     return (
       <PageLoadingState
         message={redirectingToLogin ? t("login.redirecting") : t("common.loading")}
         variant="course"
       />
+    );
+  }
+
+
+  if (loading && user) {
+    return (
+      <PortalShell
+        role={user.role}
+        user={user}
+        activePage="courses"
+        onPageChange={(page: PortalPage) =>
+          router.push(`/?view=${encodeURIComponent(page)}`)
+        }
+        onLogout={logout}
+      >
+        <PageLoadingState
+          message={t("common.loading")}
+          variant="course"
+          embedded
+        />
+      </PortalShell>
     );
   }
 
@@ -188,30 +225,16 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   const isEnrolled = isTeacher || isDirectStudent || isGroupStudent;
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Top Nav Bar */}
-      <div className="border-b border-border/60 bg-card/60 backdrop-blur-xl sticky top-0 z-30">
-        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
-          <Button variant="ghost" size="sm" onClick={() => router.push("/")} className="text-muted-foreground hover:text-foreground">
-            <ChevronLeft className="mr-1 h-4 w-4" /> {t("common.backToList")}
-          </Button>
-          <div className="flex items-center gap-3">
-            <LanguageSwitcher />
-            <Badge variant="secondary" className={`flex items-center gap-1.5 px-3 py-1 ${
-              isTeacher
-                ? "bg-primary/10 text-primary border-primary/20"
-                : "bg-muted text-muted-foreground border-border"
-            }`}>
-              {isTeacher ? <User className="h-3 w-3" /> : <Users className="h-3 w-3" />}
-              {isTeacher ? t("common.roleTeacher") : t("common.roleStudent")}
-            </Badge>
-            <span className="text-sm font-medium text-foreground">{user?.displayName || user?.name}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <main className={`max-w-6xl mx-auto px-6 py-8 ${!isEnrolled && course.roomType === 10 && course.requiresPasscode ? "flex justify-center items-center min-h-[calc(100vh-10rem)]" : ""}`}>
+    <PortalShell
+      role={isTeacher ? "teacher" : "student"}
+      user={user!}
+      activePage="courses"
+      onPageChange={(page: PortalPage) =>
+        router.push(`/?view=${encodeURIComponent(page)}`)
+      }
+      onLogout={logout}
+    >
+      <main className={`max-w-6xl mx-auto ${!isEnrolled && course.roomType === 10 && course.requiresPasscode ? "flex justify-center items-center min-h-[calc(100vh-10rem)]" : ""}`}>
         {isTeacher ? (
           <TeacherCourseDetail 
             course={course} 
@@ -239,7 +262,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
           />
         )}
       </main>
-    </div>
+    </PortalShell>
   );
 }
 

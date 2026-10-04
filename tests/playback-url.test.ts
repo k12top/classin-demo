@@ -9,6 +9,10 @@ import {
 assert.equal(isMp4PlaybackUrl("https://cdn.example.com/course.mp4"), true);
 assert.equal(isMp4PlaybackUrl("https://cdn.example.com/course.MP4?token=abc"), true);
 assert.equal(isMp4PlaybackUrl("https://cdn.example.com/course.m3u8"), false);
+assert.equal(
+  isMp4PlaybackUrl("/api/courses/course-1/recording.mp4"),
+  true
+);
 assert.equal(isMp4PlaybackUrl("not-a-url"), false);
 assert.equal(isMp4PlaybackUrl(null), false);
 assert.equal(isHlsPlaybackUrl("https://cdn.example.com/course.m3u8"), true);
@@ -27,6 +31,11 @@ assert.deepEqual(
 
 assert.deepEqual(
   getPlaybackTarget("course-1", "https://cdn.example.com/course.m3u8?token=abc"),
+  { kind: "internal", href: "/courses/course-1/playback" }
+);
+
+assert.deepEqual(
+  getPlaybackTarget("course-1", "/api/courses/course-1/recording.mp4"),
   { kind: "internal", href: "/courses/course-1/playback" }
 );
 

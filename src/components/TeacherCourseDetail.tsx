@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback, useRef, type WheelEvent } from "react";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
@@ -12,16 +11,21 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlayCircle, Clock, Users, Link as LinkIcon, MessageSquare, Search, Trash2, Info, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw, AlertCircle, Upload, Film } from "lucide-react";
+import { PlayCircle, Clock, Users, Link as LinkIcon, Search, Trash2, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw, AlertCircle, Upload, CalendarClock, ChevronLeft, ChevronRight, Share2, Send, Film } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
-import {
-  CourseStatusSelect,
-  getCourseStatusLabel,
-} from "@/components/CourseStatusSelect";
-import { canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
-import { getPlaybackTarget } from "@/lib/playback-url";
 import TimeDisplay from "@/components/TimeDisplay";
+import workspaceStyles from "@/components/portal/course-workspace.module.css";
+import { usePortalFeedback } from "@/components/portal/portal-feedback";
+import {
+  getTeacherDirectory,
+  type TeacherDirectoryEntry,
+} from "@/lib/teacher-directory-client";
+import type { AuthUser } from "@/lib/auth-context";
+import {
+  CourseSessionManager,
+  type CourseSessionItem,
+} from "@/components/course-sessions/course-session-manager";
 
 const ROOM_TYPE_KEYS: Record<number, string> = {
   0: "common.roomType1v1",
@@ -44,15 +48,7 @@ interface CourseTeacherSummary {
   teacherAvatar?: string;
 }
 
-interface UserSearchResult {
-  id: string;
-  casdoorUuid?: string | null;
-  name: string;
-  displayName: string;
-  email: string;
-  avatar?: string;
-  role?: string;
-}
+type UserSearchResult = TeacherDirectoryEntry;
 
 interface CourseStudentSummary {
   id?: string;
@@ -80,12 +76,14 @@ interface AttendanceRecord {
   studentName: string;
   studentAvatar?: string;
   sessionCount: number;
-  firstEnteredAt: string;
-  latestEnteredAt: string;
+  firstEnteredAt: string | null;
+  latestEnteredAt: string | null;
   lastActivityAt: string | null;
   totalDurationSec: number;
   online: boolean;
   closedByCourseEnd: boolean;
+  status: "attended" | "excused";
+  leaveReason: string;
 }
 
 type AttendanceApiResponse = {
@@ -159,6 +157,7 @@ interface TeacherCourse {
   name: string;
   description: string;
   roomType: number;
+  courseKind?: "series" | "standalone";
   passcode?: string | null;
   teacherId: string;
   teacherName: string;
@@ -176,6 +175,16 @@ interface TeacherCourse {
   recordUrl?: string | null;
   students: CourseStudentSummary[];
   groupLinks: CourseGroupLinkSummary[];
+  sessionCount?: number;
+  completedSessionCount?: number;
+  nextSession?: {
+    id: string;
+    title?: string;
+    status: string;
+    startTime: string;
+    endTime: string;
+  } | null;
+  sessions?: CourseSessionItem[];
 }
 
 function countNestedMembers(g: GroupNode): number {
@@ -202,14 +211,6 @@ function createClientPasscode(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-function toDateTimeLocalValue(value: string | null): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const offsetMs = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
-}
-
 function formatAttendanceDuration(totalSeconds: number): string {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -221,18 +222,19 @@ function formatAttendanceDuration(totalSeconds: number): string {
 
 export default function TeacherCourseDetail({ 
   course, 
+  user,
   onEnterClassroom,
   enterLoading,
   fetchCourse
 }: { 
   course: TeacherCourse;
-  user?: unknown;
+  user?: AuthUser | null;
   onEnterClassroom: () => void;
   enterLoading: boolean;
   fetchCourse: () => void | Promise<void>;
 }) {
-  const router = useRouter();
   const { t, locale } = useTranslation();
+  const { notify, confirmAction } = usePortalFeedback();
   const isCourseOwner = Boolean(course.isCourseOwner);
   const defaultJoinLinkPasscode =
     course.roomType === 10 && course.passcode ? course.passcode : "";
@@ -240,13 +242,12 @@ export default function TeacherCourseDetail({
   const [courseNameDraft, setCourseNameDraft] = useState("");
   const [courseNameSaving, setCourseNameSaving] = useState(false);
   const [courseNameError, setCourseNameError] = useState("");
-  const [isEditingSchedule, setIsEditingSchedule] = useState(false);
-  const [scheduleStartDraft, setScheduleStartDraft] = useState("");
-  const [scheduleEndDraft, setScheduleEndDraft] = useState("");
-  const [scheduleSaving, setScheduleSaving] = useState(false);
-  const [scheduleError, setScheduleError] = useState("");
-  const [statusSaving, setStatusSaving] = useState(false);
-  const [roomReopening, setRoomReopening] = useState(false);
+  const [activeTab, setActiveTab] = useState("sessions");
+  const tabsScrollerRef = useRef<HTMLDivElement>(null);
+  const [tabScrollState, setTabScrollState] = useState({
+    canScrollBack: false,
+    canScrollForward: false,
+  });
 
   // Teaching teachers
   const [teacherResults, setTeacherResults] = useState<UserSearchResult[]>([]);
@@ -299,11 +300,70 @@ export default function TeacherCourseDetail({
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceError, setAttendanceError] = useState("");
+  const [attendanceSessionId, setAttendanceSessionId] = useState(
+    course.nextSession?.id || course.sessions?.at(-1)?.id || "",
+  );
   const attendanceRequestIdRef = useRef(0);
   const attendanceAbortRef = useRef<AbortController | null>(null);
   const [playbackProgress, setPlaybackProgress] = useState<PlaybackProgressRecord[]>([]);
   const [playbackProgressLoading, setPlaybackProgressLoading] = useState(false);
   const [playbackProgressError, setPlaybackProgressError] = useState("");
+
+  const updateTabScrollState = useCallback(() => {
+    const scroller = tabsScrollerRef.current;
+    if (!scroller) return;
+    const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+    setTabScrollState({
+      canScrollBack: scroller.scrollLeft > 2,
+      canScrollForward: scroller.scrollLeft < maxScrollLeft - 2,
+    });
+  }, []);
+
+  const scrollTabs = (direction: "back" | "forward") => {
+    const scroller = tabsScrollerRef.current;
+    if (!scroller) return;
+    scroller.scrollBy({
+      left: direction === "back" ? -Math.max(180, scroller.clientWidth * 0.62) : Math.max(180, scroller.clientWidth * 0.62),
+      behavior: "smooth",
+    });
+  };
+
+  const handleTabsWheel = (event: WheelEvent<HTMLDivElement>) => {
+    const scroller = tabsScrollerRef.current;
+    if (!scroller || scroller.scrollWidth <= scroller.clientWidth) return;
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    event.preventDefault();
+    scroller.scrollLeft += event.deltaY;
+  };
+
+  useEffect(() => {
+    const scroller = tabsScrollerRef.current;
+    if (!scroller) return;
+    const frame = window.requestAnimationFrame(updateTabScrollState);
+    const observer = new ResizeObserver(updateTabScrollState);
+    observer.observe(scroller);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [course.roomType, isCourseOwner, locale, updateTabScrollState]);
+
+  useEffect(() => {
+    const scroller = tabsScrollerRef.current;
+    if (!scroller) return;
+    const frame = window.requestAnimationFrame(() => {
+      const activeTrigger = scroller.querySelector<HTMLElement>(
+        '[role="tab"][data-state="active"]',
+      );
+      activeTrigger?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "nearest",
+      });
+      updateTabScrollState();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeTab, updateTabScrollState]);
 
   const sameTeacherId = (a: string, b: string) => {
     if (a === b) return true;
@@ -344,14 +404,6 @@ export default function TeacherCourseDetail({
     });
   }, [baseCourseTeachers, course.teacherId]);
 
-  useEffect(() => {
-    queueMicrotask(() => {
-      setScheduleStartDraft(toDateTimeLocalValue(course.startTime));
-      setScheduleEndDraft(toDateTimeLocalValue(course.endTime));
-      setScheduleError("");
-      setIsEditingSchedule(false);
-    });
-  }, [course.endTime, course.startTime]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -391,28 +443,17 @@ export default function TeacherCourseDetail({
     });
   };
 
-  const fetchTeacherOptions = useCallback(async () => {
+  const fetchTeacherOptions = useCallback(async (force = false) => {
     setTeacherSearching(true);
     setTeacherError("");
     try {
-      const res = await fetch(
-        "/api/users/teachers?limit=100",
-        { credentials: "same-origin" }
-      );
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        const teachers = data.teachers ?? data.users ?? [];
-        setTeacherResults(teachers);
-        if (!teachers.length) {
-          setTeacherError(t("teacherDashboard.searchUserNotFound"));
-        }
-      } else {
-        setTeacherResults([]);
-        setTeacherError(data.hint || data.error || t("common.failed"));
+      const teachers = await getTeacherDirectory({ force });
+      setTeacherResults(teachers);
+      if (!teachers.length) {
+        setTeacherError(t("teacherDashboard.searchUserNotFound"));
       }
-    } catch {
-      setTeacherResults([]);
-      setTeacherError(t("common.failed"));
+    } catch (error) {
+      setTeacherError(error instanceof Error ? error.message : t("common.failed"));
     } finally {
       setTeacherSearching(false);
     }
@@ -490,13 +531,13 @@ export default function TeacherCourseDetail({
   const handleAddCourseware = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cwFile) {
-      setCwError("请选择要上传的课件文件");
+      setCwError(t("courseDetail.coursewareFileRequired"));
       return;
     }
     const fileName = cwName.trim() || cwFile.name;
     const extension = cwFile.name.split(".").pop()?.toLowerCase() || "";
     if (!extension) {
-      setCwError("文件必须包含扩展名");
+      setCwError(t("courseDetail.coursewareExtensionRequired"));
       return;
     }
     
@@ -523,7 +564,7 @@ export default function TeacherCourseDetail({
         body: cwFile,
       });
       if (!uploadRes.ok) {
-        throw new Error("课件上传到 OSS 失败");
+        throw new Error(t("courseDetail.coursewareOssUploadFailed"));
       }
 
       const res = await fetch(`/api/courses/${course.id}/courseware`, {
@@ -601,6 +642,34 @@ export default function TeacherCourseDetail({
     }
   };
 
+  const courseInvitationText = (link: CourseJoinLinkSummary, url: string) => {
+    const passcodeLine = link.passcode
+      ? `\n${t("courseDetail.invitationPasscode", { passcode: link.passcode })}`
+      : "";
+    return t("courseDetail.invitationTemplate", {
+      course: course.name,
+      url,
+      passcodeLine,
+    });
+  };
+
+  const shareCourseInvitation = async (link: CourseJoinLinkSummary, url: string) => {
+    const text = courseInvitationText(link, url);
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({
+          title: t("courseDetail.invitationTitle", { course: course.name }),
+          text,
+          url,
+        });
+        return;
+      } catch (cause) {
+        if (cause instanceof DOMException && cause.name === "AbortError") return;
+      }
+    }
+    await copyText(text, t("courseDetail.invitationCopied"));
+  };
+
   const handleCreateJoinLink = async (purpose: "course" | "live") => {
     const label =
       purpose === "course" ? newCourseLinkLabel.trim() : newLiveLinkLabel.trim();
@@ -650,7 +719,12 @@ export default function TeacherCourseDetail({
   };
 
   const handleRevokeJoinLink = async (linkId: string) => {
-    if (!confirm(t("courseDetail.confirmRevokeLink"))) return;
+    if (
+      !(await confirmAction({
+        description: t("courseDetail.confirmRevokeLink"),
+        tone: "danger",
+      }))
+    ) return;
     setJoinLinkBusy(true);
     try {
       await fetch(`/api/courses/${course.id}/join-links/${linkId}`, {
@@ -694,9 +768,7 @@ export default function TeacherCourseDetail({
     event.preventDefault();
     const nextName = courseNameDraft.trim();
     if (!nextName) {
-      setCourseNameError(
-        locale === "zh-CN" ? "课程名称不能为空" : "Course name is required"
-      );
+      setCourseNameError(t("courseDetail.courseNameRequired"));
       return;
     }
     if (nextName === course.name) {
@@ -716,8 +788,7 @@ export default function TeacherCourseDetail({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(
-          data.error ||
-            (locale === "zh-CN" ? "课程名称保存失败" : "Failed to save course name")
+          data.error || t("courseDetail.courseNameSaveFailed")
         );
       }
       setIsEditingCourseName(false);
@@ -727,67 +798,10 @@ export default function TeacherCourseDetail({
       setCourseNameError(
         error instanceof Error
           ? error.message
-          : locale === "zh-CN"
-            ? "课程名称保存失败"
-            : "Failed to save course name"
+          : t("courseDetail.courseNameSaveFailed")
       );
     } finally {
       setCourseNameSaving(false);
-    }
-  };
-
-  const handleSaveSchedule = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!scheduleStartDraft) {
-      setScheduleError(locale === "zh-CN" ? "请选择开始时间" : "Select a start time");
-      return;
-    }
-    if (!scheduleEndDraft) {
-      setScheduleError(locale === "zh-CN" ? "请选择结束时间" : "Select an end time");
-      return;
-    }
-    const start = new Date(scheduleStartDraft);
-    const end = new Date(scheduleEndDraft);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      setScheduleError(locale === "zh-CN" ? "课程时间格式无效" : "Invalid course time");
-      return;
-    }
-    if (end <= start) {
-      setScheduleError(locale === "zh-CN" ? "结束时间必须晚于开始时间" : "End time must be after start time");
-      return;
-    }
-
-    setScheduleSaving(true);
-    setScheduleError("");
-    try {
-      const res = await fetch(`/api/courses/${course.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({
-          startTime: start.toISOString(),
-          endTime: end.toISOString(),
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(
-          data.error ||
-            (locale === "zh-CN" ? "课程时间保存失败" : "Failed to save course time")
-        );
-      }
-      setIsEditingSchedule(false);
-      await fetchCourse();
-    } catch (error) {
-      setScheduleError(
-        error instanceof Error
-          ? error.message
-          : locale === "zh-CN"
-            ? "课程时间保存失败"
-            : "Failed to save course time"
-      );
-    } finally {
-      setScheduleSaving(false);
     }
   };
 
@@ -803,11 +817,10 @@ export default function TeacherCourseDetail({
     const requestController = new AbortController();
     attendanceAbortRef.current = requestController;
     const requestId = ++attendanceRequestIdRef.current;
-    const requestUrl = `/api/courses/${course.id}/attendance`;
-    const unavailableMessage =
-      locale === "zh-CN"
-        ? "考勤记录暂时加载失败，请稍后重试。"
-        : "Attendance records could not be loaded. Please try again.";
+    const requestUrl = `/api/courses/${course.id}/attendance${
+      attendanceSessionId ? `?sessionId=${encodeURIComponent(attendanceSessionId)}` : ""
+    }`;
+    const unavailableMessage = t("courseDetail.attendanceUnavailable");
 
     setAttendanceLoading(true);
     setAttendanceError("");
@@ -855,9 +868,7 @@ export default function TeacherCourseDetail({
 
           const responseMessage =
             res.status === 403
-              ? locale === "zh-CN"
-                ? "您没有查看该课程考勤的权限。"
-                : "You do not have permission to view this attendance."
+              ? t("courseDetail.attendanceForbidden")
               : isRetryableAttendanceStatus(res.status)
                 ? unavailableMessage
                 : data.error || unavailableMessage;
@@ -894,10 +905,17 @@ export default function TeacherCourseDetail({
         attendanceAbortRef.current = null;
       }
     }
-  }, [course.id, locale]);
+  }, [attendanceSessionId, course.id, t]);
+
+  useEffect(() => {
+    if (activeTab !== "attendance") return;
+    queueMicrotask(() => void fetchAttendance());
+  }, [activeTab, fetchAttendance]);
 
   const exportAttendanceCsv = () => {
-    window.location.href = `/api/courses/${course.id}/attendance?format=csv`;
+    const params = new URLSearchParams({ format: "csv" });
+    if (attendanceSessionId) params.set("sessionId", attendanceSessionId);
+    window.location.href = `/api/courses/${course.id}/attendance?${params.toString()}`;
   };
 
   const fetchPlaybackProgress = useCallback(async () => {
@@ -972,7 +990,12 @@ export default function TeacherCourseDetail({
   };
 
   const handleRemoveStudent = async (studentId: string) => {
-    if (!confirm(t("courseDetail.confirmRemoveStudent"))) return;
+    if (
+      !(await confirmAction({
+        description: t("courseDetail.confirmRemoveStudent"),
+        tone: "danger",
+      }))
+    ) return;
     try {
       await fetch(`/api/courses/${course.id}/students`, {
         method: "DELETE",
@@ -1023,7 +1046,12 @@ export default function TeacherCourseDetail({
   };
 
   const handleDeleteGroup = async (groupId: string) => {
-    if (!confirm(t("teacherDashboard.deleteGroupConfirm"))) return;
+    if (
+      !(await confirmAction({
+        description: t("teacherDashboard.deleteGroupConfirm"),
+        tone: "danger",
+      }))
+    ) return;
     setGroupBusy(true);
     try {
       const res = await fetch("/api/groups", {
@@ -1042,7 +1070,7 @@ export default function TeacherCourseDetail({
 
   const handleAddUserToGroup = async (u: UserSearchResult) => {
     if (!memberTargetGroupId) {
-      alert(t("teacherDashboard.selectTargetGroup"));
+      notify(t("teacherDashboard.selectTargetGroup"), "error");
       return;
     }
     setGroupBusy(true);
@@ -1062,105 +1090,27 @@ export default function TeacherCourseDetail({
     }
   };
 
-  const handleStatusChange = async (status: string) => {
-    const statusText = getCourseStatusLabel(t, status);
-    if (!confirm(t("teacherDashboard.confirmFinishCancel", { status: statusText }))) return;
-    setStatusSaving(true);
-    try {
-      const res = await fetch(`/api/courses/${course.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        await fetchCourse();
-      } else {
-        alert(data.error || t("common.failed"));
-      }
-    } catch (err) {
-      console.error(err);
-      alert(t("common.failed"));
-    } finally {
-      setStatusSaving(false);
-    }
-  };
-
-  const handleReopenClassroom = async () => {
-    const confirmed = confirm(
-      locale === "zh-CN"
-        ? "重新开启会创建新的课堂房间，当前房间内的用户需要重新进入。是否继续？"
-        : "Reopening creates a fresh classroom session. Everyone in the current room must re-enter. Continue?",
-    );
-    if (!confirmed) return;
-
-    setRoomReopening(true);
-    try {
-      const res = await fetch(`/api/courses/${course.id}/reopen-room`, {
-        method: "POST",
-        credentials: "same-origin",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(data.error || t("common.failed"));
-        return;
-      }
-
-      await fetchCourse();
-      alert(
-        locale === "zh-CN"
-          ? "课堂已重新开启，即将进入新房间。"
-          : "The classroom has reopened. Entering the new room now.",
-      );
-      onEnterClassroom();
-    } catch (error) {
-      console.error(error);
-      alert(t("common.failed"));
-    } finally {
-      setRoomReopening(false);
-    }
-  };
-
   const courseShareLinks = joinLinks.filter((link) => link.purpose === "course");
   const liveJoinLinks = joinLinks.filter((link) => link.purpose !== "course");
-  const sharingText =
-    locale === "zh-CN"
-      ? {
-          courseTitle: "课程分享链接",
-          courseDesc: "学生打开后会登录或注册，并自动加入课程，最后进入课程详情页。",
-          liveTitle: "直播分享链接",
-          liveDesc: "用于已有课程权限的用户直接进入直播教室；不会自动加入课程。",
-          coursePlaceholder: "课程链接备注（如：报名群）",
-          livePlaceholder: "直播链接备注（如：家长旁听）",
-          requirePasscode: "需要 Passcode",
-          passcodePlaceholder: "6 位数字密码，留空自动生成",
-          generatePasscode: "生成",
-          passcodeProtected: "已启用密码",
-          copyPasscode: "复制密码",
-          courseEmpty: "暂无课程分享链接。",
-          liveEmpty: "暂无直播分享链接。",
-          activeCourseLinks: "课程链接",
-          activeLiveLinks: "直播链接",
-        }
-      : {
-          courseTitle: "Course Share Links",
-          courseDesc:
-            "Students open this link to sign in or register, auto-enroll, then land on the course page.",
-          liveTitle: "Live Share Links",
-          liveDesc:
-            "For users who already have course access to open the live classroom directly. It does not enroll students.",
-          coursePlaceholder: "Course link note, e.g. enrollment group",
-          livePlaceholder: "Live link note, e.g. parent observer",
-          requirePasscode: "Require passcode",
-          passcodePlaceholder: "6-digit passcode, blank to auto-generate",
-          generatePasscode: "Generate",
-          passcodeProtected: "Passcode enabled",
-          copyPasscode: "Copy passcode",
-          courseEmpty: "No course share links yet.",
-          liveEmpty: "No live share links yet.",
-          activeCourseLinks: "Course Links",
-          activeLiveLinks: "Live Links",
-      };
+  const sharingText = {
+    courseTitle: t("courseDetail.courseShareTitle"),
+    courseDesc: t("courseDetail.courseShareDescription"),
+    liveTitle: t("courseDetail.liveShareTitle"),
+    liveDesc: t("courseDetail.liveShareDescription"),
+    coursePlaceholder: t("courseDetail.courseSharePlaceholder"),
+    livePlaceholder: t("courseDetail.liveSharePlaceholder"),
+    requirePasscode: t("courseDetail.requirePasscode"),
+    passcodePlaceholder: t("courseDetail.passcodeAutoPlaceholder"),
+    generatePasscode: t("courseDetail.generatePasscode"),
+    passcodeProtected: t("courseDetail.passcodeProtected"),
+    copyPasscode: t("courseDetail.copyPasscode"),
+    copyInvitation: t("courseDetail.copyInvitation"),
+    systemShare: t("courseDetail.systemShare"),
+    courseEmpty: t("courseDetail.courseShareEmpty"),
+    liveEmpty: t("courseDetail.liveShareEmpty"),
+    activeCourseLinks: t("courseDetail.activeCourseLinks"),
+    activeLiveLinks: t("courseDetail.activeLiveLinks"),
+  };
 
   const renderPasscodeControls = ({
     enabled,
@@ -1239,18 +1189,33 @@ export default function TeacherCourseDetail({
     return <FileText className="h-5 w-5 text-muted-foreground shrink-0" />;
   };
 
+  const nextSession = course.nextSession || null;
+  const canEnterNextSession = Boolean(
+    nextSession && !["finished", "cancelled"].includes(nextSession.status),
+  );
+
   return (
-    <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 pt-4">
+    <div className={`${workspaceStyles.workspace} max-w-6xl mx-auto space-y-4 pb-10 pt-3`}>
       {/* Header Card */}
-      <Card className="border border-border/60 bg-card overflow-hidden relative rounded-2xl shadow-sm">
-        <div className="absolute top-[-50%] right-[-10%] w-[400px] h-[400px] bg-primary/5 rounded-full blur-[120px] pointer-events-none" />
-        <CardContent className="p-8 relative z-10">
+      <Card className={workspaceStyles.hero}>
+        <CardContent className={workspaceStyles.heroContent}>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
             <div className="space-y-4 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className={workspaceStyles.heroTopline}>
+                <span className={workspaceStyles.heroEyebrow}>
+                  {t("courseDetail.courseControl")}
+                </span>
+                <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary text-[10px]">
+                  {t(
+                    course.courseKind === "standalone"
+                      ? "portal.standaloneCourse"
+                      : "portal.courseGroup",
+                  )}
+                </Badge>
                 <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary text-[10px]">
                   {t(ROOM_TYPE_KEYS[course.roomType]) || t("common.unknown")}
                 </Badge>
+                <CourseStatusBadge status={course.status} />
                 {course.roomType === 10 && course.passcode && (
                   <Badge 
                     variant="outline" 
@@ -1315,14 +1280,14 @@ export default function TeacherCourseDetail({
                 </form>
               ) : (
                 <div className="flex items-start gap-2">
-                  <h1 className="min-w-0 break-words text-3xl md:text-4xl font-extrabold tracking-tight text-foreground">
+                  <h1 className={`min-w-0 break-words ${workspaceStyles.heroTitle}`}>
                     {course.name}
                   </h1>
                   <Button
                     type="button"
                     size="icon"
                     variant="ghost"
-                    className="mt-1 h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:text-primary"
+                    className={`mt-1 h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:text-primary ${workspaceStyles.heroHoverAction}`}
                     onClick={() => {
                       setCourseNameDraft(course.name || "");
                       setCourseNameError("");
@@ -1336,172 +1301,86 @@ export default function TeacherCourseDetail({
               )}
               
               <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mt-4">
-                <div className="flex items-center gap-1.5 bg-muted px-3 py-1.5 rounded-xl border border-border/40 text-xs font-semibold text-foreground">
+                <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold ${workspaceStyles.heroPill}`}>
                   <User className="h-4 w-4 text-primary" />
                   <span className="text-foreground/80">
                     {t("common.lead")}: {course.teacherName}
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5 bg-muted px-3 py-1.5 rounded-xl border border-border/40 text-xs font-semibold text-foreground">
+                <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold ${workspaceStyles.heroPill}`}>
                   <Users className="h-4 w-4 text-primary" />
                   <span className="text-foreground/80">{t("courseDetail.studentCount", { count: course.students.length })}</span>
                 </div>
-                <div className="flex items-center gap-1.5 bg-muted px-3 py-1.5 rounded-xl border border-border/40 text-xs font-semibold text-foreground">
+                <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold ${workspaceStyles.heroPill}`}>
                   <Clock className="h-4 w-4 text-primary" />
                   <span className="text-foreground/80">
-                    <TimeDisplay isoString={course.startTime} options={{ month: "long", day: "numeric", weekday: "long", hour: "2-digit", minute: "2-digit" }} />
+                    {nextSession ? (
+                      <TimeDisplay isoString={nextSession.startTime} options={{ month: "long", day: "numeric", weekday: "long", hour: "2-digit", minute: "2-digit" }} />
+                    ) : t("courseSessions.empty")}
                   </span>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 rounded-xl border-border/60 bg-muted/20 text-xs"
-                  onClick={() => {
-                    setScheduleStartDraft(toDateTimeLocalValue(course.startTime));
-                    setScheduleEndDraft(toDateTimeLocalValue(course.endTime));
-                    setScheduleError("");
-                    setIsEditingSchedule(true);
-                  }}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  {locale === "zh-CN" ? "修改时间" : "Edit time"}
-                </Button>
-                <CourseStatusBadge status={course.status} />
+                <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold ${workspaceStyles.heroPill}`}>
+                  <CalendarClock className="h-4 w-4 text-primary" />
+                  <span className="text-foreground/80">
+                    {t("courseSessions.progress", {
+                      completed: course.completedSessionCount || 0,
+                      total: course.sessionCount || 0,
+                    })}
+                  </span>
+                </div>
               </div>
-              {isEditingSchedule && (
-                <form
-                  onSubmit={handleSaveSchedule}
-                  className="mt-4 max-w-2xl rounded-xl border border-border/60 bg-muted/20 p-4"
-                >
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="space-y-1.5 text-xs font-semibold text-muted-foreground">
-                      <span>{t("teacherDashboard.fieldStartTime")}</span>
-                      <Input
-                        type="datetime-local"
-                        value={scheduleStartDraft}
-                        onChange={(e) => {
-                          setScheduleStartDraft(e.target.value);
-                          setScheduleError("");
-                        }}
-                        className="rounded-xl border-border/80 bg-background text-sm"
-                      />
-                    </label>
-                    <label className="space-y-1.5 text-xs font-semibold text-muted-foreground">
-                      <span>{t("teacherDashboard.fieldEndTime")}</span>
-                      <Input
-                        type="datetime-local"
-                        value={scheduleEndDraft}
-                        onChange={(e) => {
-                          setScheduleEndDraft(e.target.value);
-                          setScheduleError("");
-                        }}
-                        className="rounded-xl border-border/80 bg-background text-sm"
-                      />
-                    </label>
-                  </div>
-                  {scheduleError && (
-                    <p className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 p-2 text-xs text-red-500">
-                      {scheduleError}
-                    </p>
-                  )}
-                  <div className="mt-4 flex justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-9 rounded-xl text-xs"
-                      disabled={scheduleSaving}
-                      onClick={() => {
-                        setScheduleError("");
-                        setIsEditingSchedule(false);
-                      }}
-                    >
-                      {t("common.cancel")}
-                    </Button>
-                    <Button
-                      type="submit"
-                      className="h-9 rounded-xl bg-primary text-xs text-white hover:bg-primary/95"
-                      disabled={scheduleSaving}
-                    >
-                      {scheduleSaving ? t("common.saving") : t("common.save")}
-                    </Button>
-                  </div>
-                </form>
-              )}
             </div>
             
-            <div className="flex flex-col gap-3 w-full md:w-auto shrink-0">
-              <Button
-                size="lg"
-                className="w-full bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all"
-                onClick={() => {
-                  if (course.status === "finished") {
-                    const target = getPlaybackTarget(course.id, course.recordUrl);
-                    if (target?.kind === "internal") {
-                      router.push(target.href);
-                    } else if (target) {
-                      window.open(target.href, "_blank", "noopener,noreferrer");
-                    }
-                  } else {
-                    onEnterClassroom();
-                  }
-                }}
-                disabled={enterLoading || (course.status === "finished" ? !course.recordUrl : !canEnterClassroom(course.status))}
-              >
-                {enterLoading ? (
+            <div className={`flex flex-col gap-3 w-full md:w-auto shrink-0 ${workspaceStyles.heroActionPanel}`}>
+              <span className={workspaceStyles.heroActionLabel}>
+                {t("courseSessions.nextLesson")}
+              </span>
+              {canEnterNextSession ? (
+                <Button
+                  size="lg"
+                  className={`w-full rounded-xl font-medium active:scale-[0.98] transition-all ${workspaceStyles.primaryAction}`}
+                  onClick={onEnterClassroom}
+                  disabled={enterLoading}
+                >
                   <span className="flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-current" />
-                    {t("teacherDashboard.btnEntering")}
+                    {enterLoading ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <PlayCircle className="h-5 w-5" />
+                    )}
+                    {enterLoading
+                      ? t("teacherDashboard.btnEntering")
+                      : t("courseSessions.enterLive")}
                   </span>
-                ) : course.status === "finished" ? (
-                  <span className="flex items-center gap-2">
-                    <PlayCircle className="h-5 w-5" />
-                    {course.recordUrl ? t("studentDashboard.viewPlayback") : t("studentDashboard.livePlayback")}
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-2"><PlayCircle className="h-5 w-5" /> {t("teacherDashboard.btnEnterClass")}</span>
-                )}
-              </Button>
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"
-                className="w-full rounded-xl border-primary/30 text-primary hover:bg-primary/5"
-                onClick={() => void handleReopenClassroom()}
-                disabled={
-                  roomReopening ||
-                  enterLoading ||
-                  course.status === "cancelled"
-                }
+                className={`w-full rounded-xl ${workspaceStyles.secondaryAction}`}
+                onClick={() => setActiveTab("sessions")}
               >
-                {roomReopening ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                )}
-                {locale === "zh-CN"
-                  ? "重新开启课堂"
-                  : "Reopen classroom"}
+                <CalendarClock className="mr-2 h-4 w-4" />
+                {t("courseSessions.manage")}
               </Button>
-              <div className="flex items-center gap-2">
-                <span className="shrink-0 text-xs font-medium text-muted-foreground">
-                  {t("courseDetail.courseClassroomStatus")}
-                </span>
-                <CourseStatusSelect
-                  value={course.status}
-                  onValueChange={handleStatusChange}
-                  disabled={statusSaving}
-                  className="flex-1"
-                  triggerClassName="h-9 rounded-xl"
-                />
-              </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
       {/* Main Tabs Area */}
-      <Tabs defaultValue="members" className="w-full">
-        <TabsList className="bg-muted/60 border border-border/40 p-1 rounded-xl mb-6 inline-flex w-full md:w-auto overflow-x-auto no-scrollbar">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <div className={`${workspaceStyles.tabsShell} mb-6`}>
+          <div
+            ref={tabsScrollerRef}
+            className={workspaceStyles.tabsScroller}
+            onScroll={updateTabScrollState}
+            onWheel={handleTabsWheel}
+          >
+        <TabsList className={workspaceStyles.tabs}>
+          <TabsTrigger value="sessions" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
+            <CalendarClock className="mr-2 h-4 w-4" /> {t("courseSessions.title")}
+          </TabsTrigger>
           <TabsTrigger value="members" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
             <Users className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.members")}
           </TabsTrigger>
@@ -1514,9 +1393,8 @@ export default function TeacherCourseDetail({
           <TabsTrigger
             value="attendance"
             className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap"
-            onClick={() => void fetchAttendance()}
           >
-            <Clock className="mr-2 h-4 w-4" /> {locale === "zh-CN" ? "考勤" : "Attendance"}
+            <Clock className="mr-2 h-4 w-4" /> {t("courseDetail.attendance")}
           </TabsTrigger>
           <TabsTrigger
             value="playback-progress"
@@ -1530,10 +1408,52 @@ export default function TeacherCourseDetail({
               <LinkIcon className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.sharing")}
             </TabsTrigger>
           )}
-          <TabsTrigger value="requirements" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm whitespace-nowrap">
-            <MessageSquare className="mr-2 h-4 w-4" /> {t("courseDetail.tabs.requirementsStudent")}
-          </TabsTrigger>
         </TabsList>
+          </div>
+          <button
+            type="button"
+            className={`${workspaceStyles.tabsScrollButton} ${workspaceStyles.tabsScrollBack}`}
+            data-visible={tabScrollState.canScrollBack}
+            disabled={!tabScrollState.canScrollBack}
+            onClick={() => scrollTabs("back")}
+            aria-label={t("courseDetail.tabsScrollBack")}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className={`${workspaceStyles.tabsScrollButton} ${workspaceStyles.tabsScrollForward}`}
+            data-visible={tabScrollState.canScrollForward}
+            disabled={!tabScrollState.canScrollForward}
+            onClick={() => scrollTabs("forward")}
+            aria-label={t("courseDetail.tabsScrollForward")}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+
+        <TabsContent value="sessions" className="mt-0">
+          <CourseSessionManager
+            courseId={course.id}
+            courseName={course.name}
+            courseKind={course.courseKind}
+            roomType={course.roomType}
+            canManage={Boolean(course.canTeach)}
+            canManageCourseLifecycle={Boolean(
+              course.isCourseOwner ||
+                (user && casdoorUserIdsMatch(course.teacherId, user.userId)),
+            )}
+            currentUserIds={[user?.userId || "", user?.name || ""].filter(Boolean)}
+            leadTeacherId={course.teacherId}
+            teachers={selectedTeachers}
+            students={course.students}
+            groupLinks={course.groupLinks}
+            initialSessions={course.sessions}
+            onManageRoster={(role) =>
+              setActiveTab(role === "assistant" ? "teachers" : "members")
+            }
+          />
+        </TabsContent>
 
         <TabsContent value="teachers" className="mt-0">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1633,7 +1553,7 @@ export default function TeacherCourseDetail({
                     <Select
                       disabled={teacherSearching}
                       onOpenChange={(open) => {
-                        if (open) {
+                        if (open && !teacherResults.length) {
                           void fetchTeacherOptions();
                         }
                       }}
@@ -1683,7 +1603,7 @@ export default function TeacherCourseDetail({
                       type="button"
                       className="shrink-0 rounded-xl"
                       disabled={teacherSearching}
-                      onClick={() => void fetchTeacherOptions()}
+                      onClick={() => void fetchTeacherOptions(true)}
                       title={t("courseDetail.teacherSelectPlaceholder")}
                     >
                       {teacherSearching ? (
@@ -1995,8 +1915,14 @@ export default function TeacherCourseDetail({
 
                             {link.status === "active" && url && (
                               <div className="flex flex-wrap gap-2 mt-auto">
-                                <Button size="sm" className="flex-1 bg-muted border border-border/60 hover:bg-muted/80 text-foreground rounded-lg text-xs" onClick={() => void copyText(url, t("courseDetail.copySuccess"))}>
+                                <Button size="sm" className="bg-muted border border-border/60 hover:bg-muted/80 text-foreground rounded-lg text-xs" onClick={() => void copyText(url, t("courseDetail.copySuccess"))}>
                                   <Copy className="h-3.5 w-3.5 mr-1" /> {t("courseDetail.btnCopy")}
+                                </Button>
+                                <Button size="sm" className="flex-1 bg-primary/10 border border-primary/15 hover:bg-primary/15 text-primary rounded-lg text-xs" onClick={() => void copyText(courseInvitationText(link, url), t("courseDetail.invitationCopied"))}>
+                                  <Send className="h-3.5 w-3.5 mr-1" /> {sharingText.copyInvitation}
+                                </Button>
+                                <Button size="sm" variant="outline" className="rounded-lg text-xs" onClick={() => void shareCourseInvitation(link, url)}>
+                                  <Share2 className="h-3.5 w-3.5 mr-1" /> {sharingText.systemShare}
                                 </Button>
                                 {link.passcode && (
                                   <Button size="sm" variant="outline" className="rounded-lg text-xs" onClick={() => void copyText(link.passcode!, t("courseDetail.copyPasscodeSuccess"))}>
@@ -2136,7 +2062,7 @@ export default function TeacherCourseDetail({
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">选择课件文件</label>
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("courseDetail.chooseCoursewareFile")}</label>
                     <Input
                       ref={cwFileInputRef}
                       type="file"
@@ -2149,7 +2075,7 @@ export default function TeacherCourseDetail({
                       className="cursor-pointer bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary hover:file:bg-primary/15"
                     />
                     <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
-                      支持 PPT、PDF、Word、图片和音视频文件，单个文件最大 200 MB。文件会直接上传至 OSS，不会同步到课堂白板。
+                      {t("courseDetail.coursewareUploadHint")}
                     </p>
                   </div>
 
@@ -2167,10 +2093,10 @@ export default function TeacherCourseDetail({
                     {cwAdding ? (
                       <span className="flex items-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin text-current" />
-                        正在上传到 OSS…
+                        {t("courseDetail.uploadingToOss")}
                       </span>
                     ) : (
-                      <span className="flex items-center gap-2"><Upload className="h-4 w-4" />上传课件</span>
+                      <span className="flex items-center gap-2"><Upload className="h-4 w-4" />{t("courseDetail.uploadCourseware")}</span>
                     )}
                   </Button>
                 </form>
@@ -2181,7 +2107,7 @@ export default function TeacherCourseDetail({
             <Card className="border border-border/60 bg-card rounded-2xl shadow-sm lg:col-span-2">
               <CardHeader>
                 <CardTitle className="text-lg font-bold">{t("courseDetail.coursewareLibrary")}</CardTitle>
-                <CardDescription className="text-xs">本节课程已上传的学习资料。学生可在课程详情页下载或查看，课件不会传入课堂白板。</CardDescription>
+                <CardDescription className="text-xs">{t("courseDetail.coursewareLibraryCurrentDescription")}</CardDescription>
               </CardHeader>
               <CardContent>
                 {courseware.length === 0 ? (
@@ -2210,13 +2136,13 @@ export default function TeacherCourseDetail({
                         </div>
 
                         <div className="flex items-center gap-3 font-semibold text-xs">
-                          <Badge className="bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 text-[10px]">已上传</Badge>
+                          <Badge className="bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 text-[10px]">{t("courseDetail.uploaded")}</Badge>
 
                           <a
                             href={item.downloadUrl}
                             className="text-xs text-primary hover:underline font-semibold ml-2"
                           >
-                            下载课件
+                            {t("courseDetail.downloadCourseware")}
                           </a>
                         </div>
                       </div>
@@ -2234,15 +2160,28 @@ export default function TeacherCourseDetail({
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle className="text-lg font-bold">
-                    {locale === "zh-CN" ? "课堂考勤" : "Class Attendance"}
+                    {t("courseDetail.classAttendance")}
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    {locale === "zh-CN"
-                      ? "按学生汇总进入次数、首次进入、最后活动和累计在线时长。"
-                      : "Per-student totals for sessions, first entry, latest activity, and online duration."}
+                    {t("courseDetail.classAttendanceDescription")}
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
+                  <Select value={attendanceSessionId} onValueChange={(value) => {
+                    setAttendanceSessionId(value);
+                    setAttendance([]);
+                  }}>
+                    <SelectTrigger className="h-9 min-w-[12rem] rounded-xl text-xs" aria-label={t("courseDetail.attendanceLesson")}>
+                      <SelectValue placeholder={t("courseDetail.attendanceLesson")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(course.sessions || []).map((lesson) => (
+                        <SelectItem key={lesson.id} value={lesson.id}>
+                          {lesson.title || new Date(lesson.startTime).toLocaleString(locale)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Button
                     type="button"
                     variant="outline"
@@ -2255,7 +2194,7 @@ export default function TeacherCourseDetail({
                     ) : (
                       <RefreshCw className="h-4 w-4" />
                     )}
-                    {locale === "zh-CN" ? "刷新" : "Refresh"}
+                    {t("courseDetail.refresh")}
                   </Button>
                   <Button
                     type="button"
@@ -2263,7 +2202,7 @@ export default function TeacherCourseDetail({
                     onClick={exportAttendanceCsv}
                   >
                     <FileText className="h-4 w-4" />
-                    {locale === "zh-CN" ? "导出 CSV" : "Export CSV"}
+                    {t("courseDetail.exportCsv")}
                   </Button>
                 </div>
               </div>
@@ -2287,7 +2226,7 @@ export default function TeacherCourseDetail({
                     onClick={() => void fetchAttendance()}
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
-                    {locale === "zh-CN" ? "重试" : "Try again"}
+                    {t("courseDetail.tryAgain")}
                   </Button>
                 </div>
               )}
@@ -2298,21 +2237,19 @@ export default function TeacherCourseDetail({
                   <p className="text-sm font-medium text-muted-foreground">
                     {attendanceLoading
                       ? t("common.loading")
-                      : locale === "zh-CN"
-                        ? "暂无考勤记录"
-                        : "No attendance records yet"}
+                      : t("courseDetail.noAttendance")}
                   </p>
                 </div>
               ) : attendance.length > 0 ? (
                 <div className="overflow-x-auto">
                   <div className="min-w-[880px] divide-y divide-border/50 rounded-xl border border-border/60">
                     <div className="grid grid-cols-[1.5fr_0.7fr_1.2fr_1.2fr_0.9fr_0.7fr] gap-3 bg-muted/30 px-4 py-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      <span>{locale === "zh-CN" ? "学生" : "Student"}</span>
-                      <span>{locale === "zh-CN" ? "进入次数" : "Sessions"}</span>
-                      <span>{locale === "zh-CN" ? "首次进入" : "First Entered"}</span>
-                      <span>{locale === "zh-CN" ? "最后活动" : "Latest Activity"}</span>
-                      <span>{locale === "zh-CN" ? "累计时长" : "Total Duration"}</span>
-                      <span>{locale === "zh-CN" ? "状态" : "Status"}</span>
+                      <span>{t("courseDetail.attendanceStudent")}</span>
+                      <span>{t("courseDetail.attendanceSessions")}</span>
+                      <span>{t("courseDetail.attendanceFirstEntered")}</span>
+                      <span>{t("courseDetail.attendanceLatestActivity")}</span>
+                      <span>{t("courseDetail.attendanceTotalDuration")}</span>
+                      <span>{t("courseDetail.attendanceStatus")}</span>
                     </div>
                     {attendance.map((record) => (
                       <div
@@ -2339,18 +2276,16 @@ export default function TeacherCourseDetail({
                           {record.sessionCount}
                         </span>
                         <span className="text-muted-foreground">
-                          {new Date(record.firstEnteredAt).toLocaleString(locale)}
+                          {record.firstEnteredAt
+                            ? new Date(record.firstEnteredAt).toLocaleString(locale)
+                            : t("courseDetail.noActivity")}
                         </span>
                         <span className="text-muted-foreground">
                           {record.online
-                            ? locale === "zh-CN"
-                              ? "在线中"
-                              : "Online now"
+                            ? t("courseDetail.onlineNow")
                             : record.lastActivityAt
                             ? new Date(record.lastActivityAt).toLocaleString(locale)
-                            : locale === "zh-CN"
-                              ? "无活动记录"
-                              : "No activity record"}
+                            : t("courseDetail.noActivity")}
                         </span>
                         <span className="font-mono font-semibold">
                           {formatAttendanceDuration(record.totalDurationSec)}
@@ -2359,23 +2294,26 @@ export default function TeacherCourseDetail({
                           <Badge
                             variant="outline"
                             className={
-                              record.online
+                              record.status === "excused"
+                                ? "border-sky-500/25 bg-sky-500/10 text-sky-600"
+                                : record.online
                                 ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
                                 : "border-border/60 bg-muted/20 text-muted-foreground"
                             }
                           >
-                            {record.online
-                              ? locale === "zh-CN"
-                                ? "在线"
-                                : "Online"
+                            {record.status === "excused"
+                              ? t("courseDetail.excused")
+                              : record.online
+                              ? t("courseDetail.online")
                               : record.closedByCourseEnd
-                                ? locale === "zh-CN"
-                                  ? "课程结束"
-                                  : "Class ended"
-                              : locale === "zh-CN"
-                                ? "已离开"
-                                : "Left"}
+                                ? t("courseDetail.classEnded")
+                                : t("courseDetail.left")}
                           </Badge>
+                          {record.status === "excused" && record.leaveReason ? (
+                            <small className="mt-1 block max-w-[11rem] truncate text-muted-foreground" title={record.leaveReason}>
+                              {record.leaveReason}
+                            </small>
+                          ) : null}
                         </span>
                       </div>
                     ))}
@@ -2507,30 +2445,6 @@ export default function TeacherCourseDetail({
           </Card>
         </TabsContent>
 
-        <TabsContent value="requirements" className="mt-0">
-          <Card className="border border-border/60 bg-card rounded-2xl shadow-sm max-w-3xl">
-            <CardHeader>
-              <CardTitle className="text-lg font-bold">{t("courseDetail.tabs.requirementsStudent")}</CardTitle>
-              <CardDescription className="text-xs">{t("courseDetail.studentRemarksDesc")}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {course.studentRemarks ? (
-                <div className="relative p-6 rounded-xl bg-primary/5 border border-primary/10">
-                  <div className="absolute top-4 left-4 text-4xl text-primary/10 font-serif leading-none">&quot;</div>
-                  <p className="relative z-10 text-base text-foreground/95 leading-relaxed indent-4 px-2 font-medium">
-                    {course.studentRemarks}
-                  </p>
-                  <div className="absolute bottom-[-10px] right-4 text-4xl text-primary/10 font-serif leading-none rotate-180">&quot;</div>
-                </div>
-              ) : (
-                <div className="p-12 text-center border border-dashed border-border/60 rounded-xl bg-muted/10">
-                  <Info className="h-8 w-8 text-muted-foreground/50 mx-auto mb-3" />
-                  <p className="text-muted-foreground text-sm font-medium">{t("courseDetail.studentRemarksEmpty")}</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
     </div>
   );

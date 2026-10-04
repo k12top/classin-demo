@@ -8,6 +8,7 @@ const SHARE_ACCESS_TTL_SECONDS = 2 * 60 * 60;
 type ShareAccessPayload = {
   userId: string;
   courseId: string;
+  sessionId?: string;
   linkId: string;
   purpose: "live";
   exp: number;
@@ -73,7 +74,7 @@ export function buildEmbedSnippet(origin: string, token: string, lang?: string):
 }
 
 export type ResolvedJoinLink =
-  | { ok: true; courseId: string; linkId: string; requiresPasscode: boolean }
+  | { ok: true; courseId: string; sessionId: string | null; linkId: string; requiresPasscode: boolean }
   | { ok: false; reason: "not_found" | "revoked" | "expired" };
 
 export async function resolveJoinLink(token: string): Promise<ResolvedJoinLink> {
@@ -94,6 +95,7 @@ export async function resolveJoinLinkForPurpose(
     select: {
       id: true,
       courseId: true,
+      sessionId: true,
       purpose: true,
       passcode: true,
       revokedAt: true,
@@ -117,6 +119,7 @@ export async function resolveJoinLinkForPurpose(
   return {
     ok: true,
     courseId: link.courseId,
+    sessionId: link.sessionId,
     linkId: link.id,
     requiresPasscode: Boolean(link.passcode),
   };
@@ -158,11 +161,13 @@ function signShareAccessPayload(payload: string): string {
 export function createShareAccessToken(input: {
   userId: string;
   courseId: string;
+  sessionId?: string | null;
   linkId: string;
 }): string {
   const payload: ShareAccessPayload = {
     userId: input.userId,
     courseId: input.courseId,
+    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
     linkId: input.linkId,
     purpose: "live",
     exp: Math.floor(Date.now() / 1000) + SHARE_ACCESS_TTL_SECONDS,
@@ -210,7 +215,7 @@ function parseShareAccessToken(token: string): ShareAccessPayload | null {
 
 export async function verifyShareAccessToken(
   token: string | null | undefined,
-  expected: { userId: string; courseId: string }
+  expected: { userId: string; courseId: string; sessionId?: string }
 ): Promise<{ ok: true; linkId: string } | { ok: false }> {
   const trimmed = token?.trim();
   if (!trimmed) return { ok: false };
@@ -219,7 +224,8 @@ export async function verifyShareAccessToken(
   if (
     !payload ||
     payload.userId !== expected.userId ||
-    payload.courseId !== expected.courseId
+    payload.courseId !== expected.courseId ||
+    (expected.sessionId && payload.sessionId && payload.sessionId !== expected.sessionId)
   ) {
     return { ok: false };
   }
@@ -229,6 +235,9 @@ export async function verifyShareAccessToken(
       id: payload.linkId,
       courseId: expected.courseId,
       purpose: "live",
+      ...(expected.sessionId
+        ? { OR: [{ sessionId: expected.sessionId }, { sessionId: null }] }
+        : {}),
     },
     select: {
       id: true,

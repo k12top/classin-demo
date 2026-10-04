@@ -42,43 +42,94 @@ interface Course {
   activeCourseShareLinks?: { id: string; label: string; courseShareUrl: string; useCount: number }[];
 }
 
+let dashboardCourseCache: Course[] | null = null;
+let dashboardCourseRequest: Promise<Course[]> | null = null;
+const DASHBOARD_CACHE_KEY = "classroom:dashboard:courses:v1";
+
+function storedCourses(): Course[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const value = JSON.parse(sessionStorage.getItem(DASHBOARD_CACHE_KEY) || "[]");
+    return Array.isArray(value) ? (value as Course[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 function LoadingView({ message }: { message: string }) {
   return <PageLoadingState message={message} variant="dashboard" />;
 }
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [courses, setCourses] = useState<Course[]>(() => dashboardCourseCache ?? []);
+  const [loading, setLoading] = useState(() => !dashboardCourseCache);
+  const [offline, setOffline] = useState(false);
 
   const fetchCourses = useCallback(async () => {
     try {
-      let res = await fetch("/api/courses", { credentials: "same-origin" });
-      if (res.status === 401 && (await tryOAuthRefresh())) {
-        res = await fetch("/api/courses", { credentials: "same-origin" });
-      }
-      if (res.status === 401) {
-        redirectToSsoLogin();
-        return;
-      }
-      if (res.ok) {
-        const data = await res.json();
-        setCourses(data.courses);
-      }
+      dashboardCourseRequest ??= (async () => {
+        let res = await fetch("/api/courses", {
+          credentials: "same-origin",
+        });
+        if (res.status === 401 && (await tryOAuthRefresh())) {
+          res = await fetch("/api/courses", { credentials: "same-origin" });
+        }
+        if (res.status === 401) {
+          redirectToSsoLogin();
+          return [];
+        }
+        if (!res.ok) throw new Error(`Course request failed: ${res.status}`);
+        const data = (await res.json()) as { courses?: Course[] };
+        return data.courses ?? [];
+      })();
+      const nextCourses = await dashboardCourseRequest;
+      dashboardCourseCache = nextCourses;
+      sessionStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(nextCourses));
+      setCourses(nextCourses);
+      setOffline(false);
     } catch (err) {
       console.error("Failed to fetch courses:", err);
+      const cached = dashboardCourseCache ?? storedCourses();
+      if (cached.length) setCourses(cached);
+      setOffline(true);
     } finally {
+      dashboardCourseRequest = null;
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (!authLoading && user) {
+      const cached = dashboardCourseCache ?? storedCourses();
       queueMicrotask(() => {
+        if (cached.length) {
+          dashboardCourseCache = cached;
+          setCourses(cached);
+          setLoading(false);
+        }
         void fetchCourses();
       });
     }
   }, [authLoading, user, fetchCourses]);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    let lastRefreshAt = 0;
+    const refreshWhenReturning = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastRefreshAt < 10_000) return;
+      lastRefreshAt = now;
+      void fetchCourses();
+    };
+    window.addEventListener("focus", refreshWhenReturning);
+    document.addEventListener("visibilitychange", refreshWhenReturning);
+    return () => {
+      window.removeEventListener("focus", refreshWhenReturning);
+      document.removeEventListener("visibilitychange", refreshWhenReturning);
+    };
+  }, [authLoading, fetchCourses, user]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -97,8 +148,42 @@ export default function DashboardPage() {
   }
 
   if (user.role === "teacher") {
-    return <TeacherDashboard courses={courses} user={user} fetchCourses={fetchCourses} />;
+    return (
+      <>
+        {offline ? <OfflineStatus /> : null}
+        <TeacherDashboard courses={courses} user={user} fetchCourses={fetchCourses} />
+      </>
+    );
   }
 
-  return <StudentDashboard courses={courses} user={user} fetchCourses={fetchCourses} />;
+  return (
+    <>
+      {offline ? <OfflineStatus /> : null}
+      <StudentDashboard courses={courses} user={user} fetchCourses={fetchCourses} />
+    </>
+  );
+}
+
+function OfflineStatus() {
+  const { t } = useTranslation();
+  return (
+    <div
+      role="status"
+      style={{
+        position: "fixed",
+        zIndex: 80,
+        insetInlineEnd: "1rem",
+        bottom: "1rem",
+        border: "1px solid hsl(var(--border))",
+        borderRadius: "999px",
+        background: "hsl(var(--background) / .92)",
+        color: "hsl(var(--muted-foreground))",
+        padding: ".45rem .75rem",
+        fontSize: ".72rem",
+        backdropFilter: "blur(18px)",
+      }}
+    >
+      {t("common.offlineCached")}
+    </div>
+  );
 }

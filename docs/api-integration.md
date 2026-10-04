@@ -244,45 +244,56 @@ https://your-domain.com/classroom?roomUuid=...&roomType=...&roomName=...&courseI
 
 ---
 
-### 4. 获取课堂 Token（嵌入模式）
+### 4. 创建课堂会话
 
-如果要在 iframe 中嵌入课堂，需要额外获取课堂 token。
+自研课堂在服务端验证课程权限，并返回供应商无关的会话凭证与媒体配置。不要由外部系统自行生成 RTC Token。
 
 ```
-POST /api/token
+POST /api/classroom/session
 Authorization: Bearer <casdoor_access_token>
 Content-Type: application/json
 
 {
-  "roomUuid": "a1b2c3d4e5f67890",
   "courseId": "a1b2c3d4-e5f6-..."
 }
 ```
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| roomUuid | string | 从 classroomUrl 中取的 roomUuid |
 | courseId | string | 课程 UUID |
+| shareAccess | string | 可选，通过课程分享链接进入时传入的访问凭证 |
 
 **响应**
 
 ```json
 {
-  "token": "007eJx...",
-  "appId": "c99134753386...",
-  "classroomUrl": "/classroom?roomUuid=...&roomType=...&roomName=...&courseId=...",
-  "role": "assistant",
-  "roleType": 3
+  "credential": {
+    "provider": "agora",
+    "appId": "c99134753386...",
+    "channelName": "a1b2c3d4e5f67890",
+    "userId": "user-uuid",
+    "role": "assistant",
+    "token": "007eJx...",
+    "expiresInSeconds": 21600
+  },
+  "mediaProfile": {
+    "camera": {
+      "low": { "width": 160, "height": 120, "frameRate": 15, "bitrateKbps": 65 },
+      "high": { "width": 1280, "height": 720, "frameRate": 15, "bitrateKbps": 1200 }
+    },
+    "screen": { "width": 1920, "height": 1080, "frameRate": 15, "bitrateKbps": 2500 }
+  },
+  "recording": { "enabled": true, "status": null }
 }
 ```
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| token | string | 课堂访问 token，用于课堂启动 |
-| appId | string | 课堂应用标识 |
-| classroomUrl | string | 课堂入口路径 |
-| role | string | `"teacher"`、`"assistant"` 或 `"student"` |
-| roleType | int | 声网 SDK 角色：`1`=老师，`2`=学生，`3`=助教 |
+| credential | object | 统一加入凭证，客户端交给 `MediaProvider` |
+| credential.role | string | `"teacher"`、`"assistant"` 或 `"student"` |
+| credential.screenShare | object | 仅可发布角色返回，用于独立屏幕共享连接 |
+| mediaProfile | object | 大小流、屏幕共享与录制参数 |
+| recording | object | 云端录制是否已配置及当前状态 |
 
 ---
 

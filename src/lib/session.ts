@@ -10,6 +10,7 @@ import {
   determineRole,
 } from "@/lib/casdoor-server";
 import { resolveSessionUserId } from "@/lib/casdoor-user";
+import { classroomCookiePolicy } from "@/lib/classroom/embed-policy";
 
 const SESSION_SECRET =
   process.env.SESSION_SECRET ||
@@ -42,9 +43,8 @@ export type BuiltSessionCookies = {
 
 const sessionCookieOptions = (expires: Date) => ({
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
+  ...classroomCookiePolicy(),
   expires,
-  sameSite: "lax" as const,
   path: "/",
 });
 

@@ -12,6 +12,14 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local Codex skills and ad-hoc diagnostics are not application source.
+    ".agents/**",
+    ".codex/**",
+    "scratch/**",
+    "public/vendor/**",
+    // Standalone Electron, Flutter and HarmonyOS projects use their own
+    // platform toolchains and lint configurations.
+    "clients/**",
   ]),
 ]);
 

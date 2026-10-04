@@ -1,0 +1,91 @@
+{
+  "main": {
+    "board": true,
+    "cameras": 2,
+    "diagnostics": {
+      "at": 249786.5,
+      "bootstrap": 1,
+      "creates": 1,
+      "credentials": 0,
+      "destroys": 0,
+      "notify": [
+        3398.79999999993
+      ],
+      "ready": [
+        {
+          "at": 3398.79999999993,
+          "board": true,
+          "videos": [
+            {
+              "height": 180,
+              "readyState": 4,
+              "width": 320
+            },
+            {
+              "height": 180,
+              "readyState": 4,
+              "width": 320
+            }
+          ]
+        },
+        {
+          "at": 4907.5,
+          "board": true,
+          "videos": [
+            {
+              "height": 180,
+              "readyState": 4,
+              "width": 320
+            },
+            {
+              "height": 180,
+              "readyState": 4,
+              "width": 320
+            }
+          ]
+        }
+      ],
+      "state": 53
+    },
+    "screen": 0
+  },
+  "slowVideo": {
+    "at": 248651.5,
+    "bootstrap": 1,
+    "creates": 1,
+    "credentials": 1,
+    "destroys": 0,
+    "notify": [
+      5948.400000000023
+    ],
+    "ready": [
+      {
+        "at": 5948.400000000023,
+        "board": true,
+        "videos": [
+          {
+            "height": 180,
+            "readyState": 4,
+            "width": 320
+          },
+          {
+            "height": 180,
+            "readyState": 4,
+            "width": 320
+          }
+        ]
+      }
+    ],
+    "state": 53
+  },
+  "failedBoard": {
+    "at": 245798.29999999993,
+    "bootstrap": 1,
+    "creates": 1,
+    "credentials": 0,
+    "destroys": 0,
+    "notify": [],
+    "ready": [],
+    "state": 122
+  }
+}

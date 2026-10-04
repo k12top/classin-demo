@@ -14,7 +14,7 @@ function clearAuthCookies(response: NextResponse): NextResponse {
   return response;
 }
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   await deleteSession();
   return clearAuthCookies(NextResponse.json({ success: true }));
 }
