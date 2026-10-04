@@ -1350,6 +1350,204 @@
           }
         }
       }
+    },
+    "/api/public/v1/courses/{courseId}/sessions/{sessionId}/join-links": {
+      "parameters": [
+        {
+          "name": "courseId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "createPublicSessionJoinLink",
+        "summary": "Create fixed lesson share, iframe and direct SSO entry links; ended lessons open replay",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "schema": {
+                  "type": "string",
+                  "const": "*"
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "boolean"
+                },
+                "description": "true for replayed original creation response"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "link"
+                  ],
+                  "properties": {
+                    "link": {
+                      "$ref": "#/components/schemas/JoinLink"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not in public scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 64 KiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be application/json",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "schema": {
+                  "type": "string",
+                  "const": "*"
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "boolean"
+                },
+                "description": "true for replayed original creation response"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "link"
+                  ],
+                  "properties": {
+                    "link": {
+                      "$ref": "#/components/schemas/JoinLink"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJoinLink"
+              },
+              "example": {
+                "parentOrigin": "https://rc.example.com",
+                "lang": "zh-CN"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[!-~]+$"
+            },
+            "description": "Successful POST retry key; different body with the same key returns 409"
+          }
+        ]
+      },
+      "options": {
+        "summary": "Anonymous CORS preflight",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Preflight success"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1778,6 +1976,112 @@
                 "type": "string"
               }
             }
+          }
+        }
+      },
+      "CreateJoinLink": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "parentOrigin": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2000,
+            "description": "Exact HTTP(S) parent origin without path, query, credentials or fragment"
+          },
+          "lang": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20
+          },
+          "requirePasscode": {
+            "type": "boolean",
+            "default": false
+          },
+          "passcode": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$",
+            "description": "Providing a passcode enables it; cannot combine with requirePasscode=false"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Future timestamp with explicit timezone; omission means no expiry"
+          }
+        }
+      },
+      "JoinLink": {
+        "type": "object",
+        "required": [
+          "id",
+          "courseId",
+          "sessionId",
+          "purpose",
+          "label",
+          "joinUrl",
+          "embedUrl",
+          "embedSnippet",
+          "ssoUrl",
+          "ssoEmbedUrl",
+          "requiresPasscode",
+          "passcode",
+          "expiresAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "courseId": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "joinUrl": {
+            "type": "string"
+          },
+          "embedUrl": {
+            "type": "string"
+          },
+          "embedSnippet": {
+            "type": "string"
+          },
+          "ssoUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Direct Casdoor SSO entry returning to this lesson in a normal window"
+          },
+          "ssoEmbedUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Set iframe.src to this URL; Casdoor SSO returns to the fixed embedded lesson or its replay"
+          },
+          "purpose": {
+            "type": "string",
+            "const": "live"
+          },
+          "requiresPasscode": {
+            "type": "boolean"
+          },
+          "passcode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           }
         }
       }

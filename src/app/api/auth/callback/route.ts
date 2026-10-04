@@ -14,14 +14,16 @@ import { AUTH_RETURN_COOKIE, safeNextPath } from "@/lib/auth-login";
 import { resolveSessionUserId } from "@/lib/casdoor-user";
 import { attachSessionCookies, buildSessionCookies } from "@/lib/session";
 import { resolveUserAvatar } from "@/lib/user-profile";
+import { classroomAuthOrigin } from "@/lib/auth-origin";
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get("code");
-  const redirectUri = `${request.nextUrl.origin}/api/auth/callback`;
+  const origin = classroomAuthOrigin(request.nextUrl.origin);
+  const redirectUri = `${origin}/api/auth/callback`;
 
   if (!code) {
-    return NextResponse.redirect(new URL("/login?error=no_code", request.url));
+    return NextResponse.redirect(new URL("/login?error=no_code", origin));
   }
 
   try {
@@ -49,7 +51,7 @@ export async function GET(request: NextRequest) {
     const returnTo = safeNextPath(
       cookieStore.get(AUTH_RETURN_COOKIE)?.value ?? "/"
     );
-    const response = NextResponse.redirect(new URL(returnTo, request.url));
+    const response = NextResponse.redirect(new URL(returnTo, origin));
     attachSessionCookies(response, built);
     response.cookies.delete(AUTH_RETURN_COOKIE);
     return response;
@@ -58,7 +60,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       new URL(
         `/login?error=auth_failed&message=${encodeURIComponent(String(error))}`,
-        request.url
+        origin
       )
     );
   }

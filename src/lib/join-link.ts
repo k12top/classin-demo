@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/db";
+import { ssoLoginUrl } from "@/lib/auth-login";
 
 export const JOIN_LINK_PURPOSES = ["live", "course"] as const;
 export type JoinLinkPurpose = (typeof JOIN_LINK_PURPOSES)[number];
@@ -45,16 +46,22 @@ export function isJoinLinkPurpose(value: unknown): value is JoinLinkPurpose {
   );
 }
 
-export function buildJoinPath(token: string, embed = false, lang?: string): string {
+export function buildJoinPath(token: string, embed = false, lang?: string, parentOrigin?: string): string {
   const path = `/join/${encodeURIComponent(token)}`;
   const qs = new URLSearchParams();
   if (embed) qs.set("embed", "1");
   if (lang) qs.set("lang", lang);
+  if (parentOrigin) qs.set("parentOrigin", parentOrigin);
   return qs.size > 0 ? `${path}?${qs.toString()}` : path;
 }
 
-export function buildJoinUrl(origin: string, token: string, embed = false, lang?: string): string {
-  return `${origin.replace(/\/$/, "")}${buildJoinPath(token, embed, lang)}`;
+export function buildJoinUrl(origin: string, token: string, embed = false, lang?: string, parentOrigin?: string): string {
+  return `${origin.replace(/\/$/, "")}${buildJoinPath(token, embed, lang, parentOrigin)}`;
+}
+
+export function buildSsoEntryUrl(entryUrl: string): string {
+  const entry = new URL(entryUrl);
+  return `${entry.origin}${ssoLoginUrl(entry.pathname + entry.search)}`;
 }
 
 export function buildCourseSharePath(token: string, lang?: string): string {
@@ -68,9 +75,9 @@ export function buildCourseShareUrl(origin: string, token: string, lang?: string
   return `${origin.replace(/\/$/, "")}${buildCourseSharePath(token, lang)}`;
 }
 
-export function buildEmbedSnippet(origin: string, token: string, lang?: string): string {
-  const src = buildJoinUrl(origin, token, true, lang);
-  return `<iframe src="${src}" allow="camera; microphone; display-capture; fullscreen" style="width:100%;height:100vh;border:0" title="在线课堂"></iframe>`;
+export function buildEmbedSnippet(origin: string, token: string, lang?: string, parentOrigin?: string): string {
+  const src = buildJoinUrl(origin, token, true, lang, parentOrigin).replaceAll("&", "&amp;").replaceAll('"', "&quot;");
+  return `<iframe src="${src}" allow="camera; microphone; display-capture; autoplay; fullscreen" style="width:100%;height:100vh;border:0" title="在线课堂"></iframe>`;
 }
 
 export type ResolvedJoinLink =

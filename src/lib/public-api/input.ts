@@ -1,3 +1,5 @@
+import { normalizeParentOrigin } from "@/lib/classroom/integration-events";
+
 export class PublicApiError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string) {
     super(message);
@@ -85,6 +87,36 @@ export type PublicSessionInput = {
   roomType?: number;
   students?: { userId: string; displayName: string }[];
 };
+
+export type PublicJoinLinkInput = {
+  label?: string; parentOrigin?: string; lang?: string;
+  requirePasscode?: boolean; passcode?: string; expiresAt?: Date;
+};
+
+export function parsePublicJoinLink(value: unknown): PublicJoinLinkInput {
+  const body = objectInput(value);
+  allowedFields(body, ["label", "parentOrigin", "lang", "requirePasscode", "passcode", "expiresAt"]);
+  const result: PublicJoinLinkInput = {};
+  for (const [key, max] of [["label", 200], ["lang", 20], ["passcode", 6]] as const) {
+    const value = text(body, key, max, body[key] !== undefined && key !== "label");
+    if (value !== undefined) result[key] = value;
+  }
+  if (body.requirePasscode !== undefined) {
+    if (typeof body.requirePasscode !== "boolean") invalid("requirePasscode must be a boolean");
+    result.requirePasscode = body.requirePasscode;
+  }
+  if (result.passcode && (!/^\d{6}$/.test(result.passcode) || result.requirePasscode === false)) invalid("passcode must be 6 digits and requirePasscode cannot be false");
+  const origin = text(body, "parentOrigin", 2000, body.parentOrigin !== undefined);
+  if (origin !== undefined) {
+    const normalized = normalizeParentOrigin(origin);
+    if (!normalized || normalized !== origin.replace(/\/$/, "")) invalid("parentOrigin must be an exact HTTP(S) origin without a path");
+    result.parentOrigin = normalized;
+  }
+  const expiresAt = date(body, "expiresAt", false);
+  if (expiresAt && expiresAt <= new Date()) invalid("expiresAt must be in the future");
+  if (expiresAt) result.expiresAt = expiresAt;
+  return result;
+}
 
 function date(body: JsonObject, key: string, required: boolean) {
   const value = text(body, key, 40, required);
