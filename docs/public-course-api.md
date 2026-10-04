@@ -20,6 +20,7 @@
 | GET | `/{courseId}/sessions/{sessionId}` | 查询课次 |
 | PATCH | `/{courseId}/sessions/{sessionId}` | 修改课次内容 |
 | DELETE | `/{courseId}/sessions/{sessionId}` | 删除或取消课次 |
+| POST | `/{courseId}/sessions/{sessionId}/join-links` | 生成固定课次分享 / iframe 链接 |
 
 所有路由支持 OPTIONS 预检。修改使用 PATCH，仅提交变化字段；没有提交的字段保持原值。课程和课次 ID 均从创建响应获取。
 
@@ -88,6 +89,57 @@ students 可选，最多 100 人，userId 不能为空且不得重复，displayN
 
 返回 `201 { "session": { "id": "...", "courseId": "...", "position": 1, "title": "...", "status": "scheduled", "classroomStatus": "waiting", "startedAt": null, ... } }`。时间输出统一为 UTC ISO 格式。
 
+## 生成内嵌链接
+
+生成内嵌链接时调用 `POST /api/public/v1/courses/<courseId>/sessions/<sessionId>/join-links`，提交 `{ "parentOrigin": "https://rc.example.com" }`。RC 使用返回的 `link.ssoEmbedUrl` 作为 iframe.src，自动经 Casdoor 单点登录后进入指定课次；`ssoUrl` 为普通窗口的单点登录地址。原 `embedUrl`、`embedSnippet`、`joinUrl` 同时保留。接口完全匿名，只允许公开 API 管理的课程，拒绝已归档课程和已取消课次；已结束课次可生成回放入口。
+
+### RC 接入步骤与完整示例
+
+1. 创建课程，保存响应的 `course.id` 作为 courseId。
+2. 在该课程下创建课次，保存响应的 `session.id` 作为 sessionId。
+3. 调用该课次的链接生成接口，保存响应的 `link.ssoEmbedUrl`。
+4. 把这个地址设置为 RC 页面中 iframe 的 src。每次打开使用同一个地址；课次结束后自动进入对应回放。
+
+```bash
+curl -X POST 'https://classroom.example.com/api/public/v1/courses/COURSE_ID/sessions/SESSION_ID/join-links' \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: rc-embed-lesson-1001' \
+  -d '{"parentOrigin":"https://rc.example.com","lang":"zh-CN","label":"第一课入口"}'
+```
+
+将课堂域名、COURSE_ID、SESSION_ID 和 parentOrigin 替换为实际值。响应示例（仅列出接入所需字段；分享 token 为示例）：
+
+```json
+{
+  "link": {
+    "courseId": "COURSE_ID",
+    "sessionId": "SESSION_ID",
+    "ssoEmbedUrl": "https://classroom.example.com/api/auth/login?next=%2Fjoin%2Fabc%3Fembed%3D1%26lang%3Dzh-CN%26parentOrigin%3Dhttps%253A%252F%252Frc.example.com",
+    "requiresPasscode": false,
+    "passcode": null,
+    "expiresAt": null
+  }
+}
+```
+
+生成接口返回首次创建为 HTTP 201；使用相同 Idempotency-Key 和参数重试为 HTTP 200。以下代码直接使用实际接口响应，不自行拼接或修改 ssoEmbedUrl：
+
+```html
+<iframe id="classroom" title="在线课堂"
+  allow="camera; microphone; display-capture; autoplay; fullscreen"
+  style="width:100%;height:100vh;border:0"></iframe>
+<script>
+  // response 是上方生成接口返回的 JSON。
+  document.getElementById("classroom").src = response.link.ssoEmbedUrl;
+</script>
+```
+
+RC 与课堂使用同一 Casdoor、同一组织，用户身份通过 SSO 确认；生成接口无需用户 token，iframe 地址也无需附加用户 token 或自行拼接 next。课堂部署需配置 CLASSROOM_PUBLIC_BASE_URL、父平台 iframe 白名单和跨站 Cookie，Casdoor 应用需登记课堂 `/api/auth/callback` 地址，具体配置见 [iframe 接入](./classroom-platform-integration.md#iframe-接入)。
+
+可选字段：label（最多 200 字符）、lang（1–20 字符）、parentOrigin（具体 HTTP(S) origin）、requirePasscode（布尔值）、passcode（六位数字，提交时启用口令，不能与 requirePasscode=false 同时传入）、expiresAt（未来带时区 ISO 时间）。支持 Idempotency-Key，作用域为对应课次的链接创建；相同键和参数返回原链接快照，避免生成多个链接。链接默认无口令、不过期，任何匿名调用者均可创建，应按公开范围使用。
+
+同一 embedUrl 在课堂结束后再次打开会跳转到对应课次的内嵌回放页。完整 iframe 示例、登录规则、白名单和回调配置参见 [嵌入课堂与 RC 状态回调](./classroom-platform-integration.md)。
+
 ## 修改课程 / 课次
 
 课程 PATCH 支持 name、description、studentRemarks、roomType、autoStudentOnStage。ownerId、教师归属和 courseKind 在公开接口中不能变更。课程 roomType 的修改影响后续创建的课次；已有课次的 roomType 需单独修改。
@@ -147,7 +199,7 @@ DELETE 成功表示数据库删除/取消/归档已提交，不表示供应商�
 
 ## 创建重试
 
-两个 POST 支持可选 `Idempotency-Key` 请求头，推荐第三方每次业务创建生成一个唯一键。长度 1–160，不含空格，仅可打印 ASCII。
+课程、课次和链接创建 POST 支持可选 `Idempotency-Key` 请求头，推荐第三方每次业务创建生成一个唯一键。长度 1–160，不含空格，仅可打印 ASCII。
 
 - 同一创建操作、同一键、相同参数：返回首次创建的资源快照，HTTP 200，`Idempotency-Replayed: true`。
 - 首次成功创建：HTTP 201，`Idempotency-Replayed: false`。

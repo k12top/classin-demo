@@ -7,12 +7,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { assertTeacherOwnsCourse } from "@/lib/course-teacher";
+import { classroomAuthOrigin } from "@/lib/auth-origin";
 
 export const dynamic = "force-dynamic";
 import {
   buildCourseShareUrl,
   buildEmbedSnippet,
   buildJoinUrl,
+  buildSsoEntryUrl,
   createJoinPasscode,
   createJoinToken,
   isValidJoinPasscode,
@@ -42,6 +44,8 @@ function serializeLink(
   const liveUrl = buildJoinUrl(origin, link.token);
   const courseShareUrl = buildCourseShareUrl(origin, link.token);
   const shareUrl = purpose === "course" ? courseShareUrl : liveUrl;
+  const ssoUrl = status === "active" && purpose === "live" ? buildSsoEntryUrl(liveUrl) : null;
+  const ssoEmbedUrl = status === "active" && purpose === "live" ? buildSsoEntryUrl(buildJoinUrl(origin, link.token, true)) : null;
   return {
     id: link.id,
     sessionId: link.sessionId,
@@ -58,6 +62,8 @@ function serializeLink(
     createdAt: link.createdAt.toISOString(),
     shareUrl: status === "active" ? shareUrl : null,
     joinUrl: status === "active" && purpose === "live" ? liveUrl : null,
+    ssoUrl,
+    ssoEmbedUrl,
     courseShareUrl:
       status === "active" && purpose === "course" ? courseShareUrl : null,
     embedUrl:
@@ -90,7 +96,7 @@ export async function GET(
       where: { courseId },
       orderBy: { createdAt: "desc" },
     });
-    const origin = request.nextUrl.origin;
+    const origin = classroomAuthOrigin(request.nextUrl.origin);
     const serializedLinks = links.map((l) => serializeLink(l, origin));
     return NextResponse.json(
       {
@@ -204,7 +210,7 @@ export async function POST(
       },
     });
 
-    const origin = request.nextUrl.origin;
+    const origin = classroomAuthOrigin(request.nextUrl.origin);
     return NextResponse.json(
       { link: serializeLink(link, origin) },
       { status: 201 }

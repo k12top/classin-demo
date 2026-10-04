@@ -14,7 +14,12 @@ async function main() {
   await fs.mkdir(path.dirname(output), { recursive: true });
   const stubs = {
     "server-only": "",
-    "next/server": 'export function after(fn) { (globalThis.publicApiAfterJobs ||= []).push(fn); }',
+    "next/server": 'export function after(fn) { (globalThis.publicApiAfterJobs ||= []).push(fn); } export class NextResponse extends Response { static json(body, init) { return Response.json(body, init); } }',
+    "next/navigation": 'export function redirect(location) { throw Object.assign(new Error("redirect"), {location}); }',
+    "next/link": 'export default function Link() { return null; }',
+    "@/components/JoinLinkPasscodeGate": 'export default function PasscodeGate() { return null; }',
+    "@/lib/session": 'export async function getSession() { return globalThis.embedTestIdentity ?? null; } export async function getSessionFromRequest() { return globalThis.embedTestIdentity ?? null; }',
+    "@/lib/i18n/server": 'export async function getServerTranslation() { return {t: (key) => key}; }',
     "@/lib/classroom/server/recording-orchestrator": 'export async function stopActiveRecordingsForCourse(courseId,sessionId) { (globalThis.publicApiProviderStops ||= []).push({courseId,sessionId,kind:"recording"}); }',
     "@/lib/classroom/server/transcription-orchestrator": 'export async function stopClassroomTranscription(courseId,sessionId) { (globalThis.publicApiProviderStops ||= []).push({courseId,sessionId,kind:"transcription"}); }',
   };
@@ -24,7 +29,12 @@ async function main() {
     export * as course from "@/app/api/public/v1/courses/[courseId]/route";
     export * as sessions from "@/app/api/public/v1/courses/[courseId]/sessions/route";
     export * as session from "@/app/api/public/v1/courses/[courseId]/sessions/[sessionId]/route";
-  `, resolveDir: root, loader: "ts" }, outfile: output, bundle: true, format: "cjs", platform: "node", packages: "external", tsconfig: path.join(root, "tsconfig.json"),
+    export * as joinLinks from "@/app/api/public/v1/courses/[courseId]/sessions/[sessionId]/join-links/route";
+    export {default as joinPage} from "@/app/join/[token]/page";
+    export {POST as verifyPasscode} from "@/app/api/join-links/[token]/verify-passcode/route";
+    export {resolveCoursewareAccess} from "@/lib/courseware-access";
+    export {clearCourseSessionAccessCache} from "@/lib/course-session-access";
+  `, resolveDir: root, loader: "ts" }, outfile: output, bundle: true, format: "cjs", platform: "node", packages: "external", jsx: "automatic", tsconfig: path.join(root, "tsconfig.json"),
     plugins: [{ name: "public-api-test", setup(build) {
       build.onResolve({ filter: /.*/ }, ({ path: id }) => id in stubs ? { path: id, namespace: "test-stub" } : undefined);
       build.onLoad({ filter: /.*/, namespace: "test-stub" }, ({ path: id }) => ({ contents: stubs[id], loader: "js" }));
@@ -34,10 +44,10 @@ async function main() {
   const server = http.createServer(async (incoming, outgoing) => {
     try {
       const url = new URL(incoming.url, "http://127.0.0.1");
-      const match = /^\/api\/public\/v1\/courses(?:\/([^/]+)(?:\/sessions(?:\/([^/]+))?)?)?$/.exec(url.pathname);
+      const match = /^\/api\/public\/v1\/courses(?:\/([^/]+)(?:\/sessions(?:\/([^/]+)(\/join-links)?)?)?)?$/.exec(url.pathname);
       if (!match) { outgoing.writeHead(404).end(); return; }
       const courseId = match[1], sessionId = match[2];
-      const routes = sessionId ? api.session : url.pathname.endsWith("/sessions") ? api.sessions : courseId ? api.course : api.courses;
+      const routes = match[3] ? api.joinLinks : sessionId ? api.session : url.pathname.endsWith("/sessions") ? api.sessions : courseId ? api.course : api.courses;
       const chunks = []; for await (const chunk of incoming) chunks.push(chunk);
       const request = new Request(url, { method: incoming.method, headers: incoming.headers, ...(!["GET", "HEAD"].includes(incoming.method) && { body: Buffer.concat(chunks) }) });
       const response = await routes[incoming.method](request, { params: Promise.resolve({ courseId, sessionId }) });
@@ -110,6 +120,69 @@ async function main() {
     const removed = await expect("DELETE", `/${courseId}/sessions/${sessionId}`, undefined, 200);
     assert.equal(removed.deleted, true);
     await expect("GET", `/${courseId}/sessions/${sessionId}`, undefined, 404);
+
+    const embeddedCourse = (await expect("POST", "", { name: "Embedded lesson", ownerId: "teacher" }, 201)).course;
+    const embedSchedule = { startTime: new Date(Date.now() - 60_000).toISOString(), endTime: new Date(Date.now() + 3_600_000).toISOString(), students: [] };
+    const embeddedLesson = (await expect("POST", `/${embeddedCourse.id}/sessions`, embedSchedule, 201)).session;
+    const otherLesson = (await expect("POST", `/${embeddedCourse.id}/sessions`, embedSchedule, 201)).session;
+    const linkPath = `/${embeddedCourse.id}/sessions/${embeddedLesson.id}/join-links`;
+    const linkInput = { parentOrigin: "https://rc.example", lang: "zh-CN" };
+    const share = (await expect("POST", linkPath, linkInput, 201, "embed-link-1")).link;
+    assert.equal((await expect("POST", linkPath, linkInput, 200, "embed-link-1")).link.id, share.id);
+    await expect("POST", linkPath, { parentOrigin: "https://different.example" }, 409, "embed-link-1");
+    await expect("POST", `/${privateCourse.id}/sessions/${embeddedLesson.id}/join-links`, {}, 404);
+    const embeddedUrl = new URL(share.embedUrl);
+    assert.equal(embeddedUrl.searchParams.get("parentOrigin"), "https://rc.example");
+    assert.equal(embeddedUrl.searchParams.get("embed"), "1");
+    assert.ok(share.embedSnippet.includes("&amp;"));
+    const ssoEmbeddedUrl = new URL(share.ssoEmbedUrl);
+    assert.equal(ssoEmbeddedUrl.pathname, "/api/auth/login");
+    assert.equal(ssoEmbeddedUrl.origin, embeddedUrl.origin);
+    assert.equal(ssoEmbeddedUrl.searchParams.get("next"), embeddedUrl.pathname + embeddedUrl.search);
+    const plainUrl = new URL(share.joinUrl);
+    assert.equal(new URL(share.ssoUrl).searchParams.get("next"), plainUrl.pathname + plainUrl.search);
+    // A saved response from before the additive fields must also be enriched.
+    const saved = await db.publicApiRequest.findFirst({ where: { response: { path: ["link", "id"], equals: share.id } } });
+    assert.ok(saved);
+    const replayedShare = (await expect("POST", linkPath, linkInput, 200, "embed-link-1")).link;
+    assert.equal(replayedShare.ssoEmbedUrl, share.ssoEmbedUrl);
+    const token = embeddedUrl.pathname.split("/").at(-1);
+    const join = () => api.joinPage({ params: Promise.resolve({ token }), searchParams: Promise.resolve({ embed: "1", parentOrigin: "https://rc.example", lang: "zh-CN" }) });
+    globalThis.embedTestIdentity = null;
+    await assert.rejects(join(), (error) => error.location?.startsWith("/api/auth/login?next="));
+    assert.equal(await db.courseSessionStudent.count({ where: { sessionId: embeddedLesson.id } }), 0);
+    const viewer = { userId: "embed-viewer", name: "embed-viewer", displayName: "Viewer", role: "student", avatar: "" };
+    globalThis.embedTestIdentity = viewer;
+    await assert.rejects(join(), (error) => error.location?.startsWith("/classroom?") && new URL(error.location, "https://local").searchParams.get("sessionId") === embeddedLesson.id);
+    await db.courseSession.update({ where: { id: embeddedLesson.id }, data: { status: "afterClass", endedAt: new Date() } });
+    await db.classroomRuntime.create({ data: { courseId: embeddedCourse.id, sessionId: embeddedLesson.id, status: "ended" } });
+    api.clearCourseSessionAccessCache();
+    await assert.rejects(join(), (error) => error.location?.startsWith(`/courses/${embeddedCourse.id}/playback?`) && new URL(error.location, "https://local").searchParams.get("sessionId") === embeddedLesson.id && new URL(error.location, "https://local").searchParams.get("embed") === "1");
+    // A first-time viewer arriving after class also receives only lesson access.
+    globalThis.embedTestIdentity = { ...viewer, userId: "late-viewer", name: "late-viewer" };
+    await assert.rejects(join(), (error) => error.location?.includes("/playback?"));
+    assert.equal((await api.resolveCoursewareAccess(globalThis.embedTestIdentity, embeddedCourse.id, embeddedLesson.id)).allowed, true);
+    assert.equal((await api.resolveCoursewareAccess(globalThis.embedTestIdentity, embeddedCourse.id, otherLesson.id)).allowed, false);
+    assert.equal(await db.courseStudent.count({ where: { courseId: embeddedCourse.id } }), 0);
+    const protectedShare = (await expect("POST", linkPath, { ...linkInput, passcode: "123456" }, 201)).link;
+    const protectedToken = new URL(protectedShare.embedUrl).pathname.split("/").at(-1);
+    const gate = await api.joinPage({ params: Promise.resolve({ token: protectedToken }), searchParams: Promise.resolve({ embed: "1" }) });
+    assert.equal(gate.props.token, protectedToken);
+    const verify = (passcode) => api.verifyPasscode(new Request("http://local/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purpose: "live", passcode, embed: true, parentOrigin: "https://rc.example" }) }), { params: Promise.resolve({ token: protectedToken }) });
+    assert.equal((await verify("999999")).status, 400);
+    const verified = await verify("123456");
+    assert.equal(verified.status, 200);
+    assert.ok((await verified.json()).redirectTo.includes("/playback?"));
+    await db.courseJoinLink.update({ where: { id: share.id }, data: { revokedAt: new Date() } });
+    globalThis.embedTestIdentity = { ...viewer, userId: "blocked-viewer", name: "blocked-viewer" };
+    await join();
+    assert.equal(await db.courseSessionStudent.count({ where: { sessionId: embeddedLesson.id, studentId: "blocked-viewer" } }), 0);
+    await db.courseJoinLink.update({ where: { id: share.id }, data: { revokedAt: null, expiresAt: new Date(0) } });
+    await join();
+    await db.courseJoinLink.update({ where: { id: share.id }, data: { expiresAt: null } });
+    await db.courseSession.update({ where: { id: embeddedLesson.id }, data: { status: "cancelled" } });
+    await assert.rejects(join(), (error) => error.location?.startsWith("/access-denied"));
+    console.log("PASS: anonymous embedded and direct SSO link generation, enriched idempotent snapshots, private scope isolation, live-to-replay routing, exact lesson enrollment, password gate, expired/revoked/cancelled denial and iframe query preservation.");
 
     const single = (await expect("POST", "", { name: "Single course", ownerId: "teacher", courseKind: "standalone" }, 201)).course;
     await expect("POST", `/${single.id}/sessions`, schedule, 201);
