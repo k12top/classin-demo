@@ -419,6 +419,45 @@
   font-weight: 680;
 }
 
+.libraryIntro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.libraryCreateButton {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid hsl(var(--primary));
+  border-radius: 12px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-size: 13px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.libraryCreateButton:hover {
+  background: hsl(var(--primary) / 0.9);
+}
+
+.libraryCreateButton:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 3px;
+}
+
+.libraryCreateButton svg {
+  width: 16px;
+  height: 16px;
+}
+
 .libraryIntro h1 {
   margin: 0;
   font-size: clamp(27px, 4vw, 42px);

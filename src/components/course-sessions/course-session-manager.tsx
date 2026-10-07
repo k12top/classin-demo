@@ -23,7 +23,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useTranslation } from "@/lib/i18n/context";
 import { usePortalFeedback } from "@/components/portal/portal-feedback";
 import { LargeClassBreakoutManager } from "@/components/classroom/large-class-breakout-manager";
@@ -176,6 +176,8 @@ export function CourseSessionManager({
   const [loading, setLoading] = useState(initialSessions === undefined);
   const [error, setError] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [detailSessionId, setDetailSessionId] = useState<string | null>(null);
+  const detailSession = sessions.find((session) => session.id === detailSessionId);
   const [editingSession, setEditingSession] = useState<CourseSessionItem | null>(null);
   const [editScope, setEditScope] = useState<"this" | "future">("this");
   const [saving, setSaving] = useState(false);
@@ -928,6 +930,15 @@ export function CourseSessionManager({
                       <PlayCircle className="h-4 w-4" />
                     </button>
                   ) : null}
+                  <button
+                    className={styles.detailsButton}
+                    type="button"
+                    onClick={() => setDetailSessionId(session.id)}
+                    aria-label={`${t("portal.details")} · ${session.title || `${courseName} · ${session.position}`}`}
+                  >
+                    {t("portal.details")}
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
                   {canEnter ? (
                     <button
                       className={styles.enterButton}
@@ -973,6 +984,37 @@ export function CourseSessionManager({
           />
         </div>
       ) : null}
+
+      <Dialog open={Boolean(detailSession)} onOpenChange={(open) => { if (!open) setDetailSessionId(null); }}>
+        <DialogContent className={styles.submissionDialog}>
+          {detailSession ? (
+            <>
+              <header className={styles.dialogHeader}>
+                <span>{t("courseSessions.detailsTitle")}</span>
+                <DialogTitle>{detailSession.title || `${courseName} · ${detailSession.position}`}</DialogTitle>
+                <DialogDescription>{courseName}</DialogDescription>
+              </header>
+              <dl className={styles.detailGrid}>
+                <div><dt>{t("courseSessions.statusLabel")}</dt><dd>{t(`courseSessions.status.${detailSession.endedAt && detailSession.status !== "cancelled" ? "finished" : detailSession.status}`)}</dd></div>
+                <div><dt>{t("courseSessions.roomType")}</dt><dd>{t(({ 0: "common.roomType1v1", 4: "common.roomTypeSmall", 2: "common.roomTypeBig", 10: "common.roomTypePublic" } as Record<number, string>)[detailSession.roomType] || "common.unknown")}</dd></div>
+                <div><dt>{t("courseSessions.startTime")}</dt><dd>{formatDate(detailSession.startTime)}</dd></div>
+                <div><dt>{t("courseSessions.endTime")}</dt><dd>{formatDate(detailSession.endTime)}</dd></div>
+                <div><dt>{t("common.lead")}</dt><dd>{detailSession.leadTeacherName || t("common.unknown")}</dd></div>
+                <div><dt>{t("courseSessions.duration")}</dt><dd>{Math.round((new Date(detailSession.endTime).getTime() - new Date(detailSession.startTime).getTime()) / 60_000)} {t("courseSessions.minutes")}</dd></div>
+                <div><dt>{t("courseSessions.teachers")}</dt><dd>{t(detailSession.teacherMode === "inherit" ? "courseSessions.inherit" : "courseSessions.custom")}</dd></div>
+                <div><dt>{t("courseSessions.students")}</dt><dd>{t(detailSession.studentMode === "inherit" ? "courseSessions.inheritsStudents" : "courseSessions.customStudents")}</dd></div>
+                <div><dt>{t("studentDashboard.viewPlayback")}</dt><dd>{detailSession._count?.recordings || 0} {t("courseSessions.recordings")}</dd></div>
+              </dl>
+              <footer className={styles.dialogFooter}>
+                <button type="button" onClick={() => setDetailSessionId(null)}>{t("common.dismiss")}</button>
+                {canManage && detailSession.status === "scheduled" && !detailSession.endedAt ? (
+                  <button type="button" onClick={() => { setDetailSessionId(null); openEditDialog(detailSession); }}><Pencil className="h-4 w-4" />{t("courseSessions.editTitle")}</button>
+                ) : null}
+              </footer>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className={styles.dialog}>

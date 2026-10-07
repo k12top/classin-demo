@@ -232,6 +232,22 @@ export default function TeacherCourseDetail({
   const [courseNameSaving, setCourseNameSaving] = useState(false);
   const [courseNameError, setCourseNameError] = useState("");
   const [activeTab, setActiveTab] = useState("sessions");
+  const sessionsPanelRef = useRef<HTMLDivElement>(null);
+  const [sessionsNavigationRequest, setSessionsNavigationRequest] = useState(0);
+
+  useEffect(() => {
+    if (!sessionsNavigationRequest) return;
+    const frame = window.requestAnimationFrame(() => {
+      const panel = sessionsPanelRef.current;
+      panel?.focus({ preventScroll: true });
+      panel?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+        block: "start",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [sessionsNavigationRequest]);
+
   const tabsScrollerRef = useRef<HTMLDivElement>(null);
   const [tabScrollState, setTabScrollState] = useState({
     canScrollBack: false,
@@ -1295,7 +1311,10 @@ export default function TeacherCourseDetail({
                 type="button"
                 variant="outline"
                 className={`w-full rounded-xl ${workspaceStyles.secondaryAction}`}
-                onClick={() => setActiveTab("sessions")}
+                onClick={() => {
+                  setActiveTab("sessions");
+                  setSessionsNavigationRequest((request) => request + 1);
+                }}
               >
                 <CalendarClock className="mr-2 h-4 w-4" />
                 {t("courseSessions.manage")}
@@ -1362,7 +1381,7 @@ export default function TeacherCourseDetail({
           </button>
         </div>
 
-        <TabsContent value="sessions" className="mt-0">
+        <TabsContent ref={sessionsPanelRef} value="sessions" className="mt-0 scroll-mt-40">
           <CourseSessionManager
             courseId={course.id}
             courseName={course.name}

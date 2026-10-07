@@ -3,6 +3,12 @@ import type { DeepPartial } from "../types";
 
 export const zhTW = {
   ...zhCN,
+  courseSessions: {
+    ...zhCN.courseSessions,
+    detailsTitle: "課次詳情",
+    statusLabel: "課次狀態",
+    endTime: "結束時間",
+  },
   common: {
     ...zhCN.common,
     loading: "載入中…",
