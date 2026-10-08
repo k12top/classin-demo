@@ -86,7 +86,14 @@ export async function ensureClassroomRuntime(
   const ended =
     lesson.status === CourseStatus.FINISHED ||
     lesson.status === CourseStatus.CANCELLED;
-  const runtime = await prisma.$transaction(async (tx) => {
+  const graceEndsAt = classroomGraceEndAt(lesson.endTime);
+  const existing = await prisma.classroomRuntime.findUnique({ where: { sessionId } });
+  // Most callers are classroom polls. Avoid rewriting/locking the same row on
+  // every read; only an actual lifecycle or schedule change needs a transaction.
+  const unchanged = existing &&
+    existing.graceEndsAt?.getTime() === graceEndsAt?.getTime() &&
+    (!ended || existing.status === "ended");
+  const runtime = unchanged ? existing : await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
     const previous = await tx.classroomRuntime.findUnique({ where: { sessionId }, select: { status: true } });
     const runtime = await tx.classroomRuntime.upsert({
@@ -103,6 +110,9 @@ export async function ensureClassroomRuntime(
         ...(ended ? { status: "ended" } : {}),
       },
     });
+    if (ended) {
+      await queueEndedRecordingStops(tx, sessionId);
+    }
     if (ended && previous && previous.status !== "ended") await enqueueClassroomEvent(tx, sessionId, "classroom.ended", lesson.status === CourseStatus.CANCELLED ? "cancelled" : "scheduled_end");
     return runtime;
   });
@@ -116,6 +126,7 @@ export async function ensureClassroomRuntime(
       await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
       await tx.courseSession.update({ where: { id: sessionId }, data: { status: CourseStatus.FINISHED } });
       const endedRuntime = await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { status: "ended", revision: { increment: 1 } } });
+      await queueEndedRecordingStops(tx, sessionId);
       await enqueueClassroomEvent(tx, sessionId, "classroom.ended", "scheduled_end");
       return endedRuntime;
     });
@@ -137,6 +148,17 @@ export async function ensureClassroomRuntime(
     return prisma.classroomRuntime.findUniqueOrThrow({ where: { sessionId } });
   }
   return runtime;
+}
+
+async function queueEndedRecordingStops(tx: Prisma.TransactionClient, sessionId: string) {
+  await tx.classroomRecording.updateMany({
+    where: { sessionId, status: { in: ["starting", "recording"] } },
+    data: {
+      status: "stopping",
+      stopRequestedAt: new Date(),
+      lastProviderCheckAt: null,
+    },
+  });
 }
 
 export async function startScheduledClassroomIfDue(

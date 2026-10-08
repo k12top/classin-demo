@@ -41,7 +41,8 @@ async function fetchMeWithRefresh(): Promise<AuthUser | null> {
   if (res.status === 401 && (await tryOAuthRefresh())) {
     res = await fetch("/api/auth/me", { cache: "no-store" });
   }
-  if (!res.ok) return null;
+  if (res.status === 401) return null;
+  if (!res.ok) throw new Error("Session verification temporarily unavailable");
   const data = await res.json();
   return data.user ?? null;
 }
@@ -121,7 +122,7 @@ export function AuthProvider({
   useEffect(() => {
     if (!user) return;
     const id = window.setInterval(() => {
-      void tryOAuthRefresh();
+      void tryOAuthRefresh().catch(() => undefined);
     }, 25 * 60 * 1000);
     return () => clearInterval(id);
   }, [user]);

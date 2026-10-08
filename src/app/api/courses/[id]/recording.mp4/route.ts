@@ -44,7 +44,6 @@ async function playbackRedirect(
       {
         expires: 60 * 60,
         response: {
-          "content-type": "video/mp4",
           "content-disposition": "inline",
         },
       },

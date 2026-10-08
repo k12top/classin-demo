@@ -105,6 +105,7 @@ import {
 } from "@/lib/access-denied-codes";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
+import { classroomParticipantOwnerId } from "@/lib/classroom/local-participant";
 import { useAuth } from "@/lib/auth-context";
 import { useTranslation } from "@/lib/i18n/context";
 import { getClientTheme, setClientTheme, type Theme } from "@/lib/theme";
@@ -882,7 +883,7 @@ function BoardCompositionLayer({
         const member = members.find((candidate) => candidate.userId === item.sourceId);
         const matchedParticipant = participants.find(
           (participant) =>
-            participantOwnerId(participant.id, members) === item.sourceId &&
+            classroomParticipantOwnerId(participant, members, currentUserId) === item.sourceId &&
             participant.kind === (item.kind === "screen" ? "screen" : "camera"),
         ) ?? null;
         const file = courseware.find((candidate) => candidate.id === item.sourceId);
@@ -1346,7 +1347,7 @@ function LiveRail({
       (member.online || member.userId === currentUserId),
   );
   const students = members
-    .filter((member) => member.role === "student" && member.onStage && member.online)
+    .filter((member) => member.role === "student" && member.onStage && (member.online || member.userId === currentUserId))
     .slice(0, maxStudentSeats);
   // The lead seat is the classroom's orientation point.  Keep teachers in
   // the rail even when their camera has also been placed on the board; a
@@ -1370,7 +1371,8 @@ function LiveRail({
   const cameraParticipants = new Map(
     media.participants
       .filter((participant) => participant.kind === "camera")
-      .map((participant) => [participantOwnerId(participant.id, members), participant]),
+      .sort((left, right) => Number(left.isLocal) - Number(right.isLocal))
+      .map((participant) => [classroomParticipantOwnerId(participant, members, currentUserId), participant]),
   );
   const moveSeat = (userId: string, slots: number) => {
     const currentOrder = seatedMembers.map((member) => member.userId);
@@ -6080,7 +6082,7 @@ export function ClassroomV3({
   const decorateParticipant = (participant: ClassroomParticipant) => {
     const member = sessionData?.runtime.members.find(
       (candidate) =>
-        candidate.userId === participantOwnerId(participant.id, sessionData?.runtime.members),
+        candidate.userId === classroomParticipantOwnerId(participant, sessionData?.runtime.members || [], currentUserId),
     );
     return {
       participant,
@@ -6118,7 +6120,7 @@ export function ClassroomV3({
   );
   const spotlightParticipant = decoratedParticipants.find(
     ({ participant }) =>
-      participantOwnerId(participant.id, sessionData?.runtime.members) ===
+      classroomParticipantOwnerId(participant, sessionData?.runtime.members || [], currentUserId) ===
       sessionData?.runtime.spotlightUserId,
   );
   const leadTeacher = sessionData?.runtime.members.find(
@@ -6127,7 +6129,7 @@ export function ClassroomV3({
   const teacherParticipant = decoratedParticipants.find(({ participant }) => {
     const member = sessionData?.runtime.members.find(
       (candidate) =>
-        candidate.userId === participantOwnerId(participant.id, sessionData?.runtime.members),
+        candidate.userId === classroomParticipantOwnerId(participant, sessionData?.runtime.members || [], currentUserId),
     );
     return member?.role === "teacher" && participant.kind === "camera";
   });
@@ -6145,9 +6147,9 @@ export function ClassroomV3({
   const galleryParticipants = decoratedParticipants
     .filter(({ participant }) => {
       if (participant.kind !== "camera") return false;
-      const ownerId = participantOwnerId(participant.id, sessionData?.runtime.members);
+      const ownerId = classroomParticipantOwnerId(participant, sessionData?.runtime.members || [], currentUserId);
       return sessionData?.runtime.members.some(
-        (member) => member.userId === ownerId && member.onStage && member.online,
+        (member) => member.userId === ownerId && member.onStage && (member.online || participant.isLocal),
       );
     })
     .slice(0, 6);

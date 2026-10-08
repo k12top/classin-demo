@@ -23,7 +23,7 @@ const RECONCILABLE_RECORDING_STATUSES = [
   "processing",
 ];
 const MAX_PROVIDER_RETRIES = 3;
-const PROVIDER_TRANSITION_LEASE_MS = 45_000;
+const PROVIDER_TRANSITION_LEASE_MS = 90_000;
 const PROVIDER_QUERY_INTERVAL_MS = 5_000;
 const RECORDING_START_CONFIRMATION_TIMEOUT_MS = 90_000;
 const RECORDING_FINALIZATION_TIMEOUT_MS = 15 * 60_000;
@@ -541,8 +541,18 @@ export async function processRecordingStop(recordingId: string) {
 export async function reconcileRecordingAttempt(recordingId: string) {
   const recording = await prisma.classroomRecording.findUnique({
     where: { id: recordingId },
+    include: { session: { select: { status: true } } },
   });
   if (!recording) return null;
+  if (
+    (recording.session.status === CourseStatus.FINISHED ||
+      recording.session.status === CourseStatus.AFTER_CLASS ||
+      recording.session.status === CourseStatus.CANCELLED) &&
+    ["starting", "recording"].includes(recording.status)
+  ) {
+    const requested = await requestRecordingStop(recording);
+    return processRecordingStop(requested.id);
+  }
   if (recording.status === "starting") return processRecordingStart(recording.id);
   if (recording.status === "stopping") return processRecordingStop(recording.id);
   if (!["recording", "processing"].includes(recording.status)) return recording;

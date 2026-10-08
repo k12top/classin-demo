@@ -217,9 +217,14 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   }
 
   private renderVideoTarget(id: string, element: HTMLElement) {
-    this.clearVideoTarget(element);
     const track = this.mediaStreamTrackFor(id);
-    if (!track || track.readyState === "ended") return;
+    if (!track || track.readyState === "ended") { this.clearVideoTarget(element); return; }
+    const existing = element.querySelector("video");
+    if (existing?.srcObject instanceof MediaStream && existing.srcObject.getVideoTracks()[0] === track) {
+      if (existing.paused) this.playVideoTarget(id, element, existing);
+      return;
+    }
+    this.clearVideoTarget(element);
 
     const video = document.createElement("video");
     video.className = "classroom-v3-native-video";
@@ -233,7 +238,20 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         : "false";
     video.srcObject = new MediaStream([track]);
     element.appendChild(video);
-    void video.play().catch(() => undefined);
+    this.playVideoTarget(id, element, video);
+  }
+
+  private playVideoTarget(id: string, element: HTMLElement, video: HTMLVideoElement) {
+    void video.play().catch((error: unknown) => {
+      console.warn("[classroom:video] playback interrupted", { isLocal: this.isLocalParticipant(id), message: error instanceof Error ? error.message : "Playback failed" });
+      requestAnimationFrame(() => {
+        if (video.parentElement === element && video.srcObject && video.paused) {
+          void video.play().catch((retryError: unknown) => {
+            console.warn("[classroom:video] playback retry failed", { message: retryError instanceof Error ? retryError.message : "Playback failed" });
+          });
+        }
+      });
+    });
   }
 
   private renderVideoTargets(id: string) {
@@ -743,6 +761,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     if (!deviceId) return;
     if (this.cameraTrack) await this.cameraTrack.setDevice(deviceId);
     this.preferredCameraId = deviceId;
+    if (this.credential) this.renderVideoTargets(String(this.credential.rtcUid));
   }
 
   async setVideoQuality(

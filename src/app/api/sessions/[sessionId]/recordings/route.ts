@@ -6,10 +6,12 @@ import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
 import { reconcileRecordingAttempt } from "@/lib/classroom/server/recording-orchestrator";
 import { recordingPlaybackAssets } from "@/lib/classroom/recording-playback";
+import { recordingNeedsReconciliation } from "@/lib/classroom/recording-reconciliation";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const preferredRegion = "sin1";
+export const maxDuration = 120;
 
 type Context = { params: Promise<{ sessionId: string }> };
 
@@ -39,7 +41,7 @@ export async function GET(request: NextRequest, context: Context) {
     orderBy: { createdAt: "asc" },
   });
   const pending = recordings.filter((recording) =>
-    ["stopping", "processing"].includes(recording.status),
+    recordingNeedsReconciliation(recording.status),
   );
   if (pending.length) {
     // Agora may expose its final file list shortly after stop. Reconcile on
@@ -52,7 +54,7 @@ export async function GET(request: NextRequest, context: Context) {
     });
   }
   return NextResponse.json({
-    refreshAfterMs: pending.length ? 2_500 : null,
+    refreshAfterMs: pending.length ? 5_000 : null,
     recordings: recordings.flatMap((recording): Array<{
       id: string; segment: number; provider: string; status: string;
       mode: string; fallbackFrom: string | null; startedAt: string | null;

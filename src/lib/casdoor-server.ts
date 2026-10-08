@@ -10,6 +10,7 @@ import {
   isTeacherGroupMember,
   resolveCasdoorUserId,
 } from "@/lib/casdoor-user";
+import { OAuthTokenRequestError } from "@/lib/oauth-token-error";
 
 function getCasdoorServerUrl(): string {
   return (
@@ -75,17 +76,17 @@ async function postTokenRequest(params: URLSearchParams): Promise<CasdoorTokenRe
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: params.toString(),
+    signal: AbortSignal.timeout(15_000),
   });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Auth token request failed: ${res.status} ${text}`);
-  }
-
   const data = (await res.json()) as Record<string, unknown>;
+  const oauthCode = typeof data.error === "string" ? data.error : "";
+  if (!res.ok || oauthCode) {
+    throw new OAuthTokenRequestError(res.status, oauthCode);
+  }
   const access_token = data.access_token as string | undefined;
   if (!access_token) {
-    throw new Error(`No access_token in response: ${JSON.stringify(data)}`);
+    throw new OAuthTokenRequestError(res.status, "missing_access_token");
   }
 
   return {
