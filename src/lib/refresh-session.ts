@@ -13,6 +13,8 @@ import {
   type BuiltSessionCookies,
 } from "@/lib/session";
 import { resolveUserAvatar } from "@/lib/user-profile";
+import { isTransientDatabaseError } from "@/lib/db";
+import { isInvalidRefreshGrant } from "@/lib/oauth-token-error";
 
 export async function refreshSessionWithToken(
   refreshToken: string
@@ -29,7 +31,14 @@ export async function refreshSessionWithToken(
     const casdoorUser = parseJwtPayload(access);
     const role = determineRole(casdoorUser.roles || [], casdoorUser.groups);
     const userId = resolveSessionUserId(casdoorUser, role);
-    const avatar = await resolveUserAvatar(userId, casdoorUser.avatar || "");
+    // Avatar customization must not invalidate a successfully rotated token.
+    let avatar = casdoorUser.avatar || "";
+    try {
+      avatar = await resolveUserAvatar(userId, avatar);
+    } catch (error) {
+      if (!isTransientDatabaseError(error)) throw error;
+      console.warn("[auth:refresh] profile temporarily unavailable; using upstream avatar");
+    }
 
     return await buildSessionCookies(
       {
@@ -44,7 +53,11 @@ export async function refreshSessionWithToken(
     );
   } catch (e) {
     console.error("refreshSessionWithToken:", e);
-    await deleteSession();
-    return null;
+    if (isInvalidRefreshGrant(e)) {
+      await deleteSession();
+      return null;
+    }
+    // Network, database and provider outages are retryable, not logout events.
+    throw e;
   }
 }

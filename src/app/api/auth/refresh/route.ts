@@ -16,6 +16,17 @@ function redirectToSsoLogin(request: NextRequest, nextPath: string): NextRespons
   return NextResponse.redirect(u);
 }
 
+async function refreshOrUnavailable(refresh: string) {
+  try {
+    return await refreshSessionWithToken(refresh);
+  } catch {
+    return NextResponse.json(
+      { ok: false, code: "REFRESH_UNAVAILABLE", error: "登录续期暂时不可用，请稍后重试" },
+      { status: 503, headers: { "Retry-After": "5", "Cache-Control": "no-store" } },
+    );
+  }
+}
+
 export async function GET(request: NextRequest) {
   const cookieStore = await cookies();
   const refresh = cookieStore.get(OAUTH_REFRESH_COOKIE)?.value;
@@ -25,7 +36,8 @@ export async function GET(request: NextRequest) {
     return redirectToSsoLogin(request, nextPath);
   }
 
-  const built = await refreshSessionWithToken(refresh);
+  const built = await refreshOrUnavailable(refresh);
+  if (built instanceof NextResponse) return built;
   if (!built) {
     return redirectToSsoLogin(request, nextPath);
   }
@@ -45,7 +57,8 @@ export async function POST() {
     );
   }
 
-  const built = await refreshSessionWithToken(refresh);
+  const built = await refreshOrUnavailable(refresh);
+  if (built instanceof NextResponse) return built;
   if (!built) {
     return NextResponse.json(
       { ok: false, code: "REFRESH_FAILED" },

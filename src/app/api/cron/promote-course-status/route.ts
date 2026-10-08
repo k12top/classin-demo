@@ -6,8 +6,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deliverClassroomEvents } from "@/lib/classroom/server/integration-events";
 import { promoteCoursesIfDue } from "@/lib/course-promote";
+import { reconcileConfiguredEnvironments } from "@/lib/classroom/reconciliation-targets";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 function isAuthorized(request: NextRequest): boolean {
   // Allow unauthenticated manual trigger in local development for easier testing
@@ -30,10 +31,20 @@ export async function GET(request: NextRequest) {
   try {
     // Deliver even when provider reconciliation fails; a failed recorder must
     // not starve notifications about an already committed lesson end.
-    let count: number;
-    try { count = await promoteCoursesIfDue(); }
-    finally { await deliverClassroomEvents(10); }
-    return NextResponse.json({ ok: true, promoted: count });
+    // Run forwarding independently: a Production database outage must not
+    // starve the custom environment's own reconciliation worker.
+    const [local, forwarded] = await Promise.allSettled([
+      (async () => {
+        try { return await promoteCoursesIfDue(); }
+        finally { await deliverClassroomEvents(10); }
+      })(),
+      request.headers.get("x-classroom-reconciliation-forwarded") === "1"
+        ? Promise.resolve([])
+        : reconcileConfiguredEnvironments(),
+    ]);
+    if (local.status === "rejected") throw local.reason;
+    if (forwarded.status === "rejected") throw forwarded.reason;
+    return NextResponse.json({ ok: true, promoted: local.value, environments: forwarded.value });
   } catch (error) {
     console.error("Cron promote-course-status failed:", error);
     return NextResponse.json(

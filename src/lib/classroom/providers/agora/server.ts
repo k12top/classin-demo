@@ -25,6 +25,7 @@ import {
   validateAgoraRecordingStorageRegion,
 } from "@/lib/classroom/recording-storage";
 import { getAliyunOssClient } from "@/lib/aliyun-oss";
+import { recordingResourceExpired, shouldRecoverRecordingFromStorage } from "@/lib/classroom/recording-reconciliation";
 
 const AGORA_ALIYUN_VENDOR_ID = 2;
 const AGORA_REQUEST_TIMEOUT_MS = 15_000;
@@ -275,6 +276,7 @@ function recordingStopIsUncertain(error: unknown): boolean {
       error.status >= 500 ||
       response?.code === 62 ||
       response?.code === 65 ||
+      recordingResourceExpired(response) ||
       reason.includes("request timeout") ||
       reason.includes("request not completed") ||
       reason.includes("failed to find worker") ||
@@ -722,7 +724,14 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
     // the application. The files are already durable in OSS at that point, so
     // recover them by the unique per-recording prefix instead of leaving the
     // lesson in `processing` forever when NCS delivery is delayed or missing.
-    if (postStop && !playback.objectKey) {
+    const status = payload.serverResponse?.status;
+    const active = status === 4 || status === 5;
+    if (shouldRecoverRecordingFromStorage({
+      active: active || Boolean(queryError) || Boolean(response && !response.ok && !recordingResourceExpired(payload)),
+      postStop,
+      providerExpired: recordingResourceExpired(payload),
+      hasPlayback: Boolean(playback.objectKey),
+    })) {
       try {
         const storageFiles = await recordingFilesFromStorage(prefixSegments);
         const storagePlayback = selectAgoraRecordingPlayback(
@@ -749,9 +758,8 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
       );
     }
 
-    const status = payload.serverResponse?.status;
     return {
-      active: status === 4 || status === 5,
+      active,
       files,
       playbackObjectKey: playback.objectKey,
       playbackFormat: playback.format,
