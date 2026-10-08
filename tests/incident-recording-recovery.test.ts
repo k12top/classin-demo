@@ -111,3 +111,26 @@ test("custom environment reconciliation forwards credentials without redirects",
   assert.throws(() => reconciliationTargets('[{"origin":"http://local","secret":"secret"}]'));
   assert.throws(() => reconciliationTargets('[{"origin":"https://example.com/path","secret":"secret"}]'));
 });
+
+test("MP4 playback does not request the content-type override rejected by OSS", async () => {
+  const path = "src/app/api/sessions/[sessionId]/recordings/[recordingId]/play/route.ts";
+  const objectKey = "recordings/lesson/attempt/clip.mp4";
+  let signed = false;
+  const handler = loadModule<{ GET(request: unknown, context: unknown): Promise<Response> }>(path, {
+    ...aliasStubs(path),
+    "next/server": { NextResponse: { redirect: (url: string) => new Response(null, { status: 307, headers: { Location: url } }), json: (body: unknown, init: ResponseInit) => Response.json(body, init) } },
+    "@/lib/session": { getSessionFromRequest: async () => ({ userId: "owner" }) },
+    "@/lib/courseware-access": { resolveCoursewareAccess: async () => ({ allowed: true }) },
+    "@/lib/db": { prisma: { classroomRecording: { findFirst: async () => ({ courseId: "course", playbackObjectKey: objectKey, playbackFormat: "mp4", files: [], providerState: {} }) } } },
+    "@/lib/classroom/recording-playback": { recordingPlaybackAssets: () => [{ objectKey, format: "mp4" }] },
+    "@/lib/aliyun-oss": { getCoursewareOssClient: () => ({ signatureUrl: (key: string, options: { response: Record<string, string> }) => {
+      assert.equal(key, objectKey);
+      assert.equal(options.response["content-type"], undefined);
+      assert.equal(options.response["content-disposition"], "inline");
+      signed = true; return "https://example.com/clip.mp4";
+    } }) },
+  });
+  const response = await handler.GET({ nextUrl: new URL("https://example.com/play") }, { params: Promise.resolve({ sessionId: "lesson", recordingId: "attempt" }) });
+  assert.equal(response.status, 307);
+  assert.equal(signed, true);
+});

@@ -175,7 +175,6 @@ export async function GET(request: NextRequest, context: Context) {
     const url = client.signatureUrl(selected.objectKey, {
       expires: 60 * 60,
       response: {
-        "content-type": "video/mp4",
         "content-disposition": "inline",
       },
     });
