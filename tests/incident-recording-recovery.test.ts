@@ -112,15 +112,15 @@ test("custom environment reconciliation forwards credentials without redirects",
   assert.throws(() => reconciliationTargets('[{"origin":"https://example.com/path","secret":"secret"}]'));
 });
 
-test("MP4 playback does not request the content-type override rejected by OSS", async () => {
-  const path = "src/app/api/sessions/[sessionId]/recordings/[recordingId]/play/route.ts";
+for (const path of ["src/app/api/sessions/[sessionId]/recordings/[recordingId]/play/route.ts", "src/app/api/courses/[id]/recording.mp4/route.ts"]) {
+ test(`MP4 playback ${path} avoids the content-type override rejected by OSS`, async () => {
   const objectKey = "recordings/lesson/attempt/clip.mp4";
   let signed = false;
   const handler = loadModule<{ GET(request: unknown, context: unknown): Promise<Response> }>(path, {
     ...aliasStubs(path),
     "next/server": { NextResponse: { redirect: (url: string) => new Response(null, { status: 307, headers: { Location: url } }), json: (body: unknown, init: ResponseInit) => Response.json(body, init) } },
     "@/lib/session": { getSessionFromRequest: async () => ({ userId: "owner" }) },
-    "@/lib/courseware-access": { resolveCoursewareAccess: async () => ({ allowed: true }) },
+    "@/lib/courseware-access": { resolveCoursewareAccess: async () => ({ allowed: true }), canAccessCourseware: async () => true },
     "@/lib/db": { prisma: { classroomRecording: { findFirst: async () => ({ courseId: "course", playbackObjectKey: objectKey, playbackFormat: "mp4", files: [], providerState: {} }) } } },
     "@/lib/classroom/recording-playback": { recordingPlaybackAssets: () => [{ objectKey, format: "mp4" }] },
     "@/lib/aliyun-oss": { getCoursewareOssClient: () => ({ signatureUrl: (key: string, options: { response: Record<string, string> }) => {
@@ -130,7 +130,9 @@ test("MP4 playback does not request the content-type override rejected by OSS", 
       signed = true; return "https://example.com/clip.mp4";
     } }) },
   });
-  const response = await handler.GET({ nextUrl: new URL("https://example.com/play") }, { params: Promise.resolve({ sessionId: "lesson", recordingId: "attempt" }) });
+  const response = await handler.GET({ nextUrl: new URL("https://example.com/play") }, { params: Promise.resolve({ sessionId: "lesson", recordingId: "attempt", id: "course" }) });
   assert.equal(response.status, 307);
   assert.equal(signed, true);
 });
+
+}
