@@ -1,3 +1,4 @@
+import { canShareClassroomScreen } from "@/lib/classroom/screen-share-state";
 import { normalizeClassroomClientId } from "@/lib/classroom/server/connections";
 import { NextRequest, NextResponse } from "next/server";
 import { getClassroomServerProvider } from "@/lib/classroom/server/provider-factory";
@@ -45,6 +46,7 @@ export async function POST(request: NextRequest) {
       where: { id: sessionId },
       select: {
         classroomProvider: true,
+        classroomRuntime: { select: { status: true, assistantPermissions: true } },
         roomType: true,
         course: { select: { autoStudentOnStage: true } },
       },
@@ -60,6 +62,9 @@ export async function POST(request: NextRequest) {
   ]);
   if (!lesson || !member) {
     return NextResponse.json({ error: "课堂成员不存在" }, { status: 404 });
+  }
+  if (lesson.classroomRuntime?.status === "ended") {
+    return NextResponse.json({ error: "课堂已结束", code: "classroom_ended" }, { status: 409 });
   }
   const teachingRole =
     resolved.access.role === "teacher" ||
@@ -88,13 +93,9 @@ export async function POST(request: NextRequest) {
     role: resolved.access.role,
     scenario: mode.rtcScenario,
     publisher: true,
-    // An accepted stage invitation is also the teacher's authorization for
-    // that student to present their desktop. The browser still requires the
-    // student to explicitly choose a screen, so no device can be opened
-    // remotely.
-    allowScreenShare:
-      teachingRole ||
-      (acceptedStudent && mode.studentCanShareWhenOnStage),
+    allowScreenShare: canShareClassroomScreen({ role: resolved.access.role, member,
+      studentSharingSupported: mode.studentCanShareWhenOnStage,
+      assistantManagementAllowed: (lesson.classroomRuntime?.assistantPermissions as Record<string, boolean> | undefined)?.[resolved.session.userId] === true }),
   });
   return NextResponse.json({ credential });
 }

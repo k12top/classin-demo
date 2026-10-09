@@ -13,7 +13,7 @@ export function optimisticClassroomRuntime(runtime: ClassroomRuntimeSnapshot, ac
   case "inviteStage": return patchMember(action.targetUserId, { stageState: "invited" });
   case "removeStage": return patchMember(action.targetUserId, { onStage: false, stageState: "offstage", whiteboardWritable: false });
   case "arrangeVideoGallery": return { ...runtime, composition: arrangeClassroomVideoGallery(runtime.composition, runtime.members.filter(member => member.online && (member.role !== "student" || member.onStage))) };
-  case "resetComposition": return { ...runtime, composition: emptyClassroomComposition() };
+  case "resetComposition": return { ...runtime, composition: { ...emptyClassroomComposition(), screenShares: runtime.composition.screenShares } };
   case "startTimer": return { ...runtime, timerStartedAt: new Date().toISOString(), timerPausedAt: null, timerDurationSec: action.durationSec };
   case "resetTimer": return { ...runtime, timerStartedAt: null, timerPausedAt: null, timerDurationSec: null };
   // Rewards are celebrated only after the server confirms the award.

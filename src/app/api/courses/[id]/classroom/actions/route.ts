@@ -17,6 +17,8 @@ import { deliverClassroomEvents } from "@/lib/classroom/server/integration-event
 import { prisma } from "@/lib/db";
 import { requestRecordingStop, processRecordingStop } from "@/lib/classroom/server/recording-orchestrator";
 import { databaseUnavailableResponse } from "@/lib/database-response";
+import { isMicrophonePermissionAction } from "@/lib/classroom/member-permissions";
+import { applyClassroomMemberPermissions } from "@/lib/classroom/server/member-permissions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -37,6 +39,8 @@ const ACTION_TYPES = new Set<ClassroomAction["type"]>([
   "acceptScreenShare",
   "declineScreenShare",
   "stopScreenShare",
+  "startScreenShare",
+  "releaseScreenShare",
   "setMemberMuted",
   "setMediaAllowed",
   "muteAll",
@@ -83,6 +87,7 @@ export async function POST(
     expectedRevision?: unknown;
     shareAccess?: unknown;
     presenceOnly?: unknown;
+    compactMemberPermissions?: unknown;
   } | null;
   if (
     !body?.action ||
@@ -116,6 +121,13 @@ export async function POST(
     const resolvedCourseId = resolved.access.courseId;
     const sessionId = resolved.access.sessionId;
     const clientId = normalizeClassroomClientId(body.clientId);
+    // Already-open older clients still expect the full runtime response.
+    if (body.compactMemberPermissions === true && isMicrophonePermissionAction(body.action)) {
+      return NextResponse.json({ memberPermissions: await applyClassroomMemberPermissions({
+        courseId: resolvedCourseId, sessionId, actorId: resolved.session.userId,
+        role: resolved.access.role, action: body.action,
+      }) });
+    }
     if (clientId && body.action.type === "heartbeat") await touchClassroomConnection(sessionId, resolved.session.userId, clientId);
     if (clientId && body.action.type === "heartbeat" && body.presenceOnly === true) {
       const state = await prisma.classroomRuntime.findUnique({
@@ -144,6 +156,7 @@ export async function POST(
       sessionId,
       session: resolved.session,
       role: resolved.access.role,
+      clientId,
       expectedRevision:
         typeof body.expectedRevision === "number"
           ? body.expectedRevision

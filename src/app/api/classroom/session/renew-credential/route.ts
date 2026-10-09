@@ -1,3 +1,4 @@
+import { canShareClassroomScreen } from "@/lib/classroom/screen-share-state";
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeClassroomClientId } from "@/lib/classroom/server/connections";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
@@ -37,10 +38,10 @@ export async function POST(request: NextRequest) {
       select: {
         courseId: true, roomUuid: true, roomType: true, status: true, classroomProvider: true,
         course: { select: { autoStudentOnStage: true } },
-        classroomRuntime: { select: { status: true } },
+        classroomRuntime: { select: { status: true, assistantPermissions: true } },
         classroomMembers: {
           where: { userId: user?.userId ?? "" },
-          select: { onStage: true, stageState: true }, take: 1,
+          select: { onStage: true, stageState: true, screenShareState: true }, take: 1,
         },
       },
     }));
@@ -60,11 +61,12 @@ export async function POST(request: NextRequest) {
       userId, role, scenario: mode.rtcScenario,
       publisher: !recorder && (role === "teacher" ||
         (role === "assistant" && mode.mode !== "largeClass") || Boolean(acceptedStudent)),
-      allowScreenShare: !recorder && (role === "teacher" ||
-        (role === "assistant" && mode.mode !== "largeClass") ||
-        Boolean(acceptedStudent && mode.studentCanShareWhenOnStage)),
+      allowScreenShare: !recorder && canShareClassroomScreen({ role, member,
+        studentSharingSupported: mode.studentCanShareWhenOnStage,
+        assistantManagementAllowed: (lesson.classroomRuntime?.assistantPermissions as Record<string, boolean> | undefined)?.[userId] === true }),
     });
-    return NextResponse.json({ credential, signaling: recorder ? null : issueAgoraSignalingCredential(sessionId, userId) });
+    const clientId = normalizeClassroomClientId(body?.clientId);
+    return NextResponse.json({ credential, signaling: recorder ? null : issueAgoraSignalingCredential(sessionId, clientId ? `${userId}:${clientId}` : userId) });
   } catch (error) {
     const unavailable = databaseUnavailableResponse(error);
     if (unavailable) return unavailable;

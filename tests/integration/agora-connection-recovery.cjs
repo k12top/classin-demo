@@ -66,6 +66,100 @@ function fixture() {
 const credential = { appId: "test", channelName: "lesson", rtcUid: 1, userId: "teacher", role: "teacher", scenario: "communication", token: "main",
  screenShare: { rtcUid: 1_000_000_001, token: "screen", userId: "teacher::screen" } };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+const permissions = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/media-permissions.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: permissions });
+
+test("moderation stops native audio immediately and restores it without leaving the channel", async () => {
+  const { provider, clients, tracks } = fixture();
+  await provider.connect(credential, "教师"); await provider.toggleMicrophone();
+  const microphone = tracks[0], mutedCalls = [];
+  let finish;
+  microphone.setMuted = muted => { mutedCalls.push(muted); return new Promise(resolve => { finish = resolve; }); };
+  const muting = permissions.applyMicrophonePermission(provider, false);
+  assert.equal(microphone.mediaTrack.enabled, false, "capture must stop before the SDK responds");
+  await tick();
+  assert.equal(provider.getSnapshot().local.microphoneOn, false);
+  const restoring = permissions.applyMicrophonePermission(provider, true);
+  finish(); await tick();
+  assert.deepEqual(mutedCalls, [true, false]);
+  finish(); await Promise.all([muting, restoring]);
+  assert.equal(provider.getSnapshot().local.microphoneOn, true);
+  assert.equal(microphone.mediaTrack.enabled, true);
+  assert.equal(clients[0].left, undefined);
+  assert.equal(tracks.length, 1, "restore reuses the same captured microphone");
+  await provider.disconnect();
+});
+
+test("rapid local toggles serialize SDK changes and preserve the latest intended state", async () => {
+  const { provider, tracks } = fixture();
+  await provider.connect(credential, "教师"); await provider.toggleMicrophone();
+  const microphone = tracks[0], calls = [], gates = [];
+  microphone.setMuted = muted => { calls.push(muted); return new Promise(resolve => { gates.push(() => { microphone.mediaTrack.enabled = !muted; resolve(); }); }); };
+  const first = provider.toggleMicrophone(); await tick();
+  const second = provider.toggleMicrophone(); const third = provider.toggleMicrophone();
+  assert.deepEqual(calls, [true]);
+  gates.shift()(); await tick(); assert.deepEqual(calls, [true, false]);
+  assert.equal(microphone.mediaTrack.enabled, false, "the earlier completion cannot override the latest mute");
+  gates.shift()(); await tick(); assert.deepEqual(calls, [true, false, true]);
+  assert.equal(microphone.mediaTrack.enabled, false);
+  gates.shift()(); await Promise.all([first, second, third]);
+  assert.equal(provider.getSnapshot().local.microphoneOn, false);
+  await provider.disconnect();
+});
+
+test("a delayed capture cannot publish after the teacher disables the microphone", async () => {
+  const { provider, sdk, makeTrack, clients } = fixture();
+  await provider.connect(credential, "教师");
+  let finish;
+  sdk.createMicrophoneAudioTrack = () => new Promise(resolve => { finish = resolve; });
+  const capturing = provider.toggleMicrophone();
+  await permissions.applyMicrophonePermission(provider, false);
+  const late = makeTrack("late-microphone"); finish(late);
+  await assert.rejects(capturing, { name: "AbortError" });
+  assert.equal(late.closed, true); assert.equal(clients[0].published, undefined);
+  await assert.rejects(provider.toggleMicrophone(), /尚未允许|暂未允许/);
+  await permissions.applyMicrophonePermission(provider, true);
+  assert.equal(provider.getSnapshot().local.microphoneOn, false, "an interrupted capture does not count as a previously speaking mic");
+  await provider.disconnect();
+});
+
+test("an SDK mute failure never re-enables microphone capture against teacher permission", async () => {
+  const { provider, tracks } = fixture();
+  await provider.connect(credential, "教师"); await provider.toggleMicrophone();
+  tracks[0].setMuted = async () => { throw new Error("SDK unavailable"); };
+  await assert.rejects(permissions.applyMicrophonePermission(provider, false), /SDK unavailable/);
+  assert.equal(tracks[0].mediaTrack.enabled, false);
+  assert.equal(provider.getSnapshot().local.microphoneOn, false);
+  tracks[0].setMuted = async muted => { tracks[0].mediaTrack.enabled = !muted; };
+  await permissions.applyMicrophonePermission(provider, true);
+  assert.equal(provider.getSnapshot().local.microphoneOn, true);
+  await provider.disconnect();
+});
+
+test("lesson-start recovery restores missing audio subscriptions without changing local media", async () => {
+  const { provider, clients, subscriptions } = fixture();
+  await provider.connect(credential, "教师");
+  await provider.toggleMicrophone();
+  let plays = 0;
+  const remote = { uid: 123, hasAudio: true, hasVideo: false };
+  clients[0].remoteUsers.push(remote);
+  clients[0].subscribe = async (user, kind) => {
+    subscriptions.push([user.uid, kind]);
+    user.audioTrack = { play: () => { plays++; }, stop: () => undefined };
+  };
+  await provider.recoverMedia();
+  assert.equal(subscriptions.length, 1);
+  assert.equal(plays, 1);
+  assert.equal(provider.getSnapshot().local.microphoneOn, true);
+  assert.equal(clients[0].left, undefined);
+  await provider.recoverMedia();
+  assert.equal(subscriptions.length, 1, "an existing subscription should only replay");
+  assert.equal(plays, 2);
+  clients[0].emit("connection-state-change", "CONNECTED", "RECONNECTING");
+  await tick();
+  assert.equal(plays, 3, "SDK reconnect replays audio automatically");
+  await provider.disconnect();
+});
 
 test("foreground recovery waits for token renewal and uses the fresh credential", async () => {
   const { provider, clients } = fixture();
@@ -148,4 +242,76 @@ test("fully expired primary and screen publishers rejoin with their independent 
   assert.equal(clients[0].joined[2], "fresh-main"); assert.equal(clients[1].joined[2], "fresh-screen");
   assert.equal(clients[0].published[0], tracks[0]); assert.equal(clients[1].published[0], tracks[1]);
   assert.ok(clients.every(client => client.left === true)); await provider.disconnect();
+});
+
+test("screen selection cancellation never claims or replaces another presenter", async () => {
+  const { provider, clients, sdk } = fixture();
+  await provider.connect(credential, "教师");
+  let claims = 0;
+  sdk.createScreenVideoTrack = async () => { throw new DOMException("Canceled", "NotAllowedError"); };
+  await assert.rejects(provider.startScreenShare(async () => { claims++; }), /Canceled/);
+  assert.equal(claims, 0);
+  assert.equal(clients.length, 1);
+  assert.equal(provider.getSnapshot().local.screenSharing, false);
+  await provider.disconnect();
+});
+
+test("server denial closes capture without publishing or disturbing microphone audio", async () => {
+  const { provider, clients, tracks } = fixture();
+  await provider.connect(credential, "教师");
+  await provider.toggleMicrophone();
+  await assert.rejects(provider.startScreenShare(async () => { throw new Error("Not authorized"); }), /Not authorized/);
+  assert.equal(tracks.find(track => track.deviceId === "screen").closed, true);
+  assert.equal(clients[1].joined, undefined);
+  assert.equal(clients[1].published, undefined);
+  assert.equal(provider.getSnapshot().local.microphoneOn, true);
+  assert.equal(clients[0].left, undefined);
+  await provider.disconnect();
+});
+
+test("authorization happens after capture and before RTC publication; stopping cancels a pending start", async () => {
+  const { provider, clients, tracks } = fixture();
+  await provider.connect(credential, "教师");
+  let authorize;
+  const starting = provider.startScreenShare(() => {
+    assert.equal(tracks.find(track => track.deviceId === "screen").closed, undefined);
+    assert.equal(clients[1].joined, undefined);
+    return new Promise(resolve => { authorize = resolve; });
+  });
+  await tick();
+  await provider.stopScreenShare();
+  authorize();
+  await assert.rejects(starting, error => error.name === "AbortError");
+  assert.equal(clients[1].published, undefined);
+  assert.equal(provider.getSnapshot().local.screenSharing, false);
+  assert.equal(clients[0].left, undefined);
+  await provider.disconnect();
+});
+
+test("leaving while the browser picker is open closes the eventual track", async () => {
+  const { provider, sdk, makeTrack } = fixture();
+  await provider.connect(credential, "教师");
+  let select;
+  sdk.createScreenVideoTrack = () => new Promise(resolve => { select = resolve; });
+  let claims = 0;
+  const starting = provider.startScreenShare(async () => { claims++; });
+  await provider.disconnect();
+  const track = makeTrack("pending-screen"); select(track);
+  await assert.rejects(starting, error => error.name === "AbortError");
+  assert.equal(track.closed, true);
+  assert.equal(claims, 0);
+});
+
+test("a delayed end event from the old screen cannot stop its replacement", async () => {
+  const { provider, tracks } = fixture();
+  await provider.connect(credential, "教师");
+  await provider.startScreenShare(async () => undefined);
+  const old = tracks.find(track => track.deviceId === "screen");
+  await provider.stopScreenShare();
+  await provider.startScreenShare(async () => undefined);
+  old.emit("track-ended");
+  await tick();
+  assert.equal(provider.getSnapshot().local.screenSharing, true);
+  assert.equal(tracks.at(-1).closed, undefined);
+  await provider.disconnect();
 });

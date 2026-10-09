@@ -1,3 +1,23 @@
+export type SummaryEvidence = { captionIds: string[]; occurredAt?: string };
+export type SummaryAction = {
+  title: string; owner: string; due: string; status: string; description: string;
+  evidence: SummaryEvidence;
+};
+export type CourseSessionSummaryReport = {
+  participantSummaries: Array<{
+    speakerId: string; speakerName: string; summary: string;
+    keyPoints: string[]; commitments: string[]; evidence: SummaryEvidence;
+  }>;
+  discussionThreads: Array<{
+    topic: string; summary: string; participants: string[]; evidence: SummaryEvidence;
+  }>;
+  actionItems: SummaryAction[];
+  conclusions: Array<{ title: string; detail: string; evidence: SummaryEvidence }>;
+  followUps: Array<{
+    topic: string; reason: string; owner: string; nextCheckAt: string; evidence: SummaryEvidence;
+  }>;
+};
+
 export type CourseSessionSummaryDocument = {
   version: 1;
   title: string;
@@ -5,6 +25,15 @@ export type CourseSessionSummaryDocument = {
   keyPoints: string[];
   questions: string[];
   actionItems: string[];
+  // Additive fields keep existing stored summaries and API clients compatible.
+  report?: CourseSessionSummaryReport;
+  generation?: {
+    method: "meeting-multi-agent" | "transcript-extract";
+    model?: string;
+    analyzedCaptionCount: number;
+    totalCaptionCount: number;
+    reason?: "disabled" | "unavailable";
+  };
   speakers: Array<{
     id: string;
     name: string;
@@ -38,8 +67,7 @@ function cleanText(value: string, limit = MAX_ITEM_LENGTH) {
 
 function uniqueItems(items: string[], limit = MAX_SUMMARY_ITEMS) {
   const seen = new Set<string>();
-  return items.filter((item) => {
-    const normalized = cleanText(item);
+  return items.map((item) => cleanText(item)).filter((normalized) => {
     if (!normalized || seen.has(normalized)) return false;
     seen.add(normalized);
     return true;
@@ -80,6 +108,7 @@ function defaultDocument(title: string): CourseSessionSummaryDocument {
     title: cleanText(title, 160) || "课堂课后总结",
     overview: "暂无最终字幕。开启实时字幕后，可重新生成课后总结。",
     keyPoints: [], questions: [], actionItems: [], speakers: [],
+    generation: { method: "transcript-extract", analyzedCaptionCount: 0, totalCaptionCount: 0, reason: "disabled" },
   };
 }
 
@@ -123,6 +152,7 @@ export function buildCourseSessionSummaryDocument(
     questions: uniqueItems(turns.filter((turn) => /[?？]/.test(turn.text)).map((turn) => turn.text), 5),
     actionItems: uniqueItems(turns.filter((turn) => /作业|练习|提交|复习|阅读|下次课|课后|截止/.test(turn.text)).map((turn) => turn.text), 5),
     speakers,
+    generation: { method: "transcript-extract", analyzedCaptionCount: finalCaptions.length, totalCaptionCount: finalCaptions.length, reason: "disabled" },
   };
 }
 
@@ -151,6 +181,65 @@ function speakersFrom(
   }).slice(0, 100);
 }
 
+function objectFrom(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown> : {};
+}
+function textFrom(value: unknown, limit = 1_200) {
+  return typeof value === "string" ? cleanText(value, limit) : "";
+}
+function recordsFrom(value: unknown, limit = 12) {
+  return Array.isArray(value) ? value.slice(0, limit).map(objectFrom) : [];
+}
+function evidenceFrom(value: unknown): SummaryEvidence {
+  const record = objectFrom(value);
+  const occurredAt = textFrom(record.occurredAt, 40);
+  return {
+    captionIds: stringsFrom(record.captionIds, 16),
+    ...(occurredAt && Number.isFinite(Date.parse(occurredAt)) ? { occurredAt: new Date(occurredAt).toISOString() } : {}),
+  };
+}
+
+export function normalizeCourseSessionSummaryReport(value: unknown): CourseSessionSummaryReport {
+  const record = objectFrom(value);
+  return {
+    participantSummaries: recordsFrom(record.participantSummaries, 100).map((item) => ({
+      speakerId: textFrom(item.speakerId, 240), speakerName: textFrom(item.speakerName, 80),
+      summary: textFrom(item.summary), keyPoints: stringsFrom(item.keyPoints),
+      commitments: stringsFrom(item.commitments), evidence: evidenceFrom(item.evidence),
+    })).filter((item) => item.speakerId && item.speakerName && item.summary),
+    discussionThreads: recordsFrom(record.discussionThreads).map((item) => ({
+      topic: textFrom(item.topic, 160), summary: textFrom(item.summary),
+      participants: stringsFrom(item.participants, 100), evidence: evidenceFrom(item.evidence),
+    })).filter((item) => item.topic && item.summary),
+    actionItems: recordsFrom(record.actionItems, 20).map((item) => ({
+      title: textFrom(item.title), owner: textFrom(item.owner, 160), due: textFrom(item.due, 160),
+      status: ["pending", "in-progress", "completed", "blocked", "cancelled"].includes(String(item.status)) ? String(item.status) : "pending",
+      description: textFrom(item.description), evidence: evidenceFrom(item.evidence),
+    })).filter((item) => item.title),
+    conclusions: recordsFrom(record.conclusions).map((item) => ({
+      title: textFrom(item.title, 360), detail: textFrom(item.detail), evidence: evidenceFrom(item.evidence),
+    })).filter((item) => item.title),
+    followUps: recordsFrom(record.followUps).map((item) => ({
+      topic: textFrom(item.topic, 360), reason: textFrom(item.reason),
+      owner: textFrom(item.owner, 160), nextCheckAt: textFrom(item.nextCheckAt, 160),
+      evidence: evidenceFrom(item.evidence),
+    })).filter((item) => item.topic),
+  };
+}
+
+function generationFrom(value: unknown): CourseSessionSummaryDocument["generation"] {
+  const record = objectFrom(value);
+  if (record.method !== "meeting-multi-agent" && record.method !== "transcript-extract") return undefined;
+  const count = (value: unknown) => Number.isFinite(Number(value)) ? Math.max(0, Math.floor(Number(value))) : 0;
+  return {
+    method: record.method,
+    ...(typeof record.model === "string" ? { model: cleanText(record.model, 160) } : {}),
+    analyzedCaptionCount: count(record.analyzedCaptionCount), totalCaptionCount: count(record.totalCaptionCount),
+    ...(record.reason === "disabled" || record.reason === "unavailable" ? { reason: record.reason } : {}),
+  };
+}
+
 export function normalizeCourseSessionSummaryDocument(
   value: unknown,
   fallback?: CourseSessionSummaryDocument,
@@ -158,13 +247,17 @@ export function normalizeCourseSessionSummaryDocument(
   const record = value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown> : {};
   const defaults = fallback || defaultDocument("");
+  const reportInput = record.report === undefined ? defaults.report : record.report;
+  const report = reportInput && typeof reportInput === "object" ? normalizeCourseSessionSummaryReport(reportInput) : undefined;
   return {
     version: 1,
     title: cleanText(typeof record.title === "string" ? record.title : defaults.title, 160) || defaults.title,
-    overview: cleanText(typeof record.overview === "string" ? record.overview : defaults.overview, 2_000),
+    overview: cleanText(typeof record.overview === "string" ? record.overview : defaults.overview, 4_000),
     keyPoints: stringsFrom(record.keyPoints, MAX_SUMMARY_ITEMS),
-    questions: stringsFrom(record.questions, 5),
-    actionItems: stringsFrom(record.actionItems, 5),
+    questions: stringsFrom(record.questions, 8),
+    actionItems: report ? report.actionItems.map((item) => item.title) : stringsFrom(record.actionItems, 20),
     speakers: speakersFrom(record.speakers, defaults.speakers),
+    ...(report ? { report } : {}),
+    ...(generationFrom(record.generation ?? fallback?.generation) ? { generation: generationFrom(record.generation ?? fallback?.generation) } : {}),
   };
 }

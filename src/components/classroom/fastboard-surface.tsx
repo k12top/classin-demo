@@ -85,6 +85,7 @@ export function FastboardSurface({
   courseware,
   recorderMode = false,
   onControllerChange,
+  onAppChange,
   onReadyChange,
   onRetry,
 }: {
@@ -96,6 +97,7 @@ export function FastboardSurface({
   onControllerChange?: (
     controller: ClassroomWhiteboardController | null,
   ) => void;
+  onAppChange?: (app: FastboardApp | null) => void;
   onReadyChange?: (ready: boolean) => void;
   onRetry?: () => void;
 }) {
@@ -136,6 +138,7 @@ export function FastboardSurface({
     let retryTimerId: number | null = null;
     let launchStarted = false;
     let resizeFrameId = 0;
+    let phaseCleanup: (() => void) | null = null;
     setReady(false);
     setError(null);
     const timeoutId = window.setTimeout(() => {
@@ -356,8 +359,32 @@ export function FastboardSurface({
           automaticRetryCountRef.current = 0;
           setError(null);
           setReady(true);
+          onAppChange?.(createdApp);
           onReadyChange?.(true);
         };
+        const syncRoomPhase = () => {
+          if (cancelled) return;
+          if (writableCheckId !== null) window.clearTimeout(writableCheckId);
+          if (createdApp.room.phase === "connected") {
+            publishControllerWhenReady();
+          } else {
+            onControllerChange?.(null);
+            if (createdApp.room.phase === "disconnected") {
+              onAppChange?.(null);
+              setReady(false);
+              onReadyChange?.(false);
+              setError({ key: "classroom.v3.whiteboardLoadFailed" });
+              if (automaticRetryCountRef.current < 2) {
+                automaticRetryCountRef.current += 1;
+                retryTimerId = window.setTimeout(() => {
+                  if (!cancelled) setLaunchAttempt((value) => value + 1);
+                }, 600 * automaticRetryCountRef.current);
+              }
+            }
+          }
+        };
+        createdApp.room.callbacks.on("onPhaseChanged", syncRoomPhase);
+        phaseCleanup = () => createdApp.room.callbacks.off("onPhaseChanged", syncRoomPhase);
         publishControllerWhenReady();
       } catch (launchError) {
         if (cancelled) return;
@@ -395,11 +422,13 @@ export function FastboardSurface({
       if (writableCheckId !== null) window.clearTimeout(writableCheckId);
       window.cancelAnimationFrame(resizeFrameId);
       resizeObserver.disconnect();
+      phaseCleanup?.();
       panCleanup?.();
       mountTarget.removeEventListener("pointerdown", startCanvasPan, true);
       setReady(false);
       onReadyChange?.(false);
       onControllerChange?.(null);
+      onAppChange?.(null);
       if (!launchStarted) {
         if (mountTarget.isConnected) mountTarget.replaceChildren();
         return;
@@ -438,6 +467,7 @@ export function FastboardSurface({
     launchAttempt,
     locale,
     onControllerChange,
+    onAppChange,
     onReadyChange,
     recorderMode,
   ]);

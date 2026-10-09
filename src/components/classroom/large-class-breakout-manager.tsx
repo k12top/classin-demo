@@ -19,6 +19,7 @@ import {
   Users,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { classroomAvatarSource } from "@/lib/classroom/avatar";
 import { useTranslation } from "@/lib/i18n/context";
 import type {
   ClassroomSpaceMemberSnapshot,
@@ -112,7 +113,7 @@ function collectGroupMembers(nodes: GroupNode[], target: Map<string, RosterMembe
 function MemberAvatar({ member }: { member: Pick<RosterMember, "displayName" | "avatar"> }) {
   return (
     <Avatar className={styles.avatar}>
-      <AvatarImage src={member.avatar || ""} alt="" />
+      <AvatarImage src={classroomAvatarSource(member.avatar)} alt="" />
       <AvatarFallback>{initials(member.displayName)}</AvatarFallback>
     </Avatar>
   );

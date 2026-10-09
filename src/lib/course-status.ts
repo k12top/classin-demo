@@ -19,9 +19,9 @@ export const COURSE_STATUSES: CourseStatusValue[] = [
 
 export function getFinishedDelayMinutes(): number {
   const raw = process.env.COURSE_FINISHED_DELAY_MINUTES;
-  if (raw === undefined || raw === "") return 20;
+  if (raw === undefined || raw === "") return 30;
   const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n >= 0 ? n : 20;
+  return Number.isFinite(n) && n >= 0 ? n : 30;
 }
 
 export function getEarlyClassroomEntryMinutes(): number {

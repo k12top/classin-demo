@@ -28,6 +28,8 @@ import { useTranslation } from "@/lib/i18n/context";
 import { isHlsPlaybackUrl, isMp4PlaybackUrl } from "@/lib/playback-url";
 import { captionTranslation, type CaptionDisplayMode } from "@/lib/classroom/caption-display";
 import { activeCaptionIndex, captionPosition } from "@/lib/classroom/playback-captions";
+import type { CourseSessionSummaryDocument, SummaryEvidence } from "@/lib/course-session-summary-document";
+import { LessonSummaryReport } from "@/components/course-sessions/lesson-summary-report";
 import {
   PortalShell,
   type PortalPage,
@@ -63,20 +65,7 @@ type PlaybackRecording = {
   failureStage?: string | null;
 };
 
-type LessonSummaryDocument = {
-  version: 1;
-  title: string;
-  overview: string;
-  keyPoints: string[];
-  questions: string[];
-  actionItems: string[];
-  speakers: Array<{
-    id: string;
-    name: string;
-    utteranceCount: number;
-    characterCount: number;
-  }>;
-};
+type LessonSummaryDocument = CourseSessionSummaryDocument;
 
 type LessonSummary = {
   id: string;
@@ -890,6 +879,16 @@ function LessonSummaryPanel({
             onSave={onSave}
             onPublish={onPublish}
             onUnpublish={onUnpublish}
+            evidenceLink={(evidence) => {
+              if (!evidence.occurredAt) return null;
+              const position = captionPosition(evidence.occurredAt, recordings);
+              if (!position) return null;
+              const segment = recordings.find((recording) => recording.id === position.recordingId)?.segment;
+              return {
+                label: `${recordings.length > 1 ? `${copy.title === "课后总结" ? "片段" : "Segment"} ${segment || 1} · ` : ""}${formatPlaybackTime(position.seconds)}`,
+                seek: () => onSeekToCaption({ id: evidence.captionIds[0] || "summary-evidence", occurredAt: evidence.occurredAt!, speakerName: "", text: "", translations: {} }),
+              };
+            }}
           />
         )}
       </CardContent>
@@ -959,6 +958,7 @@ function SummaryDocument({
   onSave,
   onPublish,
   onUnpublish,
+  evidenceLink,
 }: {
   summary: LessonSummary;
   canManage: boolean;
@@ -968,10 +968,13 @@ function SummaryDocument({
   onSave: (document: LessonSummaryDocument) => Promise<boolean>;
   onPublish: () => void;
   onUnpublish: () => void;
+  evidenceLink: (evidence: SummaryEvidence) => { label: string; seek: () => void } | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<LessonSummaryDocument>(summary.document);
   const disabled = Boolean(busy);
+  const zh = copy.title === "课后总结";
+  const generation = summary.document.generation;
   const updateList = (
     key: "keyPoints" | "questions" | "actionItems",
     value: string,
@@ -988,6 +991,17 @@ function SummaryDocument({
 
   return (
     <div className="px-5 py-6 sm:px-8 sm:py-8">
+      {generation?.method === "transcript-extract" && (
+        <p role="status" className="mb-4 rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
+          {zh ? generation.reason === "unavailable" ? "AI 总结暂时不可用，当前显示字幕摘录，可重新生成。" : "AI 总结未启用，当前显示字幕摘录。" : generation.reason === "unavailable" ? "AI summary is unavailable. Showing transcript extracts; you can regenerate." : "AI summary is disabled. Showing transcript extracts."}
+        </p>
+      )}
+      {generation?.method === "meeting-multi-agent" && (
+        <p className="mb-4 text-xs text-muted-foreground">
+          {zh ? "AI 课堂纪要 · 分项分析后汇总" : "AI lesson report · specialist analyses and synthesis"}
+          {generation.analyzedCaptionCount < generation.totalCaptionCount && <span className="ml-2 text-amber-800 dark:text-amber-200">{zh ? `仅分析最后 ${generation.analyzedCaptionCount} / ${generation.totalCaptionCount} 条字幕` : `Analyzed the last ${generation.analyzedCaptionCount} of ${generation.totalCaptionCount} captions`}</span>}
+        </p>
+      )}
       {summary.isStale && (
         <p className="mb-4 rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
           {copy.stale}
@@ -997,7 +1011,7 @@ function SummaryDocument({
         <div className="mb-5 flex flex-wrap justify-end gap-2">
           {editing ? (
             <>
-              <Button type="button" size="sm" variant="outline" onClick={() => setEditing(false)} disabled={disabled}>
+              <Button type="button" size="sm" variant="outline" onClick={() => { setDraft(summary.document); setEditing(false); }} disabled={disabled}>
                 {copy.cancel}
               </Button>
               <Button type="button" size="sm" onClick={() => void save()} disabled={disabled}>
@@ -1043,7 +1057,7 @@ function SummaryDocument({
           <SummaryTextarea label={copy.overview} value={draft.overview} onChange={(value) => setDraft((current) => ({ ...current, overview: value }))} />
           <SummaryTextarea label={copy.keyPoints} value={draft.keyPoints.join("\n")} onChange={(value) => updateList("keyPoints", value)} />
           <SummaryTextarea label={copy.questions} value={draft.questions.join("\n")} onChange={(value) => updateList("questions", value)} />
-          <SummaryTextarea label={copy.actionItems} value={draft.actionItems.join("\n")} onChange={(value) => updateList("actionItems", value)} />
+          {draft.report ? <LessonSummaryReport report={draft.report} locale={zh ? "zh-CN" : "en"} onChange={(report) => setDraft((current) => ({ ...current, report, actionItems: report.actionItems.map((item) => item.title) }))} /> : <SummaryTextarea label={copy.actionItems} value={draft.actionItems.join("\n")} onChange={(value) => updateList("actionItems", value)} />}
         </div>
       ) : (
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_240px]">
@@ -1054,9 +1068,9 @@ function SummaryDocument({
             </div>
             <SummaryList title={copy.keyPoints} items={summary.document.keyPoints} />
             <SummaryList title={copy.questions} items={summary.document.questions} />
-            <SummaryList title={copy.actionItems} items={summary.document.actionItems} />
+            {summary.document.report ? <LessonSummaryReport report={summary.document.report} locale={zh ? "zh-CN" : "en"} evidenceLink={evidenceLink} /> : <SummaryList title={copy.actionItems} items={summary.document.actionItems} />}
           </div>
-          <aside className="rounded-xl bg-muted/45 p-4">
+          <aside className="self-start rounded-xl bg-muted/45 p-4">
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">
               <Users className="h-4 w-4 text-primary" />
               {copy.speakers}

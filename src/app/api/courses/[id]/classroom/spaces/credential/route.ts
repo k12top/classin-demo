@@ -7,6 +7,7 @@ import {
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
 import { prisma } from "@/lib/db";
 import { CourseStatus } from "@/lib/course-status";
+import { normalizeClassroomClientId } from "@/lib/classroom/server/connections";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -18,6 +19,7 @@ export async function POST(
   const { id: courseId } = await params;
   const body = (await request.json().catch(() => null)) as {
     spaceId?: unknown;
+    clientId?: unknown;
     shareAccess?: unknown;
   } | null;
   const spaceId = typeof body?.spaceId === "string" ? body.spaceId : "";
@@ -63,6 +65,7 @@ export async function POST(
     const credential = getClassroomServerProvider(
       course.classroomProvider,
     ).issueCredential({
+      clientId: normalizeClassroomClientId(body?.clientId),
       channelName: space.channelName,
       userId: resolved.session.userId,
       role: resolved.access.role,

@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { deliverClassroomEvents } from "@/lib/classroom/server/integration-events";
 import { promoteCoursesIfDue } from "@/lib/course-promote";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 function isAuthorized(request: NextRequest): boolean {
   // Allow unauthenticated manual trigger in local development for easier testing

@@ -1397,7 +1397,7 @@ html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-tool-popover-clos
 /* Captions have their own drag area, clear of the touch whiteboard toolbar. */
 .classroom-v3-caption-bounds {
   position: absolute;
-  z-index: 9;
+  z-index: 30;
   inset: clamp(14px, 3vw, 34px) clamp(14px, 3vw, 38px);
   pointer-events: none;
 }

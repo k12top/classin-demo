@@ -1,0 +1,87 @@
+.root {
+  --notice-text: #fde4af;
+  --notice-border: #896c38;
+  --notice-bg: #342e22;
+  --notice-muted: #dbcbaa;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.root[data-phase="warning"], .root[data-phase="final"], .root[data-phase="closing"] {
+  --notice-text: #ffc9c5;
+  --notice-border: #a55f59;
+  --notice-bg: #3c292b;
+  --notice-muted: #edd0cd;
+}
+
+:global(html.light) .root {
+  --notice-text: #7c4a0b;
+  --notice-border: #e9c58a;
+  --notice-bg: #fff6e5;
+  --notice-muted: #785c38;
+}
+
+:global(html.light) .root[data-phase="warning"],
+:global(html.light) .root[data-phase="final"],
+:global(html.light) .root[data-phase="closing"] {
+  --notice-text: #a13329;
+  --notice-border: #e4aea8;
+  --notice-bg: #fff0ee;
+  --notice-muted: #87544f;
+}
+
+.metric {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--notice-border);
+  border-radius: 8px;
+  color: var(--notice-text);
+  background: var(--notice-bg);
+  line-height: 1.35;
+}
+
+.icon { width: 16px; height: 16px; flex-shrink: 0; }
+.compactLabel { display: none; font-size: 10px; }
+.copy { display: grid; gap: 1px; max-width: 230px; min-width: 0; }
+.label { font-size: 11px; font-weight: 650; }
+.detail { font-size: 10px; }
+.label, .detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.countdown { font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+
+.reminder {
+  position: fixed;
+  z-index: 140;
+  top: 64px;
+  right: 16px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--notice-border);
+  border-radius: 14px;
+  color: var(--notice-text);
+  background: var(--notice-bg);
+  box-shadow: 0 10px 32px rgb(0 0 0 / 0.16);
+  white-space: normal;
+}
+
+.reminderHeading { display: flex; align-items: center; gap: 8px; }
+.reminderHeading > svg { width: 18px; height: 18px; flex-shrink: 0; }
+.reminderHeading strong { flex: 1; font-size: 14px; line-height: 1.5; }
+.reminderHeading button { display: grid; place-items: center; width: 28px; height: 28px; margin: -4px; border: 0; border-radius: 6px; color: inherit; background: transparent; }
+.reminderHeading button:hover { background: rgb(128 128 128 / 0.12); }
+.reminderHeading button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.reminderHeading button svg { width: 16px; height: 16px; }
+.reminder p { margin: 10px 0 0; font-size: 13px; line-height: 1.6; }
+.reminder .hint { color: var(--notice-muted); font-size: 12px; }
+
+@media (max-width: 1024px) {
+  .copy { display: none; }
+  .compactLabel { display: inline; }
+  .metric { gap: 5px; padding: 5px; }
+}
+
+@media (max-width: 480px) {
+  .icon { display: none; }
+  .countdown { font-size: 11px; }
+}

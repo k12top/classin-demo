@@ -2977,6 +2977,19 @@ button.classroom-v3-seat-preview:focus-visible::after {
   object-fit: cover;
 }
 
+.classroom-v3-avatar-picture {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.classroom-v3-avatar-fallback {
+  background: inherit;
+  border-radius: inherit;
+  color: inherit;
+  font: inherit;
+}
+
 .classroom-v3-hand-queue {
   display: inline-flex;
   width: 82px;
@@ -3170,6 +3183,22 @@ button.classroom-v3-seat-preview:focus-visible::after {
   z-index: 20;
   overflow: hidden;
   background: #0d0f12;
+}
+
+.classroom-v3-screen-annotations {
+  position: absolute;
+  z-index: 2;
+  overflow: hidden;
+  background: transparent;
+  touch-action: none;
+}
+
+.classroom-v3-stage-layer.is-screen-share > .classroom-v3-media {
+  z-index: 0;
+}
+
+.classroom-v3-screen-annotations[data-writable="false"] {
+  pointer-events: none;
 }
 
 .classroom-v3-local-share-status {
@@ -3554,7 +3583,7 @@ button.classroom-v3-seat-preview:focus-visible::after {
 
 .classroom-v3-caption-overlay {
   position: absolute;
-  z-index: 9;
+  z-index: 30;
   right: clamp(14px, 3vw, 38px);
   bottom: clamp(14px, 3vw, 34px);
   left: clamp(14px, 3vw, 38px);

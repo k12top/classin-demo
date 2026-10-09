@@ -34,6 +34,7 @@
         "channelName": { "type": "string", "minLength": 1 },
         "userId": { "type": "string", "minLength": 1 },
         "role": { "$ref": "#/$defs/role" },
+        "rtcUid": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
         "publishAllowed": { "type": "boolean" },
         "token": { "type": "string", "minLength": 1 },
         "expiresInSeconds": { "type": "integer", "minimum": 1 },
@@ -42,6 +43,7 @@
           "required": ["userId", "token"],
           "properties": {
             "userId": { "type": "string" },
+            "rtcUid": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
             "token": { "type": "string" }
           },
           "additionalProperties": false
@@ -94,6 +96,9 @@
         "displayName": { "type": "string" },
         "avatar": { "type": "string" },
         "role": { "$ref": "#/$defs/role" },
+        "rtcUids": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 1000000000 } },
+        "screenUids": { "type": "array", "items": { "type": "integer", "minimum": 1000000001, "maximum": 2000000000 } },
+        "signalingUserIds": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 64 } },
         "online": { "type": "boolean" },
         "onStage": { "type": "boolean" },
         "stageState": { "enum": ["offstage", "invited", "accepted"] },

@@ -5,6 +5,7 @@ import AgoraRTC, {
   type IAgoraRTCRemoteUser,
   type ICameraVideoTrack,
   type ILocalVideoTrack,
+  type ILocalAudioTrack,
   type IMicrophoneAudioTrack,
   type UID,
 } from "agora-rtc-sdk-ng";
@@ -76,11 +77,16 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   private connectionGeneration = 0;
   private connectionSequence = 0;
   private screenClient: IAgoraRTCClient | null = null;
+  private screenStartVersion = 0;
   private credential: ClassroomJoinCredential | null = null;
   private displayName = "";
   private microphoneTrack: IMicrophoneAudioTrack | null = null;
+  private microphoneAllowed = true;
+  private microphoneControlVersion = 0;
+  private microphoneControlTail: Promise<void> = Promise.resolve();
   private cameraTrack: ICameraVideoTrack | null = null;
   private screenTrack: ILocalVideoTrack | null = null;
+  private screenAudioTrack: ILocalAudioTrack | null = null;
   private preferredMicrophoneId: string | undefined;
   private preferredCameraId: string | undefined;
   private virtualBackgroundProcessor: IVirtualBackgroundProcessor | null = null;
@@ -296,6 +302,11 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         previousState: connectionState(previous), reason, occurredAt: new Date().toISOString(),
       };
       this.emit();
+      if (state === "CONNECTED" && (previous === "RECONNECTING" || previous === "DISCONNECTED")) {
+        void this.recoverMedia().catch((error) => {
+          if (this.client === client) console.warn("[classroom:rtc] playback recovery failed", error);
+        });
+      }
     });
     this.watchTokenExpiry(client);
     client.on("network-quality", (quality) => {
@@ -384,7 +395,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     if (id === this.screenId()) {
       this.upsertParticipant(id, {
         isLocal: true,
-        hasVideo: mediaType === "video",
+        ...(mediaType === "video" ? { hasVideo: true } : { hasAudio: true }),
       });
       return;
     }
@@ -446,19 +457,22 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     assertCurrent();
     if (this.screenClient?.connectionState === "DISCONNECTED" && this.credential.screenShare) {
       const screenClient = this.screenClient;
-      const tracks = [this.screenTrack].filter((track): track is ILocalVideoTrack => Boolean(track));
+      const tracks = [this.screenTrack, this.screenAudioTrack].filter((track): track is ILocalVideoTrack | ILocalAudioTrack => Boolean(track));
       await renewAgoraConnection(screenClient, { ...this.credential, ...this.credential.screenShare }, tracks, () => this.client === client && this.screenClient === screenClient);
       assertCurrent();
     }
     // Mobile browsers suspend playback and capture on app switches. Rebind all video targets.
     for (const id of this.videoElements.keys()) this.renderVideoTargets(id);
     for (const user of this.remoteUsers.values()) user.audioTrack?.play();
-    if (force) {
-      for (const user of client.remoteUsers) {
-        for (const kind of ["video", "audio"] as const) {
-          if (!(kind === "video" ? user.hasVideo : user.hasAudio)) continue;
-          await client.unsubscribe(user, kind).catch(() => undefined);
-          assertCurrent();
+    for (const user of client.remoteUsers) {
+      for (const kind of ["video", "audio"] as const) {
+        if (!(kind === "video" ? user.hasVideo : user.hasAudio)) continue;
+        const track = kind === "video" ? user.videoTrack : user.audioTrack;
+        if (force || !track) {
+          if (force) {
+            await client.unsubscribe(user, kind).catch(() => undefined);
+            assertCurrent();
+          }
           await this.onUserPublished(user, kind);
           assertCurrent();
         }
@@ -485,6 +499,11 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       await this.toggleMicrophone();
     }
   }
+  setMicrophonePermission(allowed: boolean): void {
+    this.microphoneAllowed = allowed;
+    if (this.microphoneTrack) this.microphoneTrack.getMediaStreamTrack().enabled = allowed && this.snapshot.local.microphoneOn;
+  }
+
   async toggleMicrophone(): Promise<boolean> {
     if (!this.client || !this.credential) {
       throw new Error("课堂尚未连接");
@@ -494,6 +513,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     }
     const client = this.client;
     const rtcUid = String(this.credential.rtcUid);
+    const version = ++this.microphoneControlVersion;
+    if ((!this.microphoneTrack || !this.snapshot.local.microphoneOn) && !this.microphoneAllowed) {
+      throw new Error("老师暂未允许发言");
+    }
 
     if (!this.microphoneTrack) {
       const track = await AgoraRTC.createMicrophoneAudioTrack({
@@ -505,14 +528,16 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         ANS: true,
         encoderConfig: "speech_standard",
       });
-      if (this.client !== client || !this.credential || !credentialCanPublish(this.credential)) {
+      if (this.client !== client || !this.credential || !credentialCanPublish(this.credential) || !this.microphoneAllowed || version !== this.microphoneControlVersion) {
         track.close();
         throw new DOMException("Classroom left or publication revoked", "AbortError");
       }
       this.microphoneTrack = track;
       this.snapshot.local.microphoneOn = true;
       this.upsertParticipant(rtcUid, { hasAudio: true });
-      try { await client.publish(track); }
+      const publishing = client.publish(track);
+      this.microphoneControlTail = publishing.then(() => undefined, () => undefined);
+      try { await publishing; }
       catch (error) {
         track.close();
         if (this.microphoneTrack === track) {
@@ -528,8 +553,22 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       this.snapshot.local.microphoneOn = next;
       this.upsertParticipant(String(this.credential.rtcUid), { hasAudio: next });
 
-      try { await track.setMuted(!next); }
-      catch (error) { track.getMediaStreamTrack().enabled = !next; this.snapshot.local.microphoneOn = !next; this.upsertParticipant(String(this.credential.rtcUid), { hasAudio: !next });  throw error; }
+      const changing = this.microphoneControlTail.then(async () => {
+        if (this.microphoneTrack !== track || this.client !== client) throw new DOMException("Microphone replaced", "AbortError");
+        await track.setMuted(!next);
+        if (this.microphoneTrack === track) track.getMediaStreamTrack().enabled = this.snapshot.local.microphoneOn && this.microphoneAllowed;
+      });
+      this.microphoneControlTail = changing.then(() => undefined, () => undefined);
+      try { await changing; }
+      catch (error) {
+        if (version === this.microphoneControlVersion && this.microphoneTrack === track) {
+          const rollback = !next && this.microphoneAllowed;
+          track.getMediaStreamTrack().enabled = rollback;
+          this.snapshot.local.microphoneOn = rollback;
+          this.upsertParticipant(rtcUid, { hasAudio: rollback });
+        }
+        throw error;
+      }
     }
 
     if (this.client !== client) throw new DOMException("Classroom left", "AbortError");
@@ -635,16 +674,18 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     return this.snapshot.local.cameraOn;
   }
 
-  async startScreenShare(): Promise<void> {
+  async startScreenShare(authorize?: () => Promise<void>): Promise<void> {
     if (!this.credential?.screenShare) {
       throw new Error("当前角色不能共享屏幕");
     }
     if (this.screenTrack || this.screenClient) return;
+    const version = ++this.screenStartVersion;
+    const primaryClient = this.client;
 
     // Keep this as the first awaited browser operation. getDisplayMedia must
     // stay inside the user's click activation or browsers silently block it.
     const screen = classroomMediaProfile.screen;
-    const screenTrack = await AgoraRTC.createScreenVideoTrack(
+    const capturedTracks = await AgoraRTC.createScreenVideoTrack(
       {
         encoderConfig: {
           width: screen.width,
@@ -655,9 +696,18 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         },
         optimizationMode: screen.optimizationMode,
       },
-      "disable",
+      "auto",
     );
+    const [screenTrack, screenAudioTrack] = Array.isArray(capturedTracks)
+      ? capturedTracks
+      : [capturedTracks, null];
+    if (version !== this.screenStartVersion || this.client !== primaryClient) {
+      screenTrack.close();
+      screenAudioTrack?.close();
+      throw new DOMException("Screen sharing canceled", "AbortError");
+    }
     this.screenTrack = screenTrack;
+    this.screenAudioTrack = screenAudioTrack;
 
     const screenClient = AgoraRTC.createClient({
       mode:
@@ -670,43 +720,63 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.screenClient = screenClient;
     this.watchTokenExpiry(screenClient);
     screenTrack.on("track-ended", () => {
-      void this.stopScreenShare();
+      if (this.screenTrack === screenTrack) void this.stopScreenShare();
     });
 
     try {
+      // Capture first to preserve browser activation. Claim the classroom's
+      // publisher slot only after the user actually chooses a screen.
+      await authorize?.();
+      const assertActive = () => {
+        if (version !== this.screenStartVersion || this.screenClient !== screenClient || this.client !== primaryClient) {
+          throw new DOMException("Screen sharing canceled", "AbortError");
+        }
+      };
+      assertActive();
       await screenClient.join(
         this.credential.appId,
         this.credential.channelName,
         this.credential.screenShare.token,
         this.credential.screenShare.rtcUid,
       );
-      await screenClient.publish(screenTrack);
+      assertActive();
+      await screenClient.publish(screenAudioTrack ? [screenTrack, screenAudioTrack] : screenTrack);
+      assertActive();
       this.snapshot.local.screenSharing = true;
       this.upsertParticipant(String(this.credential.screenShare.rtcUid), {
         displayName: `${this.displayName} · 屏幕`,
         isLocal: true,
         kind: "screen",
         hasVideo: true,
+        hasAudio: Boolean(screenAudioTrack),
       });
       await this.focusParticipant(String(this.credential.screenShare.rtcUid));
     } catch (error) {
       screenTrack.close();
-      this.screenTrack = null;
-      this.screenClient = null;
+      screenAudioTrack?.close();
+      if (this.screenTrack === screenTrack) this.screenTrack = null;
+      if (this.screenAudioTrack === screenAudioTrack) this.screenAudioTrack = null;
+      if (this.screenClient === screenClient) this.screenClient = null;
       await screenClient.leave().catch(() => undefined);
       throw error;
     }
   }
 
   async stopScreenShare(): Promise<void> {
+    ++this.screenStartVersion;
     const screenId = this.screenId();
     const track = this.screenTrack;
+    const audioTrack = this.screenAudioTrack;
     const client = this.screenClient;
     if (!track && !client && !this.snapshot.local.screenSharing) return;
 
     this.screenTrack = null;
+    this.screenAudioTrack = null;
     this.screenClient = null;
     this.snapshot.local.screenSharing = false;
+    // Stop sending content immediately, before network unpublish completes.
+    if (track) track.getMediaStreamTrack().enabled = false;
+    if (audioTrack) audioTrack.getMediaStreamTrack().enabled = false;
 
     // Reflect the user's second click before the Agora teardown finishes.
     // Unpublishing and leaving the secondary screen-share client can take a
@@ -719,9 +789,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     }
 
     if (client && track) {
-      await client.unpublish(track).catch(() => undefined);
+      await client.unpublish(audioTrack ? [track, audioTrack] : track).catch(() => undefined);
     }
     track?.close();
+    audioTrack?.close();
     await client?.leave().catch(() => undefined);
   }
 
@@ -798,7 +869,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         throw new RangeError("共享屏幕续期凭证与当前课堂不匹配");
       }
       const screenClient = this.screenClient;
-      const screenTracks = [this.screenTrack].filter((track): track is ILocalVideoTrack => Boolean(track));
+      const screenTracks = [this.screenTrack, this.screenAudioTrack].filter((track): track is ILocalVideoTrack | ILocalAudioTrack => Boolean(track));
       await renewAgoraConnection(screenClient, { ...credential, ...credential.screenShare }, screenTracks, () => this.screenClient === screenClient && this.client === client, this.expiredClients.has(screenClient));
       this.expiredClients.delete(screenClient);
     }

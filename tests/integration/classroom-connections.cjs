@@ -56,7 +56,7 @@ async function run() {
       const started = Date.now();
       await api.touchClassroomConnection(lesson.id, userId, clientId);
       assert.ok(Date.now() - started < 800);
-      assert.equal((await db.classroomConnection.findUnique({ where: { id } })).lastSeenAt.getTime(), old.getTime());
+      assert.ok((await db.classroomConnection.findUnique({ where: { id } })).lastSeenAt > old, "connection lease refreshes while the member remains locked");
     });
     await check("join lock waits are bounded and return a temporary failure", async () => {
       const started = Date.now();

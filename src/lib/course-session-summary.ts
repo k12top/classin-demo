@@ -46,12 +46,15 @@ export async function generateCourseSessionSummary(
   courseId: string,
   sessionId: string,
   generatedBy = "system",
+  options: { totalTimeoutMs?: number } = {},
 ) {
   const lesson = await prisma.courseSession.findFirst({
     where: { id: sessionId, courseId },
     select: { id: true, title: true, course: { select: { name: true } } },
   });
   if (!lesson) throw new Error("Course session not found");
+  const existing = await prisma.courseSessionSummary.findUnique({ where: { sessionId } });
+  if (generatedBy === "system" && existing && (existing.status === "published" || existing.generatedBy !== "system")) return existing;
   const captions = await prisma.classroomCaption.findMany({
     where: { sessionId, courseId, isFinal: true },
     select: { id: true, speakerId: true, speakerName: true, text: true, occurredAt: true, updatedAt: true },
@@ -65,9 +68,10 @@ export async function generateCourseSessionSummary(
       title,
       captions,
       fallback: fallbackDocument,
-    }) || fallbackDocument;
+    }, options) || fallbackDocument;
     document = normalizeCourseSessionSummaryDocument(document, fallbackDocument);
   } catch (error) {
+    document = { ...fallbackDocument, generation: { ...fallbackDocument.generation!, reason: "unavailable" } };
     console.warn("[course-summary] AI generation failed; using deterministic fallback", {
       courseId,
       sessionId,
@@ -78,25 +82,34 @@ export async function generateCourseSessionSummary(
     (latest, caption) => !latest || caption.updatedAt > latest ? caption.updatedAt : latest,
     null,
   );
-  return prisma.courseSessionSummary.upsert({
-    where: { sessionId },
-    create: {
-      courseId, sessionId, status: "draft",
-      document: document as unknown as Prisma.InputJsonValue,
-      captionCount: captions.length, sourceUpdatedAt, generatedBy, generatedAt: new Date(), publishedAt: null,
-    },
-    update: {
-      status: "draft", document: document as unknown as Prisma.InputJsonValue,
-      captionCount: captions.length, sourceUpdatedAt, generatedBy, generatedAt: new Date(), publishedAt: null,
-    },
-  });
+  const data = {
+    status: "draft", document: document as unknown as Prisma.InputJsonValue,
+    captionCount: captions.length, sourceUpdatedAt, generatedBy, generatedAt: new Date(), publishedAt: null,
+  };
+  if (existing) {
+    // Generation may take minutes: never overwrite teacher edits/publication
+    // that happened while the model was analyzing the transcript.
+    const result = await prisma.courseSessionSummary.updateMany({ where: { id: existing.id, updatedAt: existing.updatedAt }, data });
+    if (!result.count && generatedBy !== "system") throw new Error("The summary changed during generation. Reload before regenerating.");
+    return prisma.courseSessionSummary.findUniqueOrThrow({ where: { sessionId } });
+  }
+  try {
+    return await prisma.courseSessionSummary.create({ data: { courseId, sessionId, ...data } });
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
+      if (generatedBy === "system") return prisma.courseSessionSummary.findUniqueOrThrow({ where: { sessionId } });
+      throw new Error("Another summary was created during generation. Reload before regenerating.");
+    }
+    throw error;
+  }
 }
 
 /**
  * Durable cron fallback for an interrupted post-class callback and for final
  * captions that arrive shortly after the lesson ended.
  */
-export async function reconcileCourseSessionSummaries(limit = 25) {
+export async function reconcileCourseSessionSummaries(limit = 25, maxRunMs = 240_000) {
+  const deadline = Date.now() + maxRunMs;
   const lessons = await prisma.courseSession.findMany({
     where: {
       status: { in: ["afterClass", "finished"] },
@@ -131,7 +144,9 @@ export async function reconcileCourseSessionSummaries(limit = 25) {
         (lesson.summary.sourceUpdatedAt &&
           lesson.summary.sourceUpdatedAt >= latestCaptionAt));
     if (alreadyCurrent) continue;
-    await generateCourseSessionSummary(lesson.courseId, lesson.id, "system");
+    const remainingMs = deadline - Date.now();
+    if (remainingMs < 5_000) break;
+    await generateCourseSessionSummary(lesson.courseId, lesson.id, "system", { totalTimeoutMs: remainingMs });
     reconciled += 1;
   }
   return reconciled;

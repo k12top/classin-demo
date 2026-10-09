@@ -7,6 +7,8 @@ import {
 } from "@/lib/classroom/server/runtime";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
 import { prisma } from "@/lib/db";
+import { databaseUnavailableResponse } from "@/lib/database-response";
+import { classroomMessageRecordId, isClassroomClientMessageId } from "@/lib/classroom/server/message-id";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -62,7 +64,7 @@ async function access(
   return resolved;
 }
 
-export async function GET(
+async function getMessages(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -116,12 +118,13 @@ export async function GET(
   });
 }
 
-export async function POST(
+async function postMessage(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: courseId } = await params;
   const body = (await request.json().catch(() => null)) as {
+    clientMessageId?: unknown;
     content?: unknown;
     scope?: unknown;
     spaceId?: unknown;
@@ -136,6 +139,9 @@ export async function POST(
       { status: 400 },
     );
   }
+  if (body?.clientMessageId !== undefined && !isClassroomClientMessageId(body.clientMessageId)) {
+    return NextResponse.json({ error: "消息标识无效" }, { status: 400 });
+  }
   const resolved = await access(
     request,
     courseId,
@@ -148,35 +154,6 @@ export async function POST(
     );
   }
   const sessionId = resolved.access.sessionId;
-  const [runtime, existingMember] = await Promise.all([
-    ensureClassroomRuntime(resolved.access.courseId, sessionId),
-    prisma.classroomMemberState.findUnique({
-      where: {
-        sessionId_userId: {
-          sessionId,
-          userId: resolved.session.userId,
-        },
-      },
-    }),
-  ]);
-  const member =
-    existingMember ??
-    (await touchClassroomMember(
-      resolved.access.courseId,
-      resolved.session,
-      resolved.access.role,
-      undefined,
-      sessionId,
-    ));
-  const teachingRole =
-    resolved.access.role === "teacher" ||
-    resolved.access.role === "assistant";
-  if (!teachingRole && (!runtime.chatEnabled || member.chatMuted)) {
-    return NextResponse.json(
-      { error: runtime.chatEnabled ? "你已被禁言" : "课堂聊天已关闭" },
-      { status: 403 },
-    );
-  }
   const scope =
     body?.scope === "room" ||
     body?.scope === "staff" ||
@@ -186,6 +163,45 @@ export async function POST(
   const spaceId = typeof body?.spaceId === "string" ? body.spaceId : null;
   const recipientId =
     typeof body?.recipientId === "string" ? body.recipientId : null;
+  const messageId = isClassroomClientMessageId(body?.clientMessageId)
+    ? classroomMessageRecordId(sessionId, resolved.session.userId, body.clientMessageId) : undefined;
+  const replay = async () => {
+    if (!messageId) return null;
+    const existing = await prisma.classroomMessage.findUnique({ where: { id: messageId } });
+    if (!existing) return null;
+    if (existing.sessionId !== sessionId || existing.senderId !== resolved.session.userId ||
+      existing.content !== content || existing.scope !== scope ||
+      existing.spaceId !== (scope === "room" ? spaceId : null) ||
+      existing.recipientId !== (scope === "direct" ? recipientId : null)) {
+      return NextResponse.json({ error: "请使用新的标识发送不同消息", code: "message_id_conflict" }, { status: 409 });
+    }
+    const state = await prisma.classroomRuntime.findUnique({ where: { id: existing.runtimeId }, select: { revision: true } });
+    return NextResponse.json({ message: publicMessage(existing), revision: state?.revision ?? 0 });
+  };
+  const received = await replay();
+  if (received) return received;
+
+  // Chat does not modify the classroom runtime. One small read avoids the
+  // heartbeat/caption runtime writes and parallel connection-pool requests.
+  const readAccess = async () => (await prisma.$queryRaw<{
+    id: string; revision: number; status: string; chatEnabled: boolean; chatMuted: boolean | null;
+  }[]>`SELECT r."id", r."revision", r."status", r."chatEnabled", m."chatMuted"
+       FROM "ClassroomRuntime" r LEFT JOIN "ClassroomMemberState" m
+         ON m."sessionId" = r."sessionId" AND m."userId" = ${resolved.session.userId}
+       WHERE r."sessionId" = ${sessionId}`)[0];
+  let runtime = await readAccess();
+  if (!runtime) { await ensureClassroomRuntime(resolved.access.courseId, sessionId); runtime = await readAccess(); }
+  if (!runtime || runtime.status === "ended") {
+    return NextResponse.json({ error: "课堂已结束", code: "classroom_ended" }, { status: 409 });
+  }
+  let chatMuted = runtime.chatMuted;
+  if (chatMuted === null) {
+    chatMuted = (await touchClassroomMember(resolved.access.courseId, resolved.session, resolved.access.role, undefined, sessionId)).chatMuted;
+  }
+  const teachingRole = resolved.access.role === "teacher" || resolved.access.role === "assistant";
+  if (!teachingRole && (!runtime.chatEnabled || chatMuted)) {
+    return NextResponse.json({ error: runtime.chatEnabled ? "你已被禁言" : "课堂聊天已关闭" }, { status: 403 });
+  }
   if (scope === "staff" && !teachingRole) {
     return NextResponse.json({ error: "只有教师可以使用助教频道" }, { status: 403 });
   }
@@ -224,9 +240,11 @@ export async function POST(
     }
   }
 
-  const [message, updatedRuntime] = await prisma.$transaction([
-    prisma.classroomMessage.create({
+  let message;
+  try {
+    message = await prisma.classroomMessage.create({
       data: {
+        ...(messageId && { id: messageId }),
         runtimeId: runtime.id,
         courseId: resolved.access.courseId,
         sessionId,
@@ -241,16 +259,33 @@ export async function POST(
         recipientId: scope === "direct" ? recipientId : null,
         content,
       },
-    }),
-    prisma.classroomRuntime.update({
-      where: { id: runtime.id },
-      data: { revision: { increment: 1 } },
-    }),
-  ]);
+    });
+  } catch (error) {
+    if (messageId && error && typeof error === "object" && "code" in error && error.code === "P2002") {
+      const duplicate = await replay();
+      if (duplicate) return duplicate;
+    }
+    throw error;
+  }
   return NextResponse.json(
-    { message: publicMessage(message), revision: updatedRuntime.revision },
+    { message: publicMessage(message), revision: runtime.revision },
     { status: 201 },
   );
+}
+
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  try { return await getMessages(request, context); }
+  catch (error) { const response = databaseUnavailableResponse(error); if (response) return response; throw error; }
+}
+
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  try { return await postMessage(request, context); }
+  catch (error) {
+    const response = databaseUnavailableResponse(error);
+    if (response) return response;
+    console.error("[classroom:messages] send failed", error);
+    return NextResponse.json({ error: "消息暂时发送失败，请重试", code: "message_send_failed" }, { status: 500 });
+  }
 }
 
 export async function DELETE(

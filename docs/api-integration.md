@@ -39,7 +39,7 @@ Authorization: Bearer <casdoor_access_token>
 - `scheduled` + `live` + `afterClass`：按 `startTime` **升序**；同时间时 `live` > `afterClass` > `scheduled`
 - `finished` / `cancelled`：按 `endTime` **降序**（从近到远）；无 `endTime` 时回退按 `startTime` 降序
 
-**课后延时结束**：课程只会在计划结束时间 `endTime` 加默认 **20 分钟** 后自动变为 `finished`（已结束），延时可通过环境变量 `COURSE_FINISHED_DELAY_MINUTES` 配置。声网的 `afterClass`/`close` 不能提前触发自动结束；计划结束时间前收到的 `afterClass` 会被忽略。列表/详情 API 读取和后台定时任务都会推进已到期课程。
+**课后延时结束**：课程只会在计划结束时间 `endTime` 加默认 **30 分钟** 后自动变为 `finished`（已结束），延时可通过环境变量 `COURSE_FINISHED_DELAY_MINUTES` 配置。课堂顶部会在下课时显示实际关闭倒计时，并在剩余 5 分钟和 1 分钟时再次提醒。声网的 `afterClass`/`close` 不能提前触发自动结束；计划结束时间前收到的 `afterClass` 会被忽略。列表/详情 API 读取和后台定时任务都会推进已到期课程。
 
 示例：
 
