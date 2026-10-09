@@ -86,10 +86,16 @@ function setCookie(name: string, value: string, days = 365) {
 
 function detectDefaultLocale(): SupportedLocale {
   if (typeof window === "undefined") return "en";
+  let storedLocale: string | null = null;
+  try {
+    storedLocale = localStorage.getItem("locale");
+  } catch {
+    // Embedded/private browsers may deny storage; cookies and UI still work.
+  }
   return resolveLocalePreference({
     url: new URLSearchParams(window.location.search).get("lang"),
     cookie: getCookie("NEXT_LOCALE"),
-    storage: localStorage.getItem("locale"),
+    storage: storedLocale,
     browser: navigator.language,
   });
 }
@@ -112,22 +118,39 @@ export function I18nProvider({
   }, [locale]);
 
   // Helper to apply locale state & browser storage/cookies without broadcasting
-  const applyLocale = (newLocale: SupportedLocale) => {
+  const applyLocale = useCallback((newLocale: SupportedLocale) => {
+    localeRef.current = newLocale;
     setLocaleState(newLocale);
-    localStorage.setItem("locale", newLocale);
-    setCookie("NEXT_LOCALE", newLocale, 365);
+    try {
+      localStorage.setItem("locale", newLocale);
+    } catch {
+      // Persistence must never prevent changing the current interface.
+    }
+    try {
+      setCookie("NEXT_LOCALE", newLocale, 365);
+    } catch {
+      // Some embedded browsers also deny cookie writes.
+    }
     if (typeof document !== "undefined") {
       document.documentElement.lang = newLocale;
       document.documentElement.dir = localeDirection(newLocale);
     }
-  };
+  }, []);
 
   const setLocale = useCallback((newLocale: SupportedLocale) => {
     if (!(newLocale in locales)) return;
-    if (newLocale === locale) return;
+    if (newLocale === localeRef.current) return;
 
     // 1. Apply locale locally
     applyLocale(newLocale);
+
+    // A launch link's language is the initial preference. Keep it in sync
+    // after an explicit choice so reload/navigation cannot restore the old one.
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("lang")) {
+      url.searchParams.set("lang", newLocale);
+      window.history.replaceState(window.history.state, "", url);
+    }
 
     // 2. Same-origin Broadcast
     try {
@@ -153,7 +176,7 @@ export function I18nProvider({
         }
       }
     }
-  }, [locale]);
+  }, [applyLocale]);
 
   // Sync html lang attribute on mount or change
   useEffect(() => {
@@ -256,7 +279,7 @@ export function I18nProvider({
         channel.close();
       }
     };
-  }, []);
+  }, [applyLocale]);
 
   const value = useMemo(() => {
     const dict = locales[locale] || locales["en"];

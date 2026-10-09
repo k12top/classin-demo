@@ -60,6 +60,12 @@ export const zhTW = {
       interpretationSaveFailed: "設定未儲存，已保留選擇，請重試。",
 
       more: "更多", resetMedia: "重置音訊與視訊", giveTrophy: "發獎盃", interfaceLanguage: "介面語言",
+      captionBackground: "字幕背景",
+      captionBackgroundText: "僅文字區域模糊",
+      captionBackgroundTransparent: "完全透明",
+      captionBackgroundSolid: "整塊背景",
+      captionBackgroundColor: "背景顏色",
+      captionDragHint: "拖動字幕文字可調整位置。",
       assistantPermissions: "助教管理權限",
       assistantPermissionsHint: "主講老師始終擁有管理權限。開啟後，該助教可管理成員、白板、聊天和課堂工具。",
       leaveTemporarily: "暫時離開", applyingInterpretation: "正在套用同傳設定…",

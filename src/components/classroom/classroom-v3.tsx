@@ -4,6 +4,8 @@ import { useClassroomHostEvents } from "@/lib/classroom/use-host-events";
 import { recorderCameraParticipants, recorderVideosHaveFrames } from "@/lib/classroom/recorder-surface";
 import { isEndedClassroomResponse } from "@/lib/classroom/session-lifecycle";
 import { stopDisallowedMicrophone } from "@/lib/classroom/media-permissions";
+import { canRetryClassroomRecovery, ClassroomRecoveryError, retryClassroomRecovery } from "@/lib/classroom/credential-recovery";
+import { reportClassroomDiagnostic, type ClassroomConnectionDiagnostic } from "@/lib/classroom/connection-diagnostics";
 
 import {
   CSSProperties,
@@ -184,7 +186,7 @@ type DrawerPanel =
   | "tools";
 type ClassroomLayoutMode = "focus" | "split" | "grid";
 type CaptionDisplayMode = "off" | "original" | "bilingual" | "translated";
-type CaptionBackgroundMode = "transparent" | "solid";
+type CaptionBackgroundMode = "transparent" | "text" | "solid";
 
 const TEACHER_PIP_HIDDEN_STORAGE_KEY = "classroom_teacher_pip_hidden";
 const OPTIMISTIC_MESSAGE_PREFIX = "optimistic:";
@@ -3914,19 +3916,20 @@ function DeviceSettings({
                     </select>
                   </label>
                   <label>
-                    <span>{locale.startsWith("zh") ? "字幕背景" : "Caption background"}</span>
+                    <span>{t("classroom.v3.captionBackground")}</span>
                     <select value={captionBackgroundMode} onChange={(event) => onCaptionBackgroundModeChange(event.target.value as CaptionBackgroundMode)}>
-                      <option value="transparent">{locale.startsWith("zh") ? "透明" : "Transparent"}</option>
-                      <option value="solid">{locale.startsWith("zh") ? "自定义颜色" : "Custom color"}</option>
+                      <option value="text">{t("classroom.v3.captionBackgroundText")}</option>
+                      <option value="transparent">{t("classroom.v3.captionBackgroundTransparent")}</option>
+                      <option value="solid">{t("classroom.v3.captionBackgroundSolid")}</option>
                     </select>
                   </label>
-                  {captionBackgroundMode === "solid" && (
+                  {captionBackgroundMode !== "transparent" && (
                     <label>
-                      <span>{locale.startsWith("zh") ? "背景颜色" : "Background color"}</span>
+                      <span>{t("classroom.v3.captionBackgroundColor")}</span>
                       <input type="color" value={captionBackgroundColor} onChange={(event) => onCaptionBackgroundColorChange(event.target.value)} />
                     </label>
                   )}
-                  <p>{locale.startsWith("zh") ? "字幕出现后，可拖动悬浮框顶部调整位置。" : "Drag the caption header to move the overlay."}</p>
+                  <p>{t("classroom.v3.captionDragHint")}</p>
                 </fieldset>
                 {canManageRecording && runtime && <fieldset className="classroom-v3-caption-settings"><legend>{t("classroom.v3.assistantPermissions")}</legend><p>{t("classroom.v3.assistantPermissionsHint")}</p>{runtime.members.filter((member) => member.role === "assistant").map((member) => <label key={member.userId}><span>{member.displayName}</span><input type="checkbox" checked={runtime.assistantPermissions?.[member.userId] === true} onChange={(event) => onAssistantPermission(member.userId, event.target.checked)} /></label>)}</fieldset>}
                 {canManageRecording && runtime && (
@@ -3970,7 +3973,15 @@ export function ClassroomV3({
   const searchParams = useSearchParams();
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { t, locale } = useTranslation();
+  const { t, locale, setLocale } = useTranslation();
+  // UI translations change immediately, while locale changes must not tear
+  // down the active RTC connection or request fresh classroom credentials.
+  const sessionTranslationRef = useRef(t);
+  useEffect(() => { sessionTranslationRef.current = t; }, [t]);
+  const translateSession = useCallback(
+    (...args: Parameters<typeof t>) => sessionTranslationRef.current(...args),
+    [],
+  );
   const theme = useSyncExternalStore(
     subscribeToTheme,
     getClientTheme,
@@ -4100,16 +4111,17 @@ export function ClassroomV3({
     if (typeof window === "undefined") return true;
     return window.localStorage.getItem("classroom_caption_overlay_visible") !== "0";
   });
-  const [captionBackgroundMode, setCaptionBackgroundMode] = useState<CaptionBackgroundMode>(() =>
-    typeof window !== "undefined" && window.localStorage.getItem("classroom_caption_background_mode") === "transparent"
-      ? "transparent" : "solid",
-  );
+  const [captionBackgroundMode, setCaptionBackgroundMode] = useState<CaptionBackgroundMode>(() => {
+    const saved = typeof window === "undefined" ? null : window.localStorage.getItem("classroom_caption_background_mode");
+    return saved === "transparent" || saved === "solid" ? saved : "text";
+  });
   const [captionBackgroundColor, setCaptionBackgroundColor] = useState(() => {
     const saved = typeof window === "undefined" ? null : window.localStorage.getItem("classroom_caption_background_color");
     return saved && /^#[0-9a-fA-F]{6}$/.test(saved) ? saved : "#202124";
   });
   const captionDragControls = useDragControls();
   const stageElementRef = useRef<HTMLElement | null>(null);
+  const captionBoundsRef = useRef<HTMLDivElement | null>(null);
   const automaticRecordingRequestedRef = useRef("");
   const [teacherPiPHidden, setTeacherPiPHidden] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -4131,6 +4143,7 @@ export function ClassroomV3({
   const publishEnabledRef = useRef(false);
   const teacherCameraAutostartedRef = useRef(false);
   const credentialRenewalRef = useRef<Promise<void> | null>(null);
+  const credentialRecoveryFailureRef = useRef<unknown>(null);
   const recorderReadyNotifiedRef = useRef(false);
   const recorderReleasedRef = useRef(false);
   const captionIngestAtRef = useRef(new Map<string, number>());
@@ -4458,7 +4471,7 @@ export function ClassroomV3({
 
   const fetchInitialSession = useCallback(async () => {
     if (isRecorder && !recorderToken) {
-      throw new Error(t("classroom.v3.missingRecorderCredential"));
+      throw new Error(translateSession("classroom.v3.missingRecorderCredential"));
     }
     let response = await fetch("/api/classroom/session", {
       signal: liveRequestsRef.current?.signal,
@@ -4499,7 +4512,7 @@ export function ClassroomV3({
           buildAccessDeniedUrl({
             code:
               (payload.code as CourseAccessDeniedCode | undefined) || "default",
-            reason: serverDetail || t("classroom.v3.accessDenied"),
+            reason: serverDetail || translateSession("classroom.v3.accessDenied"),
             courseId: payload.courseId || courseId,
           }),
         );
@@ -4510,36 +4523,78 @@ export function ClassroomV3({
       const serverCode = "code" in payload ? payload.code : undefined;
       throw new Error(
         serverCode === "database_unavailable"
-          ? t("classroom.v3.databaseUnavailable")
-          : serverDetail || t("classroom.v3.sessionCreateFailed"),
+          ? translateSession("classroom.v3.databaseUnavailable")
+          : serverDetail || translateSession("classroom.v3.sessionCreateFailed"),
       );
     }
     return payload;
-  }, [clientId, courseId, isRecorder, legacyCourseId, recorderToken, requestedSessionId, router, shareAccess, stopEndedSession, t]);
+  }, [clientId, courseId, isRecorder, legacyCourseId, recorderToken, requestedSessionId, router, shareAccess, stopEndedSession, translateSession]);
+
+  const reportConnectionDiagnostic = useCallback((event: ClassroomConnectionDiagnostic) => {
+    reportClassroomDiagnostic({ ...event, sessionId: sessionRef.current?.course.sessionId || courseId, clientId,
+      ...(isRecorder ? { recorderToken } : {}),
+    });
+  }, [clientId, courseId, isRecorder, recorderToken]);
 
   const renewClassroomCredentials = useCallback(async () => {
     if (sessionRef.current?.runtime.status === "ended") return;
     if (credentialRenewalRef.current) return credentialRenewalRef.current;
+    if (credentialRecoveryFailureRef.current) throw credentialRecoveryFailureRef.current;
+    const controller = liveRequestsRef.current;
+    const provider = providerRef.current;
+    if (!controller || controller.signal.aborted || !provider) return;
     const renewal = (async () => {
-      const payload = await fetchInitialSession();
-      if (sessionRef.current?.runtime.status === "ended") return;
-      const provider = providerRef.current;
-      if (!provider) return;
-      await provider.renewCredential(payload.credential);
-      updateSession({
-        credential: payload.credential,
-        signaling: payload.signaling,
+      let hadFailure = false;
+      await retryClassroomRecovery(async () => {
+        const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]);
+        const request = () => fetch("/api/classroom/session/renew-credential", {
+          signal, method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId: sessionRef.current?.course.sessionId || courseId, clientId,
+            ...(shareAccess ? { shareAccess } : {}), ...(isRecorder ? { recorderToken } : {}),
+          }),
+        });
+        let response = await request();
+        if (!isRecorder && response.status === 401 && await tryOAuthRefresh()) response = await request();
+        const payload = await response.json();
+        if (stopEndedSession(response.status, payload)) throw new DOMException("Classroom ended", "AbortError");
+        if (!response.ok || !payload.credential) {
+          throw new ClassroomRecoveryError(response.ok ? 502 : response.status, Number(response.headers.get("Retry-After") || 0) * 1_000);
+        }
+        controller.signal.throwIfAborted();
+        if (providerRef.current !== provider) throw new DOMException("Classroom replaced", "AbortError");
+        await provider.renewCredential(payload.credential);
+        await provider.recoverMedia();
+        controller.signal.throwIfAborted();
+        if (providerRef.current !== provider) throw new DOMException("Classroom replaced", "AbortError");
+        updateSession({ credential: payload.credential, signaling: payload.signaling });
+      }, {
+        signal: controller.signal,
+        onFailure: (error, attempt, delayMs) => {
+          hadFailure = true;
+          reportConnectionDiagnostic({ event: "credential-retry", occurredAt: new Date().toISOString(), attempt, delayMs,
+            ...(error instanceof ClassroomRecoveryError ? { status: error.status } : {}),
+          });
+        },
       });
+      if (hadFailure) reportConnectionDiagnostic({ event: "credential-recovered", occurredAt: new Date().toISOString() });
     })();
     credentialRenewalRef.current = renewal;
     try {
       await renewal;
+    } catch (error) {
+      if (!controller.signal.aborted && !(error instanceof DOMException && error.name === "AbortError")) {
+        if (!canRetryClassroomRecovery(error)) credentialRecoveryFailureRef.current = error;
+        reportConnectionDiagnostic({ event: "credential-failed", occurredAt: new Date().toISOString(),
+          ...(error instanceof ClassroomRecoveryError ? { status: error.status } : {}),
+        });
+      }
+      throw error;
     } finally {
       if (credentialRenewalRef.current === renewal) {
         credentialRenewalRef.current = null;
       }
     }
-  }, [fetchInitialSession, updateSession]);
+  }, [clientId, courseId, isRecorder, recorderToken, reportConnectionDiagnostic, shareAccess, stopEndedSession, updateSession]);
 
   useEffect(() => {
     if ((!isRecorder && authLoading) || !courseId) return;
@@ -4552,11 +4607,13 @@ export function ClassroomV3({
     let unsubscribe: (() => void) | null = null;
     let unsubscribeCaptions: (() => void) | null = null;
     let unsubscribeTokenExpiry: (() => void) | null = null;
+    let lastConnectionSequence = 0;
 
     async function launch() {
       try {
         liveRequestsRef.current?.abort();
         liveRequestsRef.current = new AbortController();
+        credentialRecoveryFailureRef.current = null;
         setLoadingState("loading");
         setErrorMessage("");
         const payload = await fetchInitialSession();
@@ -4587,7 +4644,13 @@ export function ClassroomV3({
           });
         });
         unsubscribe = provider.subscribe((snapshot) => {
-          if (!cancelled) setMedia(snapshot);
+          if (cancelled) return;
+          setMedia(snapshot);
+          const event = snapshot.connectionEvent;
+          if (event && event.sequence !== lastConnectionSequence) {
+            lastConnectionSequence = event.sequence;
+            reportConnectionDiagnostic({ event: "connection-state", ...event });
+          }
         });
         unsubscribeCaptions = provider.subscribeCaptions((caption) => {
           if (cancelled) return;
@@ -4602,7 +4665,7 @@ export function ClassroomV3({
               runtime.members.find((member) => member.userId === speakerId)
                 ?.displayName ||
               caption.speakerName ||
-              t("classroom.v3.speaker"),
+              translateSession("classroom.v3.speaker"),
             createdAt: new Date().toISOString(),
           };
           if (!isRecorder) {
@@ -4673,7 +4736,7 @@ export function ClassroomV3({
             });
         });
         const displayName = isRecorder
-          ? t("classroom.v3.recordingClassroom")
+          ? translateSession("classroom.v3.recordingClassroom")
           : user!.displayName || user!.name || user!.userId;
         if (!cancelled) setLoadingState("ready");
         try {
@@ -4684,7 +4747,7 @@ export function ClassroomV3({
             setActionError(
               mediaError instanceof Error
                 ? mediaError.message
-                : t("classroom.v3.mediaActionFailed"),
+                : translateSession("classroom.v3.mediaActionFailed"),
             );
           }
         }
@@ -4694,7 +4757,7 @@ export function ClassroomV3({
         setErrorMessage(
           error instanceof Error
             ? error.message
-            : t("classroom.v3.classroomLaunchFailed"),
+            : translateSession("classroom.v3.classroomLaunchFailed"),
         );
         setLoadingState("error");
       }
@@ -4704,6 +4767,8 @@ export function ClassroomV3({
       cancelled = true;
       unsubscribe?.();
       liveRequestsRef.current?.abort();
+      credentialRenewalRef.current = null;
+      credentialRecoveryFailureRef.current = null;
       unsubscribeCaptions?.();
       unsubscribeTokenExpiry?.();
       signalingRef.current?.disconnect().catch(() => undefined);
@@ -4719,9 +4784,10 @@ export function ClassroomV3({
     launchAttempt,
     recorderToken,
     renewClassroomCredentials,
+    reportConnectionDiagnostic,
     shareAccess,
     stopEndedSession,
-    t,
+    translateSession,
     user,
   ]);
 
@@ -4884,7 +4950,6 @@ export function ClassroomV3({
       if (sessionRef.current?.runtime.status === "ended") return;
       if (document.visibilityState === "visible" && navigator.onLine) {
         void renewClassroomCredentials().then(() => refreshState()).catch(() => void refreshState());
-        void providerRef.current?.recoverMedia().catch(() => undefined);
         void roomProviderRef.current?.recoverMedia().catch(() => undefined);
       }
     };
@@ -4897,6 +4962,15 @@ export function ClassroomV3({
       window.removeEventListener("focus", refreshWhenActive);
     };
   }, [classEnded, loadingState, refreshState, renewClassroomCredentials]);
+
+  useEffect(() => {
+    if (classEnded || loadingState !== "ready" || media.connectionState !== "disconnected" ||
+      (media.connectionEvent?.reason && !["NETWORK_ERROR", "TOKEN_EXPIRE"].includes(media.connectionEvent.reason))) return;
+    const timer = window.setTimeout(() => {
+      if (navigator.onLine) void renewClassroomCredentials().catch(() => undefined);
+    }, 1_000);
+    return () => window.clearTimeout(timer);
+  }, [classEnded, loadingState, media.connectionState, media.connectionEvent?.sequence, media.connectionEvent?.reason, renewClassroomCredentials]);
 
   useEffect(() => {
     if (
@@ -5045,6 +5119,7 @@ export function ClassroomV3({
             body: JSON.stringify({
               clientId: clientId,
               action: { type: "heartbeat" },
+              presenceOnly: true,
               ...(shareAccess && { shareAccess }),
             }),
             signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]),
@@ -5912,6 +5987,7 @@ export function ClassroomV3({
   const exitClassroom = useCallback(() => {
     if (isLeaving) return;
     setIsLeaving(true);
+    liveRequestsRef.current?.abort();
     const destination = parentCourseId
       ? `/courses/${encodeURIComponent(parentCourseId)}`
       : "/";
@@ -6532,7 +6608,7 @@ export function ClassroomV3({
               <>
                 <button
                   type="button"
-                  className={!controlMedia.local.microphoneOn ? "is-device-off" : ""}
+                  className={`is-header-secondary ${!controlMedia.local.microphoneOn ? "is-device-off" : ""}`}
                   disabled={!microphoneAllowed || mediaBusy.includes("microphone") || mediaBusy.includes("recover")}
                   aria-busy={mediaBusy.includes("microphone")}
                   onClick={() =>
@@ -6547,7 +6623,7 @@ export function ClassroomV3({
                 </button>
                 <button
                   type="button"
-                  className={!controlMedia.local.cameraOn ? "is-device-off" : ""}
+                  className={`is-header-secondary ${!controlMedia.local.cameraOn ? "is-device-off" : ""}`}
                   disabled={mediaBusy.includes("camera") || mediaBusy.includes("recover")}
                   aria-busy={mediaBusy.includes("camera")}
                   onClick={() =>
@@ -6584,6 +6660,8 @@ export function ClassroomV3({
                 <button
                   type="button"
                   className="is-start"
+                  title={t("classroom.v3.startClass")}
+                  aria-label={t("classroom.v3.startClass")}
                   disabled={
                     Boolean(actionBusy) ||
                     (controlsRoomMedia && !currentSpaceMember?.microphoneAllowed)
@@ -6600,6 +6678,8 @@ export function ClassroomV3({
                   <button
                     type="button"
                     className="is-end"
+                    title={t("classroom.v3.endClass")}
+                    aria-label={t("classroom.v3.endClass")}
                     disabled={Boolean(actionBusy)}
                     onClick={() => {
                       setEndClassConfirming(true);
@@ -6614,11 +6694,7 @@ export function ClassroomV3({
               sessionData.runtime.status === "live" && (
                 <button
                   type="button"
-                  className={
-                    ["starting", "recording"].includes(recordingStatus || "")
-                      ? "is-recording"
-                      : ""
-                  }
+                  className={`is-header-secondary ${["starting", "recording"].includes(recordingStatus || "") ? "is-recording" : ""}`}
                   disabled={
                     Boolean(actionBusy) ||
                     ((!sessionData.recording.enabled || sessionData.runtime.recordingStartMode === "disabled") &&
@@ -6655,15 +6731,29 @@ export function ClassroomV3({
             )}
             <button
               type="button"
-              className="is-theme-toggle"
+              className="is-theme-toggle is-header-secondary"
               onClick={() => setClientTheme(theme === "light" ? "dark" : "light")}
               title={t(theme === "light" ? "common.switchToDarkMode" : "common.switchToLightMode")}
               aria-label={t(theme === "light" ? "common.switchToDarkMode" : "common.switchToLightMode")}
             >
               {theme === "light" ? <Moon /> : <Sun />}
             </button>
+            <label className="classroom-v3-interface-language" title={t("classroom.v3.interfaceLanguage")}>
+              <Languages aria-hidden="true" />
+              <select
+                aria-label={t("classroom.v3.interfaceLanguage")}
+                value={locale}
+                onChange={(event) => setLocale(event.target.value as SupportedLocale)}
+              >
+                {languageOptions.map((language) => (
+                  <option key={language.value} value={language.value}>{language.label}</option>
+                ))}
+              </select>
+            </label>
             <button
               type="button"
+              className="is-header-settings"
+              aria-label={t("classroom.v3.deviceSettings")}
               onClick={() => setSettingsOpen(true)}
               title={t("classroom.v3.deviceSettings")}
             >
@@ -6767,6 +6857,7 @@ export function ClassroomV3({
         <motion.section
           layout
           className="classroom-v3-stage"
+          data-board-tools-visible={!isRecorder && !classEnded && showWhiteboard && sessionData.whiteboard.writable}
           ref={stageElementRef}
           transition={{ type: "spring", stiffness: 320, damping: 32 }}
         >
@@ -7065,33 +7156,27 @@ export function ClassroomV3({
               sessionData.runtime.interpretation.enabled &&
               latestCaption &&
               (captionDisplayMode !== "translated" || latestTranslation) ? (
-                <motion.div
-                  className="classroom-v3-caption-overlay"
-                  data-background={captionBackgroundMode}
-                  style={{ "--caption-overlay-background": captionBackgroundColor } as CSSProperties}
-                  drag
-                  dragControls={captionDragControls}
-                  dragListener={false}
-                  dragConstraints={stageElementRef}
-                  dragMomentum={false}
-                  dragElastic={0}
-                  aria-live="polite"
-                >
-                  <header onPointerDown={(event) => captionDragControls.start(event)}>
-                    <strong>
-                      <Move aria-hidden="true" /> {latestCaption.speakerName}
-                    </strong>
-                    <span>
-                      {classroomLanguageLabel(effectiveCaptionLanguage)}
-                    </span>
-                  </header>
-                  {latestCaption && captionDisplayMode !== "translated" ? (
-                    <p>{latestCaption.text}</p>
-                  ) : null}
-                  {captionDisplayMode !== "original" && latestTranslation ? (
-                    <p className="is-translation">{latestTranslation}</p>
-                  ) : null}
-                </motion.div>
+                <div className="classroom-v3-caption-bounds" ref={captionBoundsRef}>
+                  <motion.div
+                    className="classroom-v3-caption-overlay"
+                    data-background={captionBackgroundMode}
+                    style={{ "--caption-overlay-background": captionBackgroundColor } as CSSProperties}
+                    drag
+                    dragControls={captionDragControls}
+                    dragListener={false}
+                    dragConstraints={captionBoundsRef}
+                    dragMomentum={false}
+                    dragElastic={0}
+                    aria-live="polite"
+                  >
+                    {latestCaption && captionDisplayMode !== "translated" ? (
+                      <p><span className="classroom-v3-caption-text" title={t("classroom.v3.captionDragHint")} onPointerDown={(event) => captionDragControls.start(event)}>{latestCaption.text}</span></p>
+                    ) : null}
+                    {captionDisplayMode !== "original" && latestTranslation ? (
+                      <p className="is-translation"><span className="classroom-v3-caption-text" title={t("classroom.v3.captionDragHint")} onPointerDown={(event) => captionDragControls.start(event)}>{latestTranslation}</span></p>
+                    ) : null}
+                  </motion.div>
+                </div>
               ) : null}
             {promotedQuestion ? (
               <motion.button
@@ -7529,7 +7614,7 @@ export function ClassroomV3({
             {(sessionData.capabilities.canRunEngagement || sessionData.capabilities.canParticipateInEngagement) && <button type="button" role="menuitem" onClick={() => { setActivePanel("engagement"); setDockMoreOpen(false); }}><Trophy />{t("classroom.v3.engagement")}</button>}
             <button type="button" role="menuitem" onClick={() => { setActivePanel("tools"); setDockMoreOpen(false); }}><LayoutGrid />{t("classroom.v3.classroomTools")}</button>
             <button type="button" role="menuitem" onClick={() => { setSettingsOpen(true); setDockMoreOpen(false); }}><Settings2 />{t("classroom.v3.interfaceLanguage")}</button>
-            <button type="button" role="menuitem" aria-busy={mediaBusy.includes("recover")} onClick={() => void runMediaAction("recover", (provider) => provider.recoverMedia(true))}>{mediaBusy.includes("recover") ? <Loader2 className="animate-spin" /> : <RefreshCw />}{t("classroom.v3.resetMedia")}</button>
+            <button type="button" role="menuitem" aria-busy={mediaBusy.includes("recover")} onClick={() => void runMediaAction("recover", async (provider) => { await renewClassroomCredentials(); await provider.recoverMedia(true); })}>{mediaBusy.includes("recover") ? <Loader2 className="animate-spin" /> : <RefreshCw />}{t("classroom.v3.resetMedia")}</button>
             <button type="button" role="menuitem" onClick={leaveClassroom}><LogOut />{t("classroom.v3.leave")}</button>
           </div>}
           <div className="classroom-v3-dock" data-more-open={dockMoreOpen}>
@@ -7706,7 +7791,7 @@ export function ClassroomV3({
               </button>
             )}
             <button type="button" onClick={toggleFullscreen} title={t("classroom.v3.fullscreen")}><Expand /><span>{t("classroom.v3.fullscreen")}</span></button>
-            <button type="button" className="is-dock-secondary" onClick={() => void runMediaAction("recover", (provider) => provider.recoverMedia(true))}><RefreshCw /><span>{t("classroom.v3.resetMedia")}</span></button>
+            <button type="button" className="is-dock-secondary" onClick={() => void runMediaAction("recover", async (provider) => { await renewClassroomCredentials(); await provider.recoverMedia(true); })}><RefreshCw /><span>{t("classroom.v3.resetMedia")}</span></button>
             <button type="button" className={`is-dock-more ${dockMoreOpen ? "is-active" : ""}`} aria-expanded={dockMoreOpen} onClick={() => setDockMoreOpen((value) => !value)}><MoreHorizontal /><span>{t("classroom.v3.more")}</span></button>
             <span className="classroom-v3-dock-divider" />
             <button

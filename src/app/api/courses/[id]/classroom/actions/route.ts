@@ -70,6 +70,8 @@ const ACTION_TYPES = new Set<ClassroomAction["type"]>([
   "resetRandomSelector",
 ]);
 
+const transcriptionHeartbeatChecks = new Map<string, number>();
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -80,6 +82,7 @@ export async function POST(
     action?: ClassroomAction;
     expectedRevision?: unknown;
     shareAccess?: unknown;
+    presenceOnly?: unknown;
   } | null;
   if (
     !body?.action ||
@@ -114,6 +117,28 @@ export async function POST(
     const sessionId = resolved.access.sessionId;
     const clientId = normalizeClassroomClientId(body.clientId);
     if (clientId && body.action.type === "heartbeat") await touchClassroomConnection(sessionId, resolved.session.userId, clientId);
+    if (clientId && body.action.type === "heartbeat" && body.presenceOnly === true) {
+      const state = await prisma.classroomRuntime.findUnique({
+        where: { sessionId }, select: { status: true },
+      });
+      if (!state) return NextResponse.json({ error: "课堂不存在" }, { status: 404 });
+      if (state.status === "ended") {
+        return NextResponse.json({ error: "课堂已结束", code: "classroom_ended" }, { status: 409 });
+      }
+      if (state.status === "live" && resolved.access.role === "teacher") {
+        const now = Date.now();
+        if (now - (transcriptionHeartbeatChecks.get(sessionId) ?? 0) >= 60_000) {
+          if (transcriptionHeartbeatChecks.size >= 500) {
+            for (const [id, checkedAt] of transcriptionHeartbeatChecks) if (now - checkedAt >= 60_000) transcriptionHeartbeatChecks.delete(id);
+          }
+          transcriptionHeartbeatChecks.set(sessionId, now);
+          after(() => ensureClassroomTranscriptionForLiveSession(resolvedCourseId, sessionId).catch((error) => {
+            console.warn("[classroom:heartbeat] transcription recovery failed", error);
+          }));
+        }
+      }
+      return NextResponse.json({ ok: true, status: state.status });
+    }
     const runtimeSnapshot = await applyClassroomAction({
       courseId: resolvedCourseId,
       sessionId,

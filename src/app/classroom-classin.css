@@ -1393,3 +1393,126 @@ html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-tool-popover-clos
   }
   html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-side .classroom-v3-board-tools { padding-bottom: 0; height: 44px; }
 }
+
+/* Captions have their own drag area, clear of the touch whiteboard toolbar. */
+.classroom-v3-caption-bounds {
+  position: absolute;
+  z-index: 9;
+  inset: clamp(14px, 3vw, 34px) clamp(14px, 3vw, 38px);
+  pointer-events: none;
+}
+
+.classroom-v3-caption-bounds .classroom-v3-caption-overlay {
+  inset: auto 0 0;
+  width: min(760px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+}
+
+.classroom-v3-caption-text {
+  display: inline-block;
+  max-width: 100%;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.classroom-v3-caption-text:active { cursor: grabbing; }
+
+/* Keep the board visible between caption lines; blur only the text backing. */
+.classroom-v3-caption-overlay[data-background="text"] {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.classroom-v3-caption-overlay[data-background="text"] .classroom-v3-caption-text {
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--caption-overlay-background, #202124);
+  background: color-mix(in srgb, var(--caption-overlay-background, #202124) 78%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.classroom-v3-caption-overlay[data-background="transparent"] { -webkit-backdrop-filter: none; }
+
+.classroom-v3-interface-language {
+  position: relative;
+  display: flex;
+  min-width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: 7px;
+  color: var(--classroom-frost);
+  background: var(--classroom-panel);
+}
+
+.classroom-v3-interface-language > svg { width: 18px; height: 18px; margin-inline: 8px; }
+.classroom-v3-interface-language select {
+  max-width: 120px;
+  min-width: 0;
+  height: 100%;
+  padding-inline-end: 6px;
+  border: 0;
+  color: inherit;
+  background: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.classroom-v3-interface-language:focus-within { outline: 2px solid var(--classroom-iris); outline-offset: 2px; }
+
+@media (max-width: 1024px) {
+  html[lang] .classroom-v3-shell.is-classin-layout:not(.is-recorder) {
+    grid-template-rows: 52px 82px minmax(0, 1fr) calc(66px + env(safe-area-inset-bottom));
+  }
+  html[lang] .classroom-v3-shell.is-classin-layout.is-rail-collapsed:not(.is-recorder) {
+    grid-template-rows: 52px 32px minmax(0, 1fr) calc(66px + env(safe-area-inset-bottom));
+  }
+  html[lang] .classroom-v3-shell.is-classin-layout.is-mode-publicLive:not(.is-recorder) {
+    grid-template-rows: 52px minmax(0, 1fr) calc(66px + env(safe-area-inset-bottom));
+  }
+  .is-classin-layout .classroom-v3-topbar { gap: 8px; padding: 4px 8px; }
+  .is-classin-layout .classroom-v3-course-identity { flex: 1; }
+  .is-classin-layout .classroom-v3-course-identity h1 { max-width: 100%; }
+  .is-classin-layout .classroom-v3-top-actions { flex-shrink: 0; gap: 4px; }
+  html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-top-actions > button:is(.is-header-secondary, .classroom-v3-header-leave) { display: none; }
+  html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-course-identity > button,
+  html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-top-actions > button {
+    display: grid;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+  html[lang] .is-classin-layout .classroom-v3-top-actions > :is(.is-start, .is-end) {
+    overflow: hidden;
+    padding: 0;
+    font-size: 0;
+    gap: 0;
+  }
+  .classroom-v3-interface-language { flex: 0 0 44px; width: 44px; height: 44px; }
+  .classroom-v3-interface-language select { position: absolute; inset: 0; width: 100%; opacity: 0; }
+  html[lang] .is-classin-layout .classroom-v3-dock-wrap { display: flex; }
+  .is-classin-layout .classroom-v3-live-rail { min-height: 82px; }
+  .is-classin-layout .classroom-v3-stage[data-board-tools-visible="true"] .classroom-v3-caption-bounds { bottom: 76px; }
+  .classroom-v3-caption-bounds { inset: 8px; }
+  .classroom-v3-caption-bounds .classroom-v3-caption-overlay { padding: 8px 12px; border-radius: 10px; }
+  .classroom-v3-caption-overlay p { font-size: 15px; overflow-wrap: anywhere; }
+  .classroom-v3-caption-overlay p.is-translation { font-size: 13px; }
+  html[lang] .is-classin-layout .classroom-v3-workspace[data-panel-open="true"] .classroom-v3-drawer[data-panel] { top: 60px; }
+  .classroom-v3-shell.is-stage-expanded .classroom-v3-caption-bounds,
+  .classroom-v3-stage:fullscreen .classroom-v3-caption-bounds { bottom: 8px; }
+}
+
+@media (max-height: 500px) and (max-width: 1024px) {
+  html[lang] .classroom-v3-shell.is-classin-layout:not(.is-recorder):not(.is-mode-publicLive):not(.is-rail-collapsed) {
+    grid-template-rows: 52px 66px minmax(0, 1fr) calc(58px + env(safe-area-inset-bottom));
+  }
+  .is-classin-layout .classroom-v3-live-rail { min-height: 66px; padding-block: 2px; }
+  .is-classin-layout .classroom-v3-seat { height: 62px; }
+}

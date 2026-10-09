@@ -54,3 +54,11 @@ test("recognizes managed PostgreSQL connection eviction errors", async () => {
     true,
   );
 });
+
+test("transaction acquisition and lock timeouts are temporary, invalid transaction usage is not", async () => {
+  const { isTransientDatabaseError } = await import("../src/lib/db");
+  assert.equal(isTransientDatabaseError({ code: "P2028", message: "Transaction API error: Unable to start a transaction in the given time." }), true);
+  assert.equal(isTransientDatabaseError({ code: "P2028", message: "A query cannot be executed on an expired transaction." }), true);
+  assert.equal(isTransientDatabaseError({ code: "P2028", message: "Invalid transaction identifier" }), false);
+  assert.equal(isTransientDatabaseError({ code: "P2010", message: "canceling statement due to lock timeout" }), true);
+});

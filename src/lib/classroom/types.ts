@@ -59,6 +59,13 @@ export type ClassroomParticipant = {
 
 export type ClassroomMediaSnapshot = {
   connectionState: ClassroomConnectionState;
+  connectionEvent?: {
+    sequence: number;
+    previousState: ClassroomConnectionState;
+    state: ClassroomConnectionState;
+    reason?: string;
+    occurredAt: string;
+  };
   participants: ClassroomParticipant[];
   network: {
     uplinkQuality: number;
