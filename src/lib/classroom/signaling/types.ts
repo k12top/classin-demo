@@ -27,12 +27,24 @@ export type ClassroomCompositionPreview = {
 
 export type ClassroomSignalingEvent =
   | ClassroomInvalidation
+  | ClassroomMemberPermissionUpdate
   | ClassroomCompositionPreview;
+
+export type ClassroomMemberPermissionUpdate = {
+  courseId: string;
+  topic: "member-permissions";
+  actorId: string;
+  revision: number;
+  scope: "students" | "member";
+  targetUserId?: string;
+  microphoneAllowed: boolean;
+  cameraAllowed?: boolean;
+};
 
 export interface ClassroomSignalingProvider {
   connect(
     credential: ClassroomSignalingCredential,
-    onEvent: (event: ClassroomSignalingEvent) => void,
+    onEvent: (event: ClassroomSignalingEvent, publisherId?: string) => void,
   ): Promise<void>;
   publish(event: ClassroomSignalingEvent): Promise<void>;
   disconnect(): Promise<void>;

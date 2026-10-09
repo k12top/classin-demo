@@ -180,7 +180,7 @@ WHITEBOARD_REGION=sg
 
 # Classroom lifecycle and camera preset.
 COURSE_EARLY_ENTRY_MINUTES=60
-COURSE_FINISHED_DELAY_MINUTES=20
+COURSE_FINISHED_DELAY_MINUTES=30
 NEXT_PUBLIC_CLASSROOM_VIDEO_PRESET=hd
 ```
 
@@ -209,7 +209,14 @@ Post-class summaries always have a deterministic caption-based fallback. Set
 the structured AI summary path. OpenAI uses `AI_SUMMARY_API_STYLE=responses`;
 OpenAI-compatible gateways that only implement Chat Completions can select
 `chat-completions`. Model failures do not block class closure or overwrite the
-teacher's published summary.
+teacher's published summary. The AI path uses the meeting project's six specialist
+analyses (themes, discussion, participants, actions, conclusions, follow-ups) and
+an editor pass. Detailed items retain valid caption references for playback.
+`AI_SUMMARY_AGENT_CONCURRENCY` defaults to 3; `AI_SUMMARY_TOTAL_TIMEOUT_SECONDS`
+defaults to 240 and caps the entire pipeline, including retries. The playback page
+labels caption extraction when AI is disabled or unavailable, and discloses when
+`AI_SUMMARY_MAX_CAPTIONS` limits analysis to the last captions. Existing summaries
+remain readable; regenerate them to obtain the detailed report.
 
 ### Cross-platform classroom clients
 

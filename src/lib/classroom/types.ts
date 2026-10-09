@@ -59,6 +59,13 @@ export type ClassroomParticipant = {
 
 export type ClassroomMediaSnapshot = {
   connectionState: ClassroomConnectionState;
+  connectionEvent?: {
+    sequence: number;
+    previousState: ClassroomConnectionState;
+    state: ClassroomConnectionState;
+    reason?: string;
+    occurredAt: string;
+  };
   participants: ClassroomParticipant[];
   network: {
     uplinkQuality: number;
@@ -110,8 +117,9 @@ export interface ClassroomMediaProvider {
   getSnapshot(): ClassroomMediaSnapshot;
   recoverMedia(force?: boolean): Promise<void>;
   toggleMicrophone(): Promise<boolean>;
+  setMicrophonePermission?(allowed: boolean): void;
   toggleCamera(): Promise<boolean>;
-  startScreenShare(): Promise<void>;
+  startScreenShare(authorize?: () => Promise<void>): Promise<void>;
   stopScreenShare(): Promise<void>;
   focusParticipant(participantId: string | null): Promise<void>;
   attachVideo(participantId: string, element: HTMLElement): void;
@@ -166,6 +174,15 @@ export type ClassroomCompositionSnapshot = {
   boardItems: ClassroomBoardItem[];
   updatedBy: string;
   updatedAt: string;
+  /** One authorized publisher per RTC channel; absent on legacy snapshots. */
+  screenShares?: Record<string, ClassroomScreenShareLease>;
+};
+
+export type ClassroomScreenShareLease = {
+  userId: string;
+  clientId: string;
+  rtcUid: number;
+  claimId: string;
 };
 
 export type ClassroomMemberSnapshot = {
@@ -175,6 +192,7 @@ export type ClassroomMemberSnapshot = {
   role: ClassroomRole;
   rtcUids?: number[];
   screenUids?: number[];
+  signalingUserIds?: string[];
   online: boolean;
   onStage: boolean;
   stageState: "offstage" | "invited" | "accepted";
@@ -409,6 +427,8 @@ export type ClassroomAction =
   | { type: "acceptScreenShare" }
   | { type: "declineScreenShare" }
   | { type: "stopScreenShare"; targetUserId: string }
+  | { type: "startScreenShare"; claimId: string; spaceId?: string }
+  | { type: "releaseScreenShare"; claimId: string; spaceId?: string }
   | { type: "setMemberMuted"; targetUserId: string; muted: boolean }
   | {
       type: "setMediaAllowed";

@@ -1,8 +1,24 @@
-import type { ClassroomRole } from "@/lib/classroom/types";
+import type { ClassroomRole, ClassroomScreenShareLease } from "@/lib/classroom/types";
 
 export type ScreenShareRequestState = "idle" | "requested" | "accepted" | "declined";
 
 export const SCREEN_SHARE_REQUEST_TTL_MS = 2 * 60_000;
+
+export function canShareClassroomScreen(input: {
+  role: ClassroomRole;
+  member?: { onStage: boolean; stageState: string; screenShareState: string } | null;
+  studentSharingSupported: boolean;
+  assistantManagementAllowed?: boolean;
+}): boolean {
+  if (input.role === "teacher") return true;
+  if (input.role === "assistant") return input.assistantManagementAllowed === true;
+  return Boolean(input.studentSharingSupported && input.member?.onStage &&
+    input.member.stageState === "accepted" && input.member.screenShareState === "accepted");
+}
+
+export function ownsScreenShare(lease: ClassroomScreenShareLease | undefined, userId: string, clientId: string) {
+  return lease?.userId === userId && lease.clientId === clientId;
+}
 
 export function screenShareStateAfter(
   current: ScreenShareRequestState,

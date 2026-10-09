@@ -31,7 +31,7 @@ export class AgoraRtmSignalingProvider
 
   async connect(
     credential: ClassroomSignalingCredential,
-    onEvent: (event: ClassroomSignalingEvent) => void,
+    onEvent: (event: ClassroomSignalingEvent, publisherId?: string) => void,
   ): Promise<void> {
     if (this.client) return;
     const generation = ++this.generation;
@@ -55,7 +55,7 @@ export class AgoraRtmSignalingProvider
               typeof parsed.itemId === "string" &&
               typeof parsed.actorId === "string"))
         ) {
-          onEvent(parsed);
+          onEvent(parsed, typeof event.publisher === "string" ? event.publisher : undefined);
         }
       } catch {
         // The channel may be shared with older clients. Ignore unknown payloads.

@@ -33,6 +33,15 @@ export const classroomLanguages: ClassroomLanguage[] = [
 
 const languageCodes = new Set(classroomLanguages.map((language) => language.code));
 
+/** Start with several useful outputs; teachers can still save their own set. */
+export function defaultClassroomTargetLanguages(sourceLanguage: string): string[] {
+  return normalizeTargetLanguages(
+    ["en-US", "zh-CN", "zh-TW", "th-TH", "vi-VN", "id-ID", "ms-MY", "fil-PH", "ja-JP", "ko-KR", "es-ES"],
+    sourceLanguage,
+    10,
+  );
+}
+
 export function normalizeClassroomLanguage(value: unknown, fallback = "zh-CN") {
   if (typeof value !== "string") return fallback;
   const normalized = value.trim();

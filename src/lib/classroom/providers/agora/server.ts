@@ -99,7 +99,7 @@ export class AgoraClassroomServerProvider implements ClassroomServerProvider {
     const { appId } = agoraAppCredentials();
     const publisher = input.publisher ?? input.role !== "student";
     const allowScreenShare =
-      input.allowScreenShare ?? input.role !== "student";
+      input.allowScreenShare ?? input.role === "teacher";
     const expiresInSeconds = classroomRuntimeDefaults.rtcTokenTtlSeconds;
     const credential: ClassroomJoinCredential = {
       provider: this.name,

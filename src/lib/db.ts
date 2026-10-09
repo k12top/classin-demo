@@ -1,6 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
-import type { PoolConfig } from "pg";
+import { Pool, type PoolConfig } from "pg";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -11,7 +11,19 @@ const PRISMA_SCHEMA_GENERATION = 26;
 
 const globalForPrismaMeta = globalThis as unknown as {
   prismaSchemaGeneration?: number;
+  prismaPool?: Pool;
 };
+
+let databasePool: Pool | undefined;
+
+/** Counts only; never expose database URLs, query text or parameters. */
+export function databasePoolSnapshot() {
+  const pool = databasePool;
+  return pool ? {
+    total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount,
+    max: pool.options.max, connectionTimeoutMs: pool.options.connectionTimeoutMillis,
+  } : null;
+}
 
 function createPrisma(): PrismaClient {
   const connectionString = process.env.DATABASE_URL;
@@ -45,15 +57,19 @@ function createPrisma(): PrismaClient {
     keepAliveInitialDelayMillis: 10_000,
     allowExitOnIdle: process.env.NODE_ENV !== "production",
   };
-  const adapter = new PrismaPg(poolConfig, {
+  databasePool = new Pool(poolConfig);
+  const adapter = new PrismaPg(databasePool, {
+    disposeExternalPool: true,
     onPoolError(error) {
       console.error("[database:pool] background connection error", {
         message: error.message,
+        pool: databasePoolSnapshot(),
       });
     },
     onConnectionError(error) {
       console.warn("[database:connection] connection error", {
         message: error.message,
+        pool: databasePoolSnapshot(),
       });
     },
   });
@@ -85,6 +101,7 @@ const TRANSIENT_DATABASE_CODES = new Set([
   "57P01",
   "57P02",
   "57P03",
+  "55P03", // PostgreSQL lock_timeout; the failed transaction is rolled back.
 ]);
 
 const TRANSIENT_DATABASE_MESSAGES = [
@@ -102,6 +119,7 @@ const TRANSIENT_DATABASE_MESSAGES = [
   "socket hang up",
   "broken pipe",
   "pool timeout",
+  "canceling statement due to lock timeout",
 ];
 
 function errorChain(error: unknown): unknown[] {
@@ -133,6 +151,10 @@ export function isTransientDatabaseError(error: unknown): boolean {
             ? String((item as { message?: unknown }).message || "")
             : "";
     const normalized = message.toLowerCase();
+    if (code === "P2028" && (
+      normalized.includes("unable to start a transaction in the given time") ||
+      normalized.includes("expired transaction")
+    )) return true;
     return TRANSIENT_DATABASE_MESSAGES.some((value) =>
       normalized.includes(value),
     );
@@ -230,6 +252,7 @@ function getPrisma(): PrismaClient {
     hasClassroomRuntimeDelegate(cached) &&
     hasCourseSessionDelegate(cached)
   ) {
+    databasePool = globalForPrismaMeta.prismaPool;
     return cached;
   }
 
@@ -245,6 +268,7 @@ function getPrisma(): PrismaClient {
   if (process.env.NODE_ENV !== "production") {
     globalForPrisma.prisma = client;
     globalForPrismaMeta.prismaSchemaGeneration = PRISMA_SCHEMA_GENERATION;
+    globalForPrismaMeta.prismaPool = databasePool;
   }
   return client;
 }

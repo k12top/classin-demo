@@ -144,6 +144,15 @@ export function normalizeClassroomComposition(
     return emptyClassroomComposition();
   }
   const source = value as Partial<ClassroomCompositionSnapshot>;
+  const screenShares = source.screenShares && typeof source.screenShares === "object" && !Array.isArray(source.screenShares)
+    ? Object.fromEntries(Object.entries(source.screenShares).filter(([scope, lease]) =>
+        scope.length <= 128 && lease && typeof lease === "object" &&
+        typeof lease.userId === "string" && lease.userId.length > 0 &&
+        typeof lease.clientId === "string" && /^[a-zA-Z0-9-]{8,64}$/.test(lease.clientId) &&
+        typeof lease.claimId === "string" && /^[a-zA-Z0-9-]{8,64}$/.test(lease.claimId) &&
+        Number.isInteger(lease.rtcUid) && lease.rtcUid >= 1_000_000_001 && lease.rtcUid <= 2_000_000_000,
+      ).map(([scope, lease]) => [scope, { userId: lease.userId, clientId: lease.clientId, rtcUid: lease.rtcUid, claimId: lease.claimId }]))
+    : undefined;
   const seen = new Set<string>();
   const boardItems = (Array.isArray(source.boardItems) ? source.boardItems : [])
     .map(boardItem)
@@ -161,6 +170,7 @@ export function normalizeClassroomComposition(
     boardItems,
     updatedBy: text(source.updatedBy),
     updatedAt: text(source.updatedAt, 64),
+    ...(screenShares && { screenShares }),
   };
 }
 

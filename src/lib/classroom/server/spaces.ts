@@ -486,6 +486,12 @@ export async function updateClassroomSpace(input: {
 }) {
   const sessionId = input.sessionId || input.courseId;
   await assertLargeClass(input.courseId, sessionId);
+  if (input.actorRole === "assistant" && input.screenShareAllowed === true) {
+    const runtime = await prisma.classroomRuntime.findUnique({ where: { sessionId }, select: { assistantPermissions: true } });
+    if ((runtime?.assistantPermissions as Record<string, boolean> | undefined)?.[input.actorId] !== true) {
+      throw new ClassroomSpaceError("主讲老师尚未授予共享授权的管理权限", 403);
+    }
+  }
   const assistantManagingOwnRoom =
     input.actorRole === "assistant" &&
     input.action === "permissions" &&
@@ -617,6 +623,6 @@ export async function getClassroomSpaceCredentialAccess(input: {
     membership,
     publisher: input.role !== "teacher" && Boolean(membership),
     allowScreenShare:
-      input.role === "assistant" || Boolean(membership?.screenShareAllowed),
+      Boolean(membership?.screenShareAllowed),
   };
 }

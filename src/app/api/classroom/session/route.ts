@@ -1,3 +1,4 @@
+import { canShareClassroomScreen } from "@/lib/classroom/screen-share-state";
 import { normalizeClassroomClientId, touchClassroomConnection } from "@/lib/classroom/server/connections";
 import { after, NextRequest, NextResponse } from "next/server";
 import { classroomMediaProfile } from "@/lib/classroom/config";
@@ -224,9 +225,10 @@ export async function POST(request: NextRequest) {
           (role === "student" && member?.onStage && member.stageState === "accepted")),
       allowScreenShare:
         !recorder &&
-        (role === "teacher" ||
-          (role === "assistant" && modePolicy.mode !== "largeClass") ||
-          (role === "student" && modePolicy.studentCanShareWhenOnStage && member?.onStage)),
+        runtimeSnapshot.status !== "ended" &&
+        canShareClassroomScreen({ role, member,
+          studentSharingSupported: modePolicy.studentCanShareWhenOnStage,
+          assistantManagementAllowed: runtimeSnapshot.assistantPermissions?.[userId] === true }),
     });
 
     if (!recorder && role === "student") {
@@ -385,7 +387,8 @@ export async function POST(request: NextRequest) {
                 canShareScreen: Boolean(
                   modePolicy.studentCanShareWhenOnStage &&
                   member?.onStage &&
-                  member.stageState === "accepted",
+                  member.stageState === "accepted" &&
+                  member.screenShareState === "accepted",
                 ),
               }),
             },

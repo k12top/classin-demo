@@ -465,7 +465,7 @@ export function PortalCourseLibrary({
           <h1>{copy.library}</h1>
           <p>{copy.libraryDesc}</p>
         </div>
-        {onCreate && <button type="button" className={styles.heroSecondary} onClick={onCreate}><Plus />{copy.create}</button>}
+        {onCreate && <button type="button" className={styles.libraryCreateButton} onClick={onCreate}><Plus />{copy.create}</button>}
       </header>
 
       <div className={styles.libraryKinds} role="tablist" aria-label={copy.library}>

@@ -1,3 +1,5 @@
+import { classroomRtcUid } from "@/lib/classroom/rtc-uid";
+import { classroomSignalingUserId } from "@/lib/classroom/signaling/identity";
 import "server-only";
 import { classroomActionRequiresRevision } from "@/lib/classroom/action-request";
 import { enqueueClassroomEvent } from "./integration-events";
@@ -30,10 +32,13 @@ import {
 import { prisma } from "@/lib/db";
 import {
   SCREEN_SHARE_REQUEST_TTL_MS,
+  canShareClassroomScreen,
+  ownsScreenShare,
   screenShareStateAfter,
 } from "@/lib/classroom/screen-share-state";
 import type { SessionPayload } from "@/lib/session";
 import {
+  defaultClassroomTargetLanguages,
   normalizeClassroomLanguage,
   normalizeTargetLanguages,
 } from "@/lib/classroom/languages";
@@ -104,6 +109,7 @@ export async function ensureClassroomRuntime(
         status: ended ? "ended" : "waiting",
         graceEndsAt: classroomGraceEndAt(lesson.endTime),
         startedAt: null,
+        targetLanguages: defaultClassroomTargetLanguages("zh-CN"),
       },
       update: {
         graceEndsAt: classroomGraceEndAt(lesson.endTime),
@@ -201,7 +207,7 @@ export async function startScheduledClassroomIfDue(
         interpretationEnabled: true,
         targetLanguages: targets.length
           ? targets
-          : [sourceLanguage === "zh-CN" || sourceLanguage === "zh-TW" ? "en-US" : "zh-CN"],
+          : defaultClassroomTargetLanguages(sourceLanguage),
         transcriptionStatus: "starting",
         transcriptionError: null,
         transcriptionLastCheckedAt: null,
@@ -420,7 +426,8 @@ export async function getClassroomRuntimeSnapshot(
     }),
     prisma.classroomConnection.findMany({ where: { sessionId } }),
   ]);
-  const activeConnections = connections.filter((connection) => !connection.leftAt && Date.now() - connection.lastSeenAt.getTime() <= ONLINE_WINDOW_MS);
+  const openConnections = connections.filter((connection) => !connection.leftAt);
+  const activeConnections = openConnections.filter((connection) => Date.now() - connection.lastSeenAt.getTime() <= ONLINE_WINDOW_MS);
   const connectedUsers = new Set(activeConnections.map((connection) => connection.userId));
   const knownUsers = new Set(connections.map((connection) => connection.userId));
   const rewardCountByUserId = new Map(
@@ -469,8 +476,10 @@ export async function getClassroomRuntimeSnapshot(
     members: runtime.members.map((member) =>
       ({ ...publicMember(member, Date.now(), rewardCountByUserId.get(member.userId) ?? 0),
         ...(knownUsers.has(member.userId) ? { online: connectedUsers.has(member.userId) } : {}),
-        rtcUids: activeConnections.filter((connection) => connection.userId === member.userId).map((connection) => connection.rtcUid),
-        screenUids: activeConnections.filter((connection) => connection.userId === member.userId).map((connection) => connection.screenUid) }),
+        rtcUids: openConnections.filter((connection) => connection.userId === member.userId).map((connection) => connection.rtcUid),
+        signalingUserIds: [classroomSignalingUserId(member.userId), ...openConnections.filter(connection => connection.userId === member.userId)
+          .map(connection => classroomSignalingUserId(connection.id.slice(sessionId.length + 1)))],
+        screenUids: openConnections.filter((connection) => connection.userId === member.userId).map((connection) => connection.screenUid) }),
     ),
   };
 }
@@ -615,6 +624,7 @@ export async function applyClassroomAction(input: {
     "userId" | "displayName" | "name" | "avatar"
   >;
   role: ClassroomRole;
+  clientId?: string;
   expectedRevision?: number;
   action: ClassroomAction;
 }): Promise<ClassroomRuntimeSnapshot> {
@@ -656,7 +666,7 @@ export async function applyClassroomAction(input: {
     const runtime = await tx.classroomRuntime.findUniqueOrThrow({
       where: { sessionId },
     });
-    if (role === "assistant" && !["raiseHand", "lowerHand", "acceptStage", "declineStage", "acceptScreenShare", "declineScreenShare", "stopScreenShare", "submitBuzz"].includes(action.type)) {
+    if (role === "assistant" && !["raiseHand", "lowerHand", "acceptStage", "declineStage", "acceptScreenShare", "declineScreenShare", "startScreenShare", "releaseScreenShare", "submitBuzz"].includes(action.type)) {
       if ((runtime.assistantPermissions as Record<string, boolean>)[session.userId] !== true) {
         throw new ClassroomActionError("主讲老师尚未授予管理权限", 403);
       }
@@ -679,6 +689,9 @@ export async function applyClassroomAction(input: {
       sessionId_userId: { sessionId, userId: session.userId },
     } as const;
     const currentComposition = normalizeClassroomComposition(runtime.composition);
+    const withoutScreenShares = (userIds: Set<string>) => currentComposition.screenShares
+      ? Object.fromEntries(Object.entries(currentComposition.screenShares).filter(([, lease]) => !userIds.has(lease.userId)))
+      : undefined;
     const writeComposition = async (
       nextComposition: ReturnType<typeof normalizeClassroomComposition>,
     ) => {
@@ -712,6 +725,11 @@ export async function applyClassroomAction(input: {
         const target = await tx.classroomMemberState.findUnique({ where: { sessionId_userId: { sessionId, userId: action.targetUserId } } });
         if (target?.role !== "assistant" || typeof action.allowed !== "boolean") throw new ClassroomActionError("无效助教权限", 400);
         await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { assistantPermissions: { ...(runtime.assistantPermissions as Record<string, boolean>), [action.targetUserId]: action.allowed } } });
+        if (!action.allowed && currentComposition.screenShares?.main?.userId === action.targetUserId) {
+          const screenShares = { ...currentComposition.screenShares };
+          delete screenShares.main;
+          await writeComposition({ ...currentComposition, screenShares });
+        }
         break;
       }
       case "startClass": {
@@ -750,14 +768,7 @@ export async function applyClassroomAction(input: {
                     runtime.targetLanguages,
                     normalizeClassroomLanguage(runtime.sourceLanguage),
                   )
-                : [
-                    normalizeClassroomLanguage(runtime.sourceLanguage) ===
-                      "zh-CN" ||
-                    normalizeClassroomLanguage(runtime.sourceLanguage) ===
-                      "zh-TW"
-                      ? "en-US"
-                      : "zh-CN",
-                  ],
+                : defaultClassroomTargetLanguages(normalizeClassroomLanguage(runtime.sourceLanguage)),
             transcriptionStatus:
               runtime.transcriptionStatus === "running" ? "running" : "starting",
             transcriptionError: null,
@@ -856,6 +867,7 @@ export async function applyClassroomAction(input: {
         });
         await writeComposition({
           ...currentComposition,
+          screenShares: withoutScreenShares(new Set([action.targetUserId])),
           seatOrder: currentComposition.seatOrder.filter(
             (userId) => userId !== action.targetUserId,
           ),
@@ -868,6 +880,60 @@ export async function applyClassroomAction(input: {
           ),
         });
         break;
+      case "startScreenShare": {
+        if (!input.clientId || !/^[a-zA-Z0-9-]{8,64}$/.test(input.clientId) ||
+          typeof action.claimId !== "string" || !/^[a-zA-Z0-9-]{8,64}$/.test(action.claimId) ||
+          (action.spaceId !== undefined && (typeof action.spaceId !== "string" || !action.spaceId || action.spaceId.length > 128))) {
+          throw new ClassroomActionError("共享连接无效", 400);
+        }
+        const scope = action.spaceId || "main";
+        if (action.spaceId) {
+          const space = await tx.classroomSpace.findFirst({
+            where: { id: action.spaceId, sessionId, status: "open" },
+            include: { members: { where: { userId: session.userId, active: true }, take: 1 } },
+          });
+          if (!space?.members[0]?.screenShareAllowed || role === "teacher") {
+            throw new ClassroomActionError("尚未获准在该教室共享屏幕", 403);
+          }
+        } else {
+          const member = await tx.classroomMemberState.findUnique({ where: actorWhere });
+          if (!canShareClassroomScreen({ role, member, studentSharingSupported: mode.studentCanShareWhenOnStage,
+            assistantManagementAllowed: (runtime.assistantPermissions as Record<string, boolean>)[session.userId] === true })) {
+            throw new ClassroomActionError("老师尚未授予屏幕共享权限", 403);
+          }
+        }
+        const previous = currentComposition.screenShares?.[scope];
+        if (previous && !ownsScreenShare(previous, session.userId, input.clientId) &&
+          !(role === "teacher" && scope === "main")) {
+          throw new ClassroomActionError("已有成员正在共享屏幕，请先停止当前共享", 409);
+        }
+        if (previous && previous.userId !== session.userId && scope === "main") {
+          await tx.classroomMemberState.updateMany({ where: { sessionId, userId: previous.userId, role: "student" },
+            data: { screenShareState: "idle", screenShareRequestedAt: null } });
+        }
+        const next = { ...currentComposition, screenShares: { ...currentComposition.screenShares,
+          [scope]: { userId: session.userId, clientId: input.clientId,
+            rtcUid: classroomRtcUid(`${session.userId}:${input.clientId}`, "screen"), claimId: action.claimId } } };
+        await writeComposition(scope === "main" ? placeClassroomBoardItem({ ...next,
+          boardItems: next.boardItems.filter(item => item.kind !== "screen" || item.sourceId === session.userId),
+        }, { id: `screen:${session.userId}`, kind: "screen", sourceId: session.userId,
+          rect: defaultBoardRect("screen"), locked: false, visible: true }) : next);
+        if (scope === "main") await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { stageMode: "screen", stageLocked: false } });
+        break;
+      }
+      case "releaseScreenShare": {
+        const scope = action.spaceId || "main";
+        const lease = currentComposition.screenShares?.[scope];
+        // A delayed teardown must never remove a replacement publisher.
+        if (!input.clientId || !ownsScreenShare(lease, session.userId, input.clientId) || lease?.claimId !== action.claimId) return;
+        const screenShares = { ...currentComposition.screenShares };
+        delete screenShares[scope];
+        await writeComposition({ ...currentComposition, screenShares,
+          boardItems: scope === "main" ? currentComposition.boardItems.filter(item => !(item.kind === "screen" && item.sourceId === session.userId)) : currentComposition.boardItems });
+        if (scope === "main" && role === "student") await tx.classroomMemberState.updateMany({ where: { sessionId, userId: session.userId },
+          data: { screenShareState: "idle", screenShareRequestedAt: null } });
+        break;
+      }
       case "requestScreenShare": {
         requireTeachingRole(role);
         if (!mode.studentCanShareWhenOnStage) {
@@ -969,14 +1035,17 @@ export async function applyClassroomAction(input: {
         });
         await writeComposition({
           ...currentComposition,
+          screenShares: withoutScreenShares(new Set([session.userId])),
           boardItems: currentComposition.boardItems.filter(
             (item) => !(item.kind === "screen" && item.sourceId === session.userId),
           ),
         });
         break;
       }
-      case "stopScreenShare":
+      case "stopScreenShare": {
         requireTeachingRole(role);
+        const target = await tx.classroomMemberState.findUnique({ where: { sessionId_userId: { sessionId, userId: action.targetUserId } } });
+        if (target?.role === "teacher" && role !== "teacher") throw new ClassroomActionError("只有主持人可以停止主持人的共享", 403);
         await tx.classroomMemberState.update({
           where: {
             sessionId_userId: {
@@ -991,11 +1060,13 @@ export async function applyClassroomAction(input: {
         });
         await writeComposition({
           ...currentComposition,
+          screenShares: withoutScreenShares(new Set([action.targetUserId])),
           boardItems: currentComposition.boardItems.filter(
             (item) => !(item.kind === "screen" && item.sourceId === action.targetUserId),
           ),
         });
         break;
+      }
       case "setMemberMuted":
         requireTeachingRole(role);
         await tx.classroomMemberState.update({
@@ -1165,7 +1236,7 @@ export async function applyClassroomAction(input: {
         break;
       case "resetComposition":
         requireTeachingRole(role);
-        await writeComposition(emptyClassroomComposition());
+        await writeComposition({ ...emptyClassroomComposition(), screenShares: currentComposition.screenShares });
         break;
       case "arrangeVideoGallery": {
         requireTeachingRole(role);
@@ -1252,6 +1323,7 @@ export async function applyClassroomAction(input: {
         });
         await writeComposition({
           ...currentComposition,
+          screenShares: withoutScreenShares(studentIds),
           seatOrder: currentComposition.seatOrder.filter(
             (userId) => !studentIds.has(userId),
           ),

@@ -17,6 +17,7 @@ test("frequent caption revisions do not reject independent mute and interpretati
     assert.equal(response.status, 200);
     assert.equal("expectedRevision" in received, false);
     assert.deepEqual(received.action, action);
+    assert.equal(received.compactMemberPermissions, action.type === "setInterpretation" ? undefined : true);
   }
 });
 test("shared layout writes retain revision protection and do not blindly replay a conflict", async () => {

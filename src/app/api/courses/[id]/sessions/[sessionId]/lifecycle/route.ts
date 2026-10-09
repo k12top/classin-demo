@@ -30,6 +30,7 @@ import { generateCourseSessionSummary } from "@/lib/course-session-summary";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 type Context = {
   params: Promise<{ id: string; sessionId: string }>;

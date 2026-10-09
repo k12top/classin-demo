@@ -24,9 +24,7 @@ export function classroomCapabilities(
     canManageChat: teachingRole,
     canManageWhiteboard: teachingRole,
     canManageInterpretation: teacher,
-    canShareScreen:
-      role === "teacher" || role === "assistant" ||
-      (role === "student" && mode?.defaultStudentOnStage === true),
+    canShareScreen: teachingRole,
     canGiveReward: teachingRole && interactive,
     canRunEngagement: teachingRole && interactive,
     canParticipateInEngagement: role === "student" && interactive,

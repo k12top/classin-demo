@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { courseIdToRoomUuid } from "@/lib/course-room";
 import {
+  defaultClassroomTargetLanguages,
   normalizeClassroomLanguage,
   normalizeTargetLanguages,
 } from "@/lib/classroom/languages";
@@ -24,12 +25,6 @@ import { ensureClassroomRuntime } from "@/lib/classroom/server/runtime";
 
 const TRANSCRIPTION_TRANSITION_LEASE_MS = 30_000;
 const TRANSCRIPTION_HEALTH_CHECK_INTERVAL_MS = 30_000;
-
-function defaultTargetLanguage(sourceLanguage: string) {
-  return sourceLanguage === "zh-CN" || sourceLanguage === "zh-TW"
-    ? "en-US"
-    : "zh-CN";
-}
 
 export async function stopClassroomTranscription(
   courseId: string,
@@ -470,7 +465,7 @@ export async function ensureClassroomTranscriptionForLiveSession(
         targetLanguages:
           targets.length > 0
             ? targets
-            : [defaultTargetLanguage(sourceLanguage)],
+            : defaultClassroomTargetLanguages(sourceLanguage),
         transcriptionStatus: needsDefaultTarget
           ? "starting"
           : runtime.transcriptionStatus,

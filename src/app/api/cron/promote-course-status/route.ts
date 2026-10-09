@@ -8,7 +8,7 @@ import { deliverClassroomEvents } from "@/lib/classroom/server/integration-event
 import { promoteCoursesIfDue } from "@/lib/course-promote";
 import { reconcileConfiguredEnvironments } from "@/lib/classroom/reconciliation-targets";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 function isAuthorized(request: NextRequest): boolean {
   // Allow unauthenticated manual trigger in local development for easier testing

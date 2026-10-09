@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  defaultClassroomTargetLanguages,
   classroomLanguageForLocale,
   normalizeClassroomLanguage,
   normalizeTargetLanguages,
@@ -154,6 +155,16 @@ test("Shengwang targets are normalized, unique and capped at ten", () => {
   assert.equal(targets.includes("zh-CN"), false);
   assert.equal(targets.includes("invalid"), false);
   assert.equal(normalizeClassroomLanguage("zh-TW"), "zh-TW");
+});
+
+test("new lessons provide ten translation choices while excluding their source", () => {
+  for (const source of ["zh-CN", "en-US", "ja-JP", "ar-SA"]) {
+    const targets = defaultClassroomTargetLanguages(source);
+    assert.equal(targets.length, 10);
+    assert.equal(new Set(targets).size, 10);
+    assert.equal(targets.includes(source), false);
+    assert.ok(targets.includes("th-TH"));
+  }
 });
 
 test("Arabic is the only right-to-left interface locale", () => {

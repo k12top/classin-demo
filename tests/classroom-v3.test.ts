@@ -94,7 +94,7 @@ const unprivilegedAssistant = classroomCapabilities("assistant");
 assert.equal(unprivilegedAssistant.canManageMembers, false);
 assert.equal(unprivilegedAssistant.canManageWhiteboard, false);
 assert.equal(unprivilegedAssistant.canStartClass, false);
-assert.equal(unprivilegedAssistant.canShareScreen, true);
+assert.equal(unprivilegedAssistant.canShareScreen, false);
 assert.equal(assistant.canStartClass, false);
 assert.equal(assistant.canEndClass, false);
 assert.equal(assistant.canControlRecording, false);
@@ -141,7 +141,7 @@ assert.equal(classroomModePolicy(10).showLiveRail, false);
 assert.equal(classroomModePolicy(10).showMemberRoster, false);
 assert.equal(
   classroomCapabilities("student", classroomModePolicy(0)).canShareScreen,
-  true,
+  false,
 );
 assert.equal(
   classroomCapabilities("teacher", classroomModePolicy(10)).canRunEngagement,

@@ -11,6 +11,7 @@ import {
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 type Context = { params: Promise<{ sessionId: string }> };
 

@@ -28,19 +28,25 @@ export function selectActiveScreenShare({
   preferRoom,
   mainScreenUserId,
   roomScreenUserId,
+  mainAuthorizedScreenUid,
+  roomAuthorizedScreenUid,
 }: {
   main: ClassroomMediaSnapshot;
   room: ClassroomMediaSnapshot;
   preferRoom: boolean;
   mainScreenUserId?: string | null;
   roomScreenUserId?: string | null;
+  mainAuthorizedScreenUid?: string | null;
+  roomAuthorizedScreenUid?: string | null;
 }): ActiveClassroomScreenShare | null {
   const findScreen = (
     snapshot: ClassroomMediaSnapshot,
     source: ClassroomScreenShareSource,
   ): ActiveClassroomScreenShare | null => {
     const participant = snapshot.participants.find(
-      (candidate) => candidate.kind === "screen" && candidate.hasVideo,
+      (candidate) => candidate.kind === "screen" && candidate.hasVideo &&
+        ((source === "main" ? mainAuthorizedScreenUid : roomAuthorizedScreenUid) === undefined ||
+          candidate.id === (source === "main" ? mainAuthorizedScreenUid : roomAuthorizedScreenUid)),
     );
     return participant ? { participant, source } : null;
   };
@@ -50,7 +56,9 @@ export function selectActiveScreenShare({
     source: ClassroomScreenShareSource,
     userId?: string | null,
   ): ActiveClassroomScreenShare | null =>
-    snapshot.local.screenSharing && userId
+    snapshot.local.screenSharing && userId &&
+      ((source === "main" ? mainAuthorizedScreenUid : roomAuthorizedScreenUid) === undefined ||
+        userId === (source === "main" ? mainAuthorizedScreenUid : roomAuthorizedScreenUid))
       ? {
           source,
           participant: {

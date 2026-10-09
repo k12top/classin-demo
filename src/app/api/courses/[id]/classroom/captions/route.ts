@@ -7,6 +7,7 @@ import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-ac
 import { verifyRecorderToken } from "@/lib/classroom/server/recorder-token";
 import type { ClassroomCaptionInput } from "@/lib/classroom/types";
 import { prisma } from "@/lib/db";
+import { databaseUnavailableResponse } from "@/lib/database-response";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -36,7 +37,7 @@ export async function GET(
   );
 }
 
-export async function POST(
+async function postCaption(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -111,10 +112,17 @@ export async function POST(
       }, resolvedSessionId),
     );
   } catch (error) {
+    const unavailable = databaseUnavailableResponse(error);
+    if (unavailable) return unavailable;
     console.error("[classroom:captions] ingest failed", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Caption ingest failed" },
       { status: 500 },
     );
   }
+}
+
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  try { return await postCaption(request, context); }
+  catch (error) { const response = databaseUnavailableResponse(error); if (response) return response; throw error; }
 }
