@@ -24,6 +24,8 @@ import { formatTimeUntilClass } from "@/lib/classroom/countdown";
 
 export type PortalCourse = {
   id: string;
+  scheduleId?: string;
+  sessionId?: string;
   name: string;
   description?: string;
   roomType: number;
@@ -42,6 +44,7 @@ export type PortalCourse = {
 type DashboardProps = {
   role: "teacher" | "student";
   courses: PortalCourse[];
+  scheduledCourses?: PortalCourse[];
   enteringCourseId?: string | null;
   onEnter: (course: PortalCourse) => void;
   onOpen: (course: PortalCourse) => void;
@@ -203,6 +206,7 @@ function countdownLabel(
 export function PortalDashboardHero({
   role,
   courses,
+  scheduledCourses,
   enteringCourseId,
   onEnter,
   onOpen,
@@ -217,9 +221,10 @@ export function PortalDashboardHero({
     const timer = window.setInterval(() => setNow(new Date()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
+  const schedule = scheduledCourses ?? courses;
   const todayCourses = useMemo(
     () =>
-      courses
+      schedule
         .filter(
           (course) =>
             course.startTime && sameDay(new Date(course.startTime), now),
@@ -229,9 +234,9 @@ export function PortalDashboardHero({
             new Date(left.startTime || 0).getTime() -
             new Date(right.startTime || 0).getTime(),
         ),
-    [courses, now],
+    [schedule, now],
   );
-  const nextCourse = getNextCourse(courses, now);
+  const nextCourse = getNextCourse(schedule, now);
   const nextTime = nextCourse?.startTime
     ? new Intl.DateTimeFormat(locale, {
         month: "short",
@@ -282,12 +287,12 @@ export function PortalDashboardHero({
                   type="button"
                   className={styles.heroAction}
                   disabled={
-                    enteringCourseId === nextCourse.id ||
+                    enteringCourseId === (nextCourse.scheduleId || nextCourse.id) ||
                     !canEnterClassroom(nextCourse.status)
                   }
                   onClick={() => onEnter(nextCourse)}
                 >
-                  {enteringCourseId === nextCourse.id ? (
+                  {enteringCourseId === (nextCourse.scheduleId || nextCourse.id) ? (
                     <Loader2 className="animate-spin" aria-hidden="true" />
                   ) : (
                     <DoorOpen aria-hidden="true" />
@@ -339,7 +344,7 @@ export function PortalDashboardHero({
             <div className={styles.stat}>
               <small>{copy.liveCount}</small>
               <strong>
-                {courses.filter((course) => course.status === "live").length}
+                {schedule.filter((course) => course.status === "live").length}
               </strong>
             </div>
             <div className={styles.stat}>
@@ -371,7 +376,7 @@ export function PortalDashboardHero({
           {todayCourses.length ? (
             todayCourses.map((course) => (
               <button
-                key={course.id}
+                key={course.scheduleId || course.id}
                 type="button"
                 className={styles.railCard}
                 data-live={course.status === "live"}

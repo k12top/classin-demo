@@ -11,13 +11,12 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, Calendar as CalendarIcon, CheckCircle2, Users, LogOut, ChevronLeft, ChevronRight, PlayCircle, Search, Trash2, UserPlus, Info, Globe, Key, Loader2, User, BookOpen, RefreshCw, Sparkles, Layers3, Video } from "lucide-react";
+import { ArrowRight, Calendar as CalendarIcon, CheckCircle2, Users, LogOut, PlayCircle, Search, Trash2, UserPlus, Info, Globe, Key, Loader2, User, BookOpen, RefreshCw, Sparkles, Layers3, Video } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom } from "@/lib/course-status";
 import { defaultAutoStudentOnStage } from "@/lib/classroom/mode";
 import { useTranslation } from "@/lib/i18n/context";
 import { prefetchCourseDetail } from "@/lib/course-detail-client-cache";
-import { playbackPagePath } from "@/lib/playback-url";
 import {
   getTeacherDirectory,
   type TeacherDirectoryEntry,
@@ -39,6 +38,8 @@ import {
   TeacherSchedulePeek,
   teacherSchedulePeekStyles,
 } from "@/components/scheduling/teacher-schedule-peek";
+import { CourseCalendar } from "@/components/scheduling/course-calendar";
+import { buildCourseSchedule, monthSchedule, scheduleDateKey, scheduledPlaybackPath, type ScheduleSession } from "@/lib/course-schedule";
 import { TeacherPlanSettings } from "@/components/scheduling/teacher-plan-settings";
 
 interface Course {
@@ -59,6 +60,9 @@ interface Course {
   status: string;
   courseKind?: "series" | "standalone";
   sessionCount?: number;
+  sessions?: ScheduleSession[];
+  scheduleId?: string;
+  sessionId?: string;
   startTime: string | null;
   endTime: string | null;
   studentRemarks: string;
@@ -128,11 +132,11 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const router = useRouter();
   const { logout } = useAuth();
   const [activePage, setActivePage] = useState<SidebarPage>("schedule");
-  const [selectedDate, setSelectedDate] = useState<Date>(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
+  const [visibleMonth, setVisibleMonth] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1);
   });
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
   useEffect(() => {
     const requestedPage = new URLSearchParams(window.location.search).get("view");
@@ -269,23 +273,16 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     }
   }, [activePage, fetchMyGroups]);
 
-  const isSameDay = (d1: Date, d2: Date) => {
-    return d1.getFullYear() === d2.getFullYear() &&
-           d1.getMonth() === d2.getMonth() &&
-           d1.getDate() === d2.getDate();
-  };
-
-  const selectedCourses = useMemo(() => {
-    return courses
-      .filter((c) => {
-        if (!c.startTime) return false;
-        return isSameDay(new Date(c.startTime), selectedDate);
-      })
-      .sort(
-        (a, b) =>
-          new Date(a.startTime!).getTime() - new Date(b.startTime!).getTime()
-      );
-  }, [courses, selectedDate]);
+  const scheduleEntries = useMemo(() => buildCourseSchedule(courses), [courses]);
+  const monthDays = useMemo(() => monthSchedule(scheduleEntries, visibleMonth), [scheduleEntries, visibleMonth]);
+  const dayCounts = useMemo(() => new Map([...monthDays].map(([key, lessons]) => [key, lessons.length])), [monthDays]);
+  const selectedGroups = useMemo(() => {
+    if (!selectedDate) return [...monthDays];
+    const key = scheduleDateKey(selectedDate);
+    const lessons = monthDays.get(key);
+    return lessons ? [[key, lessons] as const] : [];
+  }, [monthDays, selectedDate]);
+  const selectedCount = selectedGroups.reduce((count, [, lessons]) => count + lessons.length, 0);
 
   const coursesMissingStartTime = useMemo(
     () =>
@@ -296,21 +293,22 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   );
 
   const shiftCalendarMonth = (delta: number) => {
-    setSelectedDate((prev) => {
-      const y = prev.getFullYear();
-      const m = prev.getMonth() + delta;
-      const day = prev.getDate();
-      const lastDayOfTargetMonth = new Date(y, m + 1, 0).getDate();
-      return new Date(y, m, Math.min(day, lastDayOfTargetMonth));
-    });
+    setVisibleMonth((month) => new Date(month.getFullYear(), month.getMonth() + delta, 1));
+    setSelectedDate(null);
+  };
+
+  const showToday = () => {
+    const today = new Date();
+    setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+    setSelectedDate(new Date(today.getFullYear(), today.getMonth(), today.getDate()));
   };
 
   const handleEnterClassroomFromList = async (course: Course) => {
     if (!canEnterClassroom(course.status)) return;
-    setEnteringCourseId(course.id);
+    setEnteringCourseId(course.scheduleId || course.id);
     let navigating = false;
     try {
-      const res = await fetch(`/api/courses/${course.id}/verify-access`, {
+      const res = await fetch(`/api/courses/${encodeURIComponent(course.sessionId || course.id)}/verify-access`, {
         credentials: "same-origin",
       });
       const data = await res.json().catch(() => ({}));
@@ -570,22 +568,6 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     }
   };
 
-  const generateCalendarDays = () => {
-    const year = selectedDate.getFullYear();
-    const month = selectedDate.getMonth();
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    
-    const days = [];
-    for (let i = 0; i < firstDay; i++) {
-      days.push(null);
-    }
-    for (let i = 1; i <= daysInMonth; i++) {
-      days.push(new Date(year, month, i));
-    }
-    return days;
-  };
-
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
@@ -705,14 +687,6 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     return rows;
   }
 
-  const calendarDaysList = useMemo(() => {
-    try {
-      return JSON.parse(t("teacherDashboard.calendarDays"));
-    } catch {
-      return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    }
-  }, [t]);
-
   return (
     <PortalShell
       role="teacher"
@@ -729,12 +703,13 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
             <PortalDashboardHero
               role="teacher"
               courses={courses}
+              scheduledCourses={scheduleEntries}
               enteringCourseId={enteringCourseId}
               onEnter={(course) =>
                 void handleEnterClassroomFromList(course as Course)
               }
               onOpen={(course) => router.push(`/courses/${course.id}`)}
-              onPlayback={(course) => router.push(playbackPagePath(course.id))}
+              onPlayback={(course) => router.push(scheduledPlaybackPath(course.id, course.sessionId))}
               onPrefetch={(course) => {
                 router.prefetch(`/courses/${course.id}`);
                 void prefetchCourseDetail(course.id);
@@ -745,67 +720,32 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               {/* Calendar Sidebar */}
               <div className="lg:col-span-4 xl:col-span-3">
-                <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
-                  <div className="p-4 flex items-center justify-between border-b border-border/40">
-                    <Button variant="ghost" size="icon" onClick={() => shiftCalendarMonth(-1)}><ChevronLeft className="h-4 w-4" /></Button>
-                    <span className="font-semibold text-sm">
-                      {selectedDate.toLocaleString(locale, {
-                        month: "long",
-                        year: "numeric",
-                      })}
-                    </span>
-                    <Button variant="ghost" size="icon" onClick={() => shiftCalendarMonth(1)}><ChevronRight className="h-4 w-4" /></Button>
-                  </div>
-                  <div className="p-4">
-                    <div className="grid grid-cols-7 gap-1 text-center mb-2">
-                      {calendarDaysList.map((d: string) => (
-                        <div key={d} className="text-xs font-semibold text-muted-foreground py-1">{d}</div>
-                      ))}
-                    </div>
-                    <div className="grid grid-cols-7 gap-1">
-                      {generateCalendarDays().map((date, idx) => {
-                        if (!date) return <div key={idx} className="h-8" />;
-                        const isSelected = isSameDay(date, selectedDate);
-                        const isToday = isSameDay(date, new Date());
-                        const hasCourse = courses.some(c => c.startTime && isSameDay(new Date(c.startTime), date));
-                        
-                        return (
-                          <button
-                            key={idx}
-                            onClick={() => setSelectedDate(new Date(date.getFullYear(), date.getMonth(), date.getDate()))}
-                            className={`
-                              relative h-8 w-8 rounded-full flex items-center justify-center text-sm transition-all mx-auto
-                              ${isSelected ? 'bg-primary text-primary-foreground font-bold shadow-sm' : 'hover:bg-muted text-foreground'}
-                              ${isToday && !isSelected ? 'text-primary font-bold' : ''}
-                            `}
-                          >
-                            {date.getDate()}
-                            {hasCourse && !isSelected && (
-                              <span className="absolute bottom-1 w-1 h-1 rounded-full bg-primary"></span>
-                            )}
-                            {hasCourse && isSelected && (
-                              <span className="absolute bottom-1 w-1 h-1 rounded-full bg-primary-foreground"></span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </Card>
+                <CourseCalendar
+                  month={visibleMonth}
+                  selectedDate={selectedDate}
+                  dayCounts={dayCounts}
+                  onMonthChange={shiftCalendarMonth}
+                  onSelectDate={setSelectedDate}
+                  onShowMonth={() => setSelectedDate(null)}
+                  onToday={showToday}
+                />
               </div>
 
-              {/* Daily Schedule List */}
+              {/* Monthly schedule, optionally filtered to a day */}
               <div className="lg:col-span-8 xl:col-span-9 space-y-6">
                 <div>
                   <h3 className="text-xl font-bold flex items-center gap-2 text-foreground">
-                    {selectedDate.toLocaleString(locale, { month: 'long', day: 'numeric' })} {t("teacherDashboard.schedule")}
+                    {(selectedDate || visibleMonth).toLocaleString(locale, selectedDate ? { month: "long", day: "numeric" } : { year: "numeric", month: "long" })} {t("teacherDashboard.schedule")}
                   </h3>
+                  <p className="mt-2 text-sm text-muted-foreground" aria-live="polite">
+                    {t("teacherDashboard.scheduleCount", { count: selectedCount })}
+                  </p>
                 </div>
-                
-                {selectedCourses.length === 0 ? (
+
+                {selectedCount === 0 ? (
                   <Card className="border border-border/60 bg-card/40 border-dashed p-12 text-center flex flex-col items-center rounded-2xl">
                     <CalendarIcon className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
-                    <p className="text-muted-foreground font-medium">{t("teacherDashboard.noClassSchedule")}</p>
+                    <p className="text-muted-foreground font-medium">{t(selectedDate ? "teacherDashboard.noClassSchedule" : "teacherDashboard.monthEmpty")}</p>
                     {(coursesMissingStartTime?.length ?? 0) > 0 && (
                       <p className="text-sm text-muted-foreground mt-2">
                         {t("teacherDashboard.missingTimeCount", { count: coursesMissingStartTime.length })}
@@ -813,184 +753,195 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                     )}
                   </Card>
                 ) : (
-                  <div className={scheduleStyles.list}>
-                    {selectedCourses.map((course) => (
-                      (() => {
-                        const studentPreview = getCourseStudentPreview(course);
-                        const canTeachCourse = course.canTeach !== false;
-                        const timeFormatter = new Intl.DateTimeFormat(locale, {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          hour12: false,
-                        });
-                        const startLabel = course.startTime
-                          ? timeFormatter.format(new Date(course.startTime))
-                          : "TBD";
-                        const endLabel = course.endTime
-                          ? timeFormatter.format(new Date(course.endTime))
-                          : "—";
-                        const inviteLinks = [
-                          ...(course.activeCourseShareLinks || []).map((link) => ({
-                            id: link.id,
-                            label: link.label,
-                            url: link.courseShareUrl,
-                            icon: BookOpen,
-                          })),
-                          ...(course.activeJoinLinks || []).map((link) => ({
-                            id: link.id,
-                            label: link.label,
-                            url: link.joinUrl,
-                            icon: PlayCircle,
-                          })),
-                        ].slice(0, 2);
-                        return (
-                          <article
-                            key={course.id}
-                            className={scheduleStyles.card}
-                            onMouseEnter={() => {
-                              router.prefetch(`/courses/${course.id}`);
-                              void prefetchCourseDetail(course.id);
-                            }}
-                            onFocus={() => {
-                              router.prefetch(`/courses/${course.id}`);
-                              void prefetchCourseDetail(course.id);
-                            }}
-                          >
-                            <div className={scheduleStyles.time}>
-                              <strong>{startLabel}</strong>
-                              <span>{endLabel}</span>
-                              <i aria-hidden="true" />
-                            </div>
-
-                            <div className={scheduleStyles.main}>
-                              <div className={scheduleStyles.kicker}>
-                                <span className={scheduleStyles.roomBadge}>
-                                  {t(ROOM_TYPE_KEYS[course.roomType]) ||
-                                    t("common.unknown")}
-                                </span>
-                                <CourseStatusBadge status={course.status} />
-                                {!canTeachCourse && (
-                                  <Badge
-                                    variant="outline"
-                                    className="h-5 border-blue-500/20 bg-blue-500/10 text-[9px] text-blue-700 dark:text-blue-300"
-                                  >
-                                    {t("common.roleStudent")}
-                                  </Badge>
-                                )}
-                              </div>
-                              <button
-                                type="button"
-                                className={scheduleStyles.title}
-                                onClick={() => router.push(`/courses/${course.id}`)}
+                  <div className={scheduleStyles.monthList}>
+                    {selectedGroups.map(([dayKey, lessons]) => (
+                      <section key={dayKey} aria-labelledby={`schedule-${dayKey}`}>
+                        <h4 id={`schedule-${dayKey}`} className={scheduleStyles.dateHeader}>
+                          <span>{new Date(`${dayKey}T00:00:00`).toLocaleDateString(locale, { month: "long", day: "numeric", weekday: "long" })}</span>
+                          <small>{t("teacherDashboard.scheduleCount", { count: lessons.length })}</small>
+                        </h4>
+                        <div className={scheduleStyles.list}>
+                          {lessons.map((course) => {
+                            const studentPreview = getCourseStudentPreview(course);
+                            const canTeachCourse = course.canTeach !== false;
+                            const timeFormatter = new Intl.DateTimeFormat(locale, {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              hour12: false,
+                            });
+                            const startLabel = course.startTime
+                              ? timeFormatter.format(new Date(course.startTime))
+                              : "TBD";
+                            const endLabel = course.endTime
+                              ? timeFormatter.format(new Date(course.endTime))
+                              : "—";
+                            const inviteLinks = [
+                              ...(course.activeCourseShareLinks || []).map((link) => ({
+                                id: link.id,
+                                label: link.label,
+                                url: link.courseShareUrl,
+                                icon: BookOpen,
+                              })),
+                              ...(course.activeJoinLinks || []).map((link) => ({
+                                id: link.id,
+                                label: link.label,
+                                url: link.joinUrl,
+                                icon: PlayCircle,
+                              })),
+                            ].slice(0, 2);
+                            return (
+                              <article
+                                key={course.scheduleId}
+                                className={scheduleStyles.card}
+                                onMouseEnter={() => {
+                                  router.prefetch(`/courses/${course.id}`);
+                                  void prefetchCourseDetail(course.id);
+                                }}
+                                onFocus={() => {
+                                  router.prefetch(`/courses/${course.id}`);
+                                  void prefetchCourseDetail(course.id);
+                                }}
                               >
-                                {course.name}
-                              </button>
-                              <div className={scheduleStyles.meta}>
-                                <span>
-                                  <User aria-hidden="true" />
-                                  {course.teacherName}
-                                </span>
-                                <span>
-                                  <Users aria-hidden="true" />
-                                  {t("teacherDashboard.studentsCount", {
-                                    count: studentPreview.total,
-                                  })}
-                                </span>
-                                {studentPreview.groupCount > 0 && (
-                                  <span>
-                                    <Users aria-hidden="true" />
-                                    {t("teacherDashboard.fromGroups", {
-                                      count: studentPreview.groupCount,
-                                    })}
-                                  </span>
-                                )}
-                              </div>
-                              <p className={scheduleStyles.description}>
-                                {course.description || t("courseDetail.noDescription")}
-                              </p>
-                              <div className={scheduleStyles.hoverDetails}>
-                                {course.roomType === 10 && course.passcode && (
+                                <div className={scheduleStyles.time}>
+                                  <strong>{startLabel}</strong>
+                                  <span>{endLabel}</span>
+                                  <i aria-hidden="true" />
+                                </div>
+
+                                <div className={scheduleStyles.main}>
+                                  <div className={scheduleStyles.kicker}>
+                                    <span className={scheduleStyles.roomBadge}>
+                                      {t(ROOM_TYPE_KEYS[course.roomType]) ||
+                                        t("common.unknown")}
+                                    </span>
+                                    <CourseStatusBadge status={course.status} />
+                                    {!canTeachCourse && (
+                                      <Badge
+                                        variant="outline"
+                                        className="h-5 border-blue-500/20 bg-blue-500/10 text-[9px] text-blue-700 dark:text-blue-300"
+                                      >
+                                        {t("common.roleStudent")}
+                                      </Badge>
+                                    )}
+                                  </div>
                                   <button
                                     type="button"
-                                    className={scheduleStyles.linkChip}
-                                    onClick={() => void copyShareUrl(course.passcode!)}
-                                    title={t("courseDetail.btnCopy")}
+                                    className={scheduleStyles.title}
+                                    onClick={() => router.push(`/courses/${course.id}`)}
                                   >
-                                    <Key aria-hidden="true" />
-                                    {t("courseDetail.passcodeLabel")}: {course.passcode}
+                                    {course.name}
                                   </button>
-                                )}
-                                {canTeachCourse &&
-                                  inviteLinks.map((link) => {
-                                    const InviteIcon = link.icon;
-                                    return (
+                                  {course.sessionTitle && (
+                                    <p className={scheduleStyles.lessonTitle}>{course.sessionTitle}</p>
+                                  )}
+                                  <div className={scheduleStyles.meta}>
+                                    <span>
+                                      <User aria-hidden="true" />
+                                      {course.teacherName}
+                                    </span>
+                                    <span>
+                                      <Users aria-hidden="true" />
+                                      {t("teacherDashboard.studentsCount", {
+                                        count: studentPreview.total,
+                                      })}
+                                    </span>
+                                    {studentPreview.groupCount > 0 && (
+                                      <span>
+                                        <Users aria-hidden="true" />
+                                        {t("teacherDashboard.fromGroups", {
+                                          count: studentPreview.groupCount,
+                                        })}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className={scheduleStyles.description}>
+                                    {course.description || t("courseDetail.noDescription")}
+                                  </p>
+                                  <div className={scheduleStyles.hoverDetails}>
+                                    {course.roomType === 10 && course.passcode && (
                                       <button
                                         type="button"
                                         className={scheduleStyles.linkChip}
-                                        key={link.id}
-                                        onClick={() => void copyShareUrl(link.url)}
+                                        onClick={() => void copyShareUrl(course.passcode!)}
+                                        title={t("courseDetail.btnCopy")}
                                       >
-                                        <InviteIcon aria-hidden="true" />
-                                        {link.label.trim()
-                                          ? link.label.slice(0, 14)
-                                          : t("teacherDashboard.quickInvite")}
+                                        <Key aria-hidden="true" />
+                                        {t("courseDetail.passcodeLabel")}: {course.passcode}
                                       </button>
-                                    );
-                                  })}
-                              </div>
-                            </div>
+                                    )}
+                                    {canTeachCourse &&
+                                      inviteLinks.map((link) => {
+                                        const InviteIcon = link.icon;
+                                        return (
+                                          <button
+                                            type="button"
+                                            className={scheduleStyles.linkChip}
+                                            key={link.id}
+                                            onClick={() => void copyShareUrl(link.url)}
+                                          >
+                                            <InviteIcon aria-hidden="true" />
+                                            {link.label.trim()
+                                              ? link.label.slice(0, 14)
+                                              : t("teacherDashboard.quickInvite")}
+                                          </button>
+                                        );
+                                      })}
+                                  </div>
+                                </div>
 
-                            <div className={scheduleStyles.actions}>
-                              <Button
-                                disabled={
-                                  enteringCourseId === course.id ||
-                                  (course.status !== "finished" &&
-                                    !canEnterClassroom(course.status))
-                                }
-                                className={scheduleStyles.enterButton}
-                                onMouseEnter={() => router.prefetch("/classroom")}
-                                onClick={() => {
-                                  if (course.status === "finished" && course.hasPlayback) {
-                                    router.push(playbackPagePath(course.id));
-                                  } else if (course.status === "finished") {
-                                    router.push(`/courses/${course.id}`);
-                                  } else {
-                                    void handleEnterClassroomFromList(course);
-                                  }
-                                }}
-                              >
-                                {enteringCourseId === course.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <PlayCircle className="h-4 w-4" />
-                                )}
-                                <span>
-                                  {enteringCourseId === course.id
-                                    ? t("teacherDashboard.btnEntering")
-                                    : course.status === "finished"
-                                      ? course.hasPlayback
-                                        ? t("studentDashboard.viewPlayback")
-                                        : t("teacherDashboard.btnDetails")
-                                      : t("teacherDashboard.btnEnterClass")}
-                                </span>
-                              </Button>
-                              <div className={scheduleStyles.subActions}>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className={scheduleStyles.detailsButton}
-                                  onClick={() =>
-                                    router.push(`/courses/${course.id}`)
-                                  }
-                                  title={t("teacherDashboard.btnDetails")}
-                                >
-                                  <ArrowRight className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </div>
-                          </article>
-                        );
-                      })()
+                                <div className={scheduleStyles.actions}>
+                                  <Button
+                                    disabled={
+                                      enteringCourseId === course.scheduleId ||
+                                      (course.status !== "finished" &&
+                                        !canEnterClassroom(course.status))
+                                    }
+                                    className={scheduleStyles.enterButton}
+                                    onMouseEnter={() => router.prefetch("/classroom")}
+                                    onClick={() => {
+                                      if (course.status === "finished" && course.hasPlayback) {
+                                        router.push(scheduledPlaybackPath(course.id, course.sessionId));
+                                      } else if (course.status === "finished") {
+                                        router.push(`/courses/${course.id}`);
+                                      } else {
+                                        void handleEnterClassroomFromList(course);
+                                      }
+                                    }}
+                                  >
+                                    {enteringCourseId === course.scheduleId ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <PlayCircle className="h-4 w-4" />
+                                    )}
+                                    <span>
+                                      {enteringCourseId === course.scheduleId
+                                        ? t("teacherDashboard.btnEntering")
+                                        : course.status === "finished"
+                                          ? course.hasPlayback
+                                            ? t("studentDashboard.viewPlayback")
+                                            : t("teacherDashboard.btnDetails")
+                                          : t("teacherDashboard.btnEnterClass")}
+                                    </span>
+                                  </Button>
+                                  <div className={scheduleStyles.subActions}>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className={scheduleStyles.detailsButton}
+                                      onClick={() =>
+                                        router.push(`/courses/${course.id}`)
+                                      }
+                                      title={t("teacherDashboard.btnDetails")}
+                                    >
+                                      <ArrowRight className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </div>
+                              </article>
+                            );
+                          })}
+                        </div>
+                      </section>
                     ))}
                   </div>
                 )}

@@ -3,6 +3,35 @@
   gap: 12px;
 }
 
+.monthList {
+  display: grid;
+  gap: 28px;
+}
+
+.dateHeader {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0 0 12px;
+  color: hsl(var(--foreground));
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.dateHeader small {
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.lessonTitle {
+  margin: 5px 0 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 .card {
   position: relative;
   display: grid;

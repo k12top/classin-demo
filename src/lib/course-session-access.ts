@@ -57,6 +57,8 @@ export type CourseSessionAccessResult =
       roomName: string;
       roomType: number;
       teacherName: string;
+      teacherId: string;
+      teacherAvatar: string;
       startTime: Date;
       endTime: Date;
     }
@@ -199,6 +201,8 @@ async function resolveCourseSessionAccessUncached(
       roomName: lesson.title,
       roomType: lesson.roomType,
       teacherName: lead.displayName,
+      teacherId: lead.userId,
+      teacherAvatar: lead.avatar,
       startTime: lesson.startTime,
       endTime: lesson.endTime,
     };
@@ -214,6 +218,8 @@ async function resolveCourseSessionAccessUncached(
       roomName: lesson.title,
       roomType: lesson.roomType,
       teacherName: lead.displayName,
+      teacherId: lead.userId,
+      teacherAvatar: lead.avatar,
       startTime: lesson.startTime,
       endTime: lesson.endTime,
     };
@@ -234,6 +240,8 @@ async function resolveCourseSessionAccessUncached(
       roomName: lesson.title,
       roomType: lesson.roomType,
       teacherName: lead.displayName,
+      teacherId: lead.userId,
+      teacherAvatar: lead.avatar,
       startTime: lesson.startTime,
       endTime: lesson.endTime,
     };
@@ -254,6 +262,8 @@ async function resolveCourseSessionAccessUncached(
         roomName: lesson.title,
         roomType: lesson.roomType,
         teacherName: lead.displayName,
+        teacherId: lead.userId,
+        teacherAvatar: lead.avatar,
         startTime: lesson.startTime,
         endTime: lesson.endTime,
       };
