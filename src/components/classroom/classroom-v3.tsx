@@ -1,6 +1,8 @@
 "use client";
 
 import { ClassroomMemberAvatar } from "@/components/classroom/member-avatar";
+import { TeacherAssistant } from "@/components/classroom/teacher-assistant";
+import { assistantConversationKey, classroomAssistantTeacher } from "@/lib/classroom/assistant";
 import { ClassroomClosingNotice } from "@/components/classroom/closing-notice";
 import { classroomClosingNotice } from "@/lib/classroom/closing-notice";
 
@@ -7350,6 +7352,12 @@ export function ClassroomV3({
               </button>
             ) : null}
           </div>
+          {!isRecorder && !classEnded && <TeacherAssistant
+            key={assistantConversationKey(sessionData.course.sessionId, currentUserId)}
+            sessionId={sessionData.course.sessionId}
+            teacher={classroomAssistantTeacher(sessionData.course, classroomMembers)}
+            shareAccess={shareAccess}
+          />}
           {recordingFallback === "web" && (
             <div className="classroom-v3-stage-warning">
               <AlertCircle />

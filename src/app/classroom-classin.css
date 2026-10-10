@@ -1516,3 +1516,39 @@ html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-tool-popover-clos
   .is-classin-layout .classroom-v3-live-rail { min-height: 66px; padding-block: 2px; }
   .is-classin-layout .classroom-v3-seat { height: 62px; }
 }
+
+/* Board confirmations live inside the tool layer. Lift that layer above the
+   mobile dock and restore input on the overlay, whose parent ignores taps. */
+html[lang] .is-classin-layout .classroom-v3-side:has(.classroom-v3-modal-backdrop) {
+  z-index: 110;
+}
+
+.is-classin-layout .classroom-v3-modal-backdrop {
+  pointer-events: auto;
+}
+
+@media (max-width: 1024px) {
+  .is-classin-layout .classroom-v3-modal-backdrop:has(> .classroom-v3-confirm-dialog) {
+    align-items: end;
+    padding: 16px 12px calc(88px + env(safe-area-inset-bottom));
+  }
+
+  .is-classin-layout .classroom-v3-modal-backdrop > section.classroom-v3-confirm-dialog {
+    width: min(100%, 420px);
+    max-height: calc(100dvh - 104px - env(safe-area-inset-bottom));
+    overflow-y: auto;
+    border-radius: 14px;
+    padding: 20px 18px;
+  }
+
+  .is-classin-layout .classroom-v3-modal-backdrop .classroom-v3-confirm-dialog footer {
+    flex-wrap: wrap;
+  }
+
+  .is-classin-layout .classroom-v3-modal-backdrop .classroom-v3-confirm-dialog footer button {
+    min-height: 44px;
+    height: auto;
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+}

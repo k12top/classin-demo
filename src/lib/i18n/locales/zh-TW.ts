@@ -3,6 +3,20 @@ import type { DeepPartial } from "../types";
 
 export const zhTW = {
   ...zhCN,
+  teacherDashboard: {
+    ...zhCN.teacherDashboard,
+    schedule: "我的課表",
+    previousMonth: "上個月",
+    nextMonth: "下個月",
+    calendarDayCount: "{date}，{count} 節課",
+    dayLessons: "{count}節",
+    monthSummary: "本月 {count} 節課 · {days} 天有排課",
+    backToToday: "回到今天",
+    showMonth: "查看整月",
+    monthEmpty: "本月暫無排課。",
+    scheduleCount: "{count} 節課",
+    noClassSchedule: "該日沒有排課。",
+  },
   courseSessions: {
     ...zhCN.courseSessions,
     detailsTitle: "課次詳情",
@@ -49,6 +63,40 @@ export const zhTW = {
   },
   classroom: {
     ...zhCN.classroom,
+    assistant: {
+      "title": "AI 問答",
+      "private": "僅自己可見",
+      "prompt": "有不懂的地方，隨時問我",
+      "welcome": "這節課有哪裡不明白？可以問知識點，也可以讓我舉個例子。",
+      "context": "我會參考課程簡介和已有課堂字幕來回答。",
+      "suggestExplain": "解釋一下這節課的重點",
+      "suggestExample": "用一個例子幫我理解",
+      "you": "我",
+      "thinking": "正在思考…",
+      "clear": "清空問答",
+      "collapse": "收起問答",
+      "expand": "展開問答",
+      "minimize": "縮小老師欄",
+      "input": "輸入問題",
+      "placeholder": "問一個關於這節課的問題…",
+      "send": "傳送問題",
+      "stop": "停止回答",
+      "retry": "重新回答",
+      "edit": "修改問題",
+      "disclaimer": "AI 回答可能有誤，重要問題請向老師確認。",
+      "errors": {
+        "unavailable": "AI 問答尚未設定，請聯絡老師或管理員開啟。",
+        "timeout": "回答逾時了，可以重新回答。",
+        "rate_limited": "AI 正忙，請稍等片刻再試。",
+        "unauthorized": "登入已過期，請重新登入後提問。",
+        "course_finished": "教室已關閉，暫時無法繼續提問。",
+        "course_cancelled": "課程已取消，暫時無法繼續提問。",
+        "not_enrolled": "你目前沒有這節課的存取權限。",
+        "forbidden": "無法存取這節課，請重新進入教室。",
+        "failed": "暫時沒有收到回答。問題已保留，可以重試或修改。",
+        "stopped": "已停止回答，可以重試或修改問題。"
+      }
+    },
     v3: {
       ...zhCN.classroom.v3,
       scheduledLessonEnded: "已到下課時間",

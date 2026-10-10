@@ -376,6 +376,8 @@ export type ClassroomSessionResponse = {
     name: string;
     roomType: number;
     teacherName: string;
+    teacherId?: string;
+    teacherAvatar?: string;
     startTime: string | null;
     endTime: string | null;
     status: string;

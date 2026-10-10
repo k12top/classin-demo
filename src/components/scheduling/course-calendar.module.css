@@ -1,0 +1,21 @@
+.calendar { min-width: 0; border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--card)); }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 12px; border-bottom: 1px solid hsl(var(--border)); }
+.header strong { font-size: 15px; text-align: center; }
+.header button { display: grid; place-items: center; flex: 0 0 40px; height: 40px; border-radius: 12px; }
+.header svg { width: 18px; height: 18px; }
+.body { padding: 12px; }
+.weekdays, .days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; text-align: center; }
+.weekdays { margin-bottom: 8px; font-size: 12px; color: hsl(var(--muted-foreground)); }
+.weekdays span { overflow: hidden; padding-block: 4px; }
+.day { display: flex; min-width: 0; min-height: 48px; flex-direction: column; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 12px; color: hsl(var(--foreground)); font-size: 15px; font-variant-numeric: tabular-nums; }
+.day small { margin-top: 2px; color: hsl(var(--primary)); font-size: 12px; line-height: 14px; white-space: nowrap; }
+.header button:hover, .day:hover, .footer button:hover { background: hsl(var(--muted)); }
+.day[aria-current="date"] { border-color: hsl(var(--primary)); font-weight: 700; }
+.day[data-selected="true"] { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+.day[data-selected="true"] small { color: hsl(var(--primary-foreground)); }
+.calendar button:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 2px; }
+.footer { padding: 12px 16px; border-top: 1px solid hsl(var(--border)); }
+.footer p { margin: 0 0 8px; font-size: 13px; color: hsl(var(--muted-foreground)); }
+.footer > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.footer button { min-height: 36px; padding: 6px 10px; border: 1px solid hsl(var(--border)); border-radius: 12px; font-size: 13px; }
+.footer button[aria-pressed="true"] { color: hsl(var(--primary)); border-color: hsl(var(--primary) / .5); }
