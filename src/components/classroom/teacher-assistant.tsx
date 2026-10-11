@@ -91,7 +91,7 @@ export function TeacherAssistant({ sessionId, teacher, shareAccess }: {
             {!messages.length && !question && <div className={styles.empty}>
               <p>{label("welcome")}</p>
               <p className={styles.hint}>{label("context")}</p>
-              {["suggestExplain", "suggestExample"].map((key) => <button type="button" key={key} onClick={() => void send(label(key))}>{label(key)}</button>)}
+              {["suggestExplain", "suggestExample", "suggestHomework"].map((key) => <button type="button" key={key} onClick={() => void send(label(key))}>{label(key)}</button>)}
             </div>}
             {messages.map((message, index) => <div key={index} className={`${styles.message} ${message.role === "user" ? styles.user : styles.answer}`}>
               <span>{message.role === "user" ? label("you") : `${teacher.name} · AI`}</span><p>{message.content}</p>
