@@ -137,6 +137,19 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     return new Date(today.getFullYear(), today.getMonth(), 1);
   });
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [todayKey, setTodayKey] = useState(() => scheduleDateKey(new Date()));
+
+  useEffect(() => {
+    const updateToday = () => setTodayKey(scheduleDateKey(new Date()));
+    const timer = window.setInterval(updateToday, 30_000);
+    window.addEventListener("focus", updateToday);
+    document.addEventListener("visibilitychange", updateToday);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", updateToday);
+      document.removeEventListener("visibilitychange", updateToday);
+    };
+  }, []);
 
   useEffect(() => {
     const requestedPage = new URLSearchParams(window.location.search).get("view");
@@ -274,7 +287,9 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   }, [activePage, fetchMyGroups]);
 
   const scheduleEntries = useMemo(() => buildCourseSchedule(courses), [courses]);
-  const monthDays = useMemo(() => monthSchedule(scheduleEntries, visibleMonth), [scheduleEntries, visibleMonth]);
+  const monthDays = useMemo(() => new Map(
+    [...monthSchedule(scheduleEntries, visibleMonth)].filter(([dayKey]) => dayKey >= todayKey),
+  ), [scheduleEntries, visibleMonth, todayKey]);
   const dayCounts = useMemo(() => new Map([...monthDays].map(([key, lessons]) => [key, lessons.length])), [monthDays]);
   const selectedGroups = useMemo(() => {
     if (!selectedDate) return [...monthDays];
