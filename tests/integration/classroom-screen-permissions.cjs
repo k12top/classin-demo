@@ -61,6 +61,12 @@ async function main() {
     console.log('PASS automatic stage entry and assistant role do not grant sharing in any credential endpoint or start action');
     await grant(student); await creds(student, 'student', true);
     let runtime = await action(student, 'student', { type: 'startScreenShare', claimId: 'student-claim' });
+    runtime = await action(student, 'student', { type: 'releaseScreenShare', claimId: 'student-claim' });
+    assert.equal(runtime.composition.screenShares.main, undefined);
+    assert.equal(runtime.members.find(m => m.userId === student.userId).screenShareState, 'accepted');
+    await creds(student, 'student', true);
+    runtime = await action(student, 'student', { type: 'startScreenShare', claimId: 'student-claim' });
+    console.log('PASS failed or stopped captures release their slot while retaining the teacher screen grant');
     const original = runtime.members.find(m => m.userId === student.userId);
     await grant(second);
     await assert.rejects(action(second, 'student', { type: 'startScreenShare', claimId: 'second-claim' }), error => error.status === 409);

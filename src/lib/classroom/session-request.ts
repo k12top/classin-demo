@@ -1,4 +1,5 @@
 import { ClassroomRecoveryError, retryClassroomRecovery } from "./credential-recovery";
+import { withClassroomRequestSignal } from "./request-signal";
 
 type SessionFailure = { error?: string; code?: string; courseId?: string };
 
@@ -18,8 +19,7 @@ export async function requestClassroomSession<T extends { credential: unknown }>
   wait?: (delay: number, signal: AbortSignal) => Promise<void>;
 }): Promise<T> {
   let refreshedAuth = false;
-  return retryClassroomRecovery(async () => {
-    const signal = AbortSignal.any([options.signal, AbortSignal.timeout(10_000)]);
+  return retryClassroomRecovery(() => withClassroomRequestSignal(10_000, options.signal, async (signal) => {
     let response = await options.request(signal);
     if (response.status === 401 && !refreshedAuth && options.refreshAuth) {
       refreshedAuth = true;
@@ -37,5 +37,5 @@ export async function requestClassroomSession<T extends { credential: unknown }>
         Number(response.headers.get("Retry-After") || 0) * 1_000, payload);
     }
     return payload as T;
-  }, { signal: options.signal, maxAttempts: 4, jitter: true, onFailure: options.onRetry, wait: options.wait });
+  }), { signal: options.signal, maxAttempts: 4, jitter: true, onFailure: options.onRetry, wait: options.wait });
 }

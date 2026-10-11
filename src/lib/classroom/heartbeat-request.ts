@@ -1,4 +1,5 @@
 import { ClassroomRecoveryError, retryClassroomRecovery } from "./credential-recovery";
+import { withClassroomRequestSignal } from "./request-signal";
 
 /** A successful HTTP response must also confirm that the lease was updated. */
 export async function requestClassroomHeartbeat(options: {
@@ -7,8 +8,8 @@ export async function requestClassroomHeartbeat(options: {
   onResponse?: (status: number, payload: Record<string, unknown>) => boolean;
   wait?: (delay: number, signal: AbortSignal) => Promise<void>;
 }) {
-  return retryClassroomRecovery(async () => {
-    const response = await options.request(AbortSignal.any([options.signal, AbortSignal.timeout(8_000)]));
+  return retryClassroomRecovery(() => withClassroomRequestSignal(8_000, options.signal, async (signal) => {
+    const response = await options.request(signal);
     const payload = await response.json() as Record<string, unknown>;
     options.signal.throwIfAborted();
     if (options.onResponse?.(response.status, payload)) return false;
@@ -16,7 +17,7 @@ export async function requestClassroomHeartbeat(options: {
       response.ok ? 503 : response.status, Number(response.headers.get("Retry-After") || 0) * 1_000,
     );
     return true;
-  }, { signal: options.signal, maxAttempts: 2, jitter: true, wait: options.wait });
+  }), { signal: options.signal, maxAttempts: 2, jitter: true, wait: options.wait });
 }
 
 export function classroomPollDelay(baseMs: number, failures: number, hidden = false) {

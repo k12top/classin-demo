@@ -70,7 +70,7 @@ assert.equal(
 assert.equal(captionTranslation(stableCaption, "en-GB"), "Today we study equations.");
 assert.equal(
   selectStableCaption([stableCaption, translationPending], "en-US", "translated")?.id,
-  "caption-1",
+  undefined,
 );
 assert.equal(
   selectStableCaption(

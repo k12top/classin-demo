@@ -54,7 +54,7 @@ function fixture() {
       if (name === "agora-extension-virtual-background") return class {};
       if (name.endsWith("/config")) return { classroomMediaProfile: { screen: profile, camera: { low: profile } }, classroomVideoPresets: { hd: { camera: { high: profile } }, fullHd: { camera: { high: { ...profile, width: 1920 } } } } };
       if (name.endsWith("/screen-share")) return { isScreenShareUserId: () => false };
-      if (name.endsWith("/rtc-uid")) return { isClassroomScreenRtcUid: (id) => Number(id) > 1e9 && Number(id) <= 2e9 };
+      if (name.endsWith("/rtc-uid")) return { isClassroomScreenRtcUid: (id) => Number(id) > 1e9 && Number(id) <= 2e9, isClassroomAuxiliaryRtcUid: (id) => Number(id) > 2e9 };
       if (name.endsWith("/stt-caption")) return { decodeClassroomSttCaption: () => null };
       if (name.endsWith("/agora-credential-recovery")) return recovery;
       if (name.endsWith("/types")) return { credentialCanPublish: (credential) => credential.role !== "student" || credential.publishAllowed === true };
@@ -253,6 +253,37 @@ test("screen selection cancellation never claims or replaces another presenter",
   assert.equal(claims, 0);
   assert.equal(clients.length, 1);
   assert.equal(provider.getSnapshot().local.screenSharing, false);
+  await provider.disconnect();
+});
+
+test("recovery during screen authorization cannot join the new screen client twice", async () => {
+  const { provider, clients, sdk } = fixture();
+  await provider.connect(credential, "教师");
+  const create = sdk.createClient;
+  let joins = 0;
+  sdk.createClient = () => {
+    const client = create();
+    client.connectionState = "DISCONNECTED";
+    client.join = async () => {
+      assert.equal(client.connectionState, "DISCONNECTED", "Agora rejects an already connected client");
+      joins++;
+      client.connectionState = "CONNECTED";
+    };
+    return client;
+  };
+  let authorize;
+  const start = provider.startScreenShare(() => new Promise(resolve => { authorize = resolve; }));
+  await tick();
+  await provider.renewCredential(credential);
+  await provider.recoverMedia();
+  assert.equal(joins, 0, "authorization is still pending");
+  authorize();
+  await start;
+  assert.equal(joins, 1);
+  assert.equal(provider.getSnapshot().local.screenSharing, true);
+  clients[1].connectionState = "DISCONNECTED";
+  await provider.recoverMedia();
+  assert.equal(joins, 2, "a completed screen publisher may reconnect");
   await provider.disconnect();
 });
 

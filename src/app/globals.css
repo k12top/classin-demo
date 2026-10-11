@@ -3660,6 +3660,33 @@ button.classroom-v3-seat-preview:focus-visible::after {
   font-weight: 500;
 }
 
+.classroom-v3-caption-speaker + .classroom-v3-caption-speaker {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgb(255 255 255 / 0.16);
+}
+
+.classroom-v3-caption-speaker-name {
+  display: block;
+  margin-bottom: 3px;
+  color: #f4f6f8;
+  font-size: 12px;
+  text-align: center;
+}
+
+.classroom-v3-stage .classroom-v3-caption-bounds .classroom-v3-caption-overlay {
+  max-height: min(240px, 40%);
+}
+
+.classroom-v3-bulk-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.classroom-v3-management-menu [role="menuitem"] {
+  min-height: 36px;
+}
+
 .classroom-v3-caption-overlay p.is-placeholder {
   color: #c8cfda;
   font-size: clamp(11px, 1.1vw, 15px);

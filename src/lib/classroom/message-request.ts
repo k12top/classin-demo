@@ -1,4 +1,5 @@
 import type { ClassroomMessageSnapshot } from "./types";
+import { withClassroomRequestSignal } from "./request-signal";
 
 export type ClassroomMessageRequest = {
   clientMessageId: string;
@@ -38,11 +39,14 @@ export async function requestClassroomMessage(
   for (let attempt = 0; ; attempt++) {
     signal?.throwIfAborted();
     try {
+      const { response, payload } = await withClassroomRequestSignal(6_000, signal, async (requestSignal) => {
       const response = await fetcher(url, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: serialized,
-        signal: AbortSignal.any([AbortSignal.timeout(6_000), ...(signal ? [signal] : [])]),
+        signal: requestSignal,
       });
       const payload = await response.json().catch(() => ({})) as ClassroomMessageResponse;
+      return { response, payload };
+      });
       const retryable = [408, 500, 502, 503, 504].includes(response.status) || (response.ok && !payload.message);
       if (retryable && attempt < 2) {
         const retryAfter = Number(response.headers.get("Retry-After"));

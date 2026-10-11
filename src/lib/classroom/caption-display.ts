@@ -30,14 +30,59 @@ export function selectStableCaption(
   displayMode: CaptionDisplayMode,
 ) {
   if (displayMode === "off") return null;
-  for (let index = captions.length - 1; index >= 0; index -= 1) {
-    const caption = captions[index];
-    if (!caption) continue;
-    if (displayMode === "translated") {
-      if (captionTranslation(caption, language)) return caption;
-    } else if (caption.text.trim()) {
-      return caption;
+  const latest = captions.reduce<ClassroomCaptionSnapshot | null>((current, caption) =>
+    !current || Date.parse(caption.occurredAt) >= Date.parse(current.occurredAt) ? caption : current, null);
+  if (!latest) return null;
+  return displayMode === "translated"
+    ? captionTranslation(latest, language) ? latest : null
+    : latest.text.trim() ? latest : null;
+}
+
+/** One recent utterance per speaker; late translations never resurrect older speech. */
+export function selectLiveCaptions(
+  captions: readonly ClassroomCaptionSnapshot[],
+  language: string,
+  displayMode: CaptionDisplayMode,
+  now: number,
+  maxAgeMs = 12_000,
+) {
+  if (displayMode === "off") return [];
+  const speakers = new Map<string, ClassroomCaptionSnapshot>();
+  for (const caption of captions) {
+    const previous = speakers.get(caption.speakerId);
+    if (!previous || Date.parse(caption.occurredAt) >= Date.parse(previous.occurredAt)) {
+      speakers.set(caption.speakerId, caption);
     }
   }
-  return null;
+  return Array.from(speakers.values())
+    .filter(caption => now - Date.parse(caption.occurredAt) <= maxAgeMs &&
+      (displayMode === "translated" ? Boolean(captionTranslation(caption, language)) : Boolean(caption.text.trim())))
+    .sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt))
+    .slice(0, 3)
+    .reverse();
+}
+
+/** Merge a poll/ack with newer local speech without rolling a final back to a partial. */
+export function mergeCaptionSnapshots(
+  current: readonly ClassroomCaptionSnapshot[],
+  incoming: readonly ClassroomCaptionSnapshot[],
+) {
+  const captions = new Map(current.map(caption => [caption.id, caption]));
+  for (const caption of incoming) {
+    const previous = captions.get(caption.id);
+    if (!previous) { captions.set(caption.id, caption); continue; }
+    const preferPrevious = (previous.isFinal && !caption.isFinal) ||
+      (previous.isFinal === caption.isFinal && Date.parse(previous.createdAt) > Date.parse(caption.createdAt));
+    const preferred = preferPrevious ? previous : caption;
+    captions.set(caption.id, {
+      ...preferred,
+      occurredAt: previous.occurredAt,
+      text: preferred.text || previous.text || caption.text,
+      translations: preferPrevious
+        ? { ...caption.translations, ...previous.translations }
+        : { ...previous.translations, ...caption.translations },
+      isFinal: previous.isFinal || caption.isFinal,
+    });
+  }
+  return Array.from(captions.values()).sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt)).slice(-120);
 }

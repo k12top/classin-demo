@@ -993,8 +993,8 @@ export async function applyClassroomAction(input: {
         delete screenShares[scope];
         await writeComposition({ ...currentComposition, screenShares,
           boardItems: scope === "main" ? currentComposition.boardItems.filter(item => !(item.kind === "screen" && item.sourceId === session.userId)) : currentComposition.boardItems });
-        if (scope === "main" && role === "student") await tx.classroomMemberState.updateMany({ where: { sessionId, userId: session.userId },
-          data: { screenShareState: "idle", screenShareRequestedAt: null } });
+        // Releasing a capture (including a failed join) does not revoke the
+        // teacher's grant. Explicit stop/revoke actions still remove it.
         break;
       }
       case "requestScreenShare": {

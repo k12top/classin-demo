@@ -1,3 +1,5 @@
+import { withClassroomRequestSignal } from "./request-signal";
+
 export type ClassroomConnectionDiagnostic = {
   event: "connection-state" | "credential-retry" | "credential-recovered" | "credential-failed"
     | "session-retry" | "session-recovered" | "session-failed" | "heartbeat-failed" | "heartbeat-recovered";
@@ -33,9 +35,9 @@ export function parseClassroomDiagnostic(value: unknown) {
 export function reportClassroomDiagnostic(input: ClassroomConnectionDiagnostic & {
   sessionId: string; clientId: string; recorderToken?: string;
 }): void {
-  void fetch("/api/classroom/connection-diagnostics", {
+  void withClassroomRequestSignal(5_000, undefined, signal => fetch("/api/classroom/connection-diagnostics", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...input, online: navigator.onLine, visibility: document.visibilityState }),
-    keepalive: true, signal: AbortSignal.timeout(5_000),
-  }).catch(() => undefined); // Diagnostic transport never drives recovery.
+    keepalive: true, signal,
+  })).catch(() => undefined); // Diagnostic transport never drives recovery.
 }

@@ -30,6 +30,7 @@ import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { useTranslation } from "@/lib/i18n/context";
 import { isHlsPlaybackUrl, isMp4PlaybackUrl } from "@/lib/playback-url";
 import { captionTranslation, type CaptionDisplayMode } from "@/lib/classroom/caption-display";
+import { classroomLanguageLabel } from "@/lib/classroom/languages";
 import { activeCaptionIndex, captionPosition } from "@/lib/classroom/playback-captions";
 import type { CourseSessionSummaryDocument, SummaryEvidence } from "@/lib/course-session-summary-document";
 import { LessonSummaryReport } from "@/components/course-sessions/lesson-summary-report";
@@ -531,7 +532,7 @@ export default function CoursePlaybackPage({
     lessonCaptions.flatMap((caption) => Object.keys(caption.translations || {})),
   ));
   const effectiveCaptionLanguage = captionLanguages.includes(captionLanguage)
-    ? captionLanguage : captionLanguages[0] || "";
+    ? captionLanguage : captionLanguages.find(language => language.split("-")[0] === locale.split("-")[0]) || captionLanguages[0] || "";
   const selectedCaptionTranslation = activeCaption && effectiveCaptionLanguage
     ? captionTranslation(activeCaption, effectiveCaptionLanguage) : "";
   const activeCaptionPosition = activeCaption && captionPosition(activeCaption.occurredAt, playableRecordings);
@@ -580,7 +581,11 @@ export default function CoursePlaybackPage({
             ? "课堂回放正在生成，页面会自动刷新。"
             : "The lesson recording is being prepared. This page will refresh automatically."
           : failedRecording
-            ? failedRecording.errorMessage ||
+            ? recordings.every(recording => recording.status === "failed" && !recording.startedAt)
+              ? locale.startsWith("zh")
+                ? "录制端未能完成启动，本节课没有生成课堂录像。"
+                : "The recorder could not finish starting. No video was recorded for this lesson."
+              : failedRecording.errorMessage ||
               (locale.startsWith("zh")
                 ? "课堂录像生成失败，请检查录像配置后重试。"
                 : "The lesson recording failed. Check the recording configuration and retry.")
@@ -590,6 +595,9 @@ export default function CoursePlaybackPage({
   const lessonContentProps = {
     summary,
     captions: lessonCaptions,
+    captionLanguage: effectiveCaptionLanguage,
+    captionLanguages,
+    onCaptionLanguageChange: setCaptionLanguage,
     hasMoreCaptions: Boolean(nextCaptionCursor),
     captionsLoadingMore,
     onLoadMoreCaptions: () => void loadMoreCaptions(),
@@ -782,6 +790,9 @@ function LessonSummaryPanel({
   presentation,
   summary,
   captions,
+  captionLanguage,
+  captionLanguages,
+  onCaptionLanguageChange,
   hasMoreCaptions,
   captionsLoadingMore,
   onLoadMoreCaptions,
@@ -801,6 +812,9 @@ function LessonSummaryPanel({
   presentation: "timeline" | "summary";
   summary: LessonSummary | null;
   captions: LessonCaption[];
+  captionLanguage: string;
+  captionLanguages: string[];
+  onCaptionLanguageChange: (language: string) => void;
   hasMoreCaptions: boolean;
   captionsLoadingMore: boolean;
   onLoadMoreCaptions: () => void;
@@ -904,6 +918,12 @@ function LessonSummaryPanel({
       <div className="border-b border-border/60 px-5 py-5">
         <h2 className="text-base font-semibold text-foreground">{copy.title === "课后总结" ? "发言时间线" : "Utterance timeline"}</h2>
         <p className="mt-1 text-xs text-muted-foreground">{copy.title === "课后总结" ? "点击发言跳转到视频中的对应位置" : "Select an utterance to jump to the video"}</p>
+        {captionLanguages.length > 0 && <label className="mt-3 flex items-center gap-2 text-sm text-foreground">
+          <span>{copy.title === "课后总结" ? "翻译语言" : "Translation language"}</span>
+          <select className="min-w-0 rounded-md border border-border bg-background px-2 py-1.5" value={captionLanguage} onChange={event => onCaptionLanguageChange(event.target.value)}>
+            {captionLanguages.map(language => <option key={language} value={language}>{classroomLanguageLabel(language)}</option>)}
+          </select>
+        </label>}
       </div>
       <Card className="overflow-hidden rounded-none border-0 bg-card shadow-none">
         <CardContent className="p-3">
@@ -922,15 +942,13 @@ function LessonSummaryPanel({
                   <button type="button" disabled={!position} onClick={() => onSeekToCaption(caption)}
                     aria-current={caption.id === activeCaptionId ? "true" : undefined}
                     title={!position ? (copy.title === "课后总结" ? "这条字幕缺少可定位的录像时间" : "No matching recording time for this caption") : undefined}
-                    className={`grid w-full gap-1 rounded-xl border-l-2 p-3 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-primary ${caption.id === activeCaptionId ? "border-primary bg-primary/10" : "border-primary/30 hover:bg-muted/50"} ${!position ? "cursor-not-allowed opacity-60" : ""}`}>
+                    className={`grid w-full gap-1 rounded-xl border p-3 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-primary ${caption.id === activeCaptionId ? "border-primary bg-primary/10" : "border-border hover:bg-muted/50"} ${!position ? "cursor-not-allowed" : ""}`}>
                     <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <time dateTime={caption.occurredAt}>{timeLabel}</time>
                       <span>{caption.speakerName}</span>
                     </span>
                     <span className="text-foreground">{caption.text}</span>
-                    {Object.entries(caption.translations || {}).map(([language, translation]) => (
-                      <span key={language} className="text-muted-foreground">{language}: {translation}</span>
-                    ))}
+                    {captionTranslation(caption, captionLanguage) && <span className="text-muted-foreground">{captionTranslation(caption, captionLanguage)}</span>}
                   </button>
                 </li>;
               })}

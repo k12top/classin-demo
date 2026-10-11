@@ -473,7 +473,9 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       await renewAgoraConnection(client, this.credential, tracks, () => this.client === client);
     }
     assertCurrent();
-    if (this.screenClient?.connectionState === "DISCONNECTED" && this.credential.screenShare) {
+    // A captured track is assigned before authorization and the first join.
+    // Recovery must only rejoin a publisher whose initial start has completed.
+    if (this.snapshot.local.screenSharing && this.screenClient?.connectionState === "DISCONNECTED" && this.credential.screenShare) {
       const screenClient = this.screenClient;
       const tracks = [this.screenTrack, this.screenAudioTrack].filter((track): track is ILocalVideoTrack | ILocalAudioTrack => Boolean(track));
       await renewAgoraConnection(screenClient, { ...this.credential, ...this.credential.screenShare }, tracks, () => this.client === client && this.screenClient === screenClient);

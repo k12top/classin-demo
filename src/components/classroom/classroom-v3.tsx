@@ -1,6 +1,8 @@
 "use client";
 
 import { ClassroomMemberAvatar } from "@/components/classroom/member-avatar";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { useChatUnread } from "@/lib/classroom/use-chat-unread";
 import { TeacherAssistant } from "@/components/classroom/teacher-assistant";
 import { assistantConversationKey, classroomAssistantTeacher } from "@/lib/classroom/assistant";
 import { ClassroomClosingNotice } from "@/components/classroom/closing-notice";
@@ -15,6 +17,7 @@ import { canRetryClassroomRecovery, ClassroomRecoveryError, retryClassroomRecove
 import { reportClassroomDiagnostic, type ClassroomConnectionDiagnostic } from "@/lib/classroom/connection-diagnostics";
 import { createCaptionPersistenceQueue } from "@/lib/classroom/caption-persistence";
 import { requestClassroomHeartbeat, classroomPollDelay } from "@/lib/classroom/heartbeat-request";
+import { withClassroomRequestSignal } from "@/lib/classroom/request-signal";
 import { classroomMemberVisible, classroomPresenceClockOffset } from "@/lib/classroom/presence";
 import { requestClassroomSession, ClassroomSessionRequestError } from "@/lib/classroom/session-request";
 import { reconcileClassroomRtcPresence } from "@/lib/classroom/rtc-presence";
@@ -183,7 +186,8 @@ import {
 } from "@/lib/classroom/caption-preferences";
 import {
   captionTranslation,
-  selectStableCaption,
+  selectLiveCaptions,
+  mergeCaptionSnapshots,
 } from "@/lib/classroom/caption-display";
 
 type LoadingState = "loading" | "ready" | "error";
@@ -272,33 +276,7 @@ function mergeCaptions(
   current: ClassroomCaptionSnapshot[],
   incoming: ClassroomCaptionSnapshot,
 ) {
-  const next = new Map(current.map((caption) => [caption.id, caption]));
-  const existing = next.get(incoming.id);
-  next.set(
-    incoming.id,
-    existing
-      ? {
-          ...existing,
-          ...incoming,
-          text: incoming.text || existing.text,
-          sourceLanguage:
-            incoming.sourceLanguage || existing.sourceLanguage,
-          detectedLanguage:
-            incoming.detectedLanguage || existing.detectedLanguage,
-          translations: {
-            ...existing.translations,
-            ...incoming.translations,
-          },
-          isFinal: incoming.isFinal || existing.isFinal,
-        }
-      : incoming,
-  );
-  return Array.from(next.values())
-    .sort(
-      (left, right) =>
-        new Date(left.occurredAt).getTime() - new Date(right.occurredAt).getTime(),
-    )
-    .slice(-120);
+  return mergeCaptionSnapshots(current, [incoming]);
 }
 
 function useNow(interval = 1000) {
@@ -1527,7 +1505,7 @@ function DrawerNavigation({
   useEffect(() => {
     if (!toolSettingsOpen && !classroomMenuOpen) return;
     const dismiss = (event: PointerEvent) => {
-      if ((event.target as Element).closest(".classroom-v3-tool-rail, .classroom-v3-tool-popover")) return;
+      if ((event.target as Element).closest(".classroom-v3-tool-rail, .classroom-v3-tool-popover, .classroom-v3-management-menu")) return;
       setToolSettingsOpen(false);
       setClassroomMenuOpen(false);
     };
@@ -1731,18 +1709,28 @@ function DrawerNavigation({
         );
       })}
       {railLevel === "expanded" && (
+        <DropdownMenu modal={false} open={classroomMenuOpen} onOpenChange={(open) => { setClassroomMenuOpen(open); if (open) { onInteract(); setToolSettingsOpen(false); } }}>
+        <DropdownMenuTrigger asChild>
         <button
           type="button"
           className={classroomMenuOpen ? "is-active" : ""}
-          onClick={() => {
-            onInteract();
-            setClassroomMenuOpen((value) => !value);
-          }}
           title={t("classroom.v3.classroomManagement")}
         >
           <MoreHorizontal />
           <span>{t("classroom.v3.classroomManagement")}</span>
         </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="left" align="end" sideOffset={10} collisionPadding={12} className="classroom-v3-management-menu w-56">
+          {items.filter((item) => visiblePanels.includes(item.id) && !["members", "chat", "captions"].includes(item.id)).map((item) => { const Icon = item.icon; return <DropdownMenuItem key={item.id} onSelect={() => onChange(item.id)}><Icon />{item.label}</DropdownMenuItem>; })}
+          {canManageStage && <>
+            <DropdownMenuItem onSelect={() => onClassroomAction({ type: "authorizeAllOnStage" })}><PenTool />{t("classroom.v3.authorizeAllOnStage")}</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onClassroomAction({ type: "deauthorizeAll" })}><Lock />{t("classroom.v3.deauthorizeAll")}</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onClassroomAction({ type: "removeAllStudentsFromStage" })}><Users />{t("classroom.v3.removeAllFromStage")}</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onClassroomAction({ type: "resetComposition" })}><RefreshCw />{t("classroom.v3.resetLayout")}</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onClassroomAction({ type: "arrangeVideoGallery" })}><LayoutGrid />{t("classroom.v3.videoGallery")}</DropdownMenuItem>
+          </>}
+        </DropdownMenuContent>
+        </DropdownMenu>
       )}
       {railLevel === "compact" && (
         <button type="button" onClick={onInteract} title={t("classroom.v3.expandTools")}>
@@ -1973,28 +1961,6 @@ function DrawerNavigation({
         </button>
       </div>
     )}
-    {classroomMenuOpen && (
-      <div className="classroom-v3-tool-popover is-classroom-menu" role="menu">
-        {items.filter((item) => visiblePanels.includes(item.id) && !["members", "chat", "captions"].includes(item.id)).map((item) => { const Icon = item.icon; return <button key={item.id} type="button" role="menuitem" onClick={() => { onChange(item.id); setClassroomMenuOpen(false); }}><Icon />{item.label}</button>; })}
-        {canManageStage && <>
-        <button type="button" onClick={() => onClassroomAction({ type: "authorizeAllOnStage" })}>
-          <PenTool />{t("classroom.v3.authorizeAllOnStage")}
-        </button>
-        <button type="button" onClick={() => onClassroomAction({ type: "deauthorizeAll" })}>
-          <Lock />{t("classroom.v3.deauthorizeAll")}
-        </button>
-        <button type="button" onClick={() => onClassroomAction({ type: "removeAllStudentsFromStage" })}>
-          <Users />{t("classroom.v3.removeAllFromStage")}
-        </button>
-        <button type="button" onClick={() => onClassroomAction({ type: "resetComposition" })}>
-          <RefreshCw />{t("classroom.v3.resetLayout")}
-        </button>
-        <button type="button" onClick={() => onClassroomAction({ type: "arrangeVideoGallery" })}>
-          <LayoutGrid />{t("classroom.v3.videoGallery")}
-        </button>
-        </>}
-      </div>
-    )}
     </>
   );
 }
@@ -2211,6 +2177,7 @@ function ChatPanel({
   spaces,
   activeSpaceId,
   canManage,
+  students,
   disabled,
   onSend,
   onDelete,
@@ -2223,6 +2190,7 @@ function ChatPanel({
   spaces: ClassroomSpaceSnapshot[];
   activeSpaceId: string | null;
   canManage: boolean;
+  students: ClassroomMemberSnapshot[];
   disabled: boolean;
   onSend: (
     content: string,
@@ -2237,6 +2205,8 @@ function ChatPanel({
   busy: boolean;
 }) {
   const { t, locale } = useTranslation();
+  const allMuted = students.length > 0 && students.every((member) => member.chatMuted);
+  const allUnmuted = students.every((member) => !member.chatMuted);
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
@@ -2291,8 +2261,8 @@ function ChatPanel({
         <span>{t("classroom.v3.messageCount", { count: visibleMessages.length })}</span>
       </div>
       {canManage && <div className="classroom-v3-bulk-actions">
-        <button type="button" disabled={busy} onClick={() => onMuteAll(true)}><MessageCircle />{t("classroom.v3.muteAll")}</button>
-        <button type="button" disabled={busy} onClick={() => onMuteAll(false)}><MessageCircle />{t("classroom.v3.unmuteAllChat")}</button>
+        <button type="button" disabled={busy || allMuted || !students.length} aria-pressed={allMuted} onClick={() => onMuteAll(true)}><MessageCircle />{t("classroom.v3.muteAll")}</button>
+        <button type="button" disabled={busy || allUnmuted} onClick={() => onMuteAll(false)}><MessageCircle />{t("classroom.v3.unmuteAllChat")}</button>
       </div>}
       <nav className="classroom-v3-chat-scopes">
         <button type="button" disabled={sending} className={scope === "classroom" ? "is-active" : ""} onClick={() => setScope("classroom")}>
@@ -4086,6 +4056,7 @@ export function ClassroomV3({
     isRecorder ? "chat" : null,
   );
   const activePanel = selectedPanel === "members" && sessionData && !sessionData.capabilities.canManageMembers ? null : selectedPanel;
+  const unreadMessages = useChatUnread(sessionData?.messages, courseId, sessionData?.credential.userId || "", activePanel === "chat");
   useEffect(() => {
     if (!dockMoreOpen && !activePanel) return;
     const dismiss = (event: PointerEvent) => {
@@ -4420,7 +4391,9 @@ export function ClassroomV3({
       if (update.runtime?.presenceObservedAt && update.runtime.presenceObservedAt !== current.runtime.presenceObservedAt) {
         setPresenceClockOffset(classroomPresenceClockOffset(update.runtime.presenceObservedAt));
       }
-      const next = { ...current, ...update };
+      const next = { ...current, ...update,
+        ...(update.captions && { captions: mergeCaptionSnapshots(current.captions, update.captions) }),
+      };
       if (next.credential.role === "assistant") {
         next.capabilities = classroomCapabilities("assistant", next.modePolicy, next.runtime.assistantPermissions?.[next.credential.userId] === true);
       }
@@ -4581,8 +4554,7 @@ export function ClassroomV3({
     if (!controller || controller.signal.aborted || !provider) return;
     const renewal = (async () => {
       let hadFailure = false;
-      await retryClassroomRecovery(async () => {
-        const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]);
+      await retryClassroomRecovery(() => withClassroomRequestSignal(10_000, controller.signal, async (signal) => {
         const request = () => fetch("/api/classroom/session/renew-credential", {
           signal, method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionId: sessionRef.current?.course.sessionId || courseId, clientId,
@@ -4603,7 +4575,7 @@ export function ClassroomV3({
         controller.signal.throwIfAborted();
         if (providerRef.current !== provider) throw new DOMException("Classroom replaced", "AbortError");
         updateSession({ credential: payload.credential, signaling: payload.signaling });
-      }, {
+      }), {
         signal: controller.signal,
         onFailure: (error, attempt, delayMs) => {
           hadFailure = true;
@@ -4694,13 +4666,13 @@ export function ClassroomV3({
         captionQueue = createCaptionPersistenceQueue(async (caption) => {
           const controller = liveRequestsRef.current;
           if (!controller || cancelled || sessionRef.current?.runtime.status === "ended") return;
-          const result = await retryClassroomRecovery(async () => {
+          const result = await retryClassroomRecovery(() => withClassroomRequestSignal(10_000, controller.signal, async (signal) => {
             const response = await fetch(
               `/api/sessions/${encodeURIComponent(courseId)}/classroom/captions`,
               {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]),
+                signal,
                 body: JSON.stringify({ caption, ...(shareAccess && { shareAccess }), ...(isRecorder && recorderToken ? { recorderToken } : {}) }),
               },
             );
@@ -4708,7 +4680,7 @@ export function ClassroomV3({
             if (stopEndedSession(response.status, result)) return {};
             if (!response.ok) throw new ClassroomRecoveryError(response.status, Number(response.headers.get("Retry-After") || 0) * 1_000);
             return result;
-          }, { signal: controller.signal });
+          }), { signal: controller.signal });
           if (cancelled || controller.signal.aborted || !result.caption) return;
           if (!isRecorder) {
             const current = sessionRef.current;
@@ -5411,8 +5383,8 @@ export function ClassroomV3({
     }
     let cancelled = false;
     const timer = window.setTimeout(() => {
-    void fetch("/api/classroom/session/whiteboard-credential", {
-      signal: AbortSignal.any([AbortSignal.timeout(15_000), ...(liveRequestsRef.current ? [liveRequestsRef.current.signal] : [])]),
+    void withClassroomRequestSignal(15_000, liveRequestsRef.current?.signal, signal => fetch("/api/classroom/session/whiteboard-credential", {
+      signal,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -5420,7 +5392,7 @@ export function ClassroomV3({
         ...(shareAccess && { shareAccess }),
         ...(isRecorder && { recordingId, recorderToken }),
       }),
-    })
+    }))
       .then(async (response) => {
         const payload = (await response.json()) as {
           whiteboard?: ClassroomSessionResponse["whiteboard"];
@@ -6532,14 +6504,12 @@ export function ClassroomV3({
     captionLanguage,
     availableCaptionLanguages,
   );
-  const latestCaption = selectStableCaption(
+  const liveCaptions = selectLiveCaptions(
     isRecorder ? [] : sessionData?.captions || [],
     effectiveCaptionLanguage,
     captionDisplayMode,
+    now + presenceClockOffset,
   );
-  const latestTranslation = latestCaption
-    ? captionTranslation(latestCaption, effectiveCaptionLanguage)
-    : "";
   const visibleDrawerPanels: DrawerPanel[] = [
     ...(sessionData?.modePolicy.showMemberRoster && sessionData.capabilities.canManageMembers
       ? (["members"] as DrawerPanel[])
@@ -7236,8 +7206,7 @@ export function ClassroomV3({
               captionOverlayVisible &&
               captionDisplayMode !== "off" &&
               sessionData.runtime.interpretation.enabled &&
-              latestCaption &&
-              (captionDisplayMode !== "translated" || latestTranslation) ? (
+              liveCaptions.length > 0 ? (
                 <div className="classroom-v3-caption-bounds" ref={captionBoundsRef}>
                   <motion.div
                     className="classroom-v3-caption-overlay"
@@ -7251,12 +7220,14 @@ export function ClassroomV3({
                     dragElastic={0}
                     aria-live="polite"
                   >
-                    {latestCaption && captionDisplayMode !== "translated" ? (
-                      <p><span className="classroom-v3-caption-text" title={t("classroom.v3.captionDragHint")} onPointerDown={(event) => captionDragControls.start(event)}>{latestCaption.text}</span></p>
-                    ) : null}
-                    {captionDisplayMode !== "original" && latestTranslation ? (
-                      <p className="is-translation"><span className="classroom-v3-caption-text" title={t("classroom.v3.captionDragHint")} onPointerDown={(event) => captionDragControls.start(event)}>{latestTranslation}</span></p>
-                    ) : null}
+                    {liveCaptions.map((caption) => {
+                      const translation = captionTranslation(caption, effectiveCaptionLanguage);
+                      return <div key={caption.speakerId} className="classroom-v3-caption-speaker">
+                        {liveCaptions.length > 1 && <strong className="classroom-v3-caption-speaker-name">{caption.speakerName}</strong>}
+                        {captionDisplayMode !== "translated" && <p><span className="classroom-v3-caption-text" title={t("classroom.v3.captionDragHint")} onPointerDown={(event) => captionDragControls.start(event)}>{caption.text}</span></p>}
+                        {captionDisplayMode !== "original" && translation && <p className="is-translation"><span className="classroom-v3-caption-text" title={t("classroom.v3.captionDragHint")} onPointerDown={(event) => captionDragControls.start(event)}>{translation}</span></p>}
+                      </div>;
+                    })}
                   </motion.div>
                 </div>
               ) : null}
@@ -7421,7 +7392,7 @@ export function ClassroomV3({
                 members: classroomMembers.filter((member) => member.online).length,
                 rooms: sessionData.spaces.filter((space) => space.status === "open").length,
                 questions: sessionData.questions.filter((question) => question.status === "open").length,
-                chat: sessionData.messages.length,
+                chat: unreadMessages,
                 hands: classroomMembers.filter((member) => member.handRaisedAt).length,
               }}
             />
@@ -7502,6 +7473,7 @@ export function ClassroomV3({
                 )}
                 {activePanel === "chat" && (
                   <ChatPanel
+                    students={sessionData.runtime.members.filter(member => member.role === "student")}
                     messages={[...sessionData.messages, ...pendingMessages]}
                     currentUserId={currentUserId}
                     role={sessionData.credential.role}
