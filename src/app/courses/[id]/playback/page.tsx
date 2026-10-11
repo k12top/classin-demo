@@ -100,6 +100,8 @@ type CaptionAppearance = {
 
 type PlaybackSeek = { recordingId: string; seconds: number; captionId: string };
 
+const NO_CAPTION_TRANSLATION = "none";
+
 type SummaryCopy = {
   title: string;
   draft: string;
@@ -531,9 +533,11 @@ export default function CoursePlaybackPage({
   const captionLanguages = Array.from(new Set(
     lessonCaptions.flatMap((caption) => Object.keys(caption.translations || {})),
   ));
-  const effectiveCaptionLanguage = captionLanguages.includes(captionLanguage)
-    ? captionLanguage : captionLanguages.find(language => language.split("-")[0] === locale.split("-")[0]) || captionLanguages[0] || "";
-  const selectedCaptionTranslation = activeCaption && effectiveCaptionLanguage
+  const effectiveCaptionLanguage = captionLanguage === NO_CAPTION_TRANSLATION
+    ? NO_CAPTION_TRANSLATION
+    : captionLanguages.includes(captionLanguage)
+      ? captionLanguage : captionLanguages.find(language => language.split("-")[0] === locale.split("-")[0]) || captionLanguages[0] || "";
+  const selectedCaptionTranslation = activeCaption && effectiveCaptionLanguage && effectiveCaptionLanguage !== NO_CAPTION_TRANSLATION
     ? captionTranslation(activeCaption, effectiveCaptionLanguage) : "";
   const activeCaptionPosition = activeCaption && captionPosition(activeCaption.occurredAt, playableRecordings);
   const videoCaption = activeCaptionPosition && selectedRecording && activeCaptionPosition.recordingId === selectedRecording.id &&
@@ -921,6 +925,7 @@ function LessonSummaryPanel({
         {captionLanguages.length > 0 && <label className="mt-3 flex items-center gap-2 text-sm text-foreground">
           <span>{copy.title === "课后总结" ? "翻译语言" : "Translation language"}</span>
           <select className="min-w-0 rounded-md border border-border bg-background px-2 py-1.5" value={captionLanguage} onChange={event => onCaptionLanguageChange(event.target.value)}>
+            <option value={NO_CAPTION_TRANSLATION}>{copy.title === "课后总结" ? "无，不翻译" : "None, no translation"}</option>
             {captionLanguages.map(language => <option key={language} value={language}>{classroomLanguageLabel(language)}</option>)}
           </select>
         </label>}
@@ -933,6 +938,7 @@ function LessonSummaryPanel({
             <>
             <ol className="max-h-[650px] space-y-2 overflow-y-auto">
               {captions.map((caption) => {
+                const translation = captionLanguage === NO_CAPTION_TRANSLATION ? "" : captionTranslation(caption, captionLanguage);
                 const position = captionPosition(caption.occurredAt, recordings);
                 const segment = position && recordings.find((recording) => recording.id === position.recordingId)?.segment;
                 const timeLabel = position
@@ -948,7 +954,7 @@ function LessonSummaryPanel({
                       <span>{caption.speakerName}</span>
                     </span>
                     <span className="text-foreground">{caption.text}</span>
-                    {captionTranslation(caption, captionLanguage) && <span className="text-muted-foreground">{captionTranslation(caption, captionLanguage)}</span>}
+                    {translation && <span className="text-muted-foreground">{translation}</span>}
                   </button>
                 </li>;
               })}
@@ -1571,6 +1577,7 @@ function CaptionSettings({
     <div className="grid gap-3 text-xs">
       <label className="grid gap-1"><span className="font-semibold">{chinese ? "翻译语言" : "Translation language"}</span>
         <select value={language} disabled={!languages.length} onChange={(event) => onLanguageChange(event.target.value)} className="h-9 rounded-lg border border-border bg-background px-2 text-sm">
+          <option value={NO_CAPTION_TRANSLATION}>{chinese ? "无，不翻译" : "None, no translation"}</option>
           {languages.length ? languages.map((item) => <option key={item} value={item}>{item}</option>) : <option value="">{chinese ? "暂无译文" : "No translation available"}</option>}
         </select>
       </label>
