@@ -26,7 +26,7 @@ async function run() {
     "@/lib/classroom/server/transcription-orchestrator": "export const ensureClassroomTranscriptionForLiveSession=async()=>{};export const syncClassroomTranscription=async()=>{};",
     "@/lib/classroom/server/recording-orchestrator": "export const requestRecordingStop=async()=>{};export const processRecordingStop=async()=>{};",
   };
-  await esbuild.build({ stdin: { contents: `export {prisma} from './src/lib/db';export * from './src/lib/classroom/server/connections';export {POST as renew} from './src/app/api/classroom/session/renew-credential/route';export {POST as heartbeat} from './src/app/api/courses/[id]/classroom/actions/route';export {POST as diagnostic} from './src/app/api/classroom/connection-diagnostics/route';`, resolveDir: root },
+  await esbuild.build({ stdin: { contents: `export {prisma} from './src/lib/db';export * from './src/lib/classroom/server/connections';export * from './src/lib/classroom/server/attendance-entry';export {POST as renew} from './src/app/api/classroom/session/renew-credential/route';export {POST as heartbeat} from './src/app/api/courses/[id]/classroom/actions/route';export {POST as diagnostic} from './src/app/api/classroom/connection-diagnostics/route';`, resolveDir: root },
     outfile: output, bundle: true, format: "cjs", platform: "node", packages: "external", tsconfig: path.join(root, "tsconfig.json"), plugins: [{ name: "isolated-services", setup(build) {
       build.onResolve({ filter: /^(server-only|@\/lib\/classroom\/server\/(integration-events|request-access|recorder-token|provider-factory|runtime|transcription-orchestrator|recording-orchestrator)|@\/lib\/classroom\/signaling\/agora-server|@\/lib\/session)$/ }, args => ({ path: args.path, namespace: "mock" }));
       build.onLoad({ filter: /.*/, namespace: "mock" }, args => ({ contents: mocks[args.path], loader: "js" }));
@@ -87,12 +87,57 @@ async function run() {
     });
     await check("presence-only endpoint avoids snapshots and action writes", async () => {
       const response = await api.heartbeat(request({ clientId, presenceOnly: true, action: { type: "heartbeat" } }), { params: Promise.resolve({ id: lesson.id }) });
-      assert.equal(response.status, 200); assert.deepEqual(await response.json(), { ok: true, status: "live" });
+      assert.equal(response.status, 200); assert.deepEqual(await response.json(), { ok: true, status: "live", refreshed: true });
+    });
+    await check("locked connection returns retryable 503 instead of reporting a refreshed lease", async () => {
+      const before = new Date(Date.now() - 60_000);
+      await db.classroomConnection.update({ where: { id }, data: { lastSeenAt: before } });
+      lock = await pool.connect(); await lock.query("BEGIN");
+      await lock.query('SELECT "id" FROM "ClassroomConnection" WHERE "id"=$1 FOR UPDATE', [id]);
+      const started = Date.now();
+      const response = await api.heartbeat(request({ clientId, presenceOnly: true, action: { type: "heartbeat" } }), { params: Promise.resolve({ id: lesson.id }) });
+      assert.equal(response.status, 503);
+      assert.equal((await response.json()).code, "heartbeat_busy");
+      assert.equal(response.headers.get("Retry-After"), "2");
+      assert.ok(Date.now() - started < 800);
+      assert.equal((await db.classroomConnection.findUnique({ where: { id } })).lastSeenAt.getTime(), before.getTime());
+      await lock.query("ROLLBACK"); lock.release(); lock = null;
+      assert.equal((await api.touchClassroomConnection(lesson.id, userId, clientId)).refreshed, true);
+    });
+    await check("pagehide retains stage grants, rejoin restores presence, explicit leave and late beacons remain offline", async () => {
+      await db.classroomMemberState.update({ where: { id: member.id }, data: { onStage: true, stageState: "accepted", whiteboardWritable: true } });
+      await api.leaveClassroomConnection(lesson.id, userId, clientId, false);
+      let current = await db.classroomMemberState.findUnique({ where: { id: member.id } });
+      assert.equal(current.presence, "reconnecting"); assert.equal(current.onStage, true); assert.equal(current.whiteboardWritable, true);
+      assert.equal((await api.touchClassroomConnection(lesson.id, userId, clientId)).refreshed, false);
+      await api.touchClassroomConnection(lesson.id, userId, clientId, true);
+      current = await db.classroomMemberState.findUnique({ where: { id: member.id } });
+      assert.equal(current.presence, "online"); assert.equal(current.onStage, true);
+      await api.leaveClassroomConnection(lesson.id, userId, clientId, true);
+      await api.leaveClassroomConnection(lesson.id, userId, clientId, false);
+      current = await db.classroomMemberState.findUnique({ where: { id: member.id } });
+      assert.equal(current.presence, "offline"); assert.equal(current.onStage, false); assert.equal(current.whiteboardWritable, false);
+      await api.touchClassroomConnection(lesson.id, userId, clientId, true);
     });
     await check("accepted student renewal preserves publishing authorization", async () => {
       await db.classroomMemberState.update({ where: { id: member.id }, data: { onStage: true, stageState: "accepted", cameraAllowed: false } });
       const body = await (await api.renew(request({ sessionId: lesson.id, clientId }))).json();
       assert.equal(body.credential.publisher, true);
+    });
+    await check("concurrent bootstrap retries create exactly one active attendance entry", async () => {
+      const entry = { courseId: course.id, sessionId: lesson.id, userId, displayName: "Student", avatar: "", clientId };
+      await Promise.all(Array.from({ length: 8 }, () => api.recordClassroomAttendanceEntry(entry)));
+      assert.equal(await db.courseAttendance.count({ where: { sessionId: lesson.id } }), 1);
+      assert.equal(await db.courseAttendance.count({ where: { sessionId: lesson.id, leftAt: null } }), 1);
+      const first = await db.courseAttendance.findFirst({ where: { sessionId: lesson.id } });
+      await api.recordClassroomAttendanceEntry(entry);
+      assert.equal((await db.courseAttendance.findUnique({ where: { id: first.id } })).leftAt, null);
+      await api.recordClassroomAttendanceEntry({ ...entry, clientId: "new-entry-client" });
+      assert.equal(await db.courseAttendance.count({ where: { sessionId: lesson.id } }), 2);
+      assert.equal(await db.courseAttendance.count({ where: { sessionId: lesson.id, leftAt: null } }), 1);
+      // A delayed retry from the earlier tab must not close the newer entry.
+      await api.recordClassroomAttendanceEntry(entry);
+      assert.equal(await db.courseAttendance.count({ where: { sessionId: lesson.id, leftAt: null } }), 1);
     });
     await check("ended lessons reject renewal and presence", async () => {
       await db.classroomRuntime.update({ where: { id: runtime.id }, data: { status: "ended" } });

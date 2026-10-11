@@ -6956,3 +6956,11 @@ html[lang="de"] .classroom-v3-dock button > span {
     min-height: 0;
   }
 }
+
+.classroom-v3-member-avatar i.is-reconnecting { background: #e3a02c; }
+.classroom-v3-launch-cancel {
+  position: fixed; bottom: max(24px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 12px;
+  border: 1px solid var(--classroom-border, #cad5e3); background: var(--classroom-panel, #fff); color: #334155; z-index: 10;
+}
+.classroom-v3-launch-cancel svg { width: 18px; height: 18px; }

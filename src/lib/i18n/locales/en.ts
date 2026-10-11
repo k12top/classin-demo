@@ -363,6 +363,7 @@ export const en: typeof zhCN = {
       missingRecorderCredential: "Classroom recording credential is missing",
       accessDenied: "You do not have access to this classroom",
       sessionCreateFailed: "Unable to create a classroom session",
+      enteringRetry: "Connection temporarily unavailable. Retrying entry ({attempt}/{max})…",
       databaseUnavailable: "The classroom is temporarily unavailable. Please try again shortly.",
       recordingClassroom: "Classroom recording",
       classroomLaunchFailed: "Unable to launch the classroom",

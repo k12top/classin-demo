@@ -74,6 +74,7 @@
       "type": "object",
       "required": ["revision", "status", "stageMode", "stageLocked", "chatEnabled", "members", "interpretation"],
       "properties": {
+        "presenceObservedAt": { "type": "string", "format": "date-time" },
         "revision": { "type": "integer", "minimum": 0 },
         "status": { "enum": ["waiting", "live", "ended"] },
         "startedAt": { "type": ["string", "null"], "format": "date-time" },
@@ -100,6 +101,9 @@
         "screenUids": { "type": "array", "items": { "type": "integer", "minimum": 1000000001, "maximum": 2000000000 } },
         "signalingUserIds": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 64 } },
         "online": { "type": "boolean" },
+        "connectionStatus": { "enum": ["online", "reconnecting", "offline"] },
+        "lastSeenAt": { "type": ["string", "null"], "format": "date-time" },
+        "reconnectUntil": { "type": ["string", "null"], "format": "date-time" },
         "onStage": { "type": "boolean" },
         "stageState": { "enum": ["offstage", "invited", "accepted"] },
         "screenShareState": { "enum": ["idle", "requested", "accepted"] },

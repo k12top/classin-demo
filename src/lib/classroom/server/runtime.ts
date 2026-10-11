@@ -4,6 +4,8 @@ import "server-only";
 import { classroomActionRequiresRevision } from "@/lib/classroom/action-request";
 import { enqueueClassroomEvent } from "./integration-events";
 import { classroomMemberPresence } from "@/lib/classroom/session-lifecycle";
+import { CLASSROOM_ONLINE_WINDOW_MS, CLASSROOM_RECONNECT_WINDOW_MS, classroomConnectionPresence } from "@/lib/classroom/presence";
+import { coalesceClassroomRead } from "./read-coalescing";
 
 import { randomInt } from "node:crypto";
 import type { Prisma } from "@prisma/client";
@@ -55,7 +57,7 @@ import {
   updateClassroomBoardItem,
 } from "@/lib/classroom/composition";
 
-const ONLINE_WINDOW_MS = 45_000;
+const ONLINE_WINDOW_MS = CLASSROOM_ONLINE_WINDOW_MS;
 
 function compositionJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -327,9 +329,7 @@ export async function touchClassroomMember(
     });
     const occupiedSeats = existing
       ? 0
-      : await tx.classroomMemberState.count({
-          where: { sessionId, role: "student", onStage: true, presence: "online", lastSeenAt: { gte: new Date(Date.now() - ONLINE_WINDOW_MS) } },
-        });
+      : await countReservedStudentSeats(tx, sessionId);
     return tx.classroomMemberState.upsert(
       upsertInput(Boolean(existing) || occupiedSeats < mode.maxStageStudents),
     );
@@ -397,16 +397,39 @@ function publicMember(
   };
 }
 
+/** A retained reconnecting seat counts toward capacity until its lease expires. */
+async function countReservedStudentSeats(tx: Prisma.TransactionClient, sessionId: string) {
+  const cutoff = new Date(Date.now() - CLASSROOM_RECONNECT_WINDOW_MS);
+  const [row] = await tx.$queryRaw<Array<{ count: bigint }>>`
+    SELECT COUNT(*) AS count FROM "ClassroomMemberState" m
+    WHERE m."sessionId" = ${sessionId} AND m."role" = 'student' AND m."onStage" = true
+      AND (EXISTS (SELECT 1 FROM "ClassroomConnection" c WHERE c."sessionId" = m."sessionId"
+          AND c."userId" = m."userId" AND c."leftAt" IS NULL AND c."lastSeenAt" >= ${cutoff})
+        OR (m."lastSeenAt" >= ${cutoff} AND (m."presence" = 'reconnecting'
+          OR (m."presence" = 'online' AND NOT EXISTS (SELECT 1 FROM "ClassroomConnection" c
+            WHERE c."sessionId" = m."sessionId" AND c."userId" = m."userId")))))
+  `;
+  return Number(row?.count ?? 0);
+}
+
 export async function getClassroomRuntimeSnapshot(
   courseId: string,
   sessionId = courseId,
-  options: { ensure?: boolean } = {},
+  options: { ensure?: boolean; coalesce?: boolean } = {},
+): Promise<ClassroomRuntimeSnapshot> {
+  if (options.coalesce) return coalesceClassroomRead(`runtime:${sessionId}`, () => loadClassroomRuntimeSnapshot(courseId, sessionId, options));
+  return loadClassroomRuntimeSnapshot(courseId, sessionId, options);
+}
+
+async function loadClassroomRuntimeSnapshot(
+  courseId: string,
+  sessionId: string,
+  options: { ensure?: boolean },
 ): Promise<ClassroomRuntimeSnapshot> {
   if (options.ensure !== false) {
     await ensureClassroomRuntime(courseId, sessionId);
   }
-  const [runtime, rewardTotals, connections] = await Promise.all([
-    prisma.classroomRuntime.findUniqueOrThrow({
+  const runtime = await prisma.classroomRuntime.findUniqueOrThrow({
       where: { sessionId },
       include: {
         members: {
@@ -418,22 +441,35 @@ export async function getClassroomRuntimeSnapshot(
           ],
         },
       },
-    }),
+    });
+  const [rewardTotals, connections] = await Promise.all([
     prisma.classroomRewardEvent.groupBy({
       by: ["recipientId"],
       where: { sessionId },
       _sum: { points: true },
     }),
-    prisma.classroomConnection.findMany({ where: { sessionId } }),
+    // Closed-tab history is irrelevant after the grace period. Keep every open
+    // RTC identity so an HTTP interruption cannot hide a healthy media peer.
+    prisma.classroomConnection.findMany({ where: { sessionId, OR: [
+      { leftAt: null }, { leftAt: { gte: new Date(Date.now() - CLASSROOM_RECONNECT_WINDOW_MS) } },
+    ] } }),
   ]);
   const openConnections = connections.filter((connection) => !connection.leftAt);
   const activeConnections = openConnections.filter((connection) => Date.now() - connection.lastSeenAt.getTime() <= ONLINE_WINDOW_MS);
   const connectedUsers = new Set(activeConnections.map((connection) => connection.userId));
   const knownUsers = new Set(connections.map((connection) => connection.userId));
+  const now = Date.now();
+  const connectionsByUser = new Map<string, typeof connections>();
+  for (const connection of connections) {
+    const group = connectionsByUser.get(connection.userId) ?? [];
+    group.push(connection);
+    connectionsByUser.set(connection.userId, group);
+  }
   const rewardCountByUserId = new Map(
     rewardTotals.map((item) => [item.recipientId, item._sum.points ?? 0]),
   );
   return {
+    presenceObservedAt: new Date(now).toISOString(),
     assistantPermissions: runtime.assistantPermissions as Record<string, boolean>,
     revision: runtime.revision,
     status:
@@ -473,14 +509,22 @@ export async function getClassroomRuntimeSnapshot(
       error: runtime.transcriptionError,
     },
     composition: normalizeClassroomComposition(runtime.composition),
-    members: runtime.members.map((member) =>
-      ({ ...publicMember(member, Date.now(), rewardCountByUserId.get(member.userId) ?? 0),
-        ...(knownUsers.has(member.userId) ? { online: connectedUsers.has(member.userId) } : {}),
-        rtcUids: openConnections.filter((connection) => connection.userId === member.userId).map((connection) => connection.rtcUid),
-        signalingUserIds: [classroomSignalingUserId(member.userId), ...openConnections.filter(connection => connection.userId === member.userId)
+    members: runtime.members.map((member) => {
+      const allConnections = connectionsByUser.get(member.userId) ?? [];
+      const memberConnections = allConnections.filter(connection => !connection.leftAt);
+      const pageHidden = member.presence === "reconnecting";
+      const lastSeenAt = memberConnections.length ? new Date(Math.max(...memberConnections.map(connection => connection.lastSeenAt.getTime())))
+        : pageHidden ? new Date(Math.max(member.lastSeenAt.getTime(), ...allConnections.map(connection => (connection.leftAt ?? connection.lastSeenAt).getTime())))
+        : member.lastSeenAt;
+      const snapshot = publicMember(member, now, rewardCountByUserId.get(member.userId) ?? 0);
+      const online = runtime.status !== "ended" && (knownUsers.has(member.userId) ? connectedUsers.has(member.userId) : snapshot.online);
+      return { ...snapshot,
+        ...classroomConnectionPresence({ lastSeenAt, online, mayReconnect: runtime.status !== "ended" && (memberConnections.length > 0 || pageHidden || (!knownUsers.has(member.userId) && member.presence === "online")) }, now),
+        rtcUids: memberConnections.map((connection) => connection.rtcUid),
+        signalingUserIds: [classroomSignalingUserId(member.userId), ...memberConnections
           .map(connection => classroomSignalingUserId(connection.id.slice(sessionId.length + 1)))],
-        screenUids: openConnections.filter((connection) => connection.userId === member.userId).map((connection) => connection.screenUid) }),
-    ),
+        screenUids: memberConnections.map((connection) => connection.screenUid) };
+    }),
   };
 }
 
@@ -807,9 +851,7 @@ export async function applyClassroomAction(input: {
         if (member.stageState !== "invited") {
           throw new ClassroomActionError("上台邀请已失效", 409);
         }
-        const stageCount = await tx.classroomMemberState.count({
-          where: { sessionId, role: "student", onStage: true, presence: "online", lastSeenAt: { gte: new Date(Date.now() - ONLINE_WINDOW_MS) } },
-        });
+        const stageCount = await countReservedStudentSeats(tx, sessionId);
         if (stageCount >= mode.maxStageStudents) {
           throw new ClassroomActionError("学生席位已满", 409);
         }
@@ -983,9 +1025,7 @@ export async function applyClassroomAction(input: {
           throw new ClassroomActionError("屏幕共享请求已超时，请老师重新发起", 409);
         }
         if (!member.onStage) {
-          const stageCount = await tx.classroomMemberState.count({
-            where: { sessionId, role: "student", onStage: true, presence: "online", lastSeenAt: { gte: new Date(Date.now() - ONLINE_WINDOW_MS) } },
-          });
+          const stageCount = await countReservedStudentSeats(tx, sessionId);
           if (stageCount >= mode.maxStageStudents) {
             throw new ClassroomActionError("学生席位已满，暂时无法共享屏幕", 409);
           }

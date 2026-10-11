@@ -1,5 +1,6 @@
 import "server-only";
 
+import { coalesceClassroomRead } from "./read-coalescing";
 import type { NextRequest } from "next/server";
 import { resolveCourseSessionAccess } from "@/lib/course-session-access";
 import { getSessionFromRequest } from "@/lib/session";
@@ -18,10 +19,10 @@ export async function resolveClassroomRequestAccess(
       code: "unauthorized",
     };
   }
-  const access = await resolveCourseSessionAccess(courseId, session.userId, {
+  const access = await coalesceClassroomRead(JSON.stringify(["access", courseId, session.userId, session.name, shareAccess || ""]), () => resolveCourseSessionAccess(courseId, session.userId, {
     shareAccessToken: shareAccess || undefined,
     userIdAliases: [session.name],
-  });
+  }));
   if (!access.ok) {
     return {
       ok: false as const,

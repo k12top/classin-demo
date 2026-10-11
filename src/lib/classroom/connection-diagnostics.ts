@@ -1,11 +1,13 @@
 export type ClassroomConnectionDiagnostic = {
-  event: "connection-state" | "credential-retry" | "credential-recovered" | "credential-failed";
+  event: "connection-state" | "credential-retry" | "credential-recovered" | "credential-failed"
+    | "session-retry" | "session-recovered" | "session-failed" | "heartbeat-failed" | "heartbeat-recovered";
   state?: string; previousState?: string; reason?: string;
   occurredAt: string; attempt?: number; status?: number; delayMs?: number;
   online?: boolean; visibility?: string;
+  durationMs?: number; failures?: number; lastSuccessAgeMs?: number;
 };
 
-const EVENTS = new Set(["connection-state", "credential-retry", "credential-recovered", "credential-failed"]);
+const EVENTS = new Set(["connection-state", "credential-retry", "credential-recovered", "credential-failed", "session-retry", "session-recovered", "session-failed", "heartbeat-failed", "heartbeat-recovered"]);
 const STATES = new Set(["idle", "connecting", "connected", "reconnecting", "disconnected"]);
 
 /** Explicit allowlist: never accept tokens, captions, URLs or arbitrary error text. */
@@ -22,6 +24,7 @@ export function parseClassroomDiagnostic(value: unknown) {
   for (const key of ["state", "previousState"]) if (typeof v[key] === "string" && STATES.has(v[key] as string)) fields[key] = v[key];
   if (typeof v.reason === "string" && /^[A-Z_]{1,64}$/.test(v.reason)) fields.reason = v.reason;
   for (const key of ["attempt", "status", "delayMs"]) if (typeof v[key] === "number" && Number.isFinite(v[key]) && v[key] >= 0 && v[key] <= 60_000) fields[key] = v[key];
+  for (const key of ["durationMs", "failures", "lastSuccessAgeMs"]) if (typeof v[key] === "number" && Number.isFinite(v[key]) && v[key] >= 0 && v[key] <= 86_400_000) fields[key] = Math.round(v[key]);
   if (typeof v.online === "boolean") fields.online = v.online;
   if (v.visibility === "visible" || v.visibility === "hidden") fields.visibility = v.visibility;
   return fields;

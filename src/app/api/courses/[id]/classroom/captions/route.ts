@@ -12,7 +12,7 @@ import { databaseUnavailableResponse } from "@/lib/database-response";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET(
+async function getCaptions(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -88,6 +88,7 @@ async function postCaption(
   ) {
     return NextResponse.json({ error: "Invalid caption payload" }, { status: 400 });
   }
+  const startedAt = performance.now();
   try {
     return NextResponse.json(
       await ingestClassroomCaption(resolvedCourseId, {
@@ -112,7 +113,7 @@ async function postCaption(
       }, resolvedSessionId),
     );
   } catch (error) {
-    const unavailable = databaseUnavailableResponse(error);
+    const unavailable = databaseUnavailableResponse(error, { route: "classroom/captions", sessionId: resolvedSessionId, operation: "ingest", userId: recorder ? "recorder" : resolved?.session.userId, durationMs: Math.round(performance.now() - startedAt) });
     if (unavailable) return unavailable;
     console.error("[classroom:captions] ingest failed", error);
     return NextResponse.json(
@@ -122,7 +123,16 @@ async function postCaption(
   }
 }
 
-export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
-  try { return await postCaption(request, context); }
-  catch (error) { const response = databaseUnavailableResponse(error); if (response) return response; throw error; }
+async function captionResponse(request: NextRequest, context: { params: Promise<{ id: string }> }, method: "GET" | "POST") {
+  const startedAt = performance.now();
+  const { id } = await context.params;
+  try { return await (method === "GET" ? getCaptions(request, context) : postCaption(request, context)); }
+  catch (error) {
+    const response = databaseUnavailableResponse(error, { route: "classroom/captions", sessionId: id, operation: method, durationMs: Math.round(performance.now() - startedAt) });
+    if (response) return response;
+    throw error;
+  }
 }
+
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) { return captionResponse(request, context, "GET"); }
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) { return captionResponse(request, context, "POST"); }

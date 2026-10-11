@@ -14,7 +14,7 @@ import {
   syncClassroomTranscription,
 } from "@/lib/classroom/server/transcription-orchestrator";
 import { deliverClassroomEvents } from "@/lib/classroom/server/integration-events";
-import { prisma } from "@/lib/db";
+import { prisma, databasePoolSnapshot } from "@/lib/db";
 import { requestRecordingStop, processRecordingStop } from "@/lib/classroom/server/recording-orchestrator";
 import { databaseUnavailableResponse } from "@/lib/database-response";
 import { isMicrophonePermissionAction } from "@/lib/classroom/member-permissions";
@@ -80,6 +80,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const startedAt = performance.now();
   const { id: courseId } = await params;
   const body = (await request.json().catch(() => null)) as {
     clientId?: unknown;
@@ -106,7 +107,7 @@ export async function POST(
       shareAccess,
     );
   } catch (error) {
-    const unavailable = databaseUnavailableResponse(error);
+    const unavailable = databaseUnavailableResponse(error, { route: "classroom/actions", sessionId: courseId, operation: body.action.type, clientId: normalizeClassroomClientId(body.clientId), durationMs: Math.round(performance.now() - startedAt) });
     if (unavailable) return unavailable;
     throw error;
   }
@@ -128,16 +129,24 @@ export async function POST(
         role: resolved.access.role, action: body.action,
       }) });
     }
-    if (clientId && body.action.type === "heartbeat") await touchClassroomConnection(sessionId, resolved.session.userId, clientId);
+    const heartbeatStartedAt = performance.now();
+    const heartbeatResult = clientId && body.action.type === "heartbeat"
+      ? await touchClassroomConnection(sessionId, resolved.session.userId, clientId) : null;
     if (clientId && body.action.type === "heartbeat" && body.presenceOnly === true) {
-      const state = await prisma.classroomRuntime.findUnique({
-        where: { sessionId }, select: { status: true },
+      const durationMs = Math.round(performance.now() - heartbeatStartedAt);
+      if (durationMs >= 500 || !heartbeatResult?.refreshed) console.warn("[classroom:heartbeat]", {
+        sessionId, userId: resolved.session.userId, clientId, refreshed: heartbeatResult?.refreshed ?? false,
+        reason: heartbeatResult?.reason, status: heartbeatResult?.status, durationMs, pool: databasePoolSnapshot(),
       });
-      if (!state) return NextResponse.json({ error: "课堂不存在" }, { status: 404 });
-      if (state.status === "ended") {
+      if (!heartbeatResult || heartbeatResult.status === "missing") return NextResponse.json({ error: "课堂不存在" }, { status: 404 });
+      if (heartbeatResult.status === "ended") {
         return NextResponse.json({ error: "课堂已结束", code: "classroom_ended" }, { status: 409 });
       }
-      if (state.status === "live" && resolved.access.role === "teacher") {
+      if (!heartbeatResult.refreshed) return NextResponse.json({
+        code: heartbeatResult.reason === "busy" ? "heartbeat_busy" : "classroom_connection_closed",
+        retryable: heartbeatResult.reason === "busy", refreshed: false,
+      }, { status: heartbeatResult.reason === "busy" ? 503 : 409, headers: { "Retry-After": "2" } });
+      if (heartbeatResult.status === "live" && resolved.access.role === "teacher") {
         const now = Date.now();
         if (now - (transcriptionHeartbeatChecks.get(sessionId) ?? 0) >= 60_000) {
           if (transcriptionHeartbeatChecks.size >= 500) {
@@ -149,7 +158,7 @@ export async function POST(
           }));
         }
       }
-      return NextResponse.json({ ok: true, status: state.status });
+      return NextResponse.json({ ok: true, status: heartbeatResult.status, refreshed: true });
     }
     const runtimeSnapshot = await applyClassroomAction({
       courseId: resolvedCourseId,
@@ -209,7 +218,7 @@ export async function POST(
       ...(body.action.type !== "heartbeat" && { engagement: await getClassroomEngagementSnapshot(sessionId) }),
     });
   } catch (error) {
-    const unavailable = databaseUnavailableResponse(error);
+    const unavailable = databaseUnavailableResponse(error, { route: "classroom/actions", sessionId: resolved.access.sessionId, userId: resolved.session.userId, operation: body.action.type, clientId: normalizeClassroomClientId(body.clientId), durationMs: Math.round(performance.now() - startedAt) });
     if (unavailable) return unavailable;
     if (error instanceof ClassroomRevisionConflictError) {
       return NextResponse.json(

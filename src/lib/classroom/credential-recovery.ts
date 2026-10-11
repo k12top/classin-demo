@@ -27,6 +27,8 @@ export async function retryClassroomRecovery<T>(operation: () => Promise<T>, opt
   signal: AbortSignal;
   onFailure?: (error: unknown, attempt: number, delayMs: number) => void;
   wait?: (delay: number, signal: AbortSignal) => Promise<void>;
+  maxAttempts?: number;
+  jitter?: boolean;
 }): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     options.signal.throwIfAborted();
@@ -37,12 +39,12 @@ export async function retryClassroomRecovery<T>(operation: () => Promise<T>, opt
     }
     catch (error) {
       options.signal.throwIfAborted();
-      if (!canRetryClassroomRecovery(error)) throw error;
+      if (!canRetryClassroomRecovery(error) || attempt + 1 >= (options.maxAttempts ?? Infinity)) throw error;
       const retryAfter = error instanceof ClassroomRecoveryError && Number.isFinite(error.retryAfterMs) ? error.retryAfterMs : 0;
       const delay = Math.min(30_000, Math.max(
         1_000 * 2 ** Math.min(attempt, 5),
         retryAfter,
-      ));
+      ) + (options.jitter ? Math.floor(Math.random() * 500) : 0));
       options.onFailure?.(error, attempt + 1, delay);
       await (options.wait ?? waitForRetry)(delay, options.signal);
     }

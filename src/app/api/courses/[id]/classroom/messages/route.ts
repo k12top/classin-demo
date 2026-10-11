@@ -274,14 +274,18 @@ async function postMessage(
 }
 
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const startedAt = performance.now();
+  const { id } = await context.params;
   try { return await getMessages(request, context); }
-  catch (error) { const response = databaseUnavailableResponse(error); if (response) return response; throw error; }
+  catch (error) { const response = databaseUnavailableResponse(error, { route: "classroom/messages", sessionId: id, operation: "GET", durationMs: Math.round(performance.now() - startedAt) }); if (response) return response; throw error; }
 }
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const startedAt = performance.now();
+  const { id } = await context.params;
   try { return await postMessage(request, context); }
   catch (error) {
-    const response = databaseUnavailableResponse(error);
+    const response = databaseUnavailableResponse(error, { route: "classroom/messages", sessionId: id, operation: "POST", durationMs: Math.round(performance.now() - startedAt) });
     if (response) return response;
     console.error("[classroom:messages] send failed", error);
     return NextResponse.json({ error: "消息暂时发送失败，请重试", code: "message_send_failed" }, { status: 500 });

@@ -47,7 +47,7 @@ test("recorder content polling is scoped to a signed recording and never renews 
       assert.match(response.headers.get("Cache-Control"), /no-store/);
     }
     assert.equal(api.joins.length, 0, "content polling must not mint whiteboard credentials");
-    assert.deepEqual(api.reads[0], ["course-a", "lesson-a", { ensure: false }]);
+    assert.deepEqual(api.reads[0], ["course-a", "lesson-a", { ensure: false, coalesce: true }]);
     assert.deepEqual(api.reads[1], ["course-a", "teacher", "lesson-a"]);
     for (const body of [null, {}, { ...valid, recorderToken: "invalid" }, { ...valid, sessionId: "lesson-b" }, { ...valid, recordingId: "recording-b" }]) {
       assert.equal((await poll(body)).status, 401);

@@ -12,7 +12,7 @@ import {
   getClassroomServerProvider,
   getRecordingProvider,
 } from "@/lib/classroom/server/provider-factory";
-import { closeOpenAttendanceSessionsForLesson } from "@/lib/course-attendance";
+import { recordClassroomAttendanceEntry } from "@/lib/classroom/server/attendance-entry";
 import { resolveCourseSessionAccess } from "@/lib/course-session-access";
 import {
   getClassroomCourseware,
@@ -74,6 +74,7 @@ function publicMessage(message: {
 
 export async function POST(request: NextRequest) {
   const bootstrapStartedAt = performance.now();
+  const diagnostic: { sessionId?: string; clientId?: string; userId?: string } = {};
   try {
     const body = (await request.json()) as {
       clientId?: unknown;
@@ -96,6 +97,8 @@ export async function POST(request: NextRequest) {
       );
     }
     const clientId = normalizeClassroomClientId(body.clientId);
+    diagnostic.sessionId = referenceId;
+    diagnostic.clientId = clientId;
     const recorderToken =
       typeof body.recorderToken === "string" ? body.recorderToken.trim() : "";
     const recorder = recorderToken
@@ -165,6 +168,8 @@ export async function POST(request: NextRequest) {
     const userId = recorder
       ? `recorder-${courseId.replace(/-/g, "").slice(0, 40)}`
       : session!.userId;
+    diagnostic.sessionId = sessionId;
+    diagnostic.userId = userId;
     let member: Awaited<ReturnType<typeof touchClassroomMember>> | null = null;
     if (!recorder) {
       member = await touchClassroomMember(
@@ -187,10 +192,9 @@ export async function POST(request: NextRequest) {
       }
     }
     if (!recorder && clientId) await touchClassroomConnection(sessionId, userId, clientId, true);
-    const [runtimeSnapshot, engagementSnapshot] = await Promise.all([
-      getClassroomRuntimeSnapshot(courseId, sessionId, { ensure: false }),
-      getClassroomEngagementSnapshot(sessionId),
-    ]);
+    // A join needs a snapshot taken after its own write; only read-only polls coalesce.
+    const runtimeSnapshot = await getClassroomRuntimeSnapshot(courseId, sessionId, { ensure: false });
+    const engagementSnapshot = await getClassroomEngagementSnapshot(sessionId);
 
     // Leaving a teaching tab never stops the cloud recorder. If the provider
     // did stop unexpectedly while the teacher was away, rejoining the live
@@ -256,22 +260,10 @@ export async function POST(request: NextRequest) {
               leaveWithdrawnAt: new Date(),
             },
           });
-          await closeOpenAttendanceSessionsForLesson(
-            sessionId,
-            attendanceSession.userId,
-          );
-          await prisma.courseAttendance.create({
-            data: {
-              courseId,
-              sessionId,
-              studentId: attendanceSession.userId,
-              studentName:
-                attendanceSession.displayName ||
-                attendanceSession.name ||
-                attendanceSession.userId,
-              studentAvatar: attendanceSession.avatar || "",
-              enteredAt: new Date(),
-            },
+          await recordClassroomAttendanceEntry({
+            courseId, sessionId, clientId, userId: attendanceSession.userId,
+            displayName: attendanceSession.displayName || attendanceSession.name || attendanceSession.userId,
+            avatar: attendanceSession.avatar || "",
           });
         } catch (error) {
           console.warn("[classroom:attendance] deferred entry failed", {
@@ -428,7 +420,7 @@ export async function POST(request: NextRequest) {
       },
     );
   } catch (error) {
-    const unavailable = databaseUnavailableResponse(error);
+    const unavailable = databaseUnavailableResponse(error, { route: "classroom/session", operation: "join", ...diagnostic, durationMs: Math.round(performance.now() - bootstrapStartedAt) });
     if (unavailable) return unavailable;
 
     if (error instanceof ClassroomProviderConfigurationError) {

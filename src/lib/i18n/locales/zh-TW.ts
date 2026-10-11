@@ -114,6 +114,8 @@ export const zhTW = {
       sendMessage: "發送訊息",
       messageSending: "正在發送訊息…",
       messageSendFailed: "訊息暫時發送失敗，內容已保留，請重試",
+      reconnecting: "重新連線中",
+      enteringRetry: "連線暫時無法使用，正在重試進入課堂（{attempt}/{max}）…",
       databaseRetryFailed: "資料庫連線暫時無法使用，請稍後重試。",
       screenShareNotAuthorized: "老師尚未授予共享權限，或已有成員正在共享",
       clearScreenAnnotations: "清空標註",

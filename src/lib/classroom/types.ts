@@ -194,6 +194,9 @@ export type ClassroomMemberSnapshot = {
   screenUids?: number[];
   signalingUserIds?: string[];
   online: boolean;
+  connectionStatus?: "online" | "reconnecting" | "offline";
+  lastSeenAt?: string | null;
+  reconnectUntil?: string | null;
   onStage: boolean;
   stageState: "offstage" | "invited" | "accepted";
   screenShareState: "idle" | "requested" | "accepted" | "declined";
@@ -313,6 +316,7 @@ export type ClassroomEngagementSnapshot = {
 };
 
 export type ClassroomRuntimeSnapshot = {
+  presenceObservedAt?: string;
   assistantPermissions?: Record<string, boolean>;
   revision: number;
   status: "waiting" | "live" | "ended";

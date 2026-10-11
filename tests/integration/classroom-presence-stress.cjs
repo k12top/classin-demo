@@ -52,8 +52,44 @@ async function main() {
     await db.classroomConnection.updateMany({ where: { sessionId: lesson.id }, data: { lastSeenAt: old } });
     const snapshot = await api.getClassroomRuntimeSnapshot(course.id, lesson.id);
     const stale = snapshot.members.find(member => member.userId === "student");
-    assert.equal(stale.online, false); assert.equal(stale.onStage, true); assert.equal(stale.microphoneAllowed, true); assert.equal(stale.rtcUids.length, 1);
+    assert.equal(stale.online, false); assert.equal(stale.connectionStatus, "reconnecting"); assert.equal(stale.onStage, true); assert.equal(stale.microphoneAllowed, true); assert.equal(stale.rtcUids.length, 1);
     console.log("PASS expired heartbeat retains RTC identity and accepted stage permissions");
+
+    const expiredAt = new Date(Date.now() - 121_000);
+    await db.classroomConnection.updateMany({ where: { sessionId: lesson.id }, data: { lastSeenAt: expiredAt } });
+    const expiredSnapshot = await api.getClassroomRuntimeSnapshot(course.id, lesson.id, { ensure: false });
+    assert.equal(expiredSnapshot.members.find(member => member.userId === "student").connectionStatus, "offline");
+    await db.classroomConnection.updateMany({ where: { sessionId: lesson.id }, data: { lastSeenAt: old } });
+    const snapshots = await Promise.all(Array.from({ length: 30 }, () => api.getClassroomRuntimeSnapshot(course.id, lesson.id, { ensure: false, coalesce: true })));
+    assert.ok(snapshots.every(snapshot => snapshot === snapshots[0]), "concurrent polls share one snapshot read");
+    console.log("PASS reconnect deadline expires and thirty concurrent snapshots share one read");
+
+    // A second tab keeps the same member online; pagehide is scoped to its tab.
+    await api.touchClassroomConnection(lesson.id, student.userId, "second-client", true);
+    await api.leaveClassroomConnection(lesson.id, student.userId, "stress-client", false);
+    const multiTab = await api.getClassroomRuntimeSnapshot(course.id, lesson.id, { ensure: false });
+    assert.equal(multiTab.members.find(member => member.userId === "student").connectionStatus, "online");
+    await api.leaveClassroomConnection(lesson.id, student.userId, "second-client", false);
+    const hidden = await api.getClassroomRuntimeSnapshot(course.id, lesson.id, { ensure: false });
+    assert.equal(hidden.members.find(member => member.userId === "student").connectionStatus, "reconnecting");
+    await api.touchClassroomConnection(lesson.id, student.userId, "stress-client", true);
+    console.log("PASS multiple tabs retain online presence and pagehide retains a reconnecting seat");
+
+    // All six students reserve their seats through a brief heartbeat outage.
+    for (let i = 2; i <= 6; i++) {
+      const peer = { ...student, userId: `student-${i}`, name: `student-${i}` };
+      await api.touchClassroomMember(course.id, peer, "student", undefined, lesson.id);
+      await api.touchClassroomConnection(lesson.id, peer.userId, `seat-client-${i}`, true);
+    }
+    await db.classroomConnection.updateMany({ where: { sessionId: lesson.id, leftAt: null }, data: { lastSeenAt: old } });
+    const full = await api.getClassroomRuntimeSnapshot(course.id, lesson.id, { ensure: false });
+    assert.equal(full.members.filter(member => member.role === "student" && member.connectionStatus === "reconnecting" && member.onStage).length, 6);
+    const waiting = await api.touchClassroomMember(course.id, { ...student, userId: "seventh", name: "seventh" }, "student", undefined, lesson.id);
+    assert.equal(waiting.onStage, false, "reconnecting seats must not be reassigned");
+    await db.classroomConnection.updateMany({ where: { sessionId: lesson.id, leftAt: null }, data: { lastSeenAt: expiredAt } });
+    const replacement = await api.touchClassroomMember(course.id, { ...student, userId: "replacement", name: "replacement" }, "student", undefined, lesson.id);
+    assert.equal(replacement.onStage, true, "expired seats are released for new students");
+    console.log("PASS six reconnecting seats remain reserved until the two-minute deadline");
 
     globalThis.stressActor = student;
     globalThis.stressAccess = { courseId: course.id, sessionId: lesson.id, role: "student" };
