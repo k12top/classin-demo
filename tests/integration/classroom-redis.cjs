@@ -116,6 +116,18 @@ async function main() {
 
     for(let i=2;i<=6;i++){await api.touchClassroomMember(course.id,{...student,userId:`student-${i}`,name:`student-${i}`},'student',undefined,sid);await api.touchClassroomConnection(sid,`student-${i}`,`redis-client-${i}`,true);}
     await db.classroomConnection.updateMany({where:{sessionId:sid,leftAt:null},data:{lastSeenAt:new Date(Date.now()-121000)}});
+    await db.classroomMemberState.updateMany({where:{sessionId:sid},data:{lastSeenAt:new Date(Date.now()-121000)}});
+    await api.applyClassroomAction({courseId:course.id,sessionId:sid,session:teacher,role:'teacher',action:{type:'startRandomSelector'}});
+    assert.ok((await db.classroomEngagementRound.findFirst({where:{sessionId:sid,kind:'selector'},orderBy:{createdAt:'desc'}})).winnerUserId.startsWith('student'));
+    const gallery=await api.applyClassroomAction({courseId:course.id,sessionId:sid,session:teacher,role:'teacher',action:{type:'arrangeVideoGallery'}});
+    assert.equal(gallery.composition.seatOrder.filter(id=>id.startsWith('student')).length,6);
+    pass('random selection and video arrangement use fresh Redis presence despite stale PG member timestamps');
+
+    await db.classroomConnection.update({where:{id:`${sid}:student-6:redis-client-6`},data:{leftAt:new Date()}});
+    const closedGallery=await api.applyClassroomAction({courseId:course.id,sessionId:sid,session:teacher,role:'teacher',action:{type:'arrangeVideoGallery'}});
+    assert.ok(!closedGallery.composition.seatOrder.includes('student-6'));
+    await api.touchClassroomConnection(sid,'student-6','redis-client-6',true);
+    pass('online actions exclude a PG-closed tab even before its old Redis lease has been synchronized');
     const waiting=await api.touchClassroomMember(course.id,{...student,userId:'seventh',name:'seventh'},'student',undefined,sid);assert.equal(waiting.onStage,false);
     const snap=await api.getClassroomRuntimeSnapshot(course.id,sid,{ensure:false,coalesce:true});assert.equal(snap.members.find(m=>m.userId==='student').connectionStatus,'online');
     pass('fresh Redis leases preserve six stage seats even when the PG checkpoint is older than two minutes');

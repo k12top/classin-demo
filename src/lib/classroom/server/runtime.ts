@@ -416,6 +416,19 @@ async function countReservedStudentSeats(tx: Prisma.TransactionClient, sessionId
   return Number(row?.count ?? 0);
 }
 
+/** Redis freshness supplements PG membership, but cannot reopen a PG-closed tab. */
+async function classroomOnlineMemberFilter(tx: Prisma.TransactionClient, sessionId: string, leases: RedisConnectionLease[] | null): Promise<Prisma.ClassroomMemberStateWhereInput> {
+  const cutoff = new Date(Date.now() - ONLINE_WINDOW_MS);
+  const ids = (leases || []).filter(lease => lease.leftAt === null && lease.lastSeenAt >= cutoff.getTime()).map(lease => lease.id);
+  const registered = ids.length ? await tx.classroomConnection.findMany({
+    where: { sessionId, leftAt: null, id: { in: ids } }, select: { userId: true },
+  }) : [];
+  return { OR: [
+    { presence: "online", lastSeenAt: { gte: cutoff } },
+    { userId: { in: [...new Set(registered.map(connection => connection.userId))] } },
+  ] };
+}
+
 export async function getClassroomRuntimeSnapshot(
   courseId: string,
   sessionId = courseId,
@@ -1288,12 +1301,11 @@ export async function applyClassroomAction(input: {
         break;
       case "arrangeVideoGallery": {
         requireTeachingRole(role);
+        const onlineFilter = await classroomOnlineMemberFilter(tx, sessionId, redisPresence);
         const galleryMembers = await tx.classroomMemberState.findMany({
           where: {
             sessionId,
-            presence: "online",
-            lastSeenAt: { gte: new Date(Date.now() - ONLINE_WINDOW_MS) },
-            OR: [{ role: { not: "student" } }, { onStage: true }],
+            AND: [onlineFilter, { OR: [{ role: { not: "student" } }, { onStage: true }] }],
           },
           select: { userId: true, role: true },
           orderBy: { joinedAt: "asc" },
@@ -1589,13 +1601,12 @@ export async function applyClassroomAction(input: {
         break;
       case "startRandomSelector": {
         requireTeachingRole(role);
-        const onlineSince = new Date(Date.now() - ONLINE_WINDOW_MS);
+        const onlineFilter = await classroomOnlineMemberFilter(tx, sessionId, redisPresence);
         const candidates = await tx.classroomMemberState.findMany({
           where: {
             sessionId,
             role: "student",
-            presence: "online",
-            lastSeenAt: { gte: onlineSince },
+            ...onlineFilter,
           },
           select: { userId: true },
           orderBy: { joinedAt: "asc" },
