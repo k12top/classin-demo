@@ -5,7 +5,9 @@ import { classroomActionRequiresRevision } from "@/lib/classroom/action-request"
 import { enqueueClassroomEvent } from "./integration-events";
 import { classroomMemberPresence } from "@/lib/classroom/session-lifecycle";
 import { CLASSROOM_ONLINE_WINDOW_MS, CLASSROOM_RECONNECT_WINDOW_MS, classroomConnectionPresence } from "@/lib/classroom/presence";
-import { coalesceClassroomRead } from "./read-coalescing";
+import { classroomSharedRead } from "./shared-cache";
+import { readRedisClassroomPresence, overlayRedisClassroomPresence, type RedisConnectionLease } from "./redis-presence";
+import { synchronizeClassroomRedis } from "./redis-sync";
 
 import { randomInt } from "node:crypto";
 import type { Prisma } from "@prisma/client";
@@ -318,18 +320,19 @@ export async function touchClassroomMember(
   if (alreadyJoined) {
     return prisma.classroomMemberState.upsert(upsertInput(false));
   }
+  const redisPresence = await readRedisClassroomPresence(sessionId);
   // Reserve an automatic seat only on the student's first entry. The lock
   // keeps simultaneous joins within the mode's stage capacity, and later
   // refreshes preserve a teacher's explicit removal from the stage.
   return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${sessionId}))::text`;
+    await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId"=${sessionId} FOR UPDATE`;
     const existing = await tx.classroomMemberState.findUnique({
       where: { sessionId_userId: { sessionId, userId: session.userId } },
       select: { id: true },
     });
     const occupiedSeats = existing
       ? 0
-      : await countReservedStudentSeats(tx, sessionId);
+      : await countReservedStudentSeats(tx, sessionId, redisPresence);
     return tx.classroomMemberState.upsert(
       upsertInput(Boolean(existing) || occupiedSeats < mode.maxStageStudents),
     );
@@ -398,12 +401,13 @@ function publicMember(
 }
 
 /** A retained reconnecting seat counts toward capacity until its lease expires. */
-async function countReservedStudentSeats(tx: Prisma.TransactionClient, sessionId: string) {
+async function countReservedStudentSeats(tx: Prisma.TransactionClient, sessionId: string, leases: RedisConnectionLease[] | null) {
   const cutoff = new Date(Date.now() - CLASSROOM_RECONNECT_WINDOW_MS);
+  const activeUsers = [...new Set((leases || []).filter(lease => lease.leftAt === null && lease.lastSeenAt >= cutoff.getTime()).map(lease => lease.userId))];
   const [row] = await tx.$queryRaw<Array<{ count: bigint }>>`
     SELECT COUNT(*) AS count FROM "ClassroomMemberState" m
     WHERE m."sessionId" = ${sessionId} AND m."role" = 'student' AND m."onStage" = true
-      AND (EXISTS (SELECT 1 FROM "ClassroomConnection" c WHERE c."sessionId" = m."sessionId"
+      AND (m."userId" = ANY(${activeUsers}::text[]) OR EXISTS (SELECT 1 FROM "ClassroomConnection" c WHERE c."sessionId" = m."sessionId"
           AND c."userId" = m."userId" AND c."leftAt" IS NULL AND c."lastSeenAt" >= ${cutoff})
         OR (m."lastSeenAt" >= ${cutoff} AND (m."presence" = 'reconnecting'
           OR (m."presence" = 'online' AND NOT EXISTS (SELECT 1 FROM "ClassroomConnection" c
@@ -417,8 +421,11 @@ export async function getClassroomRuntimeSnapshot(
   sessionId = courseId,
   options: { ensure?: boolean; coalesce?: boolean } = {},
 ): Promise<ClassroomRuntimeSnapshot> {
-  if (options.coalesce) return coalesceClassroomRead(`runtime:${sessionId}`, () => loadClassroomRuntimeSnapshot(courseId, sessionId, options));
-  return loadClassroomRuntimeSnapshot(courseId, sessionId, options);
+  if (!options.coalesce) await synchronizeClassroomRedis(sessionId, true);
+  const snapshot = options.coalesce
+    ? await classroomSharedRead(sessionId, "runtime", () => loadClassroomRuntimeSnapshot(courseId, sessionId, options))
+    : await loadClassroomRuntimeSnapshot(courseId, sessionId, options);
+  return overlayRedisClassroomPresence(snapshot, await readRedisClassroomPresence(sessionId));
 }
 
 async function loadClassroomRuntimeSnapshot(
@@ -705,6 +712,7 @@ export async function applyClassroomAction(input: {
     throw new ClassroomActionError("公开直播不支持该互动工具", 409);
   }
 
+  const redisPresence = await readRedisClassroomPresence(sessionId);
   await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
     const runtime = await tx.classroomRuntime.findUniqueOrThrow({
@@ -851,7 +859,7 @@ export async function applyClassroomAction(input: {
         if (member.stageState !== "invited") {
           throw new ClassroomActionError("上台邀请已失效", 409);
         }
-        const stageCount = await countReservedStudentSeats(tx, sessionId);
+        const stageCount = await countReservedStudentSeats(tx, sessionId, redisPresence);
         if (stageCount >= mode.maxStageStudents) {
           throw new ClassroomActionError("学生席位已满", 409);
         }
@@ -1025,7 +1033,7 @@ export async function applyClassroomAction(input: {
           throw new ClassroomActionError("屏幕共享请求已超时，请老师重新发起", 409);
         }
         if (!member.onStage) {
-          const stageCount = await countReservedStudentSeats(tx, sessionId);
+          const stageCount = await countReservedStudentSeats(tx, sessionId, redisPresence);
           if (stageCount >= mode.maxStageStudents) {
             throw new ClassroomActionError("学生席位已满，暂时无法共享屏幕", 409);
           }

@@ -1,5 +1,8 @@
 import "server-only";
 import { prisma } from "@/lib/db";
+import { classroomPgFallback, classroomRedisEnabled } from "./redis";
+import { redisClassroomHeartbeat } from "./redis-presence";
+import { synchronizeClassroomRedis } from "./redis-sync";
 import { enqueueClassroomEvent } from "./integration-events";
 import { classroomRtcUid } from "@/lib/classroom/rtc-uid";
 import { normalizeClassroomComposition } from "@/lib/classroom/composition";
@@ -11,11 +14,13 @@ export function normalizeClassroomClientId(value: unknown): string | undefined {
 export async function touchClassroomConnection(sessionId: string, userId: string, clientId: string, rejoin = false) {
   const identity = `${userId}:${clientId}`;
   if (!rejoin) {
+    const cached = await redisClassroomHeartbeat(sessionId, userId, clientId);
+    if (cached) return cached;
     // A heartbeat is a lease refresh, not a join or a permission update.
     // The connection lease must refresh even when moderation locks the member.
     // Skip busy rows, and never resurrect a tab that explicitly left.
     const now = new Date();
-    const [result] = await prisma.$queryRaw<Array<{ status: string | null; refreshed: boolean; registered: boolean; leftAt: Date | null }>>`
+    const [result] = await classroomPgFallback(`heartbeat:${sessionId}:${identity}`, () => prisma.$queryRaw<Array<{ status: string | null; refreshed: boolean; registered: boolean; leftAt: Date | null }>>`
       WITH runtime_state AS (
         SELECT "status" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId}
       ), available AS (
@@ -24,7 +29,7 @@ export async function touchClassroomConnection(sessionId: string, userId: string
           AND EXISTS (SELECT 1 FROM runtime_state WHERE "status" <> 'ended')
         FOR UPDATE OF c SKIP LOCKED
       ), refreshed AS (
-        UPDATE "ClassroomConnection" c SET "lastSeenAt" = ${now}
+        UPDATE "ClassroomConnection" c SET "lastSeenAt" = GREATEST(c."lastSeenAt", ${now})
         WHERE c."id" = ${`${sessionId}:${identity}`} AND c."leftAt" IS NULL
           AND EXISTS (SELECT 1 FROM available)
         RETURNING c."id"
@@ -35,14 +40,15 @@ export async function touchClassroomConnection(sessionId: string, userId: string
           AND (m."presence" <> 'online' OR m."lastSeenAt" < ${new Date(now.getTime() - 30_000)})
         FOR UPDATE OF m SKIP LOCKED
       ), member_refresh AS (
-        UPDATE "ClassroomMemberState" m SET "presence" = 'online', "lastSeenAt" = ${now}
+        UPDATE "ClassroomMemberState" m SET "presence" = 'online', "lastSeenAt" = GREATEST(m."lastSeenAt", ${now})
         WHERE m."id" IN (SELECT "id" FROM eligible) RETURNING m."id"
       )
       SELECT (SELECT "status" FROM runtime_state) AS "status",
         EXISTS (SELECT 1 FROM refreshed) AS "refreshed",
         EXISTS (SELECT 1 FROM "ClassroomConnection" WHERE "id" = ${`${sessionId}:${identity}`}) AS "registered",
         (SELECT "leftAt" FROM "ClassroomConnection" WHERE "id" = ${`${sessionId}:${identity}`}) AS "leftAt"
-    `;
+    `);
+    if (result?.refreshed && classroomRedisEnabled()) await synchronizeClassroomRedis(sessionId, true);
     return { status: result?.status ?? "missing", refreshed: result?.refreshed === true,
       reason: result?.refreshed ? "refreshed" : result?.status === "ended" ? "ended" : !result?.registered ? "missing" : result.leftAt ? "left" : "busy" };
   }
@@ -54,6 +60,7 @@ export async function touchClassroomConnection(sessionId: string, userId: string
     await tx.classroomMemberState.updateMany({ where: { sessionId, userId }, data: { presence: "online", lastSeenAt: values.lastSeenAt } });
     await tx.classroomConnection.upsert({ where: { id: `${sessionId}:${identity}` }, create: { id: `${sessionId}:${identity}`, ...values }, update: values });
   }, { maxWait: 1_500, timeout: 3_500 });
+  await synchronizeClassroomRedis(sessionId, true);
 }
 export async function leaveClassroomConnection(sessionId: string, userId: string, clientId?: string, voluntary = false) {
   await prisma.$transaction(async (tx) => {
@@ -87,4 +94,5 @@ export async function leaveClassroomConnection(sessionId: string, userId: string
       await tx.classroomRuntime.updateMany({ where: { sessionId }, data: { revision: { increment: 1 } } });
     }
   }, { maxWait: 1_500, timeout: 3_500 });
+  await synchronizeClassroomRedis(sessionId, true);
 }

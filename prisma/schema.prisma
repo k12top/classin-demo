@@ -852,3 +852,16 @@ model CoursePlaybackProgress {
   @@index([studentId])
   @@index([courseId, lastViewedAt])
 }
+
+// Transactional, coalesced invalidations for ephemeral Redis classroom state.
+model ClassroomRedisSync {
+  sessionId     String   @id
+  version       BigInt   @default(autoincrement())
+  processedAt   DateTime?
+  attempts      Int      @default(0)
+  nextAttemptAt DateTime @default(now())
+  lastError     String?
+  updatedAt     DateTime @default(now())
+
+  @@index([processedAt, nextAttemptAt])
+}

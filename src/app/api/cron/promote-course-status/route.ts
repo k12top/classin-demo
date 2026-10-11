@@ -4,6 +4,7 @@
  * Authorization: Bearer CRON_SECRET or x-cron-secret header
  */
 import { NextRequest, NextResponse } from "next/server";
+import { drainClassroomRedisSync } from "@/lib/classroom/server/redis-sync";
 import { deliverClassroomEvents } from "@/lib/classroom/server/integration-events";
 import { promoteCoursesIfDue } from "@/lib/course-promote";
 import { reconcileConfiguredEnvironments } from "@/lib/classroom/reconciliation-targets";
@@ -36,7 +37,14 @@ export async function GET(request: NextRequest) {
     const [local, forwarded] = await Promise.allSettled([
       (async () => {
         try { return await promoteCoursesIfDue(); }
-        finally { await deliverClassroomEvents(10); }
+        finally {
+          try { await deliverClassroomEvents(10); }
+          finally {
+            await drainClassroomRedisSync().catch(() => {
+              console.warn("[classroom:redis-sync] cron retry pending");
+            });
+          }
+        }
       })(),
       request.headers.get("x-classroom-reconciliation-forwarded") === "1"
         ? Promise.resolve([])

@@ -10,7 +10,7 @@ import { getClassroomQuestions } from "@/lib/classroom/server/questions";
 import { getClassroomSpaces } from "@/lib/classroom/server/spaces";
 import { classroomModePolicy } from "@/lib/classroom/mode";
 import { getRecordingProvider } from "@/lib/classroom/server/provider-factory";
-import { coalesceClassroomRead } from "@/lib/classroom/server/read-coalescing";
+import { classroomSharedRead } from "@/lib/classroom/server/shared-cache";
 import { databaseUnavailableResponse } from "@/lib/database-response";
 import { prisma } from "@/lib/db";
 
@@ -59,13 +59,13 @@ async function getState(
     lesson?.roomType ?? 4,
     lesson?.course.autoStudentOnStage,
   );
-  // Keep polling bursts below the small per-instance pool. Reads are shared only
-  // while in flight; role/viewer-specific results never cross permission scopes.
+  // Share room data briefly across instances; authorization and viewer-specific
+  // data still load from PG, and courseware caches are isolated by role.
   const runtimeSnapshot = await getClassroomRuntimeSnapshot(resolvedCourseId, sessionId, { ensure: false, coalesce: true });
-  const engagement = await coalesceClassroomRead(`engagement:${sessionId}`, () => getClassroomEngagementSnapshot(sessionId));
+  const engagement = await classroomSharedRead(sessionId, "engagement", () => getClassroomEngagementSnapshot(sessionId));
   const [courseware, captions] = await Promise.all([
-    coalesceClassroomRead(`courseware:${sessionId}:${resolved.access.role}`, () => getClassroomCourseware(resolvedCourseId, resolved.access.role, sessionId)),
-    coalesceClassroomRead(`captions:${sessionId}:100`, () => getClassroomCaptions(resolvedCourseId, 100, sessionId)),
+    classroomSharedRead(sessionId, `courseware:${resolved.access.role}`, () => getClassroomCourseware(resolvedCourseId, resolved.access.role, sessionId)),
+    classroomSharedRead(sessionId, "captions:100", () => getClassroomCaptions(resolvedCourseId, 100, sessionId)),
   ]);
   const [spaces, questions] = await Promise.all([
     mode.allowBreakouts ? getClassroomSpaces({ courseId: resolvedCourseId, sessionId, viewerId: resolved.session.userId, role: resolved.access.role }) : Promise.resolve([]),

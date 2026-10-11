@@ -1,5 +1,9 @@
 import { normalizeClassroomClientId, touchClassroomConnection } from "@/lib/classroom/server/connections";
 import { after, NextRequest, NextResponse } from "next/server";
+import { classroomRedisEnabled } from "@/lib/classroom/server/redis";
+import { getSessionFromRequest } from "@/lib/session";
+import { redisClassroomHeartbeat, type RedisHeartbeat } from "@/lib/classroom/server/redis-presence";
+import { flushClassroomRedisPresence, synchronizeClassroomRedis } from "@/lib/classroom/server/redis-sync";
 import type { ClassroomAction } from "@/lib/classroom/types";
 import {
   applyClassroomAction,
@@ -97,6 +101,20 @@ export async function POST(
   ) {
     return NextResponse.json({ error: "课堂操作无效" }, { status: 400 });
   }
+  // Cookie/JWT identity plus a PG-registered Redis lease authorizes only presence,
+  // never admission, reads, publishing or moderation. Expired control falls back to PG.
+  const heartbeatClientId = normalizeClassroomClientId(body.clientId);
+  if (classroomRedisEnabled() && body.action.type === "heartbeat" && body.presenceOnly === true && heartbeatClientId) {
+    const identity = await getSessionFromRequest(request);
+    if (!identity) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const cached = await redisClassroomHeartbeat(courseId, identity.userId, heartbeatClientId);
+    if (cached) {
+      scheduleRedisHeartbeatWork(courseId, cached);
+      if (cached.status === "ended") return NextResponse.json({ code: "classroom_ended", error: "课堂已结束" }, { status: 409 });
+      if (!cached.refreshed) return NextResponse.json({ code: "classroom_connection_closed", refreshed: false }, { status: 409 });
+      return NextResponse.json({ ok: true, status: cached.status, refreshed: true });
+    }
+  }
   const shareAccess =
     typeof body.shareAccess === "string" ? body.shareAccess : "";
   let resolved;
@@ -124,10 +142,12 @@ export async function POST(
     const clientId = normalizeClassroomClientId(body.clientId);
     // Already-open older clients still expect the full runtime response.
     if (body.compactMemberPermissions === true && isMicrophonePermissionAction(body.action)) {
-      return NextResponse.json({ memberPermissions: await applyClassroomMemberPermissions({
+      const memberPermissions = await applyClassroomMemberPermissions({
         courseId: resolvedCourseId, sessionId, actorId: resolved.session.userId,
         role: resolved.access.role, action: body.action,
-      }) });
+      });
+      await synchronizeClassroomRedis(sessionId, true);
+      return NextResponse.json({ memberPermissions });
     }
     const heartbeatStartedAt = performance.now();
     const heartbeatResult = clientId && body.action.type === "heartbeat"
@@ -158,6 +178,7 @@ export async function POST(
           }));
         }
       }
+      if ("syncDue" in heartbeatResult && heartbeatResult.syncDue) after(() => flushClassroomRedisPresence(sessionId));
       return NextResponse.json({ ok: true, status: heartbeatResult.status, refreshed: true });
     }
     const runtimeSnapshot = await applyClassroomAction({
@@ -243,5 +264,16 @@ export async function POST(
     }
     console.error("[classroom:actions] failed", error);
     return NextResponse.json({ error: "课堂操作失败" }, { status: 500 });
+  }
+}
+
+function scheduleRedisHeartbeatWork(sessionId: string, heartbeat: RedisHeartbeat) {
+  if (heartbeat.syncDue) after(() => flushClassroomRedisPresence(sessionId));
+  if (heartbeat.refreshed && heartbeat.status === "live" && heartbeat.role === "teacher" &&
+      Date.now() - (transcriptionHeartbeatChecks.get(sessionId) ?? 0) >= 60_000) {
+    transcriptionHeartbeatChecks.set(sessionId, Date.now());
+    after(() => ensureClassroomTranscriptionForLiveSession(heartbeat.courseId, sessionId).catch(() => {
+      console.warn("[classroom:heartbeat] transcription recovery pending", { sessionId });
+    }));
   }
 }

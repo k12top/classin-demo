@@ -5,7 +5,7 @@ import {
   getClassroomEngagementSnapshot,
   getClassroomRuntimeSnapshot,
 } from "@/lib/classroom/server/runtime";
-import { coalesceClassroomRead } from "@/lib/classroom/server/read-coalescing";
+import { classroomSharedRead } from "@/lib/classroom/server/shared-cache";
 import { databaseUnavailableResponse } from "@/lib/database-response";
 
 export const dynamic = "force-dynamic";
@@ -20,8 +20,8 @@ export async function POST(request: NextRequest) {
     const recording = await resolveRecorderAccess(await request.json().catch(() => null));
     if (!recording) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const runtimeSnapshot = await getClassroomRuntimeSnapshot(recording.courseId, recording.sessionId, { ensure: false, coalesce: true });
-    const engagement = await coalesceClassroomRead(`engagement:${recording.sessionId}`, () => getClassroomEngagementSnapshot(recording.sessionId));
-    const courseware = await coalesceClassroomRead(`courseware:${recording.sessionId}:teacher`, () => getClassroomCourseware(recording.courseId, "teacher", recording.sessionId));
+    const engagement = await classroomSharedRead(recording.sessionId, "engagement", () => getClassroomEngagementSnapshot(recording.sessionId));
+    const courseware = await classroomSharedRead(recording.sessionId, "courseware:teacher", () => getClassroomCourseware(recording.courseId, "teacher", recording.sessionId));
     return NextResponse.json({
       runtime: runtimeSnapshot,
       engagement,
