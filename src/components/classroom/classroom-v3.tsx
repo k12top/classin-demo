@@ -13,6 +13,7 @@ import { recorderCameraParticipants, recorderVideosHaveFrames } from "@/lib/clas
 import { isEndedClassroomResponse } from "@/lib/classroom/session-lifecycle";
 import { applyMicrophonePermission } from "@/lib/classroom/media-permissions";
 import { applyClassroomMemberPermissionUpdate } from "@/lib/classroom/member-permissions";
+import { applyClassroomScreenShareRequest } from "@/lib/classroom/screen-share-request";
 import { canRetryClassroomRecovery, ClassroomRecoveryError, retryClassroomRecovery } from "@/lib/classroom/credential-recovery";
 import { reportClassroomDiagnostic, type ClassroomConnectionDiagnostic } from "@/lib/classroom/connection-diagnostics";
 import { createCaptionPersistenceQueue } from "@/lib/classroom/caption-persistence";
@@ -135,6 +136,7 @@ import type {
   ClassroomCompositionPreview,
   ClassroomInvalidation,
   ClassroomMemberPermissionUpdate,
+  ClassroomScreenShareRequest,
   ClassroomSignalingProvider,
 } from "@/lib/classroom/signaling/types";
 import type {
@@ -4035,11 +4037,13 @@ export function ClassroomV3({
   const refreshRequestIdRef = useRef(0);
   const refreshAbortRef = useRef<AbortController | null>(null);
   const refreshCourseIdRef = useRef("");
+  const refreshQueuedRef = useRef(false);
   const [media, setMedia] = useState<ClassroomMediaSnapshot>(EMPTY_MEDIA);
   const [mediaProvider, setMediaProvider] =
     useState<ClassroomMediaProvider | null>(null);
   const [presenceHealthy, setPresenceHealthy] = useState(true);
   const [presenceClockOffset, setPresenceClockOffset] = useState(0);
+  const presenceClockOffsetRef = useRef(0);
   const providerRef = useRef<ClassroomMediaProvider | null>(null);
   const [roomMedia, setRoomMedia] = useState<ClassroomMediaSnapshot>(EMPTY_MEDIA);
   const [roomProvider, setRoomProvider] =
@@ -4389,7 +4393,8 @@ export function ClassroomV3({
       const current = sessionRef.current;
       if (!current || (current.runtime.status === "ended" && update.runtime && update.runtime.status !== "ended") || !shouldApplyClassroomRevision(current.runtime.revision, update.runtime?.revision)) return;
       if (update.runtime?.presenceObservedAt && update.runtime.presenceObservedAt !== current.runtime.presenceObservedAt) {
-        setPresenceClockOffset(classroomPresenceClockOffset(update.runtime.presenceObservedAt));
+        presenceClockOffsetRef.current = classroomPresenceClockOffset(update.runtime.presenceObservedAt);
+        setPresenceClockOffset(presenceClockOffsetRef.current);
       }
       const next = { ...current, ...update,
         ...(update.captions && { captions: mergeCaptionSnapshots(current.captions, update.captions) }),
@@ -4630,7 +4635,8 @@ export function ClassroomV3({
         if (cancelled) return;
         setLayoutMode(payload.mode === "oneToOne" ? "split" : "focus");
         sessionRef.current = payload;
-        setPresenceClockOffset(classroomPresenceClockOffset(payload.runtime.presenceObservedAt));
+        presenceClockOffsetRef.current = classroomPresenceClockOffset(payload.runtime.presenceObservedAt);
+        setPresenceClockOffset(presenceClockOffsetRef.current);
         setSessionData(payload);
         const startsWithPublishingPermission =
           payload.credential.role === "student" &&
@@ -4840,10 +4846,13 @@ export function ClassroomV3({
     return () => { cancelled = true; clearTimeout(timer); messagesAbortRef.current?.abort(); messagesAbortRef.current = null; };
   }, [classEnded, loadingState, isRecorder, refreshMessages]);
 
-  const refreshState = useCallback(async () => {
+  const refreshState = useCallback(async function refreshSnapshot(): Promise<void> {
     if (!courseId || !sessionRef.current || sessionRef.current.runtime.status === "ended") return;
     if (refreshAbortRef.current) {
-      if (refreshCourseIdRef.current === courseId) return;
+      if (refreshCourseIdRef.current === courseId) {
+        refreshQueuedRef.current = true;
+        return;
+      }
       // A different lesson replaced the current one; its snapshot is stale.
       refreshAbortRef.current.abort();
     }
@@ -4852,6 +4861,7 @@ export function ClassroomV3({
     const controller = new AbortController();
     refreshAbortRef.current = controller;
     refreshCourseIdRef.current = courseId;
+    refreshQueuedRef.current = false;
     let timedOut = false;
     const timeoutId = window.setTimeout(() => {
       timedOut = true;
@@ -4913,6 +4923,13 @@ export function ClassroomV3({
       if (refreshAbortRef.current === controller) {
         refreshAbortRef.current = null;
         refreshCourseIdRef.current = "";
+        if (refreshQueuedRef.current) {
+          refreshQueuedRef.current = false;
+          // An invalidation received during this read must fetch the next snapshot.
+          queueMicrotask(() => {
+            if (requestId === refreshRequestIdRef.current) void refreshSnapshot();
+          });
+        }
       }
     }
   }, [
@@ -4931,6 +4948,7 @@ export function ClassroomV3({
       refreshAbortRef.current?.abort();
       refreshAbortRef.current = null;
       refreshCourseIdRef.current = "";
+      refreshQueuedRef.current = false;
     };
   }, []);
 
@@ -4939,7 +4957,8 @@ export function ClassroomV3({
     const refreshWhenActive = () => {
       if (sessionRef.current?.runtime.status === "ended") return;
       if (document.visibilityState === "visible" && navigator.onLine) {
-        void renewClassroomCredentials().then(() => refreshState()).catch(() => void refreshState());
+        void refreshState();
+        void renewClassroomCredentials().catch(() => undefined);
         void roomProviderRef.current?.recoverMedia().catch(() => undefined);
       }
     };
@@ -5025,7 +5044,7 @@ export function ClassroomV3({
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       if (document.visibilityState === "visible" || media.local.screenSharing || roomMedia.local.screenSharing) await refreshState();
-      const base = ["starting", "stopping", "processing"].includes(recordingStatus || "") ? 2_000 : 5_000;
+      const base = !signalingReadyRef.current || ["starting", "stopping", "processing"].includes(recordingStatus || "") ? 2_000 : 5_000;
       if (!cancelled) timer = setTimeout(poll, classroomPollDelay(base, stateFailuresRef.current, document.visibilityState === "hidden") + Math.random() * 500);
     };
     timer = setTimeout(poll, 2_500 + Math.random() * 500);
@@ -5039,10 +5058,18 @@ export function ClassroomV3({
     const provider = createClassroomSignalingProvider();
     signalingRef.current = provider;
     const onEvent = (
-      event: ClassroomInvalidation | ClassroomCompositionPreview | ClassroomMemberPermissionUpdate,
+      event: ClassroomInvalidation | ClassroomCompositionPreview | ClassroomMemberPermissionUpdate | ClassroomScreenShareRequest,
       publisherId?: string,
     ) => {
       if (cancelled || sessionRef.current?.runtime.status === "ended" || event.courseId !== courseId) return;
+      if (event.topic === "screen-share-request") {
+        const current = sessionRef.current;
+        if (!current) return;
+        const updated = applyClassroomScreenShareRequest(current.runtime, event, publisherId, false, Date.now() + presenceClockOffsetRef.current);
+        if (updated) updateSession({ runtime: updated });
+        if (event.revision > current.runtime.revision + 1 || (!updated && event.revision > current.runtime.revision)) void refreshState();
+        return;
+      }
       if (event.topic === "member-permissions") {
         const current = sessionRef.current;
         if (!current) return;
@@ -5538,6 +5565,15 @@ export function ClassroomV3({
               ? "engagement"
               : "runtime",
           );
+        }
+        if (payload.screenShareRequest && sessionRef.current) {
+          const current = sessionRef.current.runtime;
+          const updated = applyClassroomScreenShareRequest(current, payload.screenShareRequest, undefined, true, Date.now() + presenceClockOffsetRef.current);
+          confirmedRuntime = updated || current;
+          if (updated) updateSession({ runtime: updated });
+          void signalingRef.current?.publish(payload.screenShareRequest).catch(() => undefined);
+          publishInvalidation(payload.screenShareRequest.revision, "runtime");
+          if (payload.screenShareRequest.revision > current.revision + 1) void refreshState();
         }
         if (payload.memberPermissions && sessionRef.current) {
           const current = sessionRef.current.runtime;

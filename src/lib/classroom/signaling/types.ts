@@ -28,7 +28,17 @@ export type ClassroomCompositionPreview = {
 export type ClassroomSignalingEvent =
   | ClassroomInvalidation
   | ClassroomMemberPermissionUpdate
+  | ClassroomScreenShareRequest
   | ClassroomCompositionPreview;
+
+export type ClassroomScreenShareRequest = {
+  courseId: string;
+  topic: "screen-share-request";
+  actorId: string;
+  revision: number;
+  targetUserId: string;
+  requestedAt: string;
+};
 
 export type ClassroomMemberPermissionUpdate = {
   courseId: string;

@@ -1,4 +1,5 @@
 import { normalizeClassroomClientId, touchClassroomConnection } from "@/lib/classroom/server/connections";
+import { requestClassroomScreenShare } from "@/lib/classroom/server/screen-share-request";
 import { after, NextRequest, NextResponse } from "next/server";
 import { classroomRedisEnabled } from "@/lib/classroom/server/redis";
 import { getSessionFromRequest } from "@/lib/session";
@@ -93,6 +94,7 @@ export async function POST(
     shareAccess?: unknown;
     presenceOnly?: unknown;
     compactMemberPermissions?: unknown;
+    compactScreenShareRequest?: unknown;
   } | null;
   if (
     !body?.action ||
@@ -141,6 +143,14 @@ export async function POST(
     const sessionId = resolved.access.sessionId;
     const clientId = normalizeClassroomClientId(body.clientId);
     // Already-open older clients still expect the full runtime response.
+    if (body.compactScreenShareRequest === true && body.action.type === "requestScreenShare") {
+      const screenShareRequest = await requestClassroomScreenShare({
+        courseId: resolvedCourseId, sessionId, actorId: resolved.session.userId,
+        role: resolved.access.role, targetUserId: body.action.targetUserId,
+      });
+      await synchronizeClassroomRedis(sessionId, true);
+      return NextResponse.json({ screenShareRequest });
+    }
     if (body.compactMemberPermissions === true && isMicrophonePermissionAction(body.action)) {
       const memberPermissions = await applyClassroomMemberPermissions({
         courseId: resolvedCourseId, sessionId, actorId: resolved.session.userId,
