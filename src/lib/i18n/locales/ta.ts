@@ -329,7 +329,7 @@ export const ta = {
     fieldRole: "பங்கு",
     fieldUserId: "பயனர் ID",
     avatar: "அவதார்",
-    avatarDesc: "Enter an avatar image URL. Saving syncs the avatar snapshots used by courses.",
+    avatarDesc: "Upload an avatar image. Saving updates your avatar in courses.",
     avatarUrl: "Avatar URL",
     avatarUrlPlaceholder: "https://example.com/avatar.png",
     btnSaveAvatar: "Save Avatar",

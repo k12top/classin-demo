@@ -511,7 +511,7 @@ export const th = {
     fieldRole: "บทบาท",
     fieldUserId: "ไอดีผู้ใช้",
     avatar: "รูปโปรไฟล์",
-    avatarDesc: "Enter an avatar image URL. Saving syncs the avatar snapshots used by courses.",
+    avatarDesc: "Upload an avatar image. Saving updates your avatar in courses.",
     avatarUrl: "Avatar URL",
     avatarUrlPlaceholder: "https://example.com/avatar.png",
     btnSaveAvatar: "Save Avatar",

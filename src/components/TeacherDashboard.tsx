@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
+import { AvatarSettings } from "@/components/avatar-settings";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
@@ -1781,50 +1782,6 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
 function SettingsPanel({ user, onLogout }: { user: TeacherUser; onLogout: () => void }) {
   const { t } = useTranslation();
-  const { updateUserAvatar } = useAuth();
-  const [avatarDraft, setAvatarDraft] = useState(user.avatar || "");
-  const [avatarSaving, setAvatarSaving] = useState(false);
-  const [avatarMessage, setAvatarMessage] = useState("");
-
-  useEffect(() => {
-    queueMicrotask(() => {
-      setAvatarDraft(user.avatar || "");
-    });
-  }, [user.avatar]);
-
-  const handleSaveAvatar = async () => {
-    const avatar = avatarDraft.trim();
-    setAvatarSaving(true);
-    setAvatarMessage("");
-
-    try {
-      const res = await fetch("/api/auth/avatar", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ avatar }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setAvatarMessage(
-          data?.error === "Invalid avatar URL"
-            ? t("settingsPanel.errAvatarUrlInvalid")
-            : t("settingsPanel.avatarUpdateFailed")
-        );
-        return;
-      }
-
-      const nextAvatar = typeof data?.avatar === "string" ? data.avatar : avatar;
-      updateUserAvatar(nextAvatar);
-      setAvatarDraft(nextAvatar);
-      setAvatarMessage(t("settingsPanel.avatarUpdateSuccess"));
-    } catch {
-      setAvatarMessage(t("settingsPanel.avatarUpdateFailed"));
-    } finally {
-      setAvatarSaving(false);
-    }
-  };
-
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500">
       <PortalSectionHeader
@@ -1869,54 +1826,7 @@ function SettingsPanel({ user, onLogout }: { user: TeacherUser; onLogout: () => 
         </CardContent>
       </Card>
 
-      <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-lg font-bold">{t("settingsPanel.avatar")}</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-5 pt-2 sm:flex-row sm:items-start">
-          <Avatar className="h-16 w-16 border border-border/80 shadow-inner">
-            <AvatarImage src={avatarDraft.trim() || user.avatar} />
-            <AvatarFallback className="text-xl bg-primary/10 text-primary font-bold">{user.displayName?.[0] || user.name?.[0] || "T"}</AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 flex-1 space-y-3">
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              {t("settingsPanel.avatarDesc")}
-            </p>
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                {t("settingsPanel.avatarUrl")}
-              </label>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  type="url"
-                  value={avatarDraft}
-                  onChange={(e) => {
-                    setAvatarDraft(e.target.value);
-                    setAvatarMessage("");
-                  }}
-                  placeholder={t("settingsPanel.avatarUrlPlaceholder")}
-                  className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
-                />
-                <Button
-                  type="button"
-                  className="rounded-xl text-xs"
-                  disabled={avatarSaving}
-                  onClick={() => void handleSaveAvatar()}
-                >
-                  {avatarSaving ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    t("settingsPanel.btnSaveAvatar")
-                  )}
-                </Button>
-              </div>
-              {avatarMessage && (
-                <p className="text-xs text-muted-foreground">{avatarMessage}</p>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <AvatarSettings user={user} />
 
       <TeacherPlanSettings teacherId={user.userId} />
 

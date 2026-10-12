@@ -7,8 +7,12 @@ import {
   getSessionFromRequest,
 } from "@/lib/session";
 import { upsertUserProfileAvatar } from "@/lib/user-profile";
+import { CoursewareStorageConfigurationError } from "@/lib/aliyun-oss";
+import { MAX_AVATAR_SIZE, validateAvatarFile } from "@/lib/avatar-upload";
+import { matchesAvatarContentType, storeAvatar } from "@/lib/avatar-storage";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 function normalizeAvatarUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -34,10 +38,38 @@ export async function PUT(request: NextRequest) {
   }
 
   try {
-    const body = await request.json();
-    const avatar = normalizeAvatarUrl(body?.avatar);
-    if (avatar === null) {
-      return NextResponse.json({ error: "Invalid avatar URL" }, { status: 400 });
+    let avatar: string;
+    if (request.headers.get("content-type")?.startsWith("multipart/form-data")) {
+      if (Number(request.headers.get("content-length")) > MAX_AVATAR_SIZE + 64 * 1024) {
+        return NextResponse.json({ code: "AVATAR_FILE_TOO_LARGE" }, { status: 413 });
+      }
+      let form: FormData;
+      try {
+        form = await request.formData();
+      } catch {
+        return NextResponse.json({ code: "AVATAR_FILE_REQUIRED" }, { status: 400 });
+      }
+      const file = form.get("file");
+      if (!(file instanceof File)) {
+        return NextResponse.json({ code: "AVATAR_FILE_REQUIRED" }, { status: 400 });
+      }
+      const code = validateAvatarFile(file);
+      if (code) {
+        return NextResponse.json({ code }, { status: code === "AVATAR_FILE_TOO_LARGE" ? 413 : 400 });
+      }
+      const bytes = Buffer.from(await file.arrayBuffer());
+      if (!matchesAvatarContentType(bytes, file.type)) {
+        return NextResponse.json({ code: "AVATAR_FILE_TYPE_INVALID" }, { status: 400 });
+      }
+      avatar = await storeAvatar(bytes, file.type);
+    } else {
+      // Preserve existing clients that update or clear their avatar using JSON.
+      const body = await request.json();
+      const normalized = normalizeAvatarUrl(body?.avatar);
+      if (normalized === null) {
+        return NextResponse.json({ error: "Invalid avatar URL" }, { status: 400 });
+      }
+      avatar = normalized;
     }
 
     const userIdCandidates = casdoorUserIdCandidates(session.userId);
@@ -70,6 +102,18 @@ export async function PUT(request: NextRequest) {
         where: { userId: { in: userIdCandidates } },
         data: { userAvatar: avatar },
       }),
+      prisma.courseSession.updateMany({
+        where: { leadTeacherId: { in: userIdCandidates } },
+        data: { leadTeacherAvatar: avatar },
+      }),
+      prisma.courseSessionTeacher.updateMany({
+        where: { teacherId: { in: userIdCandidates } },
+        data: { teacherAvatar: avatar },
+      }),
+      prisma.courseSessionStudent.updateMany({
+        where: { studentId: { in: userIdCandidates } },
+        data: { studentAvatar: avatar },
+      }),
     ]);
 
     const built = await buildSessionCookies({
@@ -85,6 +129,9 @@ export async function PUT(request: NextRequest) {
     return response;
   } catch (error) {
     console.error("Failed to update avatar:", error);
+    if (error instanceof CoursewareStorageConfigurationError) {
+      return NextResponse.json({ code: "AVATAR_STORAGE_UNAVAILABLE" }, { status: 503 });
+    }
     return NextResponse.json({ error: "Failed to update avatar" }, { status: 500 });
   }
 }

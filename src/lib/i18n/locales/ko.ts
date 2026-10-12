@@ -381,7 +381,7 @@ export const ko = {
     fieldRole: "역할",
     fieldUserId: "사용자 ID",
     avatar: "아바타",
-    avatarDesc: "Enter an avatar image URL. Saving syncs the avatar snapshots used by courses.",
+    avatarDesc: "Upload an avatar image. Saving updates your avatar in courses.",
     avatarUrl: "Avatar URL",
     avatarUrlPlaceholder: "https://example.com/avatar.png",
     btnSaveAvatar: "Save Avatar",
