@@ -1,6 +1,7 @@
 import { classroomLanguageForLocale } from "@/lib/classroom/languages";
 
 export const CAPTION_LANGUAGE_STORAGE_KEY = "classroom_caption_language";
+export type CaptionDisplayMode = "off" | "original" | "bilingual" | "translated";
 
 export function initialCaptionLanguage(
   storedLanguage: string | null | undefined,
@@ -12,13 +13,14 @@ export function initialCaptionLanguage(
 
 export function effectiveCaptionLanguage(
   preferredLanguage: string,
-  availableLanguages: readonly string[],
+  supportedLanguages: readonly string[],
+  fallbackLanguage?: string,
 ): string {
   if (
-    availableLanguages.length > 0 &&
-    !availableLanguages.includes(preferredLanguage)
+    supportedLanguages.length > 0 &&
+    !supportedLanguages.includes(preferredLanguage)
   ) {
-    return availableLanguages[0];
+    return fallbackLanguage && supportedLanguages.includes(fallbackLanguage) ? fallbackLanguage : supportedLanguages[0];
   }
   return preferredLanguage;
 }

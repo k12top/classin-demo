@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
+import { MAX_COURSE_SESSION_OCCURRENCES } from "@/lib/course-session-schedule";
 import {
   CalendarClock,
   CalendarOff,
@@ -592,6 +593,13 @@ export function CourseSessionManager({
       setError(t("courseSessions.invalidSchedule"));
       return;
     }
+    if (!editingSession && scheduleType === "recurring" && (
+      !Number.isInteger(occurrenceCount) || occurrenceCount < 1 ||
+      occurrenceCount > MAX_COURSE_SESSION_OCCURRENCES
+    )) {
+      setError(t("courseSessions.invalidOccurrences", { max: MAX_COURSE_SESSION_OCCURRENCES }));
+      return;
+    }
     if (!selectedTeachers.includes(sessionLeadId)) {
       setError(t("courseSessions.leadRequired"));
       return;
@@ -1044,7 +1052,11 @@ export function CourseSessionManager({
             {!editingSession && scheduleType === "recurring" ? (
               <>
                 <label><span>{t("courseSessions.timezone")}</span><input value={timezone} onChange={(event) => setTimezone(event.target.value)} /></label>
-                <label><span>{t("courseSessions.occurrences")}</span><input type="number" min={1} max={100} value={occurrenceCount} onChange={(event) => setOccurrenceCount(Number(event.target.value))} /></label>
+                <label>
+                  <span>{t("courseSessions.occurrences")}</span>
+                  <input type="number" min={1} max={MAX_COURSE_SESSION_OCCURRENCES} step={1} aria-describedby="course-session-occurrences-hint" value={occurrenceCount} onChange={(event) => setOccurrenceCount(Number(event.target.value))} />
+                  <small id="course-session-occurrences-hint" className={styles.rosterHint}>{t("courseSessions.occurrencesHint", { max: MAX_COURSE_SESSION_OCCURRENCES })}</small>
+                </label>
                 <fieldset className={styles.full}>
                   <legend>{t("courseSessions.weekdays")}</legend>
                   <div className={styles.weekdays}>

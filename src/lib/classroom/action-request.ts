@@ -3,7 +3,7 @@ import type {
   ClassroomEngagementSnapshot,
   ClassroomRuntimeSnapshot,
 } from "./types";
-import type { ClassroomMemberPermissionUpdate, ClassroomScreenShareRequest } from "./signaling/types";
+import type { ClassroomMemberPermissionUpdate, ClassroomScreenShareRequest, ClassroomHandRaiseUpdate } from "./signaling/types";
 import { isMicrophonePermissionAction } from "./member-permissions";
 
 export function classroomActionRequiresRevision(action: ClassroomAction) {
@@ -20,6 +20,7 @@ export function classroomActionCanRetry(action: ClassroomAction) {
     "setMemberMuted", "muteAll", "setWhiteboardWritable",
     "setAssistantPermission", "setChatEnabled", "setRecordingStartMode",
     "setInterpretation", "deauthorizeAll", "releaseScreenShare",
+    "raiseHand", "lowerHand",
   ].includes(action.type);
 }
 
@@ -30,6 +31,7 @@ export type ClassroomActionResult = {
   engagement?: ClassroomEngagementSnapshot;
   memberPermissions?: ClassroomMemberPermissionUpdate;
   screenShareRequest?: ClassroomScreenShareRequest;
+  handRaise?: ClassroomHandRaiseUpdate;
 };
 
 export async function requestClassroomAction(
@@ -50,6 +52,7 @@ export async function requestClassroomAction(
     ...rest,
     ...(isMicrophonePermissionAction(body.action) && { compactMemberPermissions: true }),
     ...(body.action.type === "requestScreenShare" && { compactScreenShareRequest: true }),
+    ...(["raiseHand", "lowerHand"].includes(body.action.type) && { compactHandRaise: true }),
     ...(classroomActionRequiresRevision(body.action) &&
       expectedRevision !== undefined ? { expectedRevision } : {}),
   };

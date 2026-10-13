@@ -1523,6 +1523,23 @@ html[lang] .is-classin-layout .classroom-v3-side:has(.classroom-v3-modal-backdro
   z-index: 110;
 }
 
+/* Caption history uses the viewport below the header, independently of the
+   camera rail or stage height. Only the history/settings contents scroll. */
+html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-workspace[data-panel-open="true"] .classroom-v3-drawer[data-panel="captions"] {
+  position: fixed;
+  inset: 52px 62px 8px auto;
+  width: min(360px, calc(100vw - 80px));
+  height: auto;
+  max-height: none;
+}
+
+@media (max-width: 1024px) {
+  html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-workspace[data-panel-open="true"] .classroom-v3-drawer[data-panel="captions"] {
+    inset: 60px 8px calc(76px + env(safe-area-inset-bottom));
+    width: auto;
+  }
+}
+
 .is-classin-layout .classroom-v3-modal-backdrop {
   pointer-events: auto;
 }

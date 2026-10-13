@@ -538,6 +538,8 @@ model ClassroomRuntime {
   transcriptionError         String?
   transcriptionRetryCount    Int       @default(0)
   transcriptionLastCheckedAt DateTime?
+  transcriptionConfigKey     String?
+  transcriptionSyncLeaseUntil DateTime?
   whiteboardProvider         String    @default("netless")
   whiteboardRoomUuid         String?
   createdAt                  DateTime  @default(now())
@@ -821,6 +823,7 @@ model ClassroomConnection {
   userId String
   rtcUid Int
   screenUid Int
+  captionLanguage String?
   lastSeenAt DateTime @default(now())
   leftAt DateTime?
   @@index([sessionId, userId, lastSeenAt])

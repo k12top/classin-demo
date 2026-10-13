@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageLoadingState } from "@/components/ui/page-loading-state";
 import { useAuth } from "@/lib/auth-context";
 import { redirectToSsoLogin } from "@/lib/auth-login";
@@ -168,6 +169,8 @@ export default function CoursePlaybackPage({
   const [continuePlaybackId, setContinuePlaybackId] = useState("");
   const [mediaTime, setMediaTime] = useState(0);
   const [seekRequest, setSeekRequest] = useState<PlaybackSeek | null>(null);
+  const [lessonReviewTab, setLessonReviewTab] = useState("summary");
+  const reviewContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const savedMode = window.localStorage.getItem("playback_caption_mode");
@@ -679,7 +682,12 @@ export default function CoursePlaybackPage({
           <h2 className="text-lg font-semibold">{selectedSession.title || copy.title}</h2>
           <div className="flex items-center gap-3">
             <time dateTime={selectedSession.startTime} className="text-xs text-muted-foreground">{new Date(selectedSession.startTime).toLocaleString(locale)}</time>
-            <a href="#lesson-summary" className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-primary">
+            <a href="#lesson-summary" onClick={() => {
+              setLessonReviewTab("summary");
+              requestAnimationFrame(() => {
+                if (reviewContentRef.current?.getClientRects().length) reviewContentRef.current.scrollIntoView({ block: "start" });
+              });
+            }} className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-primary">
               <FileText className="h-3.5 w-3.5" aria-hidden="true" />{summaryCopy.title}
             </a>
           </div>
@@ -775,14 +783,30 @@ export default function CoursePlaybackPage({
         </Card>
         </div>
         {selectedSessionId && (
-          <aside className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm" aria-label={locale.startsWith("zh") ? "课次内容" : "Lesson content"}>
-            <LessonSummaryPanel presentation="timeline" {...lessonContentProps} />
-          </aside>
-        )}
-        {selectedSessionId && (
-          <section id="lesson-summary" className={`min-w-0 scroll-mt-6 ${reviewableSessions.length > 1 ? "xl:col-start-2 xl:col-span-2" : "xl:col-span-2"}`} aria-label={summaryCopy.title}>
-            <LessonSummaryPanel presentation="summary" {...lessonContentProps} />
-          </section>
+          <Tabs ref={reviewContentRef} value={lessonReviewTab} onValueChange={(value) => {
+            setLessonReviewTab(value);
+            requestAnimationFrame(() => reviewContentRef.current?.scrollIntoView({ block: "start" }));
+          }} className={`min-w-0 xl:contents ${embedded ? "scroll-mt-3" : "scroll-mt-[70px] min-[1025px]:scroll-mt-[80px]"}`}>
+            <TabsList aria-label={locale.startsWith("zh") ? "课后回顾" : "Lesson review"}
+              className={`sticky z-20 mb-4 grid h-auto w-full grid-cols-2 rounded-xl bg-muted p-1 xl:hidden ${embedded ? "top-0" : "top-[58px] min-[1025px]:top-[68px]"}`}>
+              <TabsTrigger value="summary" className="min-h-11 gap-2 rounded-lg">
+                <Sparkles className="h-4 w-4" aria-hidden="true" />{locale.startsWith("zh") ? "AI 总结" : "AI summary"}
+              </TabsTrigger>
+              <TabsTrigger value="timeline" className="min-h-11 gap-2 rounded-lg">
+                <Clock3 className="h-4 w-4" aria-hidden="true" />{locale.startsWith("zh") ? "发言时间线" : "Timeline"}
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="timeline" forceMount asChild className="mt-0 data-[state=inactive]:hidden xl:data-[state=inactive]:block">
+              <aside className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
+                <LessonSummaryPanel presentation="timeline" {...lessonContentProps} />
+              </aside>
+            </TabsContent>
+            <TabsContent value="summary" forceMount asChild className="mt-0 data-[state=inactive]:hidden xl:data-[state=inactive]:block">
+              <section id="lesson-summary" className={`min-w-0 scroll-mt-6 ${reviewableSessions.length > 1 ? "xl:col-start-2 xl:col-span-2" : "xl:col-span-2"}`} aria-label={summaryCopy.title}>
+                <LessonSummaryPanel presentation="summary" {...lessonContentProps} />
+              </section>
+            </TabsContent>
+          </Tabs>
         )}
         </div>
       </main>
@@ -924,7 +948,7 @@ function LessonSummaryPanel({
         <p className="mt-1 text-xs text-muted-foreground">{copy.title === "课后总结" ? "点击发言跳转到视频中的对应位置" : "Select an utterance to jump to the video"}</p>
         {captionLanguages.length > 0 && <label className="mt-3 flex items-center gap-2 text-sm text-foreground">
           <span>{copy.title === "课后总结" ? "翻译语言" : "Translation language"}</span>
-          <select className="min-w-0 rounded-md border border-border bg-background px-2 py-1.5" value={captionLanguage} onChange={event => onCaptionLanguageChange(event.target.value)}>
+          <select className="min-h-11 min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5" value={captionLanguage} onChange={event => onCaptionLanguageChange(event.target.value)}>
             <option value={NO_CAPTION_TRANSLATION}>{copy.title === "课后总结" ? "无，不翻译" : "None, no translation"}</option>
             {captionLanguages.map(language => <option key={language} value={language}>{classroomLanguageLabel(language)}</option>)}
           </select>
@@ -936,7 +960,7 @@ function LessonSummaryPanel({
           {loading && !captions.length && <p className="p-3 text-sm text-muted-foreground">{copy.saving}</p>}
           {captions.length ? (
             <>
-            <ol className="max-h-[650px] space-y-2 overflow-y-auto">
+            <ol className="max-h-[65dvh] space-y-2 overflow-y-auto xl:max-h-[650px]">
               {captions.map((caption) => {
                 const translation = captionLanguage === NO_CAPTION_TRANSLATION ? "" : captionTranslation(caption, captionLanguage);
                 const position = captionPosition(caption.occurredAt, recordings);
@@ -953,8 +977,8 @@ function LessonSummaryPanel({
                       <time dateTime={caption.occurredAt}>{timeLabel}</time>
                       <span>{caption.speakerName}</span>
                     </span>
-                    <span className="text-foreground">{caption.text}</span>
-                    {translation && <span className="text-muted-foreground">{translation}</span>}
+                    <span className="min-w-0 break-words text-foreground">{caption.text}</span>
+                    {translation && <span className="min-w-0 break-words text-muted-foreground">{translation}</span>}
                   </button>
                 </li>;
               })}

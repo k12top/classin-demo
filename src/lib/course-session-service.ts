@@ -101,12 +101,6 @@ export async function createCourseSessions(input: CreateCourseSessionsInput) {
     if (occurrences.length !== 1) {
       throw new CourseSessionError("单独课程不支持周期排课");
     }
-    const existingSessionCount = await prisma.courseSession.count({
-      where: { courseId: course.id },
-    });
-    if (existingSessionCount > 0) {
-      throw new CourseSessionError("单独课程只能包含一个课次", 409);
-    }
   }
   const teacherMode = normalizedMode(input.teacherMode);
   const studentMode = normalizedMode(input.studentMode);
@@ -162,11 +156,6 @@ export async function createCourseSessions(input: CreateCourseSessionsInput) {
     leadRule?.avatar || inheritedLead?.teacherAvatar ||
     (leadTeacherId === course.teacherId ? course.teacherAvatar : "");
 
-  const last = await prisma.courseSession.aggregate({
-    where: { courseId: course.id },
-    _max: { position: true },
-  });
-  const firstPosition = (last._max.position || 0) + 1;
   const seriesId = input.schedule.type === "recurring" ? randomUUID() : null;
   const recurrenceRule: Prisma.InputJsonValue | null = input.schedule.type === "recurring"
     ? {
@@ -179,6 +168,19 @@ export async function createCourseSessions(input: CreateCourseSessionsInput) {
     : null;
 
   return prisma.$transaction(async (transaction) => {
+    // Serialize position allocation with other schedulers, including public API
+    // writers. The standalone count must be checked under the same lock.
+    await transaction.$queryRaw`SELECT "id" FROM "Course" WHERE "id" = ${course.id} FOR UPDATE`;
+    const last = await transaction.courseSession.aggregate({
+      where: { courseId: course.id },
+      _max: { position: true },
+      _count: { id: true },
+    });
+    if (course.courseKind === "standalone" && last._count.id > 0) {
+      throw new CourseSessionError("单独课程只能包含一个课次", 409);
+    }
+    const firstPosition = (last._max.position || 0) + 1;
+
     if (seriesId && input.schedule.type === "recurring" && recurrenceRule) {
       await transaction.courseSessionSeries.create({
         data: {
@@ -192,62 +194,72 @@ export async function createCourseSessions(input: CreateCourseSessionsInput) {
       });
     }
 
-    const sessions = [];
-    for (const [index, occurrence] of occurrences.entries()) {
+    // Preassign IDs so sessions and roster rules can each be inserted in bulk.
+    // Per-session nested creates/reads exceed the default 5-second transaction
+    // budget on remote databases as the recurrence grows.
+    const sessionData = occurrences.map((occurrence, index) => {
       const position = firstPosition + index;
-      const session = await transaction.courseSession.create({
-        data: {
+      return {
+        id: randomUUID(),
+        courseId: course.id,
+        seriesId,
+        title: (input.title || "").trim() || `${course.name} · 第 ${position} 课`,
+        position,
+        roomUuid: generateCourseRoomUuid(),
+        roomType: Number.isInteger(input.roomType) ? input.roomType! : course.roomType,
+        classroomProvider: course.classroomProvider,
+        recordingProvider: course.recordingProvider,
+        teacherMode,
+        studentMode,
+        leadTeacherId,
+        leadTeacherName,
+        leadTeacherAvatar,
+        startTime: occurrence.startTime,
+        endTime: occurrence.endTime,
+        createdBy: input.createdBy,
+      };
+    });
+    await transaction.courseSession.createMany({ data: sessionData });
+    if (teacherRules.length) {
+      await transaction.courseSessionTeacher.createMany({
+        data: sessionData.flatMap((session) => teacherRules.map((teacher) => ({
+          sessionId: session.id,
           courseId: course.id,
-          seriesId,
-          title: (input.title || "").trim() || `${course.name} · 第 ${position} 课`,
-          position,
-          roomUuid: generateCourseRoomUuid(),
-          roomType: Number.isInteger(input.roomType) ? input.roomType! : course.roomType,
-          classroomProvider: course.classroomProvider,
-          recordingProvider: course.recordingProvider,
-          teacherMode,
-          studentMode,
-          leadTeacherId,
-          leadTeacherName,
-          leadTeacherAvatar,
-          startTime: occurrence.startTime,
-          endTime: occurrence.endTime,
-          createdBy: input.createdBy,
-          teachers: {
-            create: teacherRules.map((teacher) => ({
-              courseId: course.id,
-              teacherId: teacher.userId,
-              teacherName: teacher.displayName,
-              teacherAvatar: teacher.avatar,
-              action: teacher.action,
-              role: teacher.userId === leadTeacherId ? "teacher" : teacher.role,
-            })),
-          },
-          students: {
-            create: studentRules.map((student) => ({
-              courseId: course.id,
-              studentId: student.userId,
-              studentName: student.displayName,
-              studentAvatar: student.avatar,
-              action: student.action,
-            })),
-          },
-          groupLinks: {
-            create: groupRules.map((group) => ({
-              courseId: course.id,
-              groupId: group.groupId,
-              action: group.action,
-            })),
-          },
-        },
-        include: {
-          teachers: true,
-          students: true,
-          groupLinks: true,
-        },
+          teacherId: teacher.userId,
+          teacherName: teacher.displayName,
+          teacherAvatar: teacher.avatar,
+          action: teacher.action,
+          role: teacher.userId === leadTeacherId ? "teacher" : teacher.role,
+        }))),
       });
-      sessions.push(session);
     }
+    if (studentRules.length) {
+      await transaction.courseSessionStudent.createMany({
+        data: sessionData.flatMap((session) => studentRules.map((student) => ({
+          sessionId: session.id,
+          courseId: course.id,
+          studentId: student.userId,
+          studentName: student.displayName,
+          studentAvatar: student.avatar,
+          action: student.action,
+        }))),
+      });
+    }
+    if (groupRules.length) {
+      await transaction.courseSessionGroupLink.createMany({
+        data: sessionData.flatMap((session) => groupRules.map((group) => ({
+          sessionId: session.id,
+          courseId: course.id,
+          groupId: group.groupId,
+          action: group.action,
+        }))),
+      });
+    }
+    const sessions = await transaction.courseSession.findMany({
+      where: { id: { in: sessionData.map((session) => session.id) } },
+      include: { teachers: true, students: true, groupLinks: true },
+      orderBy: { position: "asc" },
+    });
 
     const previousCount = firstPosition - 1;
     const first = sessions[0];
@@ -266,7 +278,7 @@ export async function createCourseSessions(input: CreateCourseSessionsInput) {
       },
     });
     return sessions;
-  });
+  }, { maxWait: 5_000, timeout: 30_000 });
 }
 
 export function serializeCourseSession<T extends {

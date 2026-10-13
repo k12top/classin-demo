@@ -5,6 +5,7 @@ import {
   classroomLanguageForLocale,
   normalizeClassroomLanguage,
   normalizeTargetLanguages,
+  captionLanguageOptions,
 } from "../src/lib/classroom/languages";
 import {
   effectiveCaptionLanguage,
@@ -157,13 +158,13 @@ test("Shengwang targets are normalized, unique and capped at ten", () => {
   assert.equal(normalizeClassroomLanguage("zh-TW"), "zh-TW");
 });
 
-test("new lessons provide ten translation choices while excluding their source", () => {
+test("new lessons start without translation demand", () => {
   for (const source of ["zh-CN", "en-US", "ja-JP", "ar-SA"]) {
     const targets = defaultClassroomTargetLanguages(source);
-    assert.equal(targets.length, 10);
-    assert.equal(new Set(targets).size, 10);
+    assert.equal(targets.length, 0);
+    assert.equal(new Set(targets).size, 0);
     assert.equal(targets.includes(source), false);
-    assert.ok(targets.includes("th-TH"));
+
   }
 });
 
@@ -204,4 +205,21 @@ test("locale preference follows URL, cookie, storage, then browser", () => {
     "vi",
   );
   assert.equal(resolveLocalePreference({ browser: "de-DE" }), "de");
+});
+
+// Availability is independent of active target channels and interface locales.
+test("translation catalog lists all documented provider languages and omits unsupported Wordly languages", () => {
+  const shengwang = captionLanguageOptions("shengwang").map(item => item.code);
+  const wordly = captionLanguageOptions("wordly").map(item => item.code);
+  assert.equal(shengwang.length, 150);
+  assert.equal(new Set(shengwang).size, shengwang.length);
+  assert.ok(shengwang.includes("km-KH"));
+  assert.ok(shengwang.includes("fr-FR"));
+  assert.ok(shengwang.includes("tr-TR"));
+  assert.ok(wordly.includes("ta-IN"));
+  assert.ok(wordly.includes("en-US"));
+  assert.ok(!wordly.includes("km-KH"));
+  assert.ok(!wordly.includes("my-MM"));
+  assert.equal(effectiveCaptionLanguage("ja-JP", shengwang), "ja-JP");
+  assert.equal(effectiveCaptionLanguage("my-MM", wordly, "zh-CN"), "zh-CN");
 });

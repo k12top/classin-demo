@@ -17,7 +17,7 @@ async function main() {
     "@/lib/classroom/server/request-access": `export async function resolveClassroomRequestAccess(){return {ok:true,session:globalThis.stressActor,access:globalThis.stressAccess}}`,
     "@/lib/classroom/translation/wordly": "export const ensureWordlyRoom=async()=>{};export const translateCaptionWithWordly=async(_,caption)=>caption;",
   };
-  await esbuild.build({ stdin: { contents: `export {prisma} from '@/lib/db';export * from '@/lib/classroom/server/runtime';export * from '@/lib/classroom/server/connections';export * from '@/lib/classroom/server/captions';export {POST as chat} from '@/app/api/courses/[id]/classroom/messages/route';`, resolveDir: root }, outfile: output, bundle: true, format: "cjs", platform: "node", packages: "external", tsconfig: path.join(root, "tsconfig.json"), plugins: [{ name: "isolated-services", setup(build) {
+  await esbuild.build({ stdin: { contents: `export {prisma} from '@/lib/db';export * from '@/lib/classroom/server/runtime';export * from '@/lib/classroom/server/connections';export * from '@/lib/classroom/server/caption-demand';export * from '@/lib/classroom/server/captions';export {POST as chat} from '@/app/api/courses/[id]/classroom/messages/route';`, resolveDir: root }, outfile: output, bundle: true, format: "cjs", platform: "node", packages: "external", tsconfig: path.join(root, "tsconfig.json"), plugins: [{ name: "isolated-services", setup(build) {
     build.onResolve({ filter: /.*/ }, args => args.path in stubs ? { path: args.path, namespace: "mock" } : undefined);
     build.onLoad({ filter: /.*/, namespace: "mock" }, args => ({ contents: stubs[args.path], loader: "js" }));
   } }] });
@@ -30,15 +30,15 @@ async function main() {
   const student = { userId: "student", name: "student", displayName: "Student", avatar: "" };
   try {
     let runtime = await api.ensureClassroomRuntime(course.id, lesson.id);
-    assert.equal(runtime.targetLanguages.length, 10);
+    assert.equal(runtime.targetLanguages.length, 0);
     await api.touchClassroomMember(course.id, teacher, "teacher", undefined, lesson.id);
     await api.touchClassroomMember(course.id, student, "student", undefined, lesson.id);
     await api.touchClassroomConnection(lesson.id, student.userId, "stress-client", true);
     runtime = await api.applyClassroomAction({ courseId: course.id, sessionId: lesson.id, session: teacher, role: "teacher", action: { type: "startClass" } });
-    assert.equal(runtime.interpretation.targetLanguages.length, 10);
+    assert.equal(runtime.interpretation.targetLanguages.length, 0);
     const studentMember = runtime.members.find(member => member.userId === student.userId);
     assert.equal(studentMember.onStage, true); assert.equal(studentMember.microphoneAllowed, true); assert.equal(studentMember.chatMuted, false);
-    console.log("PASS class start preserves student media/chat permissions and enables ten targets");
+    console.log("PASS class start preserves student media/chat permissions and starts without translation demand");
 
     lock = await pool.connect(); await lock.query("BEGIN");
     await lock.query('SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId"=$1 FOR UPDATE', [lesson.id]);
@@ -103,10 +103,13 @@ async function main() {
     assert.ok((await db.classroomConnection.findFirst({ where: { sessionId: lesson.id } })).lastSeenAt > old);
     console.log("PASS concurrent captions, student chat and heartbeat complete with a pool of three");
 
+    await api.saveCaptionPreference(lesson.id, student.userId, "stress-client", "ja-JP");
+    await api.touchClassroomConnection(lesson.id, teacher.userId, "teacher-client", true);
+    await api.saveCaptionPreference(lesson.id, teacher.userId, "teacher-client", "th-TH");
     await api.applyClassroomAction({ courseId: course.id, sessionId: lesson.id, session: teacher, role: "teacher", action: { type: "setInterpretation", enabled: true, provider: "shengwang", sourceLanguage: "zh-CN", targetLanguages: ["ja-JP", "th-TH"] } });
     runtime = await api.applyClassroomAction({ courseId: course.id, sessionId: lesson.id, session: teacher, role: "teacher", action: { type: "startClass" } });
     assert.deepEqual(runtime.interpretation.targetLanguages, ["ja-JP", "th-TH"]);
-    console.log("PASS teacher-selected output languages survive repeated start actions");
+    console.log("PASS participant translation demand survives repeated start actions");
   } finally {
     if (lock) { await lock.query("ROLLBACK"); lock.release(); }
     await db.classroomConnection.deleteMany({ where: { sessionId: lesson.id } });

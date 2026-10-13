@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/db";
+import { refreshCaptionDemand } from "./caption-demand";
 import { classroomPgFallback, classroomRedisEnabled } from "./redis";
 import { redisClassroomHeartbeat } from "./redis-presence";
 import { synchronizeClassroomRedis } from "./redis-sync";
@@ -82,6 +83,7 @@ export async function leaveClassroomConnection(sessionId: string, userId: string
     }
     const now = new Date();
     const departed = await tx.classroomConnection.updateMany({ where: { sessionId, userId, leftAt: null, ...(clientId ? { id: `${sessionId}:${userId}:${clientId}` } : {}) }, data: { leftAt: now } });
+    await refreshCaptionDemand(tx, sessionId);
     // A delayed pagehide after explicit leave must not reopen the grace period.
     if (!departed.count) return;
     if (departed.count) {

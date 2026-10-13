@@ -24,6 +24,7 @@ import { requestRecordingStop, processRecordingStop } from "@/lib/classroom/serv
 import { databaseUnavailableResponse } from "@/lib/database-response";
 import { isMicrophonePermissionAction } from "@/lib/classroom/member-permissions";
 import { applyClassroomMemberPermissions } from "@/lib/classroom/server/member-permissions";
+import { setClassroomHandRaised } from "@/lib/classroom/server/hand-raise";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -95,6 +96,7 @@ export async function POST(
     presenceOnly?: unknown;
     compactMemberPermissions?: unknown;
     compactScreenShareRequest?: unknown;
+    compactHandRaise?: unknown;
   } | null;
   if (
     !body?.action ||
@@ -142,6 +144,14 @@ export async function POST(
     const resolvedCourseId = resolved.access.courseId;
     const sessionId = resolved.access.sessionId;
     const clientId = normalizeClassroomClientId(body.clientId);
+    if (body.compactHandRaise === true && (body.action.type === "raiseHand" || body.action.type === "lowerHand")) {
+      const handRaise = await setClassroomHandRaised({
+        courseId: resolvedCourseId, sessionId, actorId: resolved.session.userId,
+        role: resolved.access.role, clientId, raised: body.action.type === "raiseHand",
+      });
+      await synchronizeClassroomRedis(sessionId, true);
+      return NextResponse.json({ handRaise });
+    }
     // Already-open older clients still expect the full runtime response.
     if (body.compactScreenShareRequest === true && body.action.type === "requestScreenShare") {
       const screenShareRequest = await requestClassroomScreenShare({

@@ -42,10 +42,11 @@ import {
 } from "@/lib/classroom/screen-share-state";
 import type { SessionPayload } from "@/lib/session";
 import {
-  defaultClassroomTargetLanguages,
   normalizeClassroomLanguage,
   normalizeTargetLanguages,
 } from "@/lib/classroom/languages";
+import { captionDemandTargets } from "./caption-demand";
+import { captionTranslationLimit, supportsCaptionTranslation } from "@/lib/classroom/translation-capabilities";
 import { classroomSelectorCycle } from "@/lib/classroom/engagement";
 import {
   arrangeClassroomVideoGallery,
@@ -113,7 +114,7 @@ export async function ensureClassroomRuntime(
         status: ended ? "ended" : "waiting",
         graceEndsAt: classroomGraceEndAt(lesson.endTime),
         startedAt: null,
-        targetLanguages: defaultClassroomTargetLanguages("zh-CN"),
+        targetLanguages: [],
       },
       update: {
         graceEndsAt: classroomGraceEndAt(lesson.endTime),
@@ -192,8 +193,6 @@ export async function startScheduledClassroomIfDue(
     runtime.session.status === CourseStatus.AFTER_CLASS
   ) return false;
 
-  const sourceLanguage = normalizeClassroomLanguage(runtime.sourceLanguage);
-  const targets = normalizeTargetLanguages(runtime.targetLanguages, sourceLanguage);
   const started = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
     const currentLesson = await tx.courseSession.findUniqueOrThrow({ where: { id: sessionId }, select: { status: true } });
@@ -209,9 +208,7 @@ export async function startScheduledClassroomIfDue(
         startedAt: now,
         graceEndsAt: classroomGraceEndAt(runtime.session.endTime),
         interpretationEnabled: true,
-        targetLanguages: targets.length
-          ? targets
-          : defaultClassroomTargetLanguages(sourceLanguage),
+        targetLanguages: await captionDemandTargets(tx, sessionId, runtime.sourceLanguage, runtime.interpretationProvider === "wordly" ? "wordly" : "shengwang"),
         transcriptionStatus: "starting",
         transcriptionError: null,
         transcriptionLastCheckedAt: null,
@@ -824,16 +821,7 @@ export async function applyClassroomAction(input: {
             // teacher-reviewed post-class summary. Teachers may still disable
             // interpretation explicitly after the class starts.
             interpretationEnabled: true,
-            targetLanguages:
-              normalizeTargetLanguages(
-                runtime.targetLanguages,
-                normalizeClassroomLanguage(runtime.sourceLanguage),
-              ).length > 0
-                ? normalizeTargetLanguages(
-                    runtime.targetLanguages,
-                    normalizeClassroomLanguage(runtime.sourceLanguage),
-                  )
-                : defaultClassroomTargetLanguages(normalizeClassroomLanguage(runtime.sourceLanguage)),
+            targetLanguages: await captionDemandTargets(tx, sessionId, runtime.sourceLanguage, runtime.interpretationProvider === "wordly" ? "wordly" : "shengwang"),
             transcriptionStatus:
               runtime.transcriptionStatus === "running" ? "running" : "starting",
             transcriptionError: null,
@@ -851,8 +839,8 @@ export async function applyClassroomAction(input: {
         if (role !== "student") {
           throw new ClassroomActionError("教师无需举手", 409);
         }
-        await tx.classroomMemberState.update({
-          where: actorWhere,
+        await tx.classroomMemberState.updateMany({
+          where: { sessionId, userId: session.userId, handRaisedAt: null },
           data: { handRaisedAt: new Date() },
         });
         break;
@@ -1427,11 +1415,11 @@ export async function applyClassroomAction(input: {
         requireLeadTeacher(role);
         const provider = action.provider === "wordly" ? "wordly" : "shengwang";
         const sourceLanguage = normalizeClassroomLanguage(action.sourceLanguage);
-        const targetLanguages = normalizeTargetLanguages(
-          action.targetLanguages,
-          sourceLanguage,
-          provider === "shengwang" ? 10 : 20,
-        );
+        if (!supportsCaptionTranslation(provider, action.sourceLanguage) || !supportsCaptionTranslation("shengwang", action.sourceLanguage)) throw new ClassroomActionError("当前翻译服务不支持此课堂语言");
+        // Output languages belong to active participants, including older clients
+        // that still submit a manually configured targetLanguages array.
+        const targetLanguages = await captionDemandTargets(tx, sessionId, sourceLanguage, provider);
+        if (targetLanguages.length > captionTranslationLimit(provider)) throw new ClassroomActionError("当前课堂使用的翻译语言超出服务上限", 409);
         await tx.classroomRuntime.update({
           where: { id: runtime.id },
           data: {

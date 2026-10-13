@@ -118,7 +118,7 @@ export async function ingestClassroomCaption(
       const wordlyFinal =
         runtime.interpretationEnabled &&
         runtime.interpretationProvider === "wordly" &&
-        input.isFinal;
+        input.isFinal && wordlyTargets.length > 0;
       if (
         existingCaption &&
         shouldReusePersistedCaption({

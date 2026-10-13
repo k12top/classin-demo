@@ -3,6 +3,11 @@
 import { ClassroomMemberAvatar } from "@/components/classroom/member-avatar";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useChatUnread } from "@/lib/classroom/use-chat-unread";
+import { CaptionsPanel } from "@/components/classroom/captions-panel";
+import { HandRaiseButton, HandRaiseQueue, HandRaiseVideoBadge } from "@/components/classroom/hand-raise-controls";
+import { applyClassroomHandRaiseUpdate, raisedClassroomHands } from "@/lib/classroom/hand-raise";
+import { useCaptionSubscription } from "@/lib/classroom/use-caption-subscription";
+import { supportedCaptionTranslationCodes } from "@/lib/classroom/translation-capabilities";
 import { TeacherAssistant } from "@/components/classroom/teacher-assistant";
 import { assistantConversationKey, classroomAssistantTeacher } from "@/lib/classroom/assistant";
 import { ClassroomClosingNotice } from "@/components/classroom/closing-notice";
@@ -137,6 +142,7 @@ import type {
   ClassroomInvalidation,
   ClassroomMemberPermissionUpdate,
   ClassroomScreenShareRequest,
+  ClassroomHandRaiseUpdate,
   ClassroomSignalingProvider,
 } from "@/lib/classroom/signaling/types";
 import type {
@@ -178,13 +184,10 @@ import {
   isRecorderReadyAcknowledged,
 } from "@/lib/classroom/recording-start";
 import {
-  classroomLanguageLabel,
-  classroomLanguages,
-} from "@/lib/classroom/languages";
-import {
   CAPTION_LANGUAGE_STORAGE_KEY,
   effectiveCaptionLanguage as resolveEffectiveCaptionLanguage,
   initialCaptionLanguage,
+  type CaptionDisplayMode,
 } from "@/lib/classroom/caption-preferences";
 import {
   captionTranslation,
@@ -208,7 +211,6 @@ type DrawerPanel =
   | "engagement"
   | "tools";
 type ClassroomLayoutMode = "focus" | "split" | "grid";
-type CaptionDisplayMode = "off" | "original" | "bilingual" | "translated";
 type CaptionBackgroundMode = "transparent" | "text" | "solid";
 
 const TEACHER_PIP_HIDDEN_STORAGE_KEY = "classroom_teacher_pip_hidden";
@@ -296,12 +298,14 @@ function MediaSurface({
   displayName,
   className = "",
   showCaption = true,
+  member,
 }: {
   participant: ClassroomParticipant;
   provider: ClassroomMediaProvider;
   displayName: string;
   className?: string;
   showCaption?: boolean;
+  member?: ClassroomMemberSnapshot;
 }) {
   const { t } = useTranslation();
   const targetRef = useRef<HTMLDivElement>(null);
@@ -325,6 +329,7 @@ function MediaSurface({
           </small>
         </div>
       )}
+      <HandRaiseVideoBadge member={member} />
       {showCaption && (
         <div className="classroom-v3-media-caption">
           <span>{displayName}</span>
@@ -345,6 +350,7 @@ function BoardCompositionItem({
   item,
   participant,
   displayName,
+  member,
   coursewareName,
   provider,
   stageRef,
@@ -363,6 +369,7 @@ function BoardCompositionItem({
   item: ClassroomBoardItem;
   participant: ClassroomParticipant | null;
   displayName: string;
+  member?: ClassroomMemberSnapshot;
   coursewareName?: string;
   provider: ClassroomMediaProvider;
   stageRef: React.RefObject<HTMLDivElement | null>;
@@ -663,6 +670,7 @@ function BoardCompositionItem({
           <small>{t("classroom.v3.waitingForSharedContent")}</small>
         </div>
       )}
+      {!isRecorder && item.kind === "camera" && <HandRaiseVideoBadge member={member} />}
       {!isRecorder && <div className="classroom-v3-board-item-tools" role="toolbar">
         {item.kind === "camera" && canEditGeometry && (
           <button
@@ -878,6 +886,7 @@ function BoardCompositionLayer({
             item={visualItem}
             participant={matchedParticipant}
             displayName={displayName}
+            member={member}
             coursewareName={file?.name}
             provider={provider}
             stageRef={stageRef}
@@ -1095,6 +1104,7 @@ function LiveRailSeat({
       <span className="classroom-v3-seat-role">
         {roleLabel(member.role, t)}
       </span>
+      <HandRaiseVideoBadge member={member} />
       {!showControls && (
         <span
           className="classroom-v3-seat-media-state"
@@ -1348,9 +1358,7 @@ function LiveRail({
     if (rightIndex === undefined) return -1;
     return leftIndex - rightIndex;
   });
-  const queue = members.filter(
-    (member) => member.online && member.handRaisedAt && !member.onStage,
-  );
+  const queue = raisedClassroomHands(members);
   const cameraParticipants = new Map(
     media.participants
       .filter((participant) => participant.kind === "camera")
@@ -2887,293 +2895,6 @@ function CoursewarePanel({
   );
 }
 
-function CaptionsPanel({
-  busy,
-  runtime,
-  captions,
-  availability,
-  canManage,
-  displayMode,
-  overlayVisible,
-  preferredLanguage,
-  onDisplayModeChange,
-  onOverlayVisibleChange,
-  onPreferredLanguageChange,
-  onAction,
-}: {
-  runtime: ClassroomRuntimeSnapshot;
-  captions: ClassroomCaptionSnapshot[];
-  availability: { shengwang: boolean; wordly: boolean };
-  canManage: boolean;
-  displayMode: CaptionDisplayMode;
-  overlayVisible: boolean;
-  preferredLanguage: string;
-  busy?: boolean;
-  onDisplayModeChange: (mode: CaptionDisplayMode) => void;
-  onOverlayVisibleChange: (visible: boolean) => void;
-  onPreferredLanguageChange: (language: string) => void;
-  onAction: (action: ClassroomAction) => Promise<boolean>;
-}) {
-  const { t, locale } = useTranslation();
-  const [enabled, setEnabled] = useState(runtime.interpretation.enabled);
-  const [sourceLanguage, setSourceLanguage] = useState(
-    runtime.interpretation.sourceLanguage,
-  );
-  const [targetLanguages, setTargetLanguages] = useState<string[]>(
-    runtime.interpretation.targetLanguages,
-  );
-  const [saveState, setSaveState] = useState<"idle" | "saved" | "failed">("idle");
-  const configuredProvider = runtime.interpretation.provider;
-  const effectiveProvider = availability[configuredProvider]
-    ? configuredProvider
-    : availability.wordly
-      ? "wordly"
-      : availability.shengwang
-        ? "shengwang"
-        : configuredProvider;
-  const interpretationStateLabel = !runtime.interpretation.enabled
-    ? t("classroom.v3.notEnabled")
-    : runtime.status !== "live"
-      ? t("classroom.v3.readyRoom")
-      : runtime.interpretation.status === "running"
-        ? t("classroom.v3.live")
-        : runtime.interpretation.status === "failed"
-          ? t("classroom.v3.abnormal")
-          : t("classroom.v3.preparing");
-  const captionsEmptyHint = !runtime.interpretation.enabled
-    ? t("classroom.v3.captionsEnableHint")
-    : runtime.status !== "live"
-      ? t("classroom.v3.captionsStartAfterClass")
-      : t("classroom.v3.captionsWaitingHint");
-
-  const visibleCaptions = captions.slice(-80);
-  return (
-    <div className="classroom-v3-panel-body is-captions">
-      <div className="classroom-v3-panel-heading">
-        <div>
-          <small>{t("classroom.v3.interpretationEyebrow")}</small>
-          <h2>{t("classroom.v3.captionsTitle")}</h2>
-        </div>
-        <span data-status={runtime.interpretation.status}>
-          {interpretationStateLabel}
-        </span>
-      </div>
-
-      <div className="classroom-v3-caption-view-settings">
-        <label>
-          <span>{t("classroom.v3.displayMode")}</span>
-          <select
-            value={displayMode}
-            onChange={(event) =>
-              onDisplayModeChange(event.target.value as CaptionDisplayMode)
-            }
-          >
-            <option value="off">{t("classroom.v3.captionsOff")}</option>
-            <option value="original">{t("classroom.v3.originalOnly")}</option>
-            <option value="bilingual">{t("classroom.v3.bilingual")}</option>
-            <option value="translated">{t("classroom.v3.translatedOnly")}</option>
-          </select>
-        </label>
-        <label>
-          <span>{t("classroom.v3.myCaptionLanguage")}</span>
-          <select
-            value={preferredLanguage}
-            disabled={busy}
-            onChange={async (event) => {
-              const language = event.target.value;
-              if (canManage && !runtime.interpretation.targetLanguages.includes(language)) {
-                const targets = [...runtime.interpretation.targetLanguages, language];
-                const saved = await onAction({ type: "setInterpretation", enabled: true, provider: effectiveProvider, sourceLanguage: runtime.interpretation.sourceLanguage, targetLanguages: targets });
-                setSaveState(saved ? "saved" : "failed");
-                if (!saved) return;
-                setEnabled(true);
-                setTargetLanguages(targets);
-              }
-              onPreferredLanguageChange(language);
-            }}
-          >
-            {(canManage
-              ? classroomLanguages.filter((language) => language.code !== runtime.interpretation.sourceLanguage)
-              : runtime.interpretation.targetLanguages.length
-              ? classroomLanguages.filter((language) =>
-                  runtime.interpretation.targetLanguages.includes(language.code),
-                )
-              : classroomLanguages
-            ).map((language) => (
-              <option key={language.code} value={language.code} disabled={canManage && !runtime.interpretation.targetLanguages.includes(language.code) && runtime.interpretation.targetLanguages.length >= (effectiveProvider === "shengwang" ? 10 : 20)}>
-                {language.nativeLabel}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <div className="classroom-v3-caption-stage-hint">
-        <MonitorUp />
-        <span>
-          <strong>{t("classroom.v3.captionOverlay")}</strong>
-          <small>
-            {displayMode === "off"
-              ? t("classroom.v3.captionsOff")
-              : t("classroom.v3.captionOverlayHint")}
-          </small>
-        </span>
-      </div>
-
-      <div className="classroom-v3-caption-overlay-control">
-        <span>
-          <strong>{t("classroom.v3.captionOverlay")}</strong>
-          <small>{t("classroom.v3.captionOverlayHint")}</small>
-        </span>
-        <button
-          type="button"
-          className={overlayVisible ? "is-on" : ""}
-          aria-pressed={overlayVisible}
-          onClick={() => onOverlayVisibleChange(!overlayVisible)}
-        >
-          <i />
-          {overlayVisible
-            ? t("classroom.v3.enabled")
-            : t("classroom.v3.disabled")}
-        </button>
-      </div>
-
-      {canManage ? (
-        <section className="classroom-v3-interpretation-config">
-          <header>
-            <div>
-              <strong>{t("classroom.v3.interpretation")}</strong>
-            </div>
-            <button
-              type="button"
-              className={enabled ? "is-on" : ""}
-              onClick={() => { setEnabled((current) => !current); setSaveState("idle"); }}
-              aria-pressed={enabled}
-            >
-              <i />
-              {enabled
-                ? t("classroom.v3.enabled")
-                : t("classroom.v3.disabled")}
-            </button>
-          </header>
-          <label className="classroom-v3-interpretation-source">
-            <span>{t("classroom.v3.sourceLanguage")}</span>
-            <select
-              value={sourceLanguage}
-              onChange={(event) => {
-                setSaveState("idle");
-                setSourceLanguage(event.target.value);
-                setTargetLanguages((current) =>
-                  current.filter((language) => language !== event.target.value),
-                );
-              }}
-            >
-              {classroomLanguages.map((language) => (
-                <option key={language.code} value={language.code}>
-                  {language.nativeLabel} · {language.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="classroom-v3-language-targets">
-            <span>
-              {t("classroom.v3.targetLanguages", {
-                count: targetLanguages.length,
-                limit: effectiveProvider === "shengwang" ? 10 : 20,
-              })}
-            </span>
-            <div>
-              {classroomLanguages
-                .filter((language) => language.code !== sourceLanguage)
-                .map((language) => {
-                  const selected = targetLanguages.includes(language.code);
-                  const limit = effectiveProvider === "shengwang" ? 10 : 20;
-                  return (
-                    <button
-                      key={language.code}
-                      type="button"
-                      className={selected ? "is-selected" : ""}
-                      disabled={!selected && targetLanguages.length >= limit}
-                      onClick={() => {
-                        setSaveState("idle");
-                        setTargetLanguages((current) =>
-                          selected
-                            ? current.filter((item) => item !== language.code)
-                            : [...current, language.code],
-                        );
-                      }}
-                    >
-                      {language.nativeLabel}
-                    </button>
-                  );
-                })}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="classroom-v3-interpretation-save"
-            disabled={busy}
-            aria-busy={busy}
-            onClick={async () => {
-              const saved = await onAction({
-                type: "setInterpretation",
-                enabled,
-                provider: effectiveProvider,
-                sourceLanguage,
-                targetLanguages,
-              });
-              setSaveState(saved ? "saved" : "failed");
-            }}
-          >
-            {busy ? <Loader2 className="animate-spin" /> : <Languages />}
-            {t(busy ? "classroom.v3.applyingInterpretation" : "classroom.v3.applyInterpretation")}
-          </button>
-          {saveState !== "idle" && <p role="status">{t(saveState === "saved" ? "classroom.v3.interpretationSaved" : "classroom.v3.interpretationSaveFailed")}</p>}
-          {runtime.interpretation.error ? (
-            <p className="classroom-v3-interpretation-error">
-              <AlertCircle />
-              {runtime.interpretation.error}
-            </p>
-          ) : null}
-        </section>
-      ) : null}
-
-      <div className="classroom-v3-caption-history">
-        {!visibleCaptions.length ? (
-          <div className="classroom-v3-panel-empty">
-            <Languages />
-            <strong>{t("classroom.v3.captionsWaiting")}</strong>
-            <p>{captionsEmptyHint}</p>
-          </div>
-        ) : visibleCaptions.map((caption) => {
-          const translated = captionTranslation(caption, preferredLanguage);
-          return (
-            <article key={caption.id} data-final={caption.isFinal}>
-              <header>
-                <strong>
-                  {caption.speakerName || t("classroom.v3.speaker")}
-                </strong>
-                <small>
-                  {new Date(caption.occurredAt).toLocaleTimeString(locale, {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </small>
-              </header>
-              {displayMode !== "translated" ? <p>{caption.text}</p> : null}
-              {displayMode !== "original" && translated ? (
-                <p className="is-translation">
-                  <i>{classroomLanguageLabel(preferredLanguage)}</i>
-                  {translated}
-                </p>
-              ) : null}
-            </article>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 function EngagementPanel({
   engagement,
@@ -4031,6 +3752,7 @@ export function ClassroomV3({
   const [stageExpanded, setStageExpanded] = useState(false);
   const pendingRuntimeActionRef = useRef(false);
   const signalingReadyRef = useRef(false);
+  const handRaiseRevisionsRef = useRef(new Map<string, number>());
   const messagesFailuresRef = useRef(0);
   const stateFailuresRef = useRef(0);
   const messagesAbortRef = useRef<AbortController | null>(null);
@@ -4124,11 +3846,11 @@ export function ClassroomV3({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [captionDisplayMode, setCaptionDisplayMode] = useState<CaptionDisplayMode>(
     () => {
-      if (typeof window === "undefined") return "bilingual";
+      if (typeof window === "undefined") return "original";
       const saved = window.localStorage.getItem("classroom_caption_mode");
-      return saved === "off" || saved === "original" || saved === "translated"
+      return saved === "off" || saved === "translated" || saved === "bilingual"
         ? saved
-        : "bilingual";
+        : "original";
     },
   );
   const [captionOverlayVisible, setCaptionOverlayVisible] = useState(() => {
@@ -5058,10 +4780,22 @@ export function ClassroomV3({
     const provider = createClassroomSignalingProvider();
     signalingRef.current = provider;
     const onEvent = (
-      event: ClassroomInvalidation | ClassroomCompositionPreview | ClassroomMemberPermissionUpdate | ClassroomScreenShareRequest,
+      event: ClassroomInvalidation | ClassroomCompositionPreview | ClassroomMemberPermissionUpdate | ClassroomScreenShareRequest | ClassroomHandRaiseUpdate,
       publisherId?: string,
     ) => {
       if (cancelled || sessionRef.current?.runtime.status === "ended" || event.courseId !== courseId) return;
+      if (event.topic === "hand-raise") {
+        const current = sessionRef.current;
+        if (!current) return;
+        const key = `${courseId}:${event.actorId}`;
+        const updated = applyClassroomHandRaiseUpdate(current.runtime, event, publisherId, false, handRaiseRevisionsRef.current.get(key));
+        if (updated) {
+          handRaiseRevisionsRef.current.set(key, event.revision);
+          updateSession({ runtime: updated }, false);
+          void refreshState();
+        }
+        return;
+      }
       if (event.topic === "screen-share-request") {
         const current = sessionRef.current;
         if (!current) return;
@@ -5565,6 +5299,15 @@ export function ClassroomV3({
               ? "engagement"
               : "runtime",
           );
+        }
+        if (payload.handRaise && sessionRef.current) {
+          const current = sessionRef.current.runtime;
+          const updated = applyClassroomHandRaiseUpdate(current, payload.handRaise, undefined, true);
+          confirmedRuntime = updated || current;
+          if (updated) updateSession({ runtime: updated });
+          void signalingRef.current?.publish(payload.handRaise).catch(error => console.warn("[classroom:v3] hand signaling failed", error));
+          publishInvalidation(payload.handRaise.revision, "members");
+          if (payload.handRaise.revision > current.revision + 1) void refreshState();
         }
         if (payload.screenShareRequest && sessionRef.current) {
           const current = sessionRef.current.runtime;
@@ -6534,12 +6277,22 @@ export function ClassroomV3({
   const promotedQuestion = sessionData?.questions.find(
     (question) => question.status === "promoted",
   ) || null;
-  const availableCaptionLanguages =
-    sessionData?.runtime.interpretation.targetLanguages ?? [];
+  const availableCaptionLanguages = supportedCaptionTranslationCodes(sessionData?.runtime.interpretation.provider ?? "shengwang");
   const effectiveCaptionLanguage = resolveEffectiveCaptionLanguage(
     captionLanguage,
     availableCaptionLanguages,
+    sessionData?.runtime.interpretation.sourceLanguage || "zh-CN",
   );
+  const captionSubscription = useCaptionSubscription({
+    active: !isRecorder && !classEnded && loadingState === "ready",
+    sessionId: courseId, clientId, shareAccess,
+    language: effectiveCaptionLanguage, mode: captionDisplayMode,
+    sourceLanguage: sessionData?.runtime.interpretation.sourceLanguage || "zh-CN",
+    provider: sessionData?.runtime.interpretation.provider || "shengwang",
+  });
+  const changeCaptionMode = async (mode: CaptionDisplayMode) => {
+    if (await captionSubscription.save(effectiveCaptionLanguage, mode)) setCaptionDisplayMode(mode);
+  };
   const liveCaptions = selectLiveCaptions(
     isRecorder ? [] : sessionData?.captions || [],
     effectiveCaptionLanguage,
@@ -6683,6 +6436,12 @@ export function ClassroomV3({
               )}
               <span>{roleLabel(sessionData.credential.role, t)}</span>
             </span>
+            {classinLayout && !classEnded && sessionData.modePolicy.showHandRaise && <div className="classroom-v3-hand-raise-header">
+              {sessionData.credential.role === "student" && <HandRaiseButton raised={Boolean(currentMember?.handRaisedAt)}
+                busy={Boolean(actionBusy)} onToggle={() => void performAction({ type: currentMember?.handRaisedAt ? "lowerHand" : "raiseHand" })} />}
+              {sessionData.capabilities.canManageStage && <HandRaiseQueue members={classroomMembers}
+                busy={Boolean(actionBusy)} onAction={performAction} onViewMembers={() => setActivePanel("members")} />}
+            </div>}
             {canUseMedia && (
               <>
                 <button
@@ -7053,6 +6812,7 @@ export function ClassroomV3({
                           displayName={item.displayName}
                           className="classroom-v3-tile-media"
                           showCaption={!isRecorder}
+                          member={isRecorder ? undefined : item.member}
                         />
                       </div>
                     ))}
@@ -7128,6 +6888,7 @@ export function ClassroomV3({
                     }
                     displayName={stageParticipant.displayName}
                     showCaption={!isRecorder}
+                    member={isRecorder ? undefined : stageParticipant.member}
                   />
                 </motion.div>
               ) : !screenParticipant ? (
@@ -7525,6 +7286,12 @@ export function ClassroomV3({
                 )}
                 {activePanel === "captions" && (
                   <CaptionsPanel
+                    preferenceBusy={captionSubscription.busy}
+                    preferenceError={captionSubscription.error}
+                    onRetryPreference={() => {
+                      const intent = captionSubscription.lastIntent.current || { language: effectiveCaptionLanguage, mode: captionDisplayMode };
+                      void captionSubscription.save(intent.language, intent.mode).then(saved => { if (saved) { setCaptionLanguage(intent.language); setCaptionDisplayMode(intent.mode); } });
+                    }}
                     busy={actionBusy === "setInterpretation"}
                     runtime={sessionData.runtime}
                     captions={sessionData.captions}
@@ -7535,21 +7302,12 @@ export function ClassroomV3({
                     displayMode={captionDisplayMode}
                     overlayVisible={captionOverlayVisible}
                     preferredLanguage={effectiveCaptionLanguage}
-                    onDisplayModeChange={setCaptionDisplayMode}
-                    onOverlayVisibleChange={setCaptionOverlayVisible}
-                    onPreferredLanguageChange={setCaptionLanguage}
-                    onAction={async (action) => {
-                      const applied = await performAction(action);
-                      if (
-                        applied &&
-                        action.type === "setInterpretation" &&
-                        action.enabled
-                      ) {
-                        setCaptionOverlayVisible(true);
-                        const preferred = action.targetLanguages[0];
-                        if (preferred) setCaptionLanguage(preferred);
-                      }
-                      return applied;
+                    onApplySettings={async settings => {
+                      if (!await captionSubscription.save(settings.preferredLanguage, settings.displayMode)) return false;
+                      setCaptionLanguage(settings.preferredLanguage);
+                      setCaptionDisplayMode(settings.displayMode);
+                      setCaptionOverlayVisible(settings.overlayVisible);
+                      return settings.interpretation ? await performAction(settings.interpretation) : true;
                     }}
                   />
                 )}
@@ -7749,6 +7507,14 @@ export function ClassroomV3({
                 </button>
               </>
             )}
+            {sessionData.credential.role === "student" &&
+              sessionData.modePolicy.showHandRaise && (
+              <HandRaiseButton raised={Boolean(currentMember?.handRaisedAt)} busy={Boolean(actionBusy)}
+                onToggle={() => void performAction({ type: currentMember?.handRaisedAt ? "lowerHand" : "raiseHand" })} />
+            )}
+            {sessionData.capabilities.canManageStage && sessionData.modePolicy.showHandRaise && <HandRaiseQueue
+              members={classroomMembers} busy={Boolean(actionBusy)} onAction={performAction}
+              onViewMembers={() => setActivePanel("members")} />}
             {isScreenShareAllowed && (screenShareSupported || controlMedia.local.screenSharing) && (
               <button
                 type="button"
@@ -7790,37 +7556,6 @@ export function ClassroomV3({
               <Languages />
               <span>{t("classroom.v3.captions")}</span>
             </button>
-            {sessionData.credential.role === "student" &&
-              sessionData.modePolicy.showHandRaise && (
-              <button
-                type="button"
-                disabled={actionBusy === "raiseHand" || actionBusy === "lowerHand"}
-                className={
-                  currentMember?.handRaisedAt
-                    ? "is-active"
-                    : ""
-                }
-                onClick={() =>
-                  void performAction({
-                    type: currentMember?.handRaisedAt
-                      ? "lowerHand"
-                      : "raiseHand",
-                  })
-                }
-                title={
-                  currentMember?.handRaisedAt
-                      ? t("classroom.v3.cancelHand")
-                      : t("classroom.v3.raiseHand")
-                }
-              >
-                <Hand />
-                <span>
-                  {currentMember?.handRaisedAt
-                      ? t("classroom.v3.cancelHand")
-                      : t("classroom.v3.raiseHand")}
-                </span>
-              </button>
-            )}
             {(sessionData.capabilities.canRunEngagement ||
               sessionData.capabilities.canParticipateInEngagement) && (
               <button
@@ -8032,7 +7767,7 @@ export function ClassroomV3({
         captionBackgroundMode={captionBackgroundMode}
         captionBackgroundColor={captionBackgroundColor}
         onRecordingStartModeChange={(mode) => void performAction({ type: "setRecordingStartMode", mode })}
-        onCaptionDisplayModeChange={setCaptionDisplayMode}
+        onCaptionDisplayModeChange={mode => void changeCaptionMode(mode)}
         onCaptionBackgroundModeChange={setCaptionBackgroundMode}
         onCaptionBackgroundColorChange={setCaptionBackgroundColor}
         onClose={() => setSettingsOpen(false)}

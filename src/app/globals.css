@@ -1903,6 +1903,168 @@ html[lang] .classroom-v3-shell .classroom-v3-dock button {
   height: 22px;
 }
 
+.classroom-v3-hand-raise-menu,
+.classroom-v3-hand-raise-button {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.classroom-v3-hand-count {
+  position: absolute;
+  inset: 0 2px auto auto;
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 4px;
+  border-radius: 50%;
+  color: #fff;
+  background: #bb2639;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.classroom-v3-video-hand-raised {
+  position: absolute;
+  z-index: 6;
+  top: 6px;
+  left: 50%;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  color: #503300;
+  background: #ffdc71;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.classroom-v3-video-hand-raised svg {
+  width: 18px;
+  height: 18px;
+}
+
+.classroom-v3-hand-raise-popover {
+  position: fixed;
+  z-index: 85;
+  bottom: calc(82px + env(safe-area-inset-bottom));
+  left: 50%;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(440px, 60dvh);
+  overflow: auto;
+  padding: 16px;
+  border-radius: 12px;
+  color: var(--classroom-frost);
+  background: var(--classroom-panel);
+  box-shadow: 0 10px 32px rgb(0 0 0 / 0.24);
+  transform: translateX(-50%);
+  scrollbar-width: thin;
+  scrollbar-color: var(--classroom-mist) transparent;
+}
+
+.classroom-v3-hand-raise-popover header,
+.classroom-v3-hand-raise-popover li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.classroom-v3-hand-raise-popover header {
+  margin-bottom: 12px;
+  font-size: 15px;
+}
+
+.classroom-v3-hand-raise-popover ol {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.classroom-v3-hand-raise-popover li > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.classroom-v3-hand-raise-popover small,
+.classroom-v3-hand-raise-popover p {
+  color: var(--classroom-mist);
+  font-size: 13px;
+}
+
+html[lang] .classroom-v3-shell :is(.classroom-v3-dock, .classroom-v3-top-actions) .classroom-v3-hand-raise-popover button {
+  width: auto;
+  min-width: 36px;
+  min-height: 36px;
+  height: auto;
+  flex-direction: row;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--classroom-frost);
+  background: var(--classroom-panel-raised);
+  font-size: 13px;
+  white-space: normal;
+  transform: none;
+}
+
+.classroom-v3-hand-raise-popover button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.classroom-v3-hand-raise-menu button:focus-visible,
+.classroom-v3-hand-raise-button:focus-visible {
+  outline: 2px solid var(--classroom-iris);
+  outline-offset: 2px;
+}
+
+.classroom-v3-hand-raise-header .classroom-v3-hand-raise-button {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--classroom-mist) 25%, transparent);
+  border-radius: 8px;
+  color: var(--classroom-mist);
+  background: transparent;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.classroom-v3-hand-raise-header .classroom-v3-hand-raise-button.is-active {
+  color: var(--classroom-iris);
+  background: var(--classroom-panel-raised);
+}
+
+.classroom-v3-hand-raise-header .classroom-v3-hand-raise-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.classroom-v3-hand-raise-header .classroom-v3-hand-raise-button .classroom-v3-hand-count {
+  position: static;
+}
+
+.classroom-v3-hand-raise-header .classroom-v3-hand-raise-popover {
+  top: 60px;
+  right: 16px;
+  bottom: auto;
+  left: auto;
+  transform: none;
+}
+
+@media (max-width: 1024px) {
+  .classroom-v3-hand-raise-header { display: none; }
+}
+
 .classroom-v3-stage-empty > span {
   width: 52px;
   height: 52px;
@@ -3940,6 +4102,423 @@ button.classroom-v3-seat-preview:focus-visible::after {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-captions {
+  display: flex;
+  overflow: hidden;
+}
+
+.classroom-v3-caption-feed {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 120px;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.classroom-v3-caption-feed > .classroom-v3-caption-preference-error {
+  max-height: 50%;
+  overflow-y: auto;
+}
+
+.classroom-v3-caption-heading {
+  position: relative;
+  align-items: center;
+  gap: 12px;
+}
+
+.classroom-v3-caption-title,
+.classroom-v3-caption-heading-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.classroom-v3-caption-heading-actions {
+  margin-inline-start: auto;
+}
+
+.classroom-v3-caption-heading-actions > span {
+  color: var(--classroom-mist);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.classroom-v3-caption-heading-actions > span[data-status="running"] {
+  color: var(--classroom-green);
+}
+
+.classroom-v3-caption-heading-actions > span[data-status="failed"] {
+  color: var(--classroom-coral);
+}
+
+.classroom-v3-caption-help > button,
+.classroom-v3-caption-heading-actions > button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--classroom-mist);
+  background: transparent;
+  cursor: pointer;
+}
+
+.classroom-v3-caption-help > button:hover,
+.classroom-v3-caption-heading-actions > button:hover,
+.classroom-v3-caption-heading-actions > button[aria-expanded="true"] {
+  color: var(--classroom-iris);
+  background: var(--classroom-panel-raised);
+}
+
+.classroom-v3-caption-help svg,
+.classroom-v3-caption-heading-actions svg,
+.classroom-v3-caption-settings-summary > svg,
+.classroom-v3-caption-settings-footer svg {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+.classroom-v3-caption-help {
+  position: static;
+}
+
+.classroom-v3-caption-help [role="tooltip"] {
+  position: absolute;
+  z-index: 5;
+  top: 100%;
+  inset-inline-start: 0;
+  width: min(280px, calc(100vw - 48px));
+  padding: 12px;
+  border-radius: 10px;
+  color: var(--classroom-frost);
+  background: var(--classroom-panel-raised);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.classroom-v3-caption-help p {
+  margin: 0;
+}
+
+.classroom-v3-caption-help p + p {
+  margin-top: 8px;
+}
+
+.classroom-v3-caption-settings-summary {
+  display: flex;
+  min-height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border: 0;
+  color: var(--classroom-mist);
+  background: transparent;
+  text-align: start;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.classroom-v3-caption-settings-summary > span {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.classroom-v3-caption-settings-summary small {
+  color: var(--classroom-iris);
+  font-size: inherit;
+  overflow-wrap: anywhere;
+}
+
+.classroom-v3-caption-settings-disclosure {
+  display: grid;
+  min-height: 0;
+  max-height: 60%;
+  flex: 0 1 auto;
+  grid-template-rows: 0fr;
+  margin-top: -12px;
+  visibility: hidden;
+  transition: grid-template-rows 180ms ease-out, visibility 180ms;
+}
+
+.classroom-v3-caption-settings-disclosure[data-open="true"] {
+  grid-template-rows: 1fr;
+  margin-top: 0;
+  visibility: visible;
+}
+
+.classroom-v3-caption-settings-clip {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--classroom-mist) transparent;
+}
+
+.classroom-v3-caption-settings-card {
+  display: grid;
+  min-height: 0;
+  align-content: start;
+  gap: 16px;
+  overflow: visible;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--classroom-mist) 22%, transparent);
+  border-radius: 12px;
+  background: var(--classroom-panel-raised);
+  scrollbar-width: thin;
+  scrollbar-color: var(--classroom-mist) transparent;
+  overscroll-behavior: contain;
+}
+
+.classroom-v3-caption-settings-card .classroom-v3-caption-view-settings label,
+.classroom-v3-caption-settings-card .classroom-v3-interpretation-source {
+  color: var(--classroom-mist);
+  font-size: 12px;
+}
+
+.classroom-v3-caption-settings-card select {
+  height: 38px;
+  font-size: 13px;
+}
+
+.classroom-v3-caption-settings-card :is(.classroom-v3-caption-overlay-control button, .classroom-v3-interpretation-config > header > button) {
+  min-height: 32px;
+  font-size: 12px;
+}
+
+.is-captions .classroom-v3-caption-history article header strong,
+.is-captions .classroom-v3-caption-history article header small {
+  color: var(--classroom-mist);
+  font-size: 12px;
+}
+
+.is-captions .classroom-v3-caption-history article p {
+  font-size: 14px;
+}
+
+.is-captions .classroom-v3-caption-history article p.is-translation i {
+  font-size: 10px;
+}
+
+.classroom-v3-caption-settings-card .classroom-v3-caption-overlay-control {
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.classroom-v3-caption-settings-card .classroom-v3-interpretation-config {
+  padding: 14px 0 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--classroom-mist) 22%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.classroom-v3-caption-settings-card .classroom-v3-caption-overlay-control strong,
+.classroom-v3-caption-settings-card .classroom-v3-interpretation-config strong {
+  color: var(--classroom-frost);
+  font-size: 13px;
+}
+
+.classroom-v3-caption-settings-footer {
+  position: sticky;
+  z-index: 1;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 -14px -14px;
+  padding: 12px 14px;
+  background: var(--classroom-panel-raised);
+}
+
+.classroom-v3-caption-settings-footer > button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.classroom-v3-caption-settings-footer > button:first-child {
+  border: 0;
+  border-radius: 8px;
+  color: var(--classroom-mist);
+  background: transparent;
+}
+
+.is-captions :is(button, select):focus-visible,
+.classroom-v3-caption-select-option:focus-visible {
+  outline: 2px solid var(--classroom-iris);
+  outline-offset: 2px;
+}
+
+.classroom-v3-caption-select-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: var(--classroom-mist);
+  font-size: 12px;
+}
+
+.classroom-v3-caption-select-trigger {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--classroom-mist) 30%, transparent);
+  border-radius: 8px;
+  color: var(--classroom-frost);
+  background: var(--classroom-panel);
+  text-align: start;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.classroom-v3-caption-select-trigger > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.classroom-v3-caption-select-trigger svg,
+.classroom-v3-caption-select-content svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.classroom-v3-caption-select-content {
+  z-index: 140;
+  width: max(240px, var(--radix-select-trigger-width));
+  max-width: calc(100vw - 24px);
+  max-height: var(--radix-select-content-available-height);
+  overflow: hidden;
+  border-radius: 10px;
+  color: var(--classroom-frost);
+  background: var(--classroom-panel);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.24);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.classroom-v3-caption-select-viewport {
+  padding: 4px;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--classroom-mist) transparent;
+}
+
+.classroom-v3-caption-select-option {
+  position: relative;
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  padding: 8px 8px 8px 30px;
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.classroom-v3-caption-select-option > span:first-child:not(:last-child) {
+  position: absolute;
+  inset-inline-start: 8px;
+}
+
+.classroom-v3-caption-select-option[data-highlighted] {
+  color: var(--classroom-iris);
+  background: var(--classroom-panel-raised);
+}
+
+.classroom-v3-caption-select-scroll {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  color: var(--classroom-mist);
+  background: var(--classroom-panel);
+}
+
+.is-captions button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+@media (pointer: coarse) {
+  .classroom-v3-caption-help > button,
+  .classroom-v3-caption-heading-actions > button,
+  .classroom-v3-caption-settings-summary,
+  .classroom-v3-caption-settings-footer > button,
+  .classroom-v3-caption-select-trigger,
+  .classroom-v3-caption-select-option {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .classroom-v3-caption-settings-disclosure { transition: none; }
+}
+
+@media (max-height: 500px) and (max-width: 1024px) {
+  .is-captions[data-settings-open="true"] .classroom-v3-caption-settings-summary {
+    display: none;
+  }
+  .is-captions[data-settings-open="true"] .classroom-v3-caption-settings-disclosure {
+    max-height: none;
+    flex: 1 1 0;
+  }
+  .is-captions[data-settings-open="true"] .classroom-v3-caption-feed {
+    display: none;
+  }
+}
+
+.classroom-v3-caption-preference-error {
+  display: grid;
+  gap: 8px;
+  color: var(--classroom-coral);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.classroom-v3-caption-preference-error p {
+  margin: 0;
+}
+
+.classroom-v3-caption-preference-error button {
+  justify-self: start;
+  padding: 6px 12px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  color: inherit;
+  background: transparent;
 }
 
 .classroom-v3-caption-view-settings label,

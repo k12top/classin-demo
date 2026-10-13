@@ -1,3 +1,5 @@
+export const MAX_COURSE_SESSION_OCCURRENCES = 50;
+
 export type SessionScheduleInput =
   | {
       type: "single";
@@ -132,7 +134,10 @@ export function expandSessionSchedule(
   schedule: SessionScheduleInput,
   options: { maxOccurrences?: number } = {},
 ): ConcreteSessionTime[] {
-  const maxOccurrences = options.maxOccurrences ?? 100;
+  const maxOccurrences = Math.min(
+    options.maxOccurrences ?? MAX_COURSE_SESSION_OCCURRENCES,
+    MAX_COURSE_SESSION_OCCURRENCES,
+  );
   if (schedule.type === "single") {
     const startTime = new Date(schedule.startTime);
     const endTime = new Date(schedule.endTime);
@@ -157,9 +162,11 @@ export function expandSessionSchedule(
   ).filter((day) => day >= 0 && day <= 6);
   if (weekdays.length === 0) throw new SessionScheduleError("至少选择一个上课星期");
 
-  const requestedCount = schedule.count ? Math.trunc(schedule.count) : null;
-  if (requestedCount !== null && (requestedCount < 1 || requestedCount > maxOccurrences)) {
-    throw new SessionScheduleError(`周期课次数必须在 1 到 ${maxOccurrences} 之间`);
+  const requestedCount = schedule.count === undefined ? null : schedule.count;
+  if (requestedCount !== null && (
+    !Number.isInteger(requestedCount) || requestedCount < 1 || requestedCount > maxOccurrences
+  )) {
+    throw new SessionScheduleError(`周期课次数必须为 1 到 ${maxOccurrences} 之间的整数`);
   }
   const until = schedule.untilDate ? parseDate(schedule.untilDate) : null;
   if (!requestedCount && !until) {
@@ -187,7 +194,10 @@ export function expandSessionSchedule(
       startTime,
       endTime: new Date(startTime.getTime() + durationMinutes * 60_000),
     });
-    if (result.length >= maxOccurrences || result.length === requestedCount) break;
+    if (result.length > maxOccurrences) {
+      throw new SessionScheduleError(`单次最多生成 ${maxOccurrences} 个课次，请缩短截止日期或设置课次数`);
+    }
+    if (result.length === requestedCount) break;
   }
   if (result.length === 0) throw new SessionScheduleError("排课规则没有生成任何课次");
   if (requestedCount && result.length < requestedCount) {

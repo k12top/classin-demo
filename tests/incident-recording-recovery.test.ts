@@ -37,7 +37,7 @@ test("ordinary classroom polls do not acquire a write transaction", async () => 
   let transactions = 0;
   const runtime = loadModule<{ ensureClassroomRuntime(courseId: string, sessionId: string): Promise<unknown> }>(path, {
     ...aliasStubs(path), "server-only": {}, "./integration-events": {}, "./shared-cache": {},
-    "./redis-presence": {}, "./redis-sync": {},
+    "./redis-presence": {}, "./redis-sync": {}, "./caption-demand": {},
     "@/lib/course-status": { CourseStatus: { FINISHED: "finished", CANCELLED: "cancelled", SCHEDULED: "scheduled", LIVE: "live" } },
     "@/lib/classroom/policy": { classroomGraceEndAt: () => graceEndsAt },
     "@/lib/db": { prisma: {

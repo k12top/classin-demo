@@ -3,7 +3,6 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { courseIdToRoomUuid } from "@/lib/course-room";
 import {
-  defaultClassroomTargetLanguages,
   normalizeClassroomLanguage,
   normalizeTargetLanguages,
 } from "@/lib/classroom/languages";
@@ -22,6 +21,7 @@ import {
   stopWordlyRoom,
 } from "@/lib/classroom/translation/wordly";
 import { ensureClassroomRuntime } from "@/lib/classroom/server/runtime";
+import { reconcileCaptionDemand } from "./caption-demand";
 
 const TRANSCRIPTION_TRANSITION_LEASE_MS = 30_000;
 const TRANSCRIPTION_HEALTH_CHECK_INTERVAL_MS = 30_000;
@@ -50,6 +50,7 @@ export async function stopClassroomTranscription(
     where: { id: runtime.id },
     data: {
       transcriptionAgentId: null,
+      transcriptionConfigKey: null,
       transcriptionStatus: failure ? "failed" : "stopped",
       transcriptionError: failure
         ? (failure.reason instanceof Error
@@ -74,11 +75,49 @@ export async function syncClassroomTranscription(
 ) {
   const sessionId = options.sessionId || courseId;
   await ensureClassroomRuntime(courseId, sessionId);
+  // Serialize provider writes across server instances. A late callback reads the
+  // latest demand; changes made during the call get another pass before release.
+  const leaseUntil = new Date(Date.now() + 120_000);
+  const claimed = await prisma.classroomRuntime.updateMany({
+    where: { sessionId, OR: [{ transcriptionSyncLeaseUntil: null }, { transcriptionSyncLeaseUntil: { lt: new Date() } }] },
+    data: { transcriptionSyncLeaseUntil: leaseUntil },
+  });
+  if (!claimed.count) return prisma.classroomRuntime.findUniqueOrThrow({ where: { sessionId } });
+  try {
+    let result;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await reconcileCaptionDemand(sessionId);
+      result = await syncClassroomTranscriptionTask(courseId, { ...options, restart: attempt === 0 && options.restart, claimed: true });
+      const current = await prisma.classroomRuntime.findUniqueOrThrow({ where: { sessionId } });
+      if (!current.interpretationEnabled || current.status !== "live") {
+        if (current.transcriptionAgentId) await stopClassroomTranscription(courseId, sessionId);
+        return prisma.classroomRuntime.findUniqueOrThrow({ where: { sessionId } });
+      }
+      if (current.transcriptionStatus === "failed" || current.transcriptionConfigKey === transcriptionConfigKey(current)) return result;
+    }
+    return result!;
+  } finally {
+    await prisma.classroomRuntime.updateMany({ where: { sessionId, transcriptionSyncLeaseUntil: leaseUntil }, data: { transcriptionSyncLeaseUntil: null } });
+  }
+}
+
+function transcriptionConfigKey(runtime: { interpretationEnabled: boolean; interpretationProvider: string; sourceLanguage: string; targetLanguages: unknown }) {
+  return JSON.stringify([runtime.interpretationEnabled, runtime.interpretationProvider, runtime.sourceLanguage, runtime.targetLanguages]);
+}
+
+async function syncClassroomTranscriptionTask(
+  courseId: string,
+  options: { restart?: boolean; sessionId?: string; retryCount?: number; claimed?: boolean; knownInactiveAgentId?: string },
+) {
+  const sessionId = options.sessionId || courseId;
+  await ensureClassroomRuntime(courseId, sessionId);
   const lesson = await prisma.courseSession.findFirstOrThrow({
     where: { id: sessionId, courseId },
     include: { classroomRuntime: true, course: { select: { name: true } } },
   });
   const runtime = lesson.classroomRuntime!;
+  const configKey = transcriptionConfigKey(runtime);
+  if (runtime.transcriptionAgentId && runtime.transcriptionConfigKey !== configKey) options.restart = true;
   const attemptRetryCount =
     options.retryCount ?? (options.restart ? 0 : runtime.transcriptionRetryCount);
 
@@ -93,7 +132,7 @@ export async function syncClassroomTranscription(
   }
 
   if (!runtime.interpretationEnabled || runtime.status !== "live") {
-    await stopClassroomTranscription(courseId, sessionId);
+    if (runtime.transcriptionAgentId || !["stopped", "failed"].includes(runtime.transcriptionStatus)) await stopClassroomTranscription(courseId, sessionId);
     return prisma.classroomRuntime.findUniqueOrThrow({ where: { sessionId } });
   }
 
@@ -140,7 +179,7 @@ export async function syncClassroomTranscription(
       throw new Error("Shengwang ASR is not configured. Check AGORA_STT_* and REST credentials.");
     }
     const channelName = courseIdToRoomUuid(lesson.id, lesson.roomUuid);
-    if (provider === "wordly") {
+    if (provider === "wordly" && targetLanguages.length > 0) {
       if (!isWordlyConfigured() || !(await isWordlyHealthy())) {
         throw new Error("Wordly is not configured. Set WORDLY_API_URL and WORDLY_INTERNAL_TOKEN.");
       }
@@ -174,6 +213,7 @@ export async function syncClassroomTranscription(
                 transcriptionStatus: status,
                 transcriptionError: null,
                 transcriptionLastCheckedAt: new Date(),
+                transcriptionConfigKey: configKey,
               },
             });
           }
@@ -216,6 +256,7 @@ export async function syncClassroomTranscription(
       data: {
         transcriptionStatus: started.status,
         transcriptionAgentId: started.agentId,
+        transcriptionConfigKey: configKey,
         transcriptionError: null,
         transcriptionRetryCount: attemptRetryCount,
         transcriptionLastCheckedAt: new Date(),
@@ -250,9 +291,15 @@ export async function classroomInterpretationAvailability() {
 }
 
 export async function reconcileClassroomTranscription(sessionId: string) {
-  const runtime = await prisma.classroomRuntime.findUnique({
+  let runtime = await prisma.classroomRuntime.findUnique({
     where: { sessionId },
   });
+  if (runtime && runtime.status === "live" && runtime.interpretationEnabled) {
+    runtime = (await reconcileCaptionDemand(sessionId)).runtime;
+    if (runtime.transcriptionAgentId && runtime.transcriptionConfigKey !== transcriptionConfigKey(runtime)) {
+      return syncClassroomTranscription(runtime.courseId, { sessionId });
+    }
+  }
   if (
     !runtime ||
     !runtime.interpretationEnabled ||
@@ -429,7 +476,7 @@ export async function reconcileClassroomTranscription(sessionId: string) {
  * A live classroom should start captions when the lead teacher enters even if
  * the original `startClass` background callback was interrupted. Preserve an
  * explicit in-class disable (it has a last-checked timestamp), while upgrading
- * untouched legacy runtimes to the default Shengwang bilingual setup.
+ * untouched legacy runtimes to source captions with demand-driven translation.
  */
 export async function ensureClassroomTranscriptionForLiveSession(
   courseId: string,
@@ -441,12 +488,6 @@ export async function ensureClassroomTranscriptionForLiveSession(
   });
   if (runtime.status !== "live") return runtime;
 
-  const sourceLanguage = normalizeClassroomLanguage(runtime.sourceLanguage);
-  const targets = normalizeTargetLanguages(
-    runtime.targetLanguages,
-    sourceLanguage,
-    runtime.interpretationProvider === "wordly" ? 20 : 10,
-  );
   const untouchedDisabledRuntime =
     !runtime.interpretationEnabled &&
     runtime.transcriptionAgentId === null &&
@@ -456,32 +497,13 @@ export async function ensureClassroomTranscriptionForLiveSession(
     return runtime;
   }
 
-  const needsDefaultTarget = targets.length === 0;
-  if (untouchedDisabledRuntime || needsDefaultTarget) {
+  if (untouchedDisabledRuntime) {
     runtime = await prisma.classroomRuntime.update({
       where: { id: runtime.id },
-      data: {
-        interpretationEnabled: true,
-        targetLanguages:
-          targets.length > 0
-            ? targets
-            : defaultClassroomTargetLanguages(sourceLanguage),
-        transcriptionStatus: needsDefaultTarget
-          ? "starting"
-          : runtime.transcriptionStatus,
-        transcriptionError: null,
-        transcriptionLastCheckedAt: null,
-      },
+      data: { interpretationEnabled: true, transcriptionStatus: "starting", transcriptionError: null, transcriptionLastCheckedAt: null },
     });
   }
-
-  if (runtime.transcriptionAgentId && !needsDefaultTarget) {
-    return (await reconcileClassroomTranscription(sessionId)) ?? runtime;
-  }
-  return syncClassroomTranscription(courseId, {
-    sessionId,
-    restart: needsDefaultTarget && Boolean(runtime.transcriptionAgentId),
-  });
+  return (await reconcileClassroomTranscription(sessionId)) ?? runtime;
 }
 
 export async function reconcileActiveClassroomTranscriptions() {

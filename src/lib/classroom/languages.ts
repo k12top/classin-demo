@@ -1,3 +1,5 @@
+import { shengwangTranslationLanguages, supportedCaptionTranslationCodes, type CaptionTranslationProvider } from "./translation-capabilities";
+
 export type ClassroomLanguage = {
   code: string;
   label: string;
@@ -31,15 +33,31 @@ export const classroomLanguages: ClassroomLanguage[] = [
   { code: "sw-KE", label: "Swahili", nativeLabel: "Kiswahili", region: "global" },
 ];
 
-const languageCodes = new Set(classroomLanguages.map((language) => language.code));
+const languageCodes = new Set([...classroomLanguages.map((language) => language.code), ...shengwangTranslationLanguages.map(language => language.code), ...supportedCaptionTranslationCodes("wordly")]);
 
-/** Start with several useful outputs; teachers can still save their own set. */
-export function defaultClassroomTargetLanguages(sourceLanguage: string): string[] {
-  return normalizeTargetLanguages(
-    ["en-US", "zh-CN", "zh-TW", "th-TH", "vi-VN", "id-ID", "ms-MY", "fil-PH", "ja-JP", "ko-KR", "es-ES"],
-    sourceLanguage,
-    10,
-  );
+/** No translation is billed until a participant requests a language. */
+export function defaultClassroomTargetLanguages(_sourceLanguage: string): string[] {
+  void _sourceLanguage;
+  return [];
+}
+
+const captionOptionsCache = new Map<CaptionTranslationProvider, ClassroomLanguage[]>();
+
+export function captionLanguageOptions(provider: CaptionTranslationProvider): ClassroomLanguage[] {
+  const cached = captionOptionsCache.get(provider);
+  if (cached) return cached;
+  const options: ClassroomLanguage[] = supportedCaptionTranslationCodes(provider).map(code => {
+    const existing = classroomLanguages.find(language => language.code === code);
+    if (existing) return existing;
+    const label = shengwangTranslationLanguages.find(language => language.code === code)?.label || code;
+    let nativeLabel = label;
+    try {
+      nativeLabel = new Intl.DisplayNames([code], { type: "language" }).of(code) || label;
+    } catch { /* Provider-specific dialect identifiers may not be valid Intl locales. */ }
+    return { code, label, nativeLabel, region: "global" };
+  });
+  captionOptionsCache.set(provider, options);
+  return options;
 }
 
 export function normalizeClassroomLanguage(value: unknown, fallback = "zh-CN") {

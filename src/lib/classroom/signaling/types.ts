@@ -29,7 +29,16 @@ export type ClassroomSignalingEvent =
   | ClassroomInvalidation
   | ClassroomMemberPermissionUpdate
   | ClassroomScreenShareRequest
+  | ClassroomHandRaiseUpdate
   | ClassroomCompositionPreview;
+
+export type ClassroomHandRaiseUpdate = {
+  courseId: string;
+  topic: "hand-raise";
+  actorId: string;
+  revision: number;
+  handRaisedAt: string | null;
+};
 
 export type ClassroomScreenShareRequest = {
   courseId: string;

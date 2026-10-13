@@ -96,3 +96,37 @@ test("invalid recurrence rules fail before database writes", () => {
     SessionScheduleError,
   );
 });
+
+const weeklySchedule = {
+  type: "recurring" as const,
+  timezone: "Asia/Shanghai",
+  firstDate: "2026-10-13",
+  localStartTime: "19:00",
+  durationMinutes: 90,
+  weekdays: [2],
+};
+
+test("recurring batches accept 1 through 50 whole lessons", () => {
+  for (const count of [1, 4, 5, 10, 50]) {
+    const sessions = expandSessionSchedule({ ...weeklySchedule, count });
+    assert.equal(sessions.length, count);
+    assert.equal(sessions[0].startTime.toISOString(), "2026-10-13T11:00:00.000Z");
+    assert.equal(sessions.at(-1)!.startTime.getTime(), sessions[0].startTime.getTime() + (count - 1) * 7 * 86_400_000);
+  }
+  for (const count of [0, -1, 51, 100, 1.5, NaN, Infinity]) {
+    assert.throws(() => expandSessionSchedule({ ...weeklySchedule, count }), SessionScheduleError);
+  }
+});
+
+test("date-bounded recurrence rejects overflow instead of silently dropping lessons", () => {
+  assert.equal(expandSessionSchedule({ ...weeklySchedule, untilDate: "2027-09-21" }).length, 50);
+  assert.throws(
+    () => expandSessionSchedule({ ...weeklySchedule, untilDate: "2027-09-28" }),
+    /单次最多生成 50 个课次/,
+  );
+  assert.equal(expandSessionSchedule({ ...weeklySchedule, count: 50, untilDate: "2028-01-01" }).length, 50);
+  assert.throws(
+    () => expandSessionSchedule({ ...weeklySchedule, count: 50, untilDate: "2027-09-20" }),
+    /截止日期不足/,
+  );
+});

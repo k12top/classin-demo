@@ -1,6 +1,7 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
 import { leaveClassroomConnection, normalizeClassroomClientId } from "@/lib/classroom/server/connections";
+import { syncClassroomTranscription } from "@/lib/classroom/server/transcription-orchestrator";
 import { deliverClassroomEvents } from "@/lib/classroom/server/integration-events";
 export async function POST(request: NextRequest) {
  const body = await request.json().catch(() => null);
@@ -10,6 +11,9 @@ export async function POST(request: NextRequest) {
  const resolved = await resolveClassroomRequestAccess(request, body.sessionId, body.shareAccess);
  if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: resolved.status });
  await leaveClassroomConnection(resolved.access.sessionId, resolved.session.userId, clientId, body.voluntary === true);
- after(() => deliverClassroomEvents());
+ after(async () => {
+  await deliverClassroomEvents();
+  await syncClassroomTranscription(resolved.access.courseId, { sessionId: resolved.access.sessionId });
+ });
  return NextResponse.json({ ok: true });
 }
