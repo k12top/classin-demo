@@ -3,6 +3,27 @@ import type { DeepPartial } from "../types";
 
 export const zhTW = {
   ...zhCN,
+  playback: {
+    ...zhCN.playback,
+    compatibility: {
+      title: "播放說明與相容方式",
+      retry: "重新載入影片",
+      openMp4: "直接播放 MP4",
+      copyPage: "複製回放連結",
+      copied: "已複製，請貼到系統瀏覽器中繼續觀看。",
+      manualCopy: "目前環境無法自動複製，請選取並複製下方連結：",
+      wechatHint: "微信內無法播放時，可透過右上角選單在瀏覽器中開啟，或複製回放連結。鴻蒙 NEXT 可嘗試使用華為瀏覽器。",
+      browserHint: "可重新載入影片，或複製回放頁面連結，貼到系統瀏覽器中觀看。",
+      externalHint: "直接播放 MP4 會開啟新頁面。字幕、片段自動連播和觀看時長統計僅在目前回放頁提供。",
+      network: "影片載入失敗，請檢查網路後重新載入，或嘗試使用系統瀏覽器開啟。",
+      decode: "目前瀏覽器無法解碼此影片，可嘗試下方相容方式，或使用系統瀏覽器開啟。",
+      unsupported: "目前瀏覽器不支援此影片格式，請複製回放連結並嘗試使用系統瀏覽器開啟。",
+      timeout: "影片載入時間較長，可重新載入，或使用系統瀏覽器開啟回放頁面。",
+      unauthorized: "登入已失效，請重新登入後重新整理回放頁面。",
+      forbidden: "目前帳號沒有這段錄影的存取權限，請使用已加入此課程的帳號觀看。",
+      unavailable: "這段錄影尚未就緒，請稍後重新整理頁面，或聯絡授課老師。",
+    },
+  },
   teacherDashboard: {
     ...zhCN.teacherDashboard,
     schedule: "我的課表",

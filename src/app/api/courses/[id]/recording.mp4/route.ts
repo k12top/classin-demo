@@ -29,7 +29,7 @@ async function playbackRedirect(
       playbackObjectKey: { not: null },
     },
     orderBy: { createdAt: "desc" },
-    select: { playbackObjectKey: true },
+    select: { playbackObjectKey: true, playbackFormat: true },
   });
   if (!recording?.playbackObjectKey) {
     return NextResponse.json(
@@ -39,6 +39,9 @@ async function playbackRedirect(
   }
 
   try {
+    if (request.nextUrl.searchParams.get("delivery") === "url" && recording.playbackFormat !== "mp4") {
+      return NextResponse.json({ error: "Direct playback requires an MP4 asset" }, { status: 400 });
+    }
     const url = getCoursewareOssClient().signatureUrl(
       recording.playbackObjectKey,
       {
@@ -48,7 +51,14 @@ async function playbackRedirect(
         },
       },
     );
-    return NextResponse.redirect(url);
+    if (request.nextUrl.searchParams.get("delivery") === "url") {
+      return NextResponse.json({ url, format: "mp4" }, {
+        headers: { "Cache-Control": "private, no-store" },
+      });
+    }
+    const response = NextResponse.redirect(url);
+    response.headers.set("Cache-Control", "private, no-store");
+    return response;
   } catch (error) {
     if (error instanceof CoursewareStorageConfigurationError) {
       return NextResponse.json(

@@ -7,6 +7,8 @@ import { getSessionFromRequest } from "@/lib/session";
 import { reconcileRecordingAttempt } from "@/lib/classroom/server/recording-orchestrator";
 import { recordingPlaybackAssets } from "@/lib/classroom/recording-playback";
 import { recordingNeedsReconciliation } from "@/lib/classroom/recording-reconciliation";
+import { recordingAssetDiscoveryDue, recordingAssetDiscoveryPollMs } from "@/lib/classroom/recording-asset-discovery";
+import { discoverRecordingPlaybackAssets } from "@/lib/classroom/server/recording-asset-discovery";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -43,18 +45,27 @@ export async function GET(request: NextRequest, context: Context) {
   const pending = recordings.filter((recording) =>
     recordingNeedsReconciliation(recording.status),
   );
-  if (pending.length) {
+  const now = Date.now();
+  const missingAssets = recordings.filter((recording) => recordingAssetDiscoveryDue(recording, now));
+  if (pending.length || missingAssets.length) {
     // Agora may expose its final file list shortly after stop. Reconcile on
     // playback reads too, so a newly ended lesson converges without waiting
     // for another class or a server restart.
     after(async () => {
       await Promise.allSettled(
-        pending.map((recording) => reconcileRecordingAttempt(recording.id)),
+        [
+          ...pending.map((recording) => reconcileRecordingAttempt(recording.id)),
+          ...missingAssets.map((recording) => discoverRecordingPlaybackAssets(recording.id)),
+        ],
       );
     });
   }
+  const refreshIntervals = recordings.flatMap((recording) => {
+    const delay = recordingAssetDiscoveryPollMs(recording, now);
+    return delay === null ? [] : [delay];
+  });
   return NextResponse.json({
-    refreshAfterMs: pending.length ? 5_000 : null,
+    refreshAfterMs: pending.length ? 5_000 : refreshIntervals.length ? Math.min(...refreshIntervals) : null,
     recordings: recordings.flatMap((recording): Array<{
       id: string; segment: number; provider: string; status: string;
       mode: string; fallbackFrom: string | null; startedAt: string | null;

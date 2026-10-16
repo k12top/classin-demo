@@ -136,6 +136,9 @@ export async function GET(request: NextRequest, context: Context) {
       return NextResponse.json({ error: "Invalid recording asset" }, { status: 400 });
     }
     const hls = selected.format === "hls";
+    if (hls && request.nextUrl.searchParams.get("delivery") === "url") {
+      return NextResponse.json({ error: "Direct playback requires an MP4 asset" }, { status: 400 });
+    }
     const client = getCoursewareOssClient();
     if (hls) {
       const objectKey = resolveRecordingAsset(
@@ -178,7 +181,14 @@ export async function GET(request: NextRequest, context: Context) {
         "content-disposition": "inline",
       },
     });
-    return NextResponse.redirect(url);
+    if (request.nextUrl.searchParams.get("delivery") === "url") {
+      return NextResponse.json({ url, format: "mp4" }, {
+        headers: { "Cache-Control": "private, no-store" },
+      });
+    }
+    const response = NextResponse.redirect(url);
+    response.headers.set("Cache-Control", "private, no-store");
+    return response;
   } catch (error) {
     if (error instanceof CoursewareStorageConfigurationError) {
       return NextResponse.json(

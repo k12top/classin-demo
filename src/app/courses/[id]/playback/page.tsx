@@ -1,7 +1,6 @@
 "use client";
 
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type Hls from "hls.js";
 import { useRouter } from "next/navigation";
 import {
   Activity,
@@ -35,6 +34,7 @@ import { classroomLanguageLabel } from "@/lib/classroom/languages";
 import { activeCaptionIndex, captionPosition } from "@/lib/classroom/playback-captions";
 import type { CourseSessionSummaryDocument, SummaryEvidence } from "@/lib/course-session-summary-document";
 import { LessonSummaryReport } from "@/components/course-sessions/lesson-summary-report";
+import { PlaybackCompatibility, usePlaybackMedia } from "@/components/course-sessions/playback-compatibility";
 import {
   PortalShell,
   type PortalPage,
@@ -211,7 +211,6 @@ export default function CoursePlaybackPage({
       notFinished: t("playback.notFinished"),
       noUrl: t("playback.noUrl"),
       loadFailed: t("playback.loadFailed"),
-      hlsUnsupported: t("playback.hlsUnsupported"),
       browserHint: t("playback.browserHint"),
       teacher: t("playback.teacher"),
       retry: t("playback.retry"),
@@ -359,6 +358,12 @@ export default function CoursePlaybackPage({
         if (!response.ok) throw new Error(payload.error || copy.loadFailed);
         if (!controller.signal.aborted) {
           setRecordings(payload.recordings || []);
+          setSelectedRecordingId((current) => {
+            if (payload.recordings?.some((recording) => recording.id === current)) return current;
+            const query = new URLSearchParams(window.location.search);
+            const requestedId = query.get("sessionId") === selectedSessionId ? query.get("recordingId") : null;
+            return payload.recordings?.find((recording) => recording.id === requestedId)?.id || "";
+          });
           if (payload.refreshAfterMs) {
             window.setTimeout(() => {
               if (!controller.signal.aborted) {
@@ -555,6 +560,7 @@ export default function CoursePlaybackPage({
     setSeekRequest(null);
     const url = new URL(window.location.href);
     url.searchParams.set("sessionId", sessionId);
+    url.searchParams.delete("recordingId");
     window.history.replaceState(null, "", url);
   };
   const seekToCaption = (caption: LessonCaption) => {
@@ -716,7 +722,11 @@ export default function CoursePlaybackPage({
                   key={`${selectedSessionId}:${selectedRecording?.id || recordUrl}`}
                   src={selectedRecording?.playbackUrl || recordUrl}
                   isHls={selectedRecording ? selectedRecording.playbackFormat === "hls" : canPlayHls}
-                  unsupportedMessage={copy.hlsUnsupported}
+                  sharePath={`/courses/${encodeURIComponent(id)}/playback?${new URLSearchParams({
+                    ...(selectedSessionId ? { sessionId: selectedSessionId } : {}),
+                    ...(selectedRecording ? { recordingId: selectedRecording.id } : {}),
+                    lang: locale,
+                  })}`}
                   seekRequest={seekRequest}
                   onSeekComplete={() => setSeekRequest(null)}
                   onTimeUpdate={setMediaTime}
@@ -1203,7 +1213,7 @@ function PlaybackVideo({
   locale,
   src,
   isHls,
-  unsupportedMessage,
+  sharePath,
   seekRequest,
   onSeekComplete,
   onTimeUpdate,
@@ -1219,7 +1229,7 @@ function PlaybackVideo({
   locale: string;
   src: string;
   isHls: boolean;
-  unsupportedMessage: string;
+  sharePath: string;
   seekRequest: PlaybackSeek | null;
   onSeekComplete: () => void;
   onTimeUpdate: (time: number) => void;
@@ -1231,7 +1241,7 @@ function PlaybackVideo({
   captionAppearance: CaptionAppearance;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [error, setError] = useState("");
+  const { issue, directUrl, retry } = usePlaybackMedia(videoRef, src, isHls);
   const [watchedSec, setWatchedSec] = useState(0);
   const [trackingState, setTrackingState] = useState<TrackingState>(
     trackProgress ? "idle" : "teacher"
@@ -1353,47 +1363,6 @@ function PlaybackVideo({
     },
     [enqueue, sendHeartbeat]
   );
-
-
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !isHls) return;
-
-    let destroyed = false;
-    let hls: Hls | null = null;
-
-    setError("");
-
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = src;
-      return () => {
-        video.removeAttribute("src");
-        video.load();
-      };
-    }
-
-    void import("hls.js")
-      .then(({ default: Hls }) => {
-        if (destroyed) return;
-        if (!Hls.isSupported()) {
-          setError(unsupportedMessage);
-          return;
-        }
-
-        hls = new Hls();
-        hls.loadSource(src);
-        hls.attachMedia(video);
-      })
-      .catch(() => {
-        if (!destroyed) setError(unsupportedMessage);
-      });
-
-    return () => {
-      destroyed = true;
-      hls?.destroy();
-    };
-  }, [isHls, src, unsupportedMessage]);
 
   useEffect(() => {
     if (!seekRequest) return;
@@ -1522,34 +1491,32 @@ function PlaybackVideo({
   const captionSize = captionAppearance.size === "small" ? "text-xs sm:text-sm" : captionAppearance.size === "large" ? "text-base sm:text-lg" : "text-sm sm:text-base";
 
   return (
-    <div className="relative bg-black">
-      <video
-        ref={videoRef}
-        className="aspect-video w-full bg-black object-contain"
-        src={isHls ? undefined : src}
-        controls
-        playsInline
-        preload="metadata"
-        onTimeUpdate={(event) => onTimeUpdate(event.currentTarget.currentTime)}
-        onSeeking={(event) => onTimeUpdate(event.currentTarget.currentTime)}
-        onEnded={onEnded}
-        onCanPlay={(event) => {
-          if (autoStart) void event.currentTarget.play().catch(() => {});
-        }}
-      />
-      {captionMode !== "off" && hasVisibleText && (
-        <div className={`pointer-events-none absolute inset-x-4 flex justify-start ${captionAppearance.position === "top" ? "top-4" : "bottom-16"}`}>
-          <div className={`max-w-[70%] rounded-xl px-4 py-2 text-center leading-relaxed text-white shadow-lg ${captionSize} ${captionAppearance.background === "transparent" ? "bg-transparent [text-shadow:0_2px_5px_rgba(0,0,0,0.95),0_0_2px_#000]" : "bg-[#202124]/90"}`}>
-            {showOriginal && caption?.text.trim() && <p>{caption.text}</p>}
-            {showTranslation && translation.trim() && <p className={showOriginal ? "mt-1 text-violet-100" : ""}>{translation}</p>}
+    <div className="bg-black">
+      <div className="relative">
+        <video
+          ref={videoRef}
+          className="aspect-video w-full bg-black object-contain"
+          controls
+          playsInline
+          preload="metadata"
+          onTimeUpdate={(event) => onTimeUpdate(event.currentTarget.currentTime)}
+          onSeeking={(event) => onTimeUpdate(event.currentTarget.currentTime)}
+          onEnded={onEnded}
+          onCanPlay={(event) => {
+            if (autoStart) void event.currentTarget.play().catch(() => {});
+          }}
+        />
+        {captionMode !== "off" && hasVisibleText && (
+          <div className={`pointer-events-none absolute inset-x-4 flex justify-start ${captionAppearance.position === "top" ? "top-4" : "bottom-16"}`}>
+            <div className={`max-w-[70%] rounded-xl px-4 py-2 text-center leading-relaxed text-white shadow-lg ${captionSize} ${captionAppearance.background === "transparent" ? "bg-transparent [text-shadow:0_2px_5px_rgba(0,0,0,0.95),0_0_2px_#000]" : "bg-[#202124]/90"}`}>
+              {showOriginal && caption?.text.trim() && <p>{caption.text}</p>}
+              {showTranslation && translation.trim() && <p className={showOriginal ? "mt-1 text-violet-100" : ""}>{translation}</p>}
+            </div>
           </div>
-        </div>
-      )}
-      {error && (
-        <div className="absolute inset-x-0 bottom-0 bg-black/75 px-4 py-3 text-sm text-white">
-          {error}
-        </div>
-      )}
+        )}
+      </div>
+      <PlaybackCompatibility issue={issue} directUrl={directUrl} src={src} isHls={isHls}
+        sharePath={sharePath} onRetry={retry} onExternalPlay={() => videoRef.current?.pause()} />
       <div className="flex flex-col gap-2 border-t border-white/10 bg-zinc-950 px-4 py-3 text-zinc-300 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-2 text-xs">
           {trackingState === "recording" ? (
