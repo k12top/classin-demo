@@ -1,5 +1,5 @@
 "use client";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { AlertCircle, ChevronDown, ChevronUp, Languages, Loader2, Settings2 } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
 import { CaptionSelect } from "@/components/classroom/caption-select";
@@ -47,6 +47,21 @@ export function CaptionsPanel({
   const settingsId = useId();
   const helpId = useId();
   const settingsButton = useRef<HTMLButtonElement>(null);
+  const historyRef = useRef<HTMLDivElement>(null);
+  const [followLatest, setFollowLatest] = useState(() => {
+    try { return window.localStorage.getItem("classroom_caption_follow_latest") !== "0"; }
+    catch { return true; }
+  });
+  useEffect(() => {
+    if (!followLatest) return;
+    const history = historyRef.current;
+    if (!history) return;
+    const scrollToLatest = () => { history.scrollTop = history.scrollHeight; };
+    scrollToLatest();
+    const observer = new ResizeObserver(scrollToLatest);
+    observer.observe(history);
+    return () => observer.disconnect();
+  }, [captions, displayMode, preferredLanguage, followLatest]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [draftMode, setDraftMode] = useState(displayMode);
@@ -259,7 +274,17 @@ export function CaptionsPanel({
       <div className="classroom-v3-caption-feed">
       {!settingsOpen && preferenceFailure}
 
-      <div className="classroom-v3-caption-history">
+      <div className="classroom-v3-caption-follow">
+        <span>{t("classroom.v3.captionFollowLatest")}</span>
+        <button type="button" role="switch" aria-checked={followLatest}
+          aria-label={t("classroom.v3.captionFollowLatest")} onClick={() => {
+            const next = !followLatest;
+            setFollowLatest(next);
+            try { window.localStorage.setItem("classroom_caption_follow_latest", next ? "1" : "0"); } catch { /* Storage may be unavailable in embedded browsers. */ }
+          }}><i aria-hidden="true" /></button>
+      </div>
+
+      <div ref={historyRef} className="classroom-v3-caption-history" data-follow-latest={followLatest}>
         {!visibleCaptions.length ? (
           <div className="classroom-v3-panel-empty">
             <Languages />

@@ -4,6 +4,9 @@ import { ClassroomMemberAvatar } from "@/components/classroom/member-avatar";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useChatUnread } from "@/lib/classroom/use-chat-unread";
 import { CaptionsPanel } from "@/components/classroom/captions-panel";
+import { MicrophoneLevel } from "@/components/classroom/microphone-level";
+import { LiveCaptionOverlay } from "@/components/classroom/live-caption-overlay";
+import { useLiveCaptions } from "@/lib/classroom/use-live-captions";
 import { HandRaiseButton, HandRaiseQueue, HandRaiseVideoBadge } from "@/components/classroom/hand-raise-controls";
 import { applyClassroomHandRaiseUpdate, raisedClassroomHands } from "@/lib/classroom/hand-raise";
 import { useCaptionSubscription } from "@/lib/classroom/use-caption-subscription";
@@ -47,7 +50,7 @@ import { optimisticClassroomRuntime } from "@/lib/classroom/optimistic-runtime";
 import { classroomCapabilities } from "@/lib/classroom/policy";
 import { languageOptions, type SupportedLocale } from "@/lib/i18n/locales";
 import { participantOwnerId } from "@/lib/classroom/participant-identity";
-import { AnimatePresence, motion, useDragControls, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -190,8 +193,6 @@ import {
   type CaptionDisplayMode,
 } from "@/lib/classroom/caption-preferences";
 import {
-  captionTranslation,
-  selectLiveCaptions,
   mergeCaptionSnapshots,
 } from "@/lib/classroom/caption-display";
 
@@ -1101,9 +1102,10 @@ function LiveRailSeat({
           <ClassroomMemberAvatar avatar={member.avatar} name={member.displayName} />
         </div>
       )}
-      <span className="classroom-v3-seat-role">
-        {roleLabel(member.role, t)}
+      <span className="classroom-v3-seat-name" title={member.displayName}>
+        {member.displayName}
       </span>
+      {participant && <MicrophoneLevel provider={provider} participantId={participant.id} enabled={microphoneOn} />}
       <HandRaiseVideoBadge member={member} />
       {!showControls && (
         <span
@@ -3865,9 +3867,7 @@ export function ClassroomV3({
     const saved = typeof window === "undefined" ? null : window.localStorage.getItem("classroom_caption_background_color");
     return saved && /^#[0-9a-fA-F]{6}$/.test(saved) ? saved : "#202124";
   });
-  const captionDragControls = useDragControls();
   const stageElementRef = useRef<HTMLElement | null>(null);
-  const captionBoundsRef = useRef<HTMLDivElement | null>(null);
   const automaticRecordingRequestedRef = useRef("");
   const [teacherPiPHidden, setTeacherPiPHidden] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -6293,8 +6293,8 @@ export function ClassroomV3({
   const changeCaptionMode = async (mode: CaptionDisplayMode) => {
     if (await captionSubscription.save(effectiveCaptionLanguage, mode)) setCaptionDisplayMode(mode);
   };
-  const liveCaptions = selectLiveCaptions(
-    isRecorder ? [] : sessionData?.captions || [],
+  const liveCaptions = useLiveCaptions(
+    isRecorder ? undefined : sessionData?.captions,
     effectiveCaptionLanguage,
     captionDisplayMode,
     now + presenceClockOffset,
@@ -7004,29 +7004,8 @@ export function ClassroomV3({
               captionDisplayMode !== "off" &&
               sessionData.runtime.interpretation.enabled &&
               liveCaptions.length > 0 ? (
-                <div className="classroom-v3-caption-bounds" ref={captionBoundsRef}>
-                  <motion.div
-                    className="classroom-v3-caption-overlay"
-                    data-background={captionBackgroundMode}
-                    style={{ "--caption-overlay-background": captionBackgroundColor } as CSSProperties}
-                    drag
-                    dragControls={captionDragControls}
-                    dragListener={false}
-                    dragConstraints={captionBoundsRef}
-                    dragMomentum={false}
-                    dragElastic={0}
-                    aria-live="polite"
-                  >
-                    {liveCaptions.map((caption) => {
-                      const translation = captionTranslation(caption, effectiveCaptionLanguage);
-                      return <div key={caption.speakerId} className="classroom-v3-caption-speaker">
-                        {liveCaptions.length > 1 && <strong className="classroom-v3-caption-speaker-name">{caption.speakerName}</strong>}
-                        {captionDisplayMode !== "translated" && <p><span className="classroom-v3-caption-text" title={t("classroom.v3.captionDragHint")} onPointerDown={(event) => captionDragControls.start(event)}>{caption.text}</span></p>}
-                        {captionDisplayMode !== "original" && translation && <p className="is-translation"><span className="classroom-v3-caption-text" title={t("classroom.v3.captionDragHint")} onPointerDown={(event) => captionDragControls.start(event)}>{translation}</span></p>}
-                      </div>;
-                    })}
-                  </motion.div>
-                </div>
+                <LiveCaptionOverlay captions={liveCaptions} language={effectiveCaptionLanguage} mode={captionDisplayMode}
+                  background={captionBackgroundMode} color={captionBackgroundColor} />
               ) : null}
             {promotedQuestion ? (
               <motion.button

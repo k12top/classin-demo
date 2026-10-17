@@ -229,7 +229,7 @@
   object-fit: cover;
 }
 
-.is-classin-layout .classroom-v3-seat-role,
+.is-classin-layout .classroom-v3-seat-name,
 .is-classin-layout .classroom-v3-seat-media-state,
 .is-classin-layout .classroom-v3-camera-off-label {
   border-radius: 5px;
@@ -1645,7 +1645,7 @@
   box-shadow: inset 0 -1px #8378ec;
 }
 
-.classroom-v3-seat-role {
+.classroom-v3-seat-name {
   top: 5px;
   left: 5px;
   border: 0;
@@ -2923,11 +2923,15 @@ button.classroom-v3-seat-preview:focus-visible::after {
   object-fit: cover;
 }
 
-.classroom-v3-seat-role {
+.classroom-v3-seat-name {
   position: absolute;
   z-index: 3;
   top: 7px;
   left: 7px;
+  max-width: calc(100% - 14px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 3px 6px;
   border: 1px solid rgb(255 255 255 / 0.12);
   border-radius: 7px;
@@ -2938,7 +2942,7 @@ button.classroom-v3-seat-preview:focus-visible::after {
   backdrop-filter: blur(8px);
 }
 
-.classroom-v3-seat.is-teacher .classroom-v3-seat-role {
+.classroom-v3-seat.is-teacher .classroom-v3-seat-name {
   border-color: rgb(169 159 249 / 0.3);
   color: #d8d3ff;
   background: rgb(75 66 142 / 0.7);
@@ -3824,10 +3828,10 @@ button.classroom-v3-seat-preview:focus-visible::after {
 }
 
 .classroom-v3-caption-speaker + .classroom-v3-caption-speaker {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid rgb(255 255 255 / 0.16);
+  margin-top: 0;
 }
+
+.classroom-v3-caption-speaker[hidden] { display: none; }
 
 .classroom-v3-caption-speaker-name {
   display: block;
@@ -3838,7 +3842,7 @@ button.classroom-v3-seat-preview:focus-visible::after {
 }
 
 .classroom-v3-stage .classroom-v3-caption-bounds .classroom-v3-caption-overlay {
-  max-height: min(240px, 40%);
+  max-height: min(320px, 80%);
 }
 
 .classroom-v3-bulk-actions button:disabled {
@@ -4128,6 +4132,47 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
   position: relative;
   align-items: center;
   gap: 12px;
+}
+
+.classroom-v3-caption-follow {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--classroom-mist, #b9c5d1);
+  font-size: 12px;
+}
+
+.classroom-v3-caption-follow button {
+  display: inline-flex;
+  width: 44px;
+  min-height: 32px;
+  align-items: center;
+  padding: 6px;
+  border: 1px solid currentColor;
+  border-radius: 16px;
+  color: var(--classroom-mist, #b9c5d1);
+  background: transparent;
+  cursor: pointer;
+}
+
+.classroom-v3-caption-follow button[aria-checked="true"] {
+  color: var(--classroom-accent, #31c69b);
+}
+
+.classroom-v3-caption-follow button:hover { background: rgb(127 127 127 / 0.12); }
+.classroom-v3-caption-follow button i {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: currentColor;
+  transform: translateX(0);
+  transition: transform 160ms ease;
+}
+.classroom-v3-caption-follow button[aria-checked="true"] i { transform: translateX(12px); }
+@media (prefers-reduced-motion: reduce) {
+  .classroom-v3-caption-follow button i { transition: none; }
 }
 
 .classroom-v3-caption-title,
@@ -4708,6 +4753,8 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
   background: rgb(255 255 255 / 0.025);
   opacity: 0.72;
 }
+
+.classroom-v3-caption-history[data-follow-latest="true"] { overflow-anchor: none; }
 
 .classroom-v3-caption-history > article[data-final="true"] {
   opacity: 1;
@@ -7018,7 +7065,6 @@ html[lang="de"] .classroom-v3-dock button > span {
 @media (hover: hover) and (pointer: fine) {
   .classroom-v3-seat > footer,
   .is-classin-layout .classroom-v3-seat > footer,
-  .classroom-v3-seat.has-video .classroom-v3-seat-role,
   .classroom-v3-seat.has-video .classroom-v3-seat-media-state,
   .classroom-v3-seat.has-video .classroom-v3-seat-reward {
     opacity: 0;
@@ -7029,8 +7075,6 @@ html[lang="de"] .classroom-v3-dock button > span {
 
   .classroom-v3-seat:hover > footer,
   .classroom-v3-seat:focus-within > footer,
-  .classroom-v3-seat.has-video:hover .classroom-v3-seat-role,
-  .classroom-v3-seat.has-video:focus-within .classroom-v3-seat-role,
   .classroom-v3-seat.has-video:hover .classroom-v3-seat-media-state,
   .classroom-v3-seat.has-video:focus-within .classroom-v3-seat-media-state,
   .classroom-v3-seat.has-video:hover .classroom-v3-seat-reward,
@@ -7044,7 +7088,6 @@ html[lang="de"] .classroom-v3-dock button > span {
 @media (prefers-reduced-motion: reduce) {
   .classroom-v3-seat > footer,
   .is-classin-layout .classroom-v3-seat > footer,
-  .classroom-v3-seat.has-video .classroom-v3-seat-role,
   .classroom-v3-seat.has-video .classroom-v3-seat-media-state,
   .classroom-v3-seat.has-video .classroom-v3-seat-reward {
     transition: none;

@@ -321,7 +321,6 @@
 
 @media (hover: none) {
   .is-classin-layout .classroom-v3-seat > footer,
-  .is-classin-layout .classroom-v3-seat.has-video .classroom-v3-seat-role,
   .is-classin-layout .classroom-v3-seat.has-video .classroom-v3-seat-media-state,
   .is-classin-layout .classroom-v3-seat.has-video .classroom-v3-seat-reward {
     opacity: 0;
@@ -331,7 +330,6 @@
   }
 
   .is-classin-layout .classroom-v3-seat.is-touch-active > footer,
-  .is-classin-layout .classroom-v3-seat.is-touch-active .classroom-v3-seat-role,
   .is-classin-layout .classroom-v3-seat.is-touch-active .classroom-v3-seat-media-state,
   .is-classin-layout .classroom-v3-seat.is-touch-active .classroom-v3-seat-reward {
     opacity: 1;
@@ -1408,11 +1406,18 @@ html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-tool-popover-clos
   max-height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
-  pointer-events: auto;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
 }
 
 .classroom-v3-caption-text {
-  display: inline-block;
+  display: inline;
+  pointer-events: auto;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
   max-width: 100%;
   cursor: grab;
   touch-action: none;
@@ -1422,6 +1427,8 @@ html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-tool-popover-clos
 
 /* Keep the board visible between caption lines; blur only the text backing. */
 .classroom-v3-caption-overlay[data-background="text"] {
+  width: min(760px, 100%);
+  max-width: min(760px, 100%);
   border-color: transparent;
   background: transparent;
   box-shadow: none;
@@ -1429,16 +1436,52 @@ html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-tool-popover-clos
   -webkit-backdrop-filter: none;
 }
 
-.classroom-v3-caption-overlay[data-background="text"] .classroom-v3-caption-text {
-  padding: 4px 10px;
+.classroom-v3-caption-speaker {
+  flex: 0 0 auto;
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.classroom-v3-caption-overlay[data-background="text"] .classroom-v3-caption-speaker {
+  padding: 6px 10px;
   border-radius: 8px;
   background: var(--caption-overlay-background, #202124);
-  background: color-mix(in srgb, var(--caption-overlay-background, #202124) 78%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--caption-overlay-background, #202124) 90%, transparent);
 }
 
 .classroom-v3-caption-overlay[data-background="transparent"] { -webkit-backdrop-filter: none; }
+
+.classroom-v3-microphone-level {
+  visibility: hidden;
+  position: absolute;
+  z-index: 3;
+  bottom: 9px;
+  left: 7px;
+  width: 7px;
+  height: min(38px, 42%);
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 0.65);
+  border-radius: 4px;
+  background: rgb(8 12 16 / 0.76);
+  pointer-events: none;
+}
+
+.classroom-v3-microphone-level[data-speaking="true"] { visibility: visible; }
+
+.classroom-v3-microphone-level > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--classroom-accent, #31c69b);
+  transform: scaleY(var(--microphone-level, 0));
+  transform-origin: bottom;
+  transition: transform 100ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .classroom-v3-microphone-level > span { transition: none; }
+}
 
 .classroom-v3-interface-language {
   position: relative;

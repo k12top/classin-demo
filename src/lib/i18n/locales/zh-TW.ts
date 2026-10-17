@@ -129,6 +129,9 @@ export const zhTW = {
       handRaiseOffstage: "等待上台",
       captionHelp: "字幕說明",
       captionSettings: "字幕設定",
+      captionFollowLatest: "跟隨最新",
+      captionTranslationPending: "翻譯中…",
+      microphoneLevel: "麥克風音量",
       captionSettingsExpand: "展開字幕設定",
       captionSettingsCollapse: "收起設定",
       captionSettingsApply: "套用設定",
@@ -170,7 +173,7 @@ export const zhTW = {
 
       more: "更多", resetMedia: "重置音訊與視訊", giveTrophy: "發獎盃", interfaceLanguage: "介面語言",
       captionBackground: "字幕背景",
-      captionBackgroundText: "僅文字區域模糊",
+      captionBackgroundText: "僅包裹文字",
       captionBackgroundTransparent: "完全透明",
       captionBackgroundSolid: "整塊背景",
       captionBackgroundColor: "背景顏色",

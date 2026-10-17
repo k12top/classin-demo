@@ -1,21 +1,43 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mergeCaptionSnapshots, selectLiveCaptions, selectStableCaption } from "../src/lib/classroom/caption-display";
+import { mergeCaptionSnapshots, observeCaptionTranslations, selectLiveCaptions, selectStableCaption } from "../src/lib/classroom/caption-display";
 import { unreadChatCount } from "../src/lib/classroom/chat-unread";
 import type { ClassroomCaptionSnapshot, ClassroomMessageSnapshot } from "../src/lib/classroom/types";
 
 const now = Date.parse("2026-10-11T04:00:00Z");
-const caption = (id: string, secondsAgo: number, speakerId = "teacher", translations = { "en-US": "English", "ja-JP": "日本語" }): ClassroomCaptionSnapshot => ({
+const caption = (id: string, secondsAgo: number, speakerId = "teacher", translations: Record<string, string> = { "en-US": "English", "ja-JP": "日本語" }): ClassroomCaptionSnapshot => ({
   id, speakerId, speakerName: speakerId, text: id, translations, provider: "shengwang", isFinal: true,
   occurredAt: new Date(now - secondsAgo * 1000).toISOString(), createdAt: new Date(now - secondsAgo * 1000).toISOString(), sourceLanguage: "zh-CN", detectedLanguage: "zh-CN",
 });
 
-test("late translation delivery and unordered polls do not replace newer speech", () => {
+test("late translations remain alongside newer speech in utterance order", () => {
   const old = caption("old", 9), fresh = caption("fresh", 1);
   assert.equal(selectStableCaption([fresh, old], "en-US", "bilingual")?.id, "fresh");
   assert.equal(selectStableCaption([old, { ...fresh, translations: {} }], "en-US", "translated"), null);
-  assert.deepEqual(selectLiveCaptions([fresh, old], "en-US", "bilingual", now).map(c => c.id), ["fresh"]);
-  assert.deepEqual(selectLiveCaptions([old, { ...fresh, translations: {} }], "en-US", "translated", now), []);
+  assert.deepEqual(selectLiveCaptions([fresh, old], "en-US", "bilingual", now).map(c => c.id), ["old", "fresh"]);
+  assert.deepEqual(selectLiveCaptions([old, { ...fresh, translations: {} }], "en-US", "translated", now).map(c => c.id), ["old"]);
+});
+
+test("fast consecutive sentences from one speaker have separate rows, newest at the bottom", () => {
+  const inputs = [caption("third", 1), caption("first", 5), caption("second", 3)];
+  assert.deepEqual(selectLiveCaptions(inputs, "en-US", "bilingual", now).map(c => c.id), ["first", "second", "third"]);
+});
+
+test("late translations get reading time without refreshing old history on every poll", () => {
+  const old = caption("old", 25, "teacher", {});
+  const recent = [caption("second", 3), caption("third", 2), caption("fourth", 1)];
+  const baseline = [old, ...recent];
+  const initial = observeCaptionTranslations(baseline, [], "en-US", new Map(), now);
+  assert.equal(initial.get("second"), Date.parse(recent[0].occurredAt));
+  const incoming = [{ ...old, translations: { "en-US": "Late translation" } }, ...recent];
+  const received = observeCaptionTranslations(incoming, baseline, "en-US", initial, now);
+  assert.equal(received.get("old"), now + 1);
+  assert.deepEqual(selectLiveCaptions(incoming, "en-US", "translated", now, 12000, received).map(c => c.id), ["old", "third", "fourth"]);
+  const repeated = observeCaptionTranslations(incoming, incoming, "en-US", received, now + 11000);
+  assert.equal(repeated.get("old"), now + 1);
+  assert.deepEqual(selectLiveCaptions(incoming, "en-US", "translated", now + 11000, 12000, repeated).map(c => c.id), ["old", "fourth"]);
+  assert.deepEqual(selectLiveCaptions(incoming, "en-US", "translated", now + 13000, 12000, repeated), []);
+  assert.deepEqual(selectLiveCaptions(incoming, "en-US", "original", now, 12000, received).map(c => c.id), ["second", "third", "fourth"]);
 });
 
 test("live captions expire and multiple speakers get separate bounded rows", () => {

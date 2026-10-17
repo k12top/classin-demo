@@ -115,6 +115,8 @@ export interface ClassroomMediaProvider {
   subscribe(listener: ClassroomMediaListener): () => void;
   subscribeCaptions(listener: ClassroomCaptionListener): () => void;
   getSnapshot(): ClassroomMediaSnapshot;
+  /** Current microphone level in [0, 1]; unavailable or muted tracks return 0. */
+  getMicrophoneLevel?(participantId: string): number;
   recoverMedia(force?: boolean): Promise<void>;
   toggleMicrophone(): Promise<boolean>;
   setMicrophonePermission?(allowed: boolean): void;

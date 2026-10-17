@@ -148,6 +148,16 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     };
   }
 
+  getMicrophoneLevel(id: string): number {
+    const participant = this.participants.get(id);
+    if (participant?.kind !== "camera" || !participant.hasAudio) return 0;
+    const track = id === this.cameraId()
+      ? this.snapshot.local.microphoneOn ? this.microphoneTrack : null
+      : this.remoteUsers.get(id)?.audioTrack;
+    const level = track?.getVolumeLevel() ?? 0;
+    return Number.isFinite(level) ? Math.min(1, Math.max(0, level)) : 0;
+  }
+
   private emit() {
     this.snapshot = {
       ...this.snapshot,
