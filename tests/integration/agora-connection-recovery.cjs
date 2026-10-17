@@ -8,7 +8,12 @@ const vm = require("node:vm");
 const ts = require("../../node_modules/typescript");
 
 function fixture() {
-  const clients = [], tracks = [], subscriptions = [];
+  const clients = [], tracks = [], subscriptions = [], streamTypes = [], observers = [];
+  class ResizeObserver {
+    constructor(callback) { this.callback = callback; observers.push(this); }
+    observe(element) { this.element = element; }
+    disconnect() { this.disconnected = true; }
+  }
   function makeTrack(deviceId) {
     const track = new EventEmitter();
     track.mediaTrack = { enabled: true, readyState: "live", getSettings: () => ({ deviceId: track.deviceId }) };
@@ -35,7 +40,7 @@ function fixture() {
         leave: async () => { client.left = true; },
         renewToken: async (token) => { client.token = token; },
         subscribe: async (user, kind) => subscriptions.push([user.uid, kind]),
-        setRemoteVideoStreamType: async () => undefined,
+        setRemoteVideoStreamType: async (uid, type) => { streamTypes.push([uid, type]); },
         setClientRole: async (role) => { client.role = role; },
         setLowStreamParameter: () => undefined, enableDualStream: async () => undefined,
       });
@@ -48,11 +53,11 @@ function fixture() {
   const recovery = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/agora-credential-recovery.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: recovery, DOMException });
   const profile = { width: 1280, height: 720, frameRate: 30, bitrateKbps: 1200 };
-  vm.runInNewContext(source, { exports, console, DOMException, window: { matchMedia: () => ({ matches: false }) },
+  vm.runInNewContext(source, { exports, console, DOMException, ResizeObserver, window: { matchMedia: () => ({ matches: false }) },
     require(name) {
       if (name === "agora-rtc-sdk-ng") return sdk;
       if (name === "agora-extension-virtual-background") return class {};
-      if (name.endsWith("/config")) return { classroomMediaProfile: { screen: profile, camera: { low: profile } }, classroomVideoPresets: { hd: { camera: { high: profile } }, fullHd: { camera: { high: { ...profile, width: 1920 } } } } };
+      if (name.endsWith("/config")) return { classroomMediaProfile: { screen: profile, camera: { low: { width: 160, height: 120, frameRate: 15, bitrateKbps: 65 } } }, classroomVideoPresets: { hd: { camera: { high: profile } }, fullHd: { camera: { high: { ...profile, width: 1920 } } } } };
       if (name.endsWith("/screen-share")) return { isScreenShareUserId: () => false };
       if (name.endsWith("/rtc-uid")) return { isClassroomScreenRtcUid: (id) => Number(id) > 1e9 && Number(id) <= 2e9, isClassroomAuxiliaryRtcUid: (id) => Number(id) > 2e9 };
       if (name.endsWith("/stt-caption")) return { decodeClassroomSttCaption: () => null };
@@ -61,7 +66,7 @@ function fixture() {
       throw new Error("Unexpected import: " + name);
     },
   }, { filename });
-  return { provider: new exports.AgoraRtcMediaProvider(), clients, tracks, sdk, makeTrack, subscriptions };
+  return { provider: new exports.AgoraRtcMediaProvider(), clients, tracks, sdk, makeTrack, subscriptions, streamTypes, observers };
 }
 const credential = { appId: "test", channelName: "lesson", rtcUid: 1, userId: "teacher", role: "teacher", scenario: "communication", token: "main",
  screenShare: { rtcUid: 1_000_000_001, token: "screen", userId: "teacher::screen" } };
@@ -344,5 +349,152 @@ test("a delayed end event from the old screen cannot stop its replacement", asyn
   await tick();
   assert.equal(provider.getSnapshot().local.screenSharing, true);
   assert.equal(tracks.at(-1).closed, undefined);
+  await provider.disconnect();
+});
+
+function videoSurface(width, height) {
+  return {
+    width, height,
+    getBoundingClientRect() { return { width: this.width, height: this.height }; },
+    querySelectorAll: () => [], replaceChildren() {},
+  };
+}
+
+test("solo and recorder video surfaces upgrade to high and return to low after shrinking", async () => {
+  const { provider, clients, streamTypes, observers } = fixture();
+  await provider.connect(credential, "教师");
+  const camera = { uid: 2, hasVideo: true };
+  clients[0].emit("user-published", camera, "video"); await tick();
+  const surface = videoSurface(160, 120);
+  provider.attachVideo("2", surface); await tick();
+  assert.deepEqual(streamTypes, [[2, 1]]);
+  surface.width = 1280; surface.height = 720;
+  observers[0].callback(); await tick();
+  assert.deepEqual(streamTypes.at(-1), [2, 0]);
+  observers[0].callback(); await tick();
+  assert.equal(streamTypes.length, 2, "unchanged layout does not resend the SDK switch");
+  surface.width = 160; surface.height = 120;
+  observers[0].callback(); await tick();
+  assert.deepEqual(streamTypes, [[2, 1], [2, 0], [2, 1]]);
+  await provider.disconnect();
+  assert.ok(observers.every(observer => observer.disconnected));
+});
+
+test("a shared camera stays high until its last enlarged surface is removed", async () => {
+  const { provider, clients, streamTypes, observers } = fixture();
+  await provider.connect(credential, "教师");
+  clients[0].emit("user-published", { uid: 2, hasVideo: true }, "video"); await tick();
+  const podium = videoSurface(160, 90), stage = videoSurface(800, 450), preview = videoSurface(640, 360);
+  provider.attachVideo("2", podium); provider.attachVideo("2", stage); provider.attachVideo("2", preview); await tick();
+  assert.deepEqual(streamTypes.at(-1), [2, 0]);
+  provider.detachVideo("2", stage); await tick();
+  assert.equal(streamTypes.length, 2);
+  provider.detachVideo("2", preview); await tick();
+  assert.deepEqual(streamTypes.at(-1), [2, 1]);
+  assert.equal(observers[1].disconnected, true);
+  assert.equal(observers[2].disconnected, true);
+  await provider.disconnect();
+});
+
+test("publishing or republishing a camera applies the already enlarged layout", async () => {
+  const { provider, clients, streamTypes } = fixture();
+  await provider.connect(credential, "教师");
+  provider.attachVideo("2", videoSurface(375, 211));
+  const camera = { uid: 2, hasVideo: true };
+  clients[0].emit("user-published", camera, "video"); await tick();
+  assert.deepEqual(streamTypes, [[2, 0]]);
+  camera.hasVideo = false; clients[0].emit("user-unpublished", camera, "video");
+  camera.hasVideo = true; clients[0].emit("user-published", camera, "video"); await tick();
+  assert.deepEqual(streamTypes, [[2, 0], [2, 0]]);
+  await provider.disconnect();
+});
+
+test("a slow fullscreen upgrade is followed by the latest small-window request", async () => {
+  const { provider, clients, streamTypes, observers } = fixture();
+  await provider.connect(credential, "教师");
+  clients[0].emit("user-published", { uid: 2, hasVideo: true }, "video"); await tick();
+  const surface = videoSurface(160, 120);
+  provider.attachVideo("2", surface); await tick();
+  let finishUpgrade;
+  clients[0].setRemoteVideoStreamType = async (uid, type) => {
+    streamTypes.push([uid, type]);
+    if (type === 0) await new Promise(resolve => { finishUpgrade = resolve; });
+  };
+  surface.width = 1280; surface.height = 720; observers[0].callback(); await tick();
+  surface.width = 160; surface.height = 120; observers[0].callback();
+  finishUpgrade(); await tick();
+  assert.deepEqual(streamTypes, [[2, 1], [2, 0], [2, 1]]);
+  await provider.disconnect();
+});
+
+test("hidden cameras use low while shared screens stay high", async () => {
+  const { provider, clients, streamTypes } = fixture();
+  await provider.connect(credential, "教师");
+  provider.attachVideo("2", videoSurface(1000, 0));
+  for (const uid of [2, 1_500_000_000]) {
+    clients[0].emit("user-published", { uid, hasVideo: true }, "video");
+  }
+  await tick();
+  assert.deepEqual(streamTypes, [[2, 1], [1_500_000_000, 0]]);
+  await provider.focusParticipant("2"); assert.deepEqual(streamTypes.at(-1), [2, 0]);
+  await provider.focusParticipant(null); assert.deepEqual(streamTypes.at(-1), [2, 1]);
+  await provider.disconnect();
+});
+
+test("leaving removes video observers and stale resize callbacks cannot change subscriptions", async () => {
+  const { provider, clients, streamTypes, observers } = fixture();
+  await provider.connect(credential, "教师");
+  const user = { uid: 2, hasVideo: true }, surface = videoSurface(800, 450);
+  clients[0].emit("user-published", user, "video"); await tick();
+  provider.attachVideo("2", surface); await tick();
+  clients[0].emit("user-left", user);
+  assert.equal(observers[0].disconnected, true);
+  const before = streamTypes.length;
+  observers[0].callback(); await tick();
+  assert.equal(streamTypes.length, before);
+  await provider.disconnect();
+});
+
+test("six-person and dense twelve-person layouts keep every enlarged camera high", async () => {
+  const { provider, clients, streamTypes, observers } = fixture();
+  await provider.connect(credential, "教师");
+  const surfaces = Array.from({ length: 12 }, (_, index) => {
+    const uid = index + 2;
+    clients[0].emit("user-published", { uid, hasVideo: true }, "video");
+    return { uid, element: videoSurface(142, 82) };
+  });
+  await tick();
+  for (const { uid, element } of surfaces) provider.attachVideo(String(uid), element);
+  await tick();
+  assert.equal(streamTypes.length, 12);
+  assert.ok(streamTypes.every(([, type]) => type === 1));
+  for (const [count, width, height] of [[6, 400, 330], [12, 290, 210]]) {
+    for (const [index, { element }] of surfaces.entries()) {
+      element.width = index < count ? width : 142;
+      element.height = index < count ? height : 82;
+      observers[index].callback();
+    }
+    await tick();
+    const latest = new Map(streamTypes);
+    for (const [index, { uid }] of surfaces.entries()) assert.equal(latest.get(uid), index < count ? 0 : 1);
+  }
+  for (const [index, { element }] of surfaces.entries()) {
+    element.width = 142; element.height = 82; observers[index].callback();
+  }
+  await tick();
+  assert.ok([...new Map(streamTypes).values()].every(type => type === 1));
+  await provider.disconnect();
+});
+
+test("only surfaces within the native thumbnail resolution keep the low stream", async () => {
+  const { provider, clients, streamTypes, observers } = fixture();
+  await provider.connect(credential, "教师");
+  clients[0].emit("user-published", { uid: 2, hasVideo: true }, "video"); await tick();
+  const surface = videoSurface(160, 120);
+  provider.attachVideo("2", surface); await tick();
+  for (const [width, height, expected] of [[160, 120, 1], [161, 120, 0], [160, 121, 0], [0, 720, 1], [1280, 0, 1], [159.9, 119.9, 1]]) {
+    surface.width = width; surface.height = height; observers[0].callback(); await tick();
+    assert.equal(streamTypes.at(-1)[1], expected, `${width}x${height}`);
+  }
   await provider.disconnect();
 });

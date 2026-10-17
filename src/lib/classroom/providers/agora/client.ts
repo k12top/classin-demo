@@ -96,6 +96,9 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   private remoteUsers = new Map<string, IAgoraRTCRemoteUser>();
   private participants = new Map<string, ClassroomParticipant>();
   private videoElements = new Map<string, Set<HTMLElement>>();
+  private videoTargetObservers = new Map<HTMLElement, ResizeObserver>();
+  private remoteVideoStreamTypes = new Map<string, 0 | 1>();
+  private remoteVideoStreamUpdates = new Map<string, Promise<void>>();
   private listeners = new Set<ClassroomMediaListener>();
   private captionListeners = new Set<ClassroomCaptionListener>();
   private tokenExpiryListeners = new Set<() => void>();
@@ -286,11 +289,55 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     }
   }
 
+  private remoteVideoStreamType(id: string): 0 | 1 {
+    if (this.isScreen(id) || this.snapshot.focusedParticipantId === id) return 0;
+    // The same camera can appear on the podium and the teaching stage at once.
+    // Use the largest visible surface, including the cloud recorder's surface,
+    // so solo speakers and grid tiles never upscale the thumbnail stream.
+    const thumbnail = classroomMediaProfile.camera.low;
+    for (const element of this.videoElements.get(id) ?? []) {
+      const { width, height } = element.getBoundingClientRect();
+      if (width > 0 && height > 0 && (width > thumbnail.width || height > thumbnail.height)) return 0;
+    }
+    return 1;
+  }
+
+  private updateRemoteVideoStreamType(id: string): Promise<void> {
+    const client = this.client;
+    const user = this.remoteUsers.get(id);
+    if (!client || !user?.hasVideo || this.isLocalParticipant(id)) return Promise.resolve();
+    // Serialize switches per camera. Read the current layout when the previous
+    // switch finishes so a slow fullscreen upgrade cannot undo a later exit.
+    const previous = this.remoteVideoStreamUpdates.get(id) ?? Promise.resolve();
+    const task = previous.then(async () => {
+      if (this.client !== client || this.remoteUsers.get(id) !== user || !user.hasVideo) return;
+      const streamType = this.remoteVideoStreamType(id);
+      if (this.remoteVideoStreamTypes.get(id) === streamType) return;
+      await client.setRemoteVideoStreamType(user.uid, streamType);
+      if (this.client === client && this.remoteUsers.get(id) === user && user.hasVideo) {
+        this.remoteVideoStreamTypes.set(id, streamType);
+      }
+    }).catch((error: unknown) => {
+      console.warn("[ClassroomRTC] Failed to switch remote video stream", error);
+    });
+    this.remoteVideoStreamUpdates.set(id, task);
+    void task.then(() => {
+      if (this.remoteVideoStreamUpdates.get(id) === task) this.remoteVideoStreamUpdates.delete(id);
+    });
+    return task;
+  }
+
   private removeParticipant(id: string) {
     this.remoteUsers.delete(id);
     this.participants.delete(id);
     this.clearVideoTargets(id);
+    for (const element of this.videoElements.get(id) ?? []) {
+      this.videoTargetObservers.get(element)?.disconnect();
+      this.videoTargetObservers.delete(element);
+    }
     this.videoElements.delete(id);
+    this.remoteVideoStreamTypes.delete(id);
+    this.remoteVideoStreamUpdates.delete(id);
     if (this.snapshot.focusedParticipantId === id) {
       this.snapshot.focusedParticipantId = null;
     }
@@ -364,6 +411,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     });
     client.on("user-unpublished", (user, mediaType) => {
       const id = participantId(user.uid);
+      if (mediaType === "video") this.remoteVideoStreamTypes.delete(id);
       this.upsertParticipant(id, {
         ...(mediaType === "audio" ? { hasAudio: false } : {}),
         ...(mediaType === "video" ? { hasVideo: false } : {}),
@@ -436,15 +484,8 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     }
 
     if (mediaType === "video") {
-      await this.client
-        .setRemoteVideoStreamType(
-          user.uid,
-          this.isScreen(id) ||
-            this.snapshot.focusedParticipantId === id
-            ? 0
-            : 1,
-        )
-        .catch(() => undefined);
+      this.remoteVideoStreamTypes.delete(id);
+      await this.updateRemoteVideoStreamType(id);
       this.upsertParticipant(id, { hasVideo: true });
       this.renderVideoTargets(id);
     }
@@ -828,21 +869,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
 
   async focusParticipant(participantIdToFocus: string | null): Promise<void> {
     this.snapshot.focusedParticipantId = participantIdToFocus;
-    const operations: Promise<unknown>[] = [];
-    if (this.client) {
-      for (const [id, user] of this.remoteUsers) {
-        if (!user.hasVideo) continue;
-        operations.push(
-          this.client
-            .setRemoteVideoStreamType(
-              user.uid,
-              this.isScreen(id) || id === participantIdToFocus ? 0 : 1,
-            )
-            .catch(() => undefined),
-        );
-      }
-    }
-    await Promise.all(operations);
+    await Promise.all(Array.from(this.remoteUsers.keys(), (id) => this.updateRemoteVideoStreamType(id)));
     this.emit();
   }
 
@@ -851,13 +878,22 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     targets.add(element);
     this.videoElements.set(id, targets);
     this.renderVideoTarget(id, element);
+    if (!this.videoTargetObservers.has(element) && typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(() => { void this.updateRemoteVideoStreamType(id); });
+      observer.observe(element);
+      this.videoTargetObservers.set(element, observer);
+    }
+    void this.updateRemoteVideoStreamType(id);
   }
 
   detachVideo(id: string, element: HTMLElement): void {
     this.clearVideoTarget(element);
+    this.videoTargetObservers.get(element)?.disconnect();
+    this.videoTargetObservers.delete(element);
     const targets = this.videoElements.get(id);
     targets?.delete(element);
     if (targets?.size === 0) this.videoElements.delete(id);
+    void this.updateRemoteVideoStreamType(id);
   }
 
   async renewToken(token: string): Promise<void> {
@@ -1099,6 +1135,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.connectionGeneration++;
     const client = this.client;
     this.client = null;
+    for (const observer of this.videoTargetObservers.values()) observer.disconnect();
+    this.videoTargetObservers.clear();
+    this.remoteVideoStreamTypes.clear();
+    this.remoteVideoStreamUpdates.clear();
     await this.stopScreenShare();
 
     if (client) {

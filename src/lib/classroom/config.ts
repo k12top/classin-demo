@@ -4,7 +4,8 @@ import type { ClassroomMediaProfile } from "@/lib/classroom/types";
  * Provider-neutral classroom media defaults.
  *
  * Camera publishers send a high and low stream. Receivers subscribe to the
- * low stream by default and switch only the focused participant to high.
+ * low stream for thumbnails and high for a focused or enlarged video surface,
+ * including the surface rendered by the cloud recorder.
  */
 const thumbnail = {
   width: 160,
