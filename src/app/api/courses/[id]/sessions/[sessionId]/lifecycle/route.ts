@@ -26,7 +26,7 @@ import { prisma } from "@/lib/db";
 import { databaseUnavailableResponse } from "@/lib/database-response";
 import { getSessionFromRequest } from "@/lib/session";
 import { syncCourseStatusFromSessions } from "@/lib/course-session-status";
-import { generateCourseSessionSummary } from "@/lib/course-session-summary";
+import { processCourseSessionSummaryGeneration, queueCourseSessionSummary } from "@/lib/course-session-summary-generation";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -228,6 +228,13 @@ async function handlePost(request: NextRequest, context: Context) {
       });
     }
     after(() => deliverClassroomEvents());
+    // Persist the job before responding; provider shutdown must not delay it.
+    try {
+      await queueCourseSessionSummary(resolved.courseId, resolved.sessionId);
+      after(() => processCourseSessionSummaryGeneration(resolved.sessionId).then(() => undefined));
+    } catch (error) {
+      console.error("[classroom:lifecycle] summary queue pending cron recovery", { sessionId: resolved.sessionId, name: error instanceof Error ? error.name : "UnknownError" });
+    }
     after(async () => {
       if (!courseStatusSynced) {
         try {
@@ -255,19 +262,6 @@ async function handlePost(request: NextRequest, context: Context) {
                 : String(result.reason),
           });
         }
-      }
-      try {
-        await generateCourseSessionSummary(
-          resolved.courseId,
-          resolved.sessionId,
-          "system",
-        );
-      } catch (error) {
-        console.error("[classroom:lifecycle] summary generation failed", {
-          courseId: resolved.courseId,
-          sessionId: resolved.sessionId,
-          error: error instanceof Error ? error.message : String(error),
-        });
       }
     });
     let runtime = null;

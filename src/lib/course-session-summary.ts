@@ -89,16 +89,14 @@ export async function generateCourseSessionSummary(
   if (existing) {
     // Generation may take minutes: never overwrite teacher edits/publication
     // that happened while the model was analyzing the transcript.
-    const result = await prisma.courseSessionSummary.updateMany({ where: { id: existing.id, updatedAt: existing.updatedAt }, data });
-    if (!result.count && generatedBy !== "system") throw new Error("The summary changed during generation. Reload before regenerating.");
+    await prisma.courseSessionSummary.updateMany({ where: { id: existing.id, updatedAt: existing.updatedAt }, data });
     return prisma.courseSessionSummary.findUniqueOrThrow({ where: { sessionId } });
   }
   try {
     return await prisma.courseSessionSummary.create({ data: { courseId, sessionId, ...data } });
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
-      if (generatedBy === "system") return prisma.courseSessionSummary.findUniqueOrThrow({ where: { sessionId } });
-      throw new Error("Another summary was created during generation. Reload before regenerating.");
+      return prisma.courseSessionSummary.findUniqueOrThrow({ where: { sessionId } });
     }
     throw error;
   }
@@ -109,47 +107,8 @@ export async function generateCourseSessionSummary(
  * captions that arrive shortly after the lesson ended.
  */
 export async function reconcileCourseSessionSummaries(limit = 25, maxRunMs = 240_000) {
-  const deadline = Date.now() + maxRunMs;
-  const lessons = await prisma.courseSession.findMany({
-    where: {
-      status: { in: ["afterClass", "finished"] },
-      classroomCaptions: { some: { isFinal: true } },
-      OR: [
-        { summary: { is: null } },
-        { summary: { is: { status: "draft", generatedBy: "system" } } },
-      ],
-    },
-    select: {
-      id: true,
-      courseId: true,
-      summary: { select: { captionCount: true, sourceUpdatedAt: true } },
-      classroomCaptions: {
-        where: { isFinal: true },
-        select: { updatedAt: true },
-        orderBy: { updatedAt: "desc" },
-        take: 1,
-      },
-      _count: { select: { classroomCaptions: { where: { isFinal: true } } } },
-    },
-    orderBy: { endTime: "asc" },
-    take: limit,
-  });
-  let reconciled = 0;
-  for (const lesson of lessons) {
-    const latestCaptionAt = lesson.classroomCaptions[0]?.updatedAt || null;
-    const alreadyCurrent =
-      lesson.summary &&
-      lesson.summary.captionCount === lesson._count.classroomCaptions &&
-      (!latestCaptionAt ||
-        (lesson.summary.sourceUpdatedAt &&
-          lesson.summary.sourceUpdatedAt >= latestCaptionAt));
-    if (alreadyCurrent) continue;
-    const remainingMs = deadline - Date.now();
-    if (remainingMs < 5_000) break;
-    await generateCourseSessionSummary(lesson.courseId, lesson.id, "system", { totalTimeoutMs: remainingMs });
-    reconciled += 1;
-  }
-  return reconciled;
+  const { reconcileCourseSessionSummaryGenerations } = await import("./course-session-summary-generation");
+  return reconcileCourseSessionSummaryGenerations(limit, maxRunMs);
 }
 
 export async function saveCourseSessionSummary(

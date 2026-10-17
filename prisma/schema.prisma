@@ -161,6 +161,7 @@ model CourseSession {
   classroomEngagementRounds ClassroomEngagementRound[]
   studentSubmissions        CourseSessionStudentSubmission[]
   summary                   CourseSessionSummary?
+  summaryGeneration         CourseSessionSummaryGeneration?
 
   @@unique([courseId, position])
   @@index([courseId, startTime])
@@ -814,6 +815,26 @@ model CourseSessionSummary {
 
   @@index([courseId, status, updatedAt])
   @@index([sessionId, status])
+}
+
+// Durable generation status is independent of the teacher's editable/published summary.
+model CourseSessionSummaryGeneration {
+  sessionId     String   @id
+  courseId      String
+  status        String   @default("queued") // queued | running | completed | failed
+  requestId     String   @default(uuid())
+  requestedBy   String   @default("system")
+  attempts      Int      @default(0)
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  nextAttemptAt DateTime @default(now())
+  error         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  session CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
 }
 
 // Each browser tab/device has an independent media and presence lease.

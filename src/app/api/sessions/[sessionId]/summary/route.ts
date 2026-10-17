@@ -1,13 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { resolveCoursewareAccess } from "@/lib/courseware-access";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
 import {
-  generateCourseSessionSummary,
   publicCourseSessionSummary,
   saveCourseSessionSummary,
   setCourseSessionSummaryPublished,
 } from "@/lib/course-session-summary";
+import { processCourseSessionSummaryGeneration, publicSummaryGeneration, queueCourseSessionSummary, summaryGenerationNeedsWorker } from "@/lib/course-session-summary-generation";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -37,9 +37,17 @@ export async function GET(request: NextRequest, context: Context) {
   const summary = await prisma.courseSessionSummary.findUnique({
     where: { sessionId },
   });
+  const generation = resolved.access.teaching
+    ? await prisma.courseSessionSummaryGeneration.findUnique({ where: { sessionId } }) : null;
+  if (summaryGenerationNeedsWorker(generation)) {
+    after(() => processCourseSessionSummaryGeneration(sessionId).then(() => undefined));
+  }
   const visibleSummary = summary && (resolved.access.teaching || summary.status === "published")
     ? publicCourseSessionSummary(summary)
     : null;
+  if (request.nextUrl.searchParams.get("summaryOnly") === "1") {
+    return NextResponse.json({ summary: visibleSummary, generation: publicSummaryGeneration(generation), canManage: resolved.access.teaching });
+  }
   const captionCursor = request.nextUrl.searchParams.get("captionCursor") || undefined;
   // Final captions back the authorized playback timeline and CC controls even
   // while the teacher's generated summary is still a private draft.
@@ -59,6 +67,7 @@ export async function GET(request: NextRequest, context: Context) {
       });
   return NextResponse.json({
     summary: visibleSummary,
+    generation: publicSummaryGeneration(generation),
     canManage: resolved.access.teaching,
     captions: captions.slice(0, 100).map((caption) => ({
       id: caption.externalId,
@@ -86,12 +95,16 @@ export async function POST(request: NextRequest, context: Context) {
   } | null;
   try {
     let summary;
-    if (body?.action === "generate") {
-      summary = await generateCourseSessionSummary(
-        resolved.courseId,
-        sessionId,
-        resolved.identity.userId,
-      );
+    if (body?.action === "generate" || body?.action === "ensure") {
+      const generation = await queueCourseSessionSummary(resolved.courseId, sessionId,
+        body.action === "ensure" ? "system" : resolved.identity.userId, body.action === "generate");
+      if (summaryGenerationNeedsWorker(generation)) {
+        after(() => processCourseSessionSummaryGeneration(sessionId).then(() => undefined));
+      }
+      summary = await prisma.courseSessionSummary.findUnique({ where: { sessionId } });
+      return NextResponse.json({ summary: summary ? publicCourseSessionSummary(summary) : null, generation: publicSummaryGeneration(generation) }, {
+        status: generation?.status === "queued" || generation?.status === "running" ? 202 : 200,
+      });
     } else if (body?.action === "save") {
       summary = await saveCourseSessionSummary(
         resolved.courseId,
@@ -107,7 +120,7 @@ export async function POST(request: NextRequest, context: Context) {
       );
     } else {
       return NextResponse.json(
-        { error: "action must be generate, save, publish, or unpublish" },
+        { error: "action must be ensure, generate, save, publish, or unpublish" },
         { status: 400 },
       );
     }

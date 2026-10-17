@@ -37,6 +37,7 @@ async function main() {
     "@/lib/classroom/server/recording-orchestrator": 'export async function stopActiveRecordingsForCourse() {} export async function stopRecordingAttempt() {} export async function retryFailedLiveRecordings() {} export async function reconcilePendingRecordings() {} export async function requestRecordingStart() {}',
     "@/lib/classroom/server/transcription-orchestrator": 'export async function stopClassroomTranscription() {} export async function syncClassroomTranscription() {} export async function reconcileActiveClassroomTranscriptions() {}',
     "@/lib/course-session-summary": 'export async function generateCourseSessionSummary() {} export async function reconcileCourseSessionSummaries() {}',
+    "@/lib/course-session-summary-generation": 'export async function queueCourseSessionSummary() {} export async function processCourseSessionSummaryGeneration() {}',
   };
   await esbuild.build({
     stdin: { contents: 'export { prisma } from "@/lib/db"; export * from "@/lib/classroom/server/integration-events"; export * from "@/lib/classroom/server/runtime"; export * from "@/lib/classroom/server/connections"; export { promoteCoursesIfDue } from "@/lib/course-promote"; export { POST as lifecycle } from "@/app/api/courses/[id]/sessions/[sessionId]/lifecycle/route";', resolveDir: root, loader: "ts" },

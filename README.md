@@ -218,6 +218,14 @@ labels caption extraction when AI is disabled or unavailable, and discloses when
 `AI_SUMMARY_MAX_CAPTIONS` limits analysis to the last captions. Existing summaries
 remain readable; regenerate them to obtain the detailed report.
 
+Ending a lesson now persists a `CourseSessionSummaryGeneration` job before the
+response returns. Generation runs independently of provider shutdown, with a
+database lease shared by automatic callbacks, manual requests and cron recovery.
+Manual generation returns HTTP 202 promptly; the playback page polls lightweight
+status reads and displays the finished draft without reloading. Temporary read
+failures preserve an existing summary. Apply the `20261017130000_summary_generation_jobs`
+migration before running the updated API (the normal `build:deploy` does this).
+
 ### Cross-platform classroom clients
 
 The browser remains the source of truth for course management and the Web

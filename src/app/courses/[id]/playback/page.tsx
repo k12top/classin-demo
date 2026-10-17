@@ -34,6 +34,8 @@ import { classroomLanguageLabel } from "@/lib/classroom/languages";
 import { activeCaptionIndex, captionPosition } from "@/lib/classroom/playback-captions";
 import type { CourseSessionSummaryDocument, SummaryEvidence } from "@/lib/course-session-summary-document";
 import { LessonSummaryReport } from "@/components/course-sessions/lesson-summary-report";
+import { summaryGenerationActive, watchCourseSessionSummary } from "@/lib/course-session-summary-watch";
+import type { SummaryGenerationState } from "@/lib/course-session-summary-generation";
 import { PlaybackCompatibility, usePlaybackMedia } from "@/components/course-sessions/playback-compatibility";
 import {
   PortalShell,
@@ -80,6 +82,7 @@ type LessonSummary = {
   captionCount: number;
   sourceUpdatedAt: string | null;
   generatedAt: string;
+  generatedBy?: string;
   publishedAt: string | null;
   updatedAt: string;
   isStale: boolean;
@@ -156,6 +159,9 @@ export default function CoursePlaybackPage({
   const summaryRequestIdRef = useRef(0);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState("");
+  const [summaryGeneration, setSummaryGeneration] = useState<SummaryGenerationState | null>(null);
+  const [summaryWatchRevision, setSummaryWatchRevision] = useState(0);
+  const summaryMutationRef = useRef(0);
   const [summaryBusy, setSummaryBusy] = useState<
     "generate" | "save" | "publish" | "unpublish" | null
   >(null);
@@ -391,9 +397,12 @@ export default function CoursePlaybackPage({
       setLessonCaptions([]);
       setNextCaptionCursor(null);
       setSummaryCanManage(false);
+      setSummaryGeneration(null);
       return;
     }
     setSummaryLoading(true);
+    setSummaryCanManage(false);
+    setSummary(current => current?.sessionId === selectedSessionId ? current : null);
     setSummaryError("");
     try {
       const response = await fetch(
@@ -402,6 +411,7 @@ export default function CoursePlaybackPage({
       );
       const payload = (await response.json().catch(() => ({}))) as {
         summary?: LessonSummary | null;
+        generation?: SummaryGenerationState | null;
         captions?: LessonCaption[];
         nextCaptionCursor?: string | null;
         canManage?: boolean;
@@ -410,6 +420,7 @@ export default function CoursePlaybackPage({
       if (!response.ok) throw new Error(payload.error || copy.loadFailed);
       if (requestId !== summaryRequestIdRef.current) return;
       setSummary(payload.summary || null);
+      setSummaryGeneration(payload.generation || null);
       setLessonCaptions(Array.isArray(payload.captions) ? payload.captions : []);
       setNextCaptionCursor(payload.nextCaptionCursor || null);
       setSummaryCanManage(Boolean(payload.canManage));
@@ -474,11 +485,36 @@ export default function CoursePlaybackPage({
     queueMicrotask(() => void fetchSummary());
   }, [fetchSummary]);
 
+  const selectedLessonEnded = sessions.some(lesson => lesson.id === selectedSessionId && ["afterClass", "finished"].includes(lesson.status));
+  const summaryGenerating = summaryGenerationActive(summaryGeneration);
+  useEffect(() => {
+    if (!selectedSessionId || !summaryCanManage || (!selectedLessonEnded && !summaryGenerating)) return;
+    const controller = new AbortController();
+    const requestId = summaryRequestIdRef.current;
+    const mutation = summaryMutationRef.current;
+    const currentRequest = () => !controller.signal.aborted && requestId === summaryRequestIdRef.current && mutation === summaryMutationRef.current;
+    void watchCourseSessionSummary<LessonSummary>({
+      sessionId: selectedSessionId, ended: selectedLessonEnded, signal: controller.signal,
+      onStatus: payload => {
+        if (!currentRequest()) return;
+        setSummary(current => current?.sessionId === selectedSessionId && (!payload.summary || current.updatedAt > payload.summary.updatedAt) ? current : payload.summary);
+        setSummaryGeneration(payload.generation || null);
+        setSummaryError(payload.generation?.status === "failed"
+          ? locale.startsWith("zh") ? "总结生成暂时失败，可重试；已有总结仍可查看。" : "Summary generation failed. You can retry; any existing summary is still available."
+          : "");
+      },
+      onUnavailable: () => { if (currentRequest()) setSummaryError(copy.loadFailed); },
+    });
+    return () => controller.abort();
+  }, [copy.loadFailed, locale, selectedLessonEnded, selectedSessionId, summaryCanManage, summaryGenerating, summaryWatchRevision]);
+
   const updateSummary = useCallback(async (
     action: "generate" | "save" | "publish" | "unpublish",
     document?: LessonSummaryDocument,
   ) => {
     if (!selectedSessionId) return false;
+    const requestId = summaryRequestIdRef.current;
+    ++summaryMutationRef.current;
     setSummaryBusy(action);
     setSummaryError("");
     try {
@@ -492,18 +528,26 @@ export default function CoursePlaybackPage({
       );
       const payload = (await response.json().catch(() => ({}))) as {
         summary?: LessonSummary;
+        generation?: SummaryGenerationState | null;
         error?: string;
       };
-      if (!response.ok || !payload.summary) {
+      if (!response.ok || (action !== "generate" && !payload.summary)) {
         throw new Error(payload.error || copy.loadFailed);
       }
-      setSummary(payload.summary);
+      if (requestId !== summaryRequestIdRef.current) return false;
+      if (payload.summary) setSummary(payload.summary);
+      if (action === "generate") setSummaryGeneration(payload.generation || null);
       return true;
     } catch (cause) {
-      setSummaryError(cause instanceof Error ? cause.message : copy.loadFailed);
+      if (requestId !== summaryRequestIdRef.current) return false;
+      // If the response was interrupted, first check the persisted task/result.
+      if (action !== "generate") setSummaryError(cause instanceof Error ? cause.message : copy.loadFailed);
       return false;
     } finally {
-      setSummaryBusy(null);
+      if (requestId === summaryRequestIdRef.current) {
+        setSummaryBusy(null);
+        setSummaryWatchRevision(revision => revision + 1);
+      }
     }
   }, [copy.loadFailed, selectedSessionId]);
 
@@ -620,7 +664,7 @@ export default function CoursePlaybackPage({
     loading: summaryLoading,
     error: summaryError,
     canManage: summaryCanManage,
-    busy: summaryBusy,
+    busy: summaryBusy || (summaryGenerating ? "generate" as const : null),
     copy: summaryCopy,
     onGenerate: () => void updateSummary("generate"),
     onSave: (document: LessonSummaryDocument) => updateSummary("save", document),
@@ -901,13 +945,13 @@ function LessonSummaryPanel({
           ) : null}
         </div>
 
-        {loading ? (
+        {error && <div className="px-6 py-4 text-sm text-destructive" role="alert">{error}</div>}
+        {busy === "generate" && <p className="flex items-center gap-2 px-6 py-4 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin" />{copy.title === "课后总结" ? "AI 总结正在生成，完成后会自动显示，无需刷新。" : "Generating the summary. It will appear automatically when ready."}</p>}
+        {loading && !summary ? (
           <div className="flex min-h-44 items-center justify-center gap-2 px-6 py-10 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             {copy.saving}
           </div>
-        ) : error ? (
-          <div className="px-6 py-8 text-sm text-destructive" role="alert">{error}</div>
         ) : !summary ? (
           <div className="flex min-h-44 flex-col items-center justify-center gap-3 px-6 py-10 text-center">
             <p className="max-w-lg text-sm leading-6 text-muted-foreground">
