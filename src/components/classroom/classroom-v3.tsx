@@ -127,7 +127,7 @@ import {
 } from "@/components/classroom/fastboard-surface";
 import type { FastboardApp } from "@netless/fastboard";
 import { ScreenShareAnnotations } from "@/components/classroom/screen-share-annotations";
-import { ClassroomLoading } from "@/components/classroom/classroom-loading";
+import { ClassroomLoading, type ClassroomEntryPhase } from "@/components/classroom/classroom-loading";
 import {
   buildAccessDeniedUrl,
   type CourseAccessDeniedCode,
@@ -3740,6 +3740,7 @@ export function ClassroomV3({
   const [errorMessage, setErrorMessage] = useState("");
   const [launchRetry, setLaunchRetry] = useState(0);
   const [launchAttempt, setLaunchAttempt] = useState(0);
+  const [entryPhase, setEntryPhase] = useState<ClassroomEntryPhase>("identity");
   const [sessionData, setSessionData] =
     useState<ClassroomSessionResponse | null>(null);
   const sessionRef = useRef<ClassroomSessionResponse | null>(null);
@@ -4351,10 +4352,12 @@ export function ClassroomV3({
         liveRequestsRef.current = new AbortController();
         credentialRecoveryFailureRef.current = null;
         setLoadingState("loading");
+        setEntryPhase("session");
         setLaunchRetry(0);
         setErrorMessage("");
         const payload = await fetchInitialSession();
         if (cancelled) return;
+        setEntryPhase("media");
         setLayoutMode(payload.mode === "oneToOne" ? "split" : "focus");
         sessionRef.current = payload;
         presenceClockOffsetRef.current = classroomPresenceClockOffset(payload.runtime.presenceObservedAt);
@@ -4375,6 +4378,10 @@ export function ClassroomV3({
         provider = await createClassroomMediaProvider(
           payload.credential.provider,
         );
+        if (cancelled) {
+          void provider.disconnect();
+          return;
+        }
         providerRef.current = provider;
         setMediaProvider(provider);
         unsubscribeTokenExpiry = provider.subscribeTokenExpiry(() => {
@@ -6319,13 +6326,18 @@ export function ClassroomV3({
     "tools",
   ];
 
-  if (loadingState === "loading") {
-    return <>
-      <ClassroomLoading recorder={isRecorder} message={launchRetry ? t("classroom.v3.enteringRetry", { attempt: launchRetry + 1, max: 4 }) : undefined} />
-      {!isRecorder && <button type="button" className="classroom-v3-launch-cancel" onClick={() => { liveRequestsRef.current?.abort(); router.back(); }}>
-        <ArrowLeft />{t("classroom.v3.backToCourse")}
-      </button>}
-    </>;
+  const backFromEntry = () => {
+    liveRequestsRef.current?.abort();
+    const parentCourseId = sessionData?.course.id || legacyCourseId;
+    router.replace(parentCourseId ? `/courses/${encodeURIComponent(parentCourseId)}` : "/?view=courses");
+  };
+  if (loadingState === "loading" && courseId) {
+    return <ClassroomLoading key={launchAttempt} recorder={isRecorder}
+      phase={!isRecorder && authLoading ? "identity" : entryPhase}
+      courseName={sessionData?.course.name}
+      message={launchRetry ? t("classroom.v3.enteringRetry", { attempt: launchRetry + 1, max: 4 }) : undefined}
+      onRetry={authLoading ? undefined : () => setLaunchAttempt(attempt => attempt + 1)}
+      onBack={backFromEntry} />;
   }
   if (
     loadingState === "error" ||
@@ -6333,30 +6345,10 @@ export function ClassroomV3({
     !mediaProvider ||
     !courseId
   ) {
-    return (
-      <main className="classroom-v3-shell is-error-page">
-        <section className="classroom-v3-error-card" role="alert">
-          <AlertCircle />
-          <small>{t("classroom.v3.unavailableEyebrow")}</small>
-          <h1>{t("classroom.v3.cannotEnter")}</h1>
-          <p>{errorMessage || t("classroom.v3.missingCourse")}</p>
-          <div className="classroom-v3-error-actions">
-            <button
-              type="button"
-              className="is-primary"
-              onClick={() => setLaunchAttempt((attempt) => attempt + 1)}
-            >
-              <RefreshCw />
-              {t("classroom.v3.retry")}
-            </button>
-            <button type="button" onClick={() => router.back()}>
-              <ArrowLeft />
-              {t("classroom.v3.backToCourse")}
-            </button>
-          </div>
-        </section>
-      </main>
-    );
+    return <ClassroomLoading key={launchAttempt} recorder={isRecorder} phase={entryPhase}
+      courseName={sessionData?.course.name} errorMessage={errorMessage || t("classroom.v3.missingCourse")}
+      onRetry={courseId ? () => setLaunchAttempt(attempt => attempt + 1) : undefined}
+      onBack={backFromEntry} />;
   }
 
   return (
