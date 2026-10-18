@@ -21,6 +21,7 @@ import { classroomClosingNotice } from "@/lib/classroom/closing-notice";
 
 import { useClassroomHostEvents } from "@/lib/classroom/use-host-events";
 import { recorderCameraParticipants, recorderVideosHaveFrames } from "@/lib/classroom/recorder-surface";
+import { classroomBoardPresentation } from "@/lib/classroom/board-presentation";
 import { isEndedClassroomResponse } from "@/lib/classroom/session-lifecycle";
 import { applyMicrophonePermission } from "@/lib/classroom/media-permissions";
 import { applyClassroomMemberPermissionUpdate } from "@/lib/classroom/member-permissions";
@@ -1038,6 +1039,7 @@ function LiveRailSeat({
   onPlaceOnBoard,
   previewPlacesOnBoard,
   canReorder,
+  canPlaceOnBoard = true,
 }: {
   member: ClassroomMemberSnapshot;
   participant: ClassroomParticipant | null;
@@ -1060,6 +1062,7 @@ function LiveRailSeat({
   onPlaceOnBoard: (userId: string) => void;
   previewPlacesOnBoard: boolean;
   canReorder: boolean;
+  canPlaceOnBoard?: boolean;
 }) {
   const { t } = useTranslation();
   const [touchControlsVisible, setTouchControlsVisible] = useState(false);
@@ -1143,7 +1146,7 @@ function LiveRailSeat({
         }
       }}
     >
-      {canManage ? (
+      {canManage && (!previewPlacesOnBoard || canPlaceOnBoard) ? (
         <button
           type="button"
           className="classroom-v3-seat-preview"
@@ -1198,7 +1201,7 @@ function LiveRailSeat({
         </span>
         {showControls && (
           <span className="classroom-v3-seat-controls">
-            {canManage && (
+            {canManage && canPlaceOnBoard && (
               <button
                 type="button"
                 disabled={busy}
@@ -1301,6 +1304,7 @@ function LiveRail({
   onReorder,
   onPlaceOnBoard,
   previewPlacesOnBoard,
+  canPlaceOnBoard = true,
 }: {
   members: ClassroomMemberSnapshot[];
   media: ClassroomMediaSnapshot;
@@ -1326,6 +1330,7 @@ function LiveRail({
   onReorder: (seatOrder: string[]) => void;
   onPlaceOnBoard: (userId: string) => void;
   previewPlacesOnBoard: boolean;
+  canPlaceOnBoard?: boolean;
 }) {
   const { t } = useTranslation();
   const teachers = members.filter(
@@ -1427,6 +1432,7 @@ function LiveRail({
             onMoveSeat={moveSeat}
             onPlaceOnBoard={onPlaceOnBoard}
             previewPlacesOnBoard={previewPlacesOnBoard}
+            canPlaceOnBoard={canPlaceOnBoard}
             canReorder={canManage && seatedMembers.length > 1}
           />
         ))}
@@ -6036,11 +6042,6 @@ export function ClassroomV3({
   const compositionBoardItems = (
     sessionData?.runtime.composition.boardItems ?? []
   ).filter((item) => item.kind !== "screen");
-  const boardSourceIds = new Set(
-    compositionBoardItems
-      .filter((item) => item.kind === "camera")
-      .map((item) => item.sourceId),
-  );
   // Keep Fastboard mounted while a screen share is on stage. Destroying it on
   // every share transition reconnects the room, flashes the loading state and
   // can make recently synchronized strokes appear to disappear.
@@ -6050,6 +6051,9 @@ export function ClassroomV3({
       sessionData?.runtime.stageMode === "whiteboard",
   );
   const showWhiteboard = Boolean(!screenParticipant && whiteboardStageEnabled);
+  const { boardItems: presentedBoardItems, cameraSourceIds: boardSourceIds } = classroomBoardPresentation(
+    compositionBoardItems, showWhiteboard, hiddenBoardItemIds,
+  );
   const drawingSurfaceAvailable = showWhiteboard || Boolean(screenParticipant && !hideLocalScreenSharePreview);
   const drawingController = screenParticipant ? screenAnnotationController : whiteboardController;
   const recorderCameras = isRecorder ? recorderCameraParticipants(
@@ -6673,6 +6677,7 @@ export function ClassroomV3({
             })
           }
           previewPlacesOnBoard={classinLayout}
+          canPlaceOnBoard={showWhiteboard}
         />
       )}
 
@@ -6842,7 +6847,7 @@ export function ClassroomV3({
                     }
                   />
                   <BoardCompositionLayer
-                    items={compositionBoardItems}
+                    items={presentedBoardItems}
                     revision={sessionData.runtime.revision}
                     members={classroomMembers}
                     courseware={sessionData.courseware}
