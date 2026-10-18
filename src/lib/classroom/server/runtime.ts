@@ -1248,16 +1248,7 @@ export async function applyClassroomAction(input: {
         break;
       }
       case "updateBoardItem": {
-        const currentItem = currentComposition.boardItems.find(
-          (item) => item.id === action.itemId,
-        );
-        const mayEditOwnCamera = Boolean(
-          currentItem?.kind === "camera" &&
-            currentItem.sourceId === session.userId &&
-            action.locked === undefined &&
-            action.visible === undefined,
-        );
-        if (!mayEditOwnCamera) requireTeachingRole(role);
+        requireTeachingRole(role);
         await writeComposition(
           updateClassroomBoardItem(currentComposition, action.itemId, {
             rect: action.rect,

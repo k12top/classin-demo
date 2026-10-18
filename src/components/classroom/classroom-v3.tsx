@@ -21,6 +21,7 @@ import { recorderCameraParticipants, recorderVideosHaveFrames } from "@/lib/clas
 import { isEndedClassroomResponse } from "@/lib/classroom/session-lifecycle";
 import { applyMicrophonePermission } from "@/lib/classroom/media-permissions";
 import { applyClassroomMemberPermissionUpdate } from "@/lib/classroom/member-permissions";
+import { applyClassroomCompositionPreview } from "@/lib/classroom/composition-preview";
 import { applyClassroomScreenShareRequest } from "@/lib/classroom/screen-share-request";
 import { canRetryClassroomRecovery, ClassroomRecoveryError, retryClassroomRecovery } from "@/lib/classroom/credential-recovery";
 import { reportClassroomDiagnostic, type ClassroomConnectionDiagnostic } from "@/lib/classroom/connection-diagnostics";
@@ -167,7 +168,6 @@ import type {
   ClassroomQuestionSnapshot,
 } from "@/lib/classroom/types";
 import {
-  boardItemUpdateConfirmed,
   circleBoardGeometry,
   defaultBoardRect,
   normalizeBoardRect,
@@ -406,6 +406,7 @@ function BoardCompositionItem({
     viewport: { width: number; height: number };
   } | null>(null);
   const lastDragPreviewAtRef = useRef(0);
+  const draggedFromHandleRef = useRef(false);
   const visualRect = resizingRect ?? draggingRect ?? item.rect;
 
   const dragRectAt = useCallback(
@@ -429,7 +430,7 @@ function BoardCompositionItem({
       if (
         !canEditGeometry ||
         item.locked ||
-        target.closest("button") ||
+        (target.closest("button") && !target.closest("[data-board-drag-handle]")) ||
         (event.pointerType === "mouse" && event.button !== 0)
       ) {
         return;
@@ -446,6 +447,7 @@ function BoardCompositionItem({
         viewport: { width: stage.width, height: stage.height },
       };
       lastDragPreviewAtRef.current = 0;
+      draggedFromHandleRef.current = false;
       setDraggingRect(item.rect);
     },
     [canEditGeometry, item.locked, item.rect, onSelect, stageRef],
@@ -457,6 +459,7 @@ function BoardCompositionItem({
       if (!drag || drag.pointerId !== event.pointerId) return;
       const next = dragRectAt(event.clientX, event.clientY);
       if (!next) return;
+      if (Math.abs(event.clientX - drag.startX) + Math.abs(event.clientY - drag.startY) > 4) draggedFromHandleRef.current = true;
       setDraggingRect(next);
       const now = performance.now();
       if (now - lastDragPreviewAtRef.current >= 100) {
@@ -637,7 +640,7 @@ function BoardCompositionItem({
 
   return (
     <motion.article
-      className={`classroom-v3-board-item${selected ? " is-selected" : ""}${item.locked ? " is-locked" : ""}${item.shape === "circle" ? " is-circle" : ""}${draggingRect ? " is-dragging" : ""}`}
+      className={`classroom-v3-board-item${canEditGeometry ? " is-editable" : ""}${selected ? " is-selected" : ""}${item.locked ? " is-locked" : ""}${item.shape === "circle" ? " is-circle" : ""}${draggingRect ? " is-dragging" : ""}`}
       style={style}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -672,7 +675,7 @@ function BoardCompositionItem({
         </div>
       )}
       {!isRecorder && item.kind === "camera" && <HandRaiseVideoBadge member={member} />}
-      {!isRecorder && <div className="classroom-v3-board-item-tools" role="toolbar">
+      {!isRecorder && canEditGeometry && <div className="classroom-v3-board-item-tools" role="toolbar">
         {item.kind === "camera" && canEditGeometry && (
           <button
             type="button"
@@ -715,12 +718,17 @@ function BoardCompositionItem({
             </button>
             <button
               type="button"
+              data-board-drag-handle={!item.locked ? "true" : undefined}
               onClick={(event) => {
                 event.stopPropagation();
+                if (draggedFromHandleRef.current) {
+                  draggedFromHandleRef.current = false;
+                  return;
+                }
                 onBringToFront();
               }}
-              title={t("classroom.v3.focusAction")}
-              aria-label={t("classroom.v3.focusAction")}
+              title={t(item.locked ? "classroom.v3.focusAction" : "classroom.v3.boardMove")}
+              aria-label={t(item.locked ? "classroom.v3.focusAction" : "classroom.v3.boardMove")}
             >
               <Move />
             </button>
@@ -766,7 +774,6 @@ function BoardCompositionItem({
 
 function BoardCompositionLayer({
   items,
-  revision,
   members,
   courseware,
   participants,
@@ -808,8 +815,6 @@ function BoardCompositionLayer({
           visible?: boolean;
           shape?: "rounded" | "circle";
         };
-        initialRevision: number;
-        acknowledged: boolean;
         token: number;
       }
     >
@@ -856,20 +861,10 @@ function BoardCompositionLayer({
       }}
     >
       {visibleItems.map((item) => {
-        const isLocalCamera =
-          item.kind === "camera" && item.sourceId === currentUserId;
         const pending = optimisticItemUpdates[item.id];
-        const savedUpdateVisible = pending?.acknowledged &&
-          boardItemUpdateConfirmed(
-            item,
-            pending.update,
-            pending.initialRevision,
-            revision,
-          );
-        const optimisticUpdate = savedUpdateVisible ? undefined : pending?.update;
         const visualItem = {
           ...item,
-          ...optimisticUpdate,
+          ...pending?.update,
         };
         const member = members.find((candidate) => candidate.userId === item.sourceId);
         const matchedParticipant = participants.find(
@@ -894,10 +889,10 @@ function BoardCompositionLayer({
             stageSize={stageSize}
             canManage={canManage}
             isRecorder={isRecorder}
-            canEditGeometry={!isRecorder && (canManage || isLocalCamera)}
+            canEditGeometry={!isRecorder && canManage}
             selected={selectedItemId === item.id}
             onSelect={() => {
-              if (!isRecorder) setSelectedItemId(item.id);
+              if (!isRecorder && canManage) setSelectedItemId(item.id);
             }}
             onUpdate={(update) => {
               const token = (updateTokenRef.current[item.id] ?? 0) + 1;
@@ -906,8 +901,6 @@ function BoardCompositionLayer({
                 ...current,
                 [item.id]: {
                   update: { ...current[item.id]?.update, ...update },
-                  initialRevision: revision,
-                  acknowledged: false,
                   token,
                 },
               }));
@@ -915,20 +908,16 @@ function BoardCompositionLayer({
                 type: "updateBoardItem",
                 itemId: item.id,
                 ...update,
-              }).then((saved) => {
+              }).then(() => {
                 if (!isMountedRef.current) return;
                 setOptimisticItemUpdates((current) => {
                   const pending = current[item.id];
                   if (!pending || pending.token !== token) return current;
-                  if (!saved) {
-                    const next = { ...current };
-                    delete next[item.id];
-                    return next;
-                  }
-                  return {
-                    ...current,
-                    [item.id]: { ...pending, acknowledged: true },
-                  };
+                  // onAction applies the authoritative runtime before it settles.
+                  // Release the prediction so later edits by other managers win.
+                  const next = { ...current };
+                  delete next[item.id];
+                  return next;
                 });
               });
             }}
@@ -942,8 +931,8 @@ function BoardCompositionLayer({
               void onAction({
                 type: "removeBoardItem",
                 itemId: item.id,
-              }).then((removed) => {
-                if (removed || !isMountedRef.current) return;
+              }).then(() => {
+                if (!isMountedRef.current) return;
                 setOptimisticRemovedItemIds((current) => {
                   const next = new Set(current);
                   next.delete(item.id);
@@ -4824,35 +4813,16 @@ export function ClassroomV3({
       }
       if (event.topic === "composition-preview") {
         const current = sessionRef.current;
-        const actor = current?.runtime.members.find(
-          (member) => member.userId === event.actorId,
-        );
         // Agora RTM echoes messages to the sender. Applying our own preview
         // back into React changes the item's base left/top during a Motion
         // drag, which is the source of the visible snap-back.
-        if (
-          !current ||
-          !actor ||
-          actor.role === "student" ||
-          event.actorId === (isRecorder ? current.credential.userId : user?.userId)
-        ) {
-          return;
-        }
-        setSessionData((snapshot) =>
-          snapshot
-            ? {
-                ...snapshot,
-                runtime: {
-                  ...snapshot.runtime,
-                  composition: updateClassroomBoardItem(
-                    snapshot.runtime.composition,
-                    event.itemId,
-                    { rect: event.rect },
-                  ),
-                },
-              }
-            : snapshot,
-        );
+        if (!current) return;
+        const selfId = isRecorder ? current.credential.userId : user?.userId || "";
+        setSessionData((snapshot) => {
+          if (!snapshot) return snapshot;
+          const runtime = applyClassroomCompositionPreview(snapshot.runtime, event, publisherId, selfId);
+          return runtime ? { ...snapshot, runtime } : snapshot;
+        });
         return;
       }
       if (event.topic === "messages") { void refreshMessages(); return; }
@@ -4942,6 +4912,9 @@ export function ClassroomV3({
       if (
         !courseId ||
         !currentUserId ||
+        isRecorder ||
+        !sessionRef.current?.capabilities.canManageStage ||
+        sessionRef.current.runtime.status === "ended" ||
         now - compositionPreviewAtRef.current < 80
       ) {
         return;
@@ -4956,7 +4929,7 @@ export function ClassroomV3({
         sentAt: Date.now(),
       });
     },
-    [courseId, currentUserId],
+    [courseId, currentUserId, isRecorder],
   );
   const currentMember = sessionData?.runtime.members.find(
     (member) => member.userId === currentUserId,
