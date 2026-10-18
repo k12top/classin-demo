@@ -13,6 +13,9 @@ import { useCaptionSubscription } from "@/lib/classroom/use-caption-subscription
 import { supportedCaptionTranslationCodes } from "@/lib/classroom/translation-capabilities";
 import { TeacherAssistant } from "@/components/classroom/teacher-assistant";
 import { assistantConversationKey, classroomAssistantTeacher } from "@/lib/classroom/assistant";
+import { ClassStartSettings, ClassStartReminder } from "@/components/classroom/class-start-controls";
+import { useScheduledClassStart } from "@/components/classroom/use-scheduled-class-start";
+import { classStartReadiness, classStartLateness, type ClassStartMode } from "@/lib/classroom/class-start";
 import { ClassroomClosingNotice } from "@/components/classroom/closing-notice";
 import { classroomClosingNotice } from "@/lib/classroom/closing-notice";
 
@@ -3286,6 +3289,9 @@ function DeviceSettings({
   captionDisplayMode,
   captionBackgroundMode,
   captionBackgroundColor,
+  onClassStartModeChange,
+  startSettingsBusy,
+  focusClassStart = false,
   onRecordingStartModeChange,
   onCaptionDisplayModeChange,
   onCaptionBackgroundModeChange,
@@ -3303,6 +3309,9 @@ function DeviceSettings({
   captionDisplayMode: CaptionDisplayMode;
   captionBackgroundMode: CaptionBackgroundMode;
   captionBackgroundColor: string;
+  onClassStartModeChange: (mode: ClassStartMode) => void;
+  startSettingsBusy: boolean;
+  focusClassStart?: boolean;
   onRecordingStartModeChange: (mode: "classStart" | "scheduled" | "scheduledEarly" | "disabled") => void;
   onCaptionDisplayModeChange: (mode: CaptionDisplayMode) => void;
   onCaptionBackgroundModeChange: (mode: CaptionBackgroundMode) => void;
@@ -3627,6 +3636,22 @@ function DeviceSettings({
                 </p>
               </div>
               <div className="classroom-v3-device-column">
+                {canManageRecording && runtime && <>
+                  <ClassStartSettings runtime={runtime} reveal={focusClassStart} busy={startSettingsBusy} onChange={onClassStartModeChange} />
+                  <fieldset className="classroom-v3-caption-settings classroom-v3-start-policy is-recording">
+                    <legend>{t("classroom.v3.recordingPolicyTitle")}</legend>
+                    <label>
+                      <span>{t("classroom.v3.recordingPolicyLabel")}</span>
+                      <select aria-label={t("classroom.v3.recordingPolicyTitle")} disabled={startSettingsBusy}
+                        value={runtime.recordingStartMode === "disabled" ? "disabled" : "classStart"}
+                        onChange={event => onRecordingStartModeChange(event.target.value as "classStart" | "disabled")}>
+                        <option value="classStart">{t("classroom.v3.recordingPolicyEnabled")}</option>
+                        <option value="disabled">{t("classroom.v3.noRecording")}</option>
+                      </select>
+                    </label>
+                    <p>{t("classroom.v3.recordingPolicyHint")}</p>
+                  </fieldset>
+                </>}
                 <fieldset className="classroom-v3-caption-settings"><legend>{t("classroom.v3.interfaceLanguage")}</legend><select aria-label={t("classroom.v3.interfaceLanguage")} value={locale} onChange={(event) => setLocale(event.target.value as SupportedLocale)}>{languageOptions.map((language) => <option key={language.value} value={language.value}>{language.label}</option>)}</select></fieldset>
                 <fieldset className="classroom-v3-caption-settings">
                   <legend>{t("classroom.v3.captionsTitle")}</legend>
@@ -3656,21 +3681,7 @@ function DeviceSettings({
                   <p>{t("classroom.v3.captionDragHint")}</p>
                 </fieldset>
                 {canManageRecording && runtime && <fieldset className="classroom-v3-caption-settings"><legend>{t("classroom.v3.assistantPermissions")}</legend><p>{t("classroom.v3.assistantPermissionsHint")}</p>{runtime.members.filter((member) => member.role === "assistant").map((member) => <label key={member.userId}><span>{member.displayName}</span><input type="checkbox" checked={runtime.assistantPermissions?.[member.userId] === true} onChange={(event) => onAssistantPermission(member.userId, event.target.checked)} /></label>)}</fieldset>}
-                {canManageRecording && runtime && (
-                  <fieldset className="classroom-v3-caption-settings is-recording">
-                    <legend>{locale.startsWith("zh") ? "开课与自动录制" : "Class start and recording"}</legend>
-                    <label>
-                      <span>{locale.startsWith("zh") ? "开始时机" : "Start when"}</span>
-                      <select value={runtime.recordingStartMode} onChange={(event) => onRecordingStartModeChange(event.target.value as "classStart" | "scheduled" | "scheduledEarly" | "disabled")}>
-                        <option value="disabled">{t("classroom.v3.noRecording")}</option>
-                        <option value="classStart">{locale.startsWith("zh") ? "点击开始上课后" : "Class starts"}</option>
-                        <option value="scheduled">{locale.startsWith("zh") ? "计划上课时间自动开课" : "At scheduled time"}</option>
-                        <option value="scheduledEarly">{locale.startsWith("zh") ? "计划上课前 10 分钟自动开课" : "10 minutes before scheduled time"}</option>
-                      </select>
-                    </label>
-                    <p>{locale.startsWith("zh") ? "录制仅在开课且录制画面准备好后开始。" : "Recording begins after class starts and the recording view is ready."}</p>
-                  </fieldset>
-                )}
+
               </div>
             </div>
             {error && <p className="classroom-v3-modal-error">{error}</p>}
@@ -3836,6 +3847,7 @@ export function ClassroomV3({
     () => false,
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [focusClassStart, setFocusClassStart] = useState(false);
   const [captionDisplayMode, setCaptionDisplayMode] = useState<CaptionDisplayMode>(
     () => {
       if (typeof window === "undefined") return "original";
@@ -5307,7 +5319,7 @@ export function ClassroomV3({
           publishInvalidation(payload.memberPermissions.revision, "runtime");
           if (payload.memberPermissions.revision > current.revision + 1) void refreshState();
         }
-        if (action.type === "startClass") {
+        if (action.type === "startClass" || action.type === "startScheduledClass") {
           window.setTimeout(() => void refreshState(), 1_800);
         }
         return true;
@@ -5339,6 +5351,19 @@ export function ClassroomV3({
       updateSession,
     ],
   );
+
+  const startScheduledClass = useCallback(() => performAction({ type: "startScheduledClass" }), [performAction]);
+  useScheduledClassStart({
+    enabled: Boolean(sessionData && sessionData.runtime.status === "waiting" && sessionData.runtime.classStartMode === "scheduled" &&
+      classStartReadiness({
+        isTeacher: sessionData.credential.role === "teacher", isRecorder, pageReady: loadingState === "ready",
+        mediaConnected: media.connectionState === "connected",
+        whiteboardRequired: sessionData.whiteboard.enabled || (classinLayout && sessionData.mode !== "publicLive") || sessionData.runtime.stageMode === "whiteboard",
+        whiteboardReady,
+      })),
+    startTime: sessionData?.course.startTime ?? null, endTime: sessionData?.course.endTime ?? null,
+    clockOffset: presenceClockOffset, onStart: startScheduledClass,
+  });
 
   const runMediaAction = useCallback(
     async (
@@ -6099,7 +6124,7 @@ export function ClassroomV3({
   const showTeacherPictureInPicture =
     canShowTeacherPictureInPicture && !teacherPiPHidden;
   const elapsedSeconds = sessionData?.runtime.startedAt
-    ? (now - new Date(sessionData.runtime.startedAt).getTime()) / 1000
+    ? Math.max(0, (now + presenceClockOffset - new Date(sessionData.runtime.startedAt).getTime()) / 1000)
     : 0;
   const hasClassStarted = Boolean(sessionData?.runtime.startedAt);
   const timerRemaining =
@@ -6376,6 +6401,10 @@ export function ClassroomV3({
           {!classEnded && <StatusPill media={media} recording={recordingStatus} presenceHealthy={presenceHealthy} />}
 
         </div>
+        {!isRecorder && !settingsOpen && <ClassStartReminder role={sessionData.credential.role} status={sessionData.runtime.status}
+          mode={sessionData.runtime.classStartMode} startTime={sessionData.course.startTime} endTime={sessionData.course.endTime}
+          now={now + presenceClockOffset} busy={Boolean(actionBusy)} onStart={() => void performAction({ type: "startClass" })}
+          onSettings={() => { setFocusClassStart(true); setSettingsOpen(true); }} />}
         {!isRecorder && <ClassroomClosingNotice sessionId={courseId} notice={classroomClosingNotice({
           scheduledEndTime: sessionData.course.endTime,
           graceEndsAt: sessionData.runtime.graceEndsAt,
@@ -6463,6 +6492,7 @@ export function ClassroomV3({
                 <button
                   type="button"
                   className="is-start"
+                  data-class-start-due={classStartLateness(sessionData.course.startTime, now + presenceClockOffset) !== null || undefined}
                   title={t("classroom.v3.startClass")}
                   aria-label={t("classroom.v3.startClass")}
                   disabled={
@@ -7710,6 +7740,9 @@ export function ClassroomV3({
         captionDisplayMode={captionDisplayMode}
         captionBackgroundMode={captionBackgroundMode}
         captionBackgroundColor={captionBackgroundColor}
+        focusClassStart={focusClassStart}
+        startSettingsBusy={Boolean(actionBusy)}
+        onClassStartModeChange={(mode) => void performAction({ type: "setClassStartMode", mode })}
         onRecordingStartModeChange={(mode) => void performAction({ type: "setRecordingStartMode", mode })}
         onCaptionDisplayModeChange={mode => void changeCaptionMode(mode)}
         onCaptionBackgroundModeChange={setCaptionBackgroundMode}

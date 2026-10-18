@@ -322,6 +322,8 @@ export type ClassroomRuntimeSnapshot = {
   assistantPermissions?: Record<string, boolean>;
   revision: number;
   status: "waiting" | "live" | "ended";
+  /** Missing on older snapshots means manual with scheduled-time reminders. */
+  classStartMode?: "manual" | "scheduled";
   recordingStartMode: "classStart" | "scheduled" | "scheduledEarly" | "disabled";
   startedAt: string | null;
   graceEndsAt: string | null;
@@ -424,6 +426,8 @@ export type ClassroomAction =
   | { type: "heartbeat" }
   | { type: "setAssistantPermission"; targetUserId: string; allowed: boolean }
   | { type: "startClass" }
+  | { type: "startScheduledClass" }
+  | { type: "setClassStartMode"; mode: "manual" | "scheduled" }
   | { type: "setRecordingStartMode"; mode: "classStart" | "scheduled" | "scheduledEarly" | "disabled" }
   | { type: "raiseHand" }
   | { type: "lowerHand" }

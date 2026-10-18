@@ -4,18 +4,6 @@ export function normalizeRecordingStartMode(mode: string): RecordingStartMode {
   return mode === "scheduled" || mode === "scheduledEarly" || mode === "disabled" ? mode : "classStart";
 }
 
-export function scheduledClassStartDue(
-  mode: string,
-  startTime: Date,
-  endTime: Date,
-  now: Date,
-) {
-  const leadMs = mode === "scheduledEarly" ? 10 * 60_000 : 0;
-  return (mode === "scheduled" || mode === "scheduledEarly") &&
-    now.getTime() >= startTime.getTime() - leadMs &&
-    now.getTime() < endTime.getTime();
-}
-
 export function canAutoStartRecordingAtStatus(
   mode: string,
   status: string,

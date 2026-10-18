@@ -4,7 +4,6 @@ import test from "node:test";
 import {
   canAutoStartRecordingAtStatus,
   normalizeRecordingStartMode,
-  scheduledClassStartDue,
   shouldAutoStartRecordingAfterWhiteboard,
   shouldNotifyRecorderReady,
   isRecorderReadyAcknowledged,
@@ -72,16 +71,7 @@ test("start-class recording waits for both live state and an open whiteboard", (
   assert.equal(canAutoStartRecordingAtStatus("scheduledEarly", "live"), true);
 });
 
-test("scheduled class starts only at its selected threshold", () => {
-  const start = new Date("2026-09-27T12:00:00.000Z");
-  const end = new Date("2026-09-27T13:00:00.000Z");
-  const at = (time: string) => new Date(`2026-09-27T${time}.000Z`);
-  assert.equal(scheduledClassStartDue("classStart", start, end, at("12:00:00")), false);
-  assert.equal(scheduledClassStartDue("scheduled", start, end, at("11:59:59")), false);
-  assert.equal(scheduledClassStartDue("scheduled", start, end, at("12:00:00")), true);
-  assert.equal(scheduledClassStartDue("scheduledEarly", start, end, at("11:49:59")), false);
-  assert.equal(scheduledClassStartDue("scheduledEarly", start, end, at("11:50:00")), true);
-  assert.equal(scheduledClassStartDue("scheduledEarly", start, end, at("13:00:00")), false);
+test("legacy page-ready recording configuration normalizes to class start", () => {
   assert.equal(normalizeRecordingStartMode("pageReady"), "classStart");
 });
 

@@ -1612,3 +1612,25 @@ html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-workspace[data-pa
     font-size: 14px;
   }
 }
+
+.classroom-v3-top-actions button.is-start[data-class-start-due] {
+  outline: 2px solid #b7791f;
+  outline-offset: 3px;
+}
+
+.classroom-v3-device-dialog fieldset.classroom-v3-start-policy {
+  grid-template-columns: minmax(0, 1fr);
+}
+.classroom-v3-device-dialog fieldset.classroom-v3-start-policy select {
+  width: 100%;
+  max-width: 100%;
+  font-size: 12px;
+}
+.classroom-v3-device-dialog fieldset.classroom-v3-start-policy p {
+  color: #b6c2d2;
+  font-size: 12px;
+  line-height: 1.6;
+}
+html.light .classroom-v3-device-dialog fieldset.classroom-v3-start-policy p {
+  color: #526176;
+}

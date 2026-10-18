@@ -31,8 +31,8 @@ import {
 import { CourseStatus } from "@/lib/course-status";
 import {
   normalizeRecordingStartMode,
-  scheduledClassStartDue,
 } from "@/lib/classroom/recording-start";
+import { normalizeClassStartMode, scheduledClassStartDue } from "@/lib/classroom/class-start";
 import { prisma } from "@/lib/db";
 import {
   SCREEN_SHARE_REQUEST_TTL_MS,
@@ -143,21 +143,6 @@ export async function ensureClassroomRuntime(
     });
     return updated;
   }
-  if (
-    runtime.status === "waiting" &&
-    scheduledClassStartDue(
-      runtime.recordingStartMode,
-      lesson.startTime,
-      lesson.endTime,
-      new Date(),
-    ) &&
-    lesson.status !== CourseStatus.CANCELLED &&
-    lesson.status !== CourseStatus.FINISHED &&
-    lesson.status !== CourseStatus.AFTER_CLASS
-  ) {
-    await startScheduledClassroomIfDue(sessionId);
-    return prisma.classroomRuntime.findUniqueOrThrow({ where: { sessionId } });
-  }
   return runtime;
 }
 
@@ -172,62 +157,49 @@ async function queueEndedRecordingStops(tx: Prisma.TransactionClient, sessionId:
   });
 }
 
+// The browser reports readiness only while its RTC and required whiteboard are ready.
+// Passive polls and cron jobs cannot start a lesson without that authenticated signal.
 export async function startScheduledClassroomIfDue(
   sessionId: string,
+  readyTeacher: { userId: string; clientId: string },
   now = new Date(),
 ) {
-  const runtime = await prisma.classroomRuntime.findUnique({
-    where: { sessionId },
-    include: { session: { select: { status: true, startTime: true, endTime: true } } },
-  });
-  if (
-    !runtime || runtime.status !== "waiting" ||
-    !scheduledClassStartDue(
-      runtime.recordingStartMode,
-      runtime.session.startTime,
-      runtime.session.endTime,
-      now,
-    ) ||
-    runtime.session.status === CourseStatus.CANCELLED ||
-    runtime.session.status === CourseStatus.FINISHED ||
-    runtime.session.status === CourseStatus.AFTER_CLASS
-  ) return false;
-
-  const started = await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
-    const currentLesson = await tx.courseSession.findUniqueOrThrow({ where: { id: sessionId }, select: { status: true } });
-    if (currentLesson.status !== CourseStatus.SCHEDULED && currentLesson.status !== CourseStatus.LIVE) return false;
-    const claimed = await tx.classroomRuntime.updateMany({
-      where: {
-        id: runtime.id,
-        status: "waiting",
-        recordingStartMode: runtime.recordingStartMode,
-      },
-      data: {
-        status: "live",
-        startedAt: now,
-        graceEndsAt: classroomGraceEndAt(runtime.session.endTime),
-        interpretationEnabled: true,
-        targetLanguages: await captionDemandTargets(tx, sessionId, runtime.sourceLanguage, runtime.interpretationProvider === "wordly" ? "wordly" : "shengwang"),
-        transcriptionStatus: "starting",
-        transcriptionError: null,
-        transcriptionLastCheckedAt: null,
-        revision: { increment: 1 },
-      },
+    const runtime = await tx.classroomRuntime.findUnique({
+      where: { sessionId },
+      include: { session: { select: { status: true, startTime: true, endTime: true } } },
     });
-    if (!claimed.count) return false;
-    await tx.courseSession.updateMany({
-      where: { id: sessionId, status: { in: [CourseStatus.SCHEDULED, CourseStatus.LIVE] } },
+    if (!runtime || runtime.status !== "waiting" ||
+      !scheduledClassStartDue(runtime.classStartMode, runtime.session.startTime, runtime.session.endTime, now) ||
+      (runtime.session.status !== CourseStatus.SCHEDULED && runtime.session.status !== CourseStatus.LIVE)
+    ) return false;
+    const member = await tx.classroomMemberState.findUnique({
+      where: { sessionId_userId: { sessionId, userId: readyTeacher.userId } }, select: { role: true },
+    });
+    const connection = await tx.classroomConnection.findFirst({ where: {
+      id: `${sessionId}:${readyTeacher.userId}:${readyTeacher.clientId}`,
+      sessionId, userId: readyTeacher.userId, leftAt: null,
+      lastSeenAt: { gte: new Date(now.getTime() - ONLINE_WINDOW_MS) },
+    }, select: { id: true } });
+    if (member?.role !== "teacher" || !connection) return false;
+    const claimedLesson = await tx.courseSession.updateMany({
+      where: { id: sessionId, status: { in: [CourseStatus.SCHEDULED, CourseStatus.LIVE] }, startTime: { lte: now }, endTime: { gt: now } },
       data: { status: CourseStatus.LIVE, endedAt: null },
     });
-    await tx.course.updateMany({
-      where: { id: runtime.courseId, status: CourseStatus.SCHEDULED },
-      data: { status: CourseStatus.LIVE },
-    });
+    if (!claimedLesson.count) return false;
+    await tx.classroomRuntime.update({ where: { id: runtime.id }, data: {
+      status: "live", startedAt: now,
+      graceEndsAt: classroomGraceEndAt(runtime.session.endTime),
+      interpretationEnabled: true,
+      targetLanguages: await captionDemandTargets(tx, sessionId, runtime.sourceLanguage, runtime.interpretationProvider === "wordly" ? "wordly" : "shengwang"),
+      transcriptionStatus: "starting", transcriptionError: null, transcriptionLastCheckedAt: null,
+      revision: { increment: 1 },
+    } });
+    await tx.course.updateMany({ where: { id: runtime.courseId, status: CourseStatus.SCHEDULED }, data: { status: CourseStatus.LIVE } });
     await enqueueClassroomEvent(tx, sessionId, "classroom.started", "scheduled_start");
     return true;
   });
-  return started;
 }
 
 export async function touchClassroomMember(
@@ -495,6 +467,7 @@ async function loadClassroomRuntimeSnapshot(
         : runtime.status === "ended"
           ? "ended"
           : "waiting",
+    classStartMode: normalizeClassStartMode(runtime.classStartMode),
     recordingStartMode: normalizeRecordingStartMode(runtime.recordingStartMode),
     startedAt: runtime.startedAt?.toISOString() ?? null,
     graceEndsAt: runtime.graceEndsAt?.toISOString() ?? null,
@@ -705,6 +678,12 @@ export async function applyClassroomAction(input: {
   );
   await touchClassroomMember(courseId, session, role, mode, sessionId);
 
+  if (action.type === "startScheduledClass") {
+    requireLeadTeacher(role);
+    if (!input.clientId) throw new ClassroomActionError("自动开课需要有效的课堂连接", 400);
+    await startScheduledClassroomIfDue(sessionId, { userId: session.userId, clientId: input.clientId });
+    return getClassroomRuntimeSnapshot(courseId, sessionId, { ensure: false });
+  }
   if (action.type === "heartbeat") {
     return getClassroomRuntimeSnapshot(courseId, sessionId, { ensure: false });
   }
@@ -768,6 +747,13 @@ export async function applyClassroomAction(input: {
     };
 
     switch (action.type) {
+      case "setClassStartMode": {
+        requireLeadTeacher(role);
+        if (action.mode !== "manual" && action.mode !== "scheduled") throw new ClassroomActionError("开课方式无效");
+        if (runtime.status !== "waiting") throw new ClassroomActionError("只能在开课前调整开课方式", 409);
+        await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { classStartMode: action.mode } });
+        break;
+      }
       case "setRecordingStartMode": {
         requireLeadTeacher(role);
         if (
@@ -778,7 +764,8 @@ export async function applyClassroomAction(input: {
         }
         await tx.classroomRuntime.update({
           where: { id: runtime.id },
-          data: { recordingStartMode: action.mode },
+          // Older clients may still submit scheduled recording modes. They no longer change class start policy.
+          data: { recordingStartMode: action.mode === "disabled" ? "disabled" : "classStart" },
         });
         break;
       }
@@ -1654,8 +1641,5 @@ export async function applyClassroomAction(input: {
     });
   });
 
-  if (action.type === "setRecordingStartMode") {
-    await startScheduledClassroomIfDue(sessionId);
-  }
   return getClassroomRuntimeSnapshot(courseId, sessionId, { ensure: false });
 }

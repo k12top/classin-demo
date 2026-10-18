@@ -516,7 +516,8 @@ model ClassroomRuntime {
   courseId                   String
   sessionId                  String    @unique
   status                     String    @default("waiting") // waiting | live | ended
-  recordingStartMode         String    @default("classStart") // classStart | scheduled | scheduledEarly
+  classStartMode String @default("manual") // manual (remind at scheduled time) | scheduled
+  recordingStartMode         String    @default("classStart") // classStart | disabled; legacy scheduled modes are recording-only
   revision                   Int       @default(1)
   startedAt                  DateTime?
   graceEndsAt                DateTime?

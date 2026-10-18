@@ -34,6 +34,8 @@ const ACTION_TYPES = new Set<ClassroomAction["type"]>([
   "heartbeat",
   "setAssistantPermission",
   "startClass",
+  "startScheduledClass",
+  "setClassStartMode",
   "setRecordingStartMode",
   "raiseHand",
   "lowerHand",
@@ -213,7 +215,7 @@ export async function POST(
           : undefined,
       action: body.action,
     });
-    if (body.action.type === "startClass") after(() => deliverClassroomEvents());
+    if ((body.action.type === "startClass" || body.action.type === "startScheduledClass") && runtimeSnapshot.status === "live") after(() => deliverClassroomEvents());
     if (body.action.type === "setRecordingStartMode" && body.action.mode === "disabled") {
       const recordings = await prisma.classroomRecording.findMany({
         where: { sessionId, status: { in: ["starting", "recording", "stopping"] } },
@@ -226,10 +228,10 @@ export async function POST(
       });
     }
     if (
-      (body.action.type === "startClass" ||
+      (body.action.type === "startClass" || body.action.type === "startScheduledClass" ||
         (body.action.type === "heartbeat" && runtimeSnapshot.status === "live") ||
         (body.action.type === "setRecordingStartMode" && runtimeSnapshot.status === "live")) &&
-      resolved.access.role === "teacher"
+      resolved.access.role === "teacher" && runtimeSnapshot.status === "live"
     ) {
       after(() =>
         ensureClassroomTranscriptionForLiveSession(

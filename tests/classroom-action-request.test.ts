@@ -1,8 +1,9 @@
+import { scheduledClassStartDue } from "../src/lib/classroom/class-start";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { classroomActionRequiresRevision, requestClassroomAction } from "../src/lib/classroom/action-request";
 import { formatTimeUntilClass } from "../src/lib/classroom/countdown";
-import { canAutoStartRecordingAtStatus, normalizeRecordingStartMode, scheduledClassStartDue } from "../src/lib/classroom/recording-start";
+import { canAutoStartRecordingAtStatus, normalizeRecordingStartMode } from "../src/lib/classroom/recording-start";
 import type { ClassroomAction } from "../src/lib/classroom/types";
 
 const reply = (status: number, payload: unknown) => new Response(JSON.stringify(payload), { status });

@@ -1,0 +1,25 @@
+.reminder {
+  position: fixed;
+  z-index: 140;
+  top: 76px;
+  right: 16px;
+  width: min(388px, calc(100vw - 32px));
+  padding: 16px;
+  border-radius: 14px;
+  background: #342e22;
+  color: #fde4af;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.2);
+  white-space: normal;
+}
+:global(html.light) .reminder { background: #fff6e5; color: #714408; }
+.heading { display: flex; align-items: center; gap: 8px; font-size: 14px; line-height: 1.5; }
+.heading svg, .actions svg { width: 18px; height: 18px; flex-shrink: 0; }
+.reminder p { margin: 8px 0 0; font-size: 13px; line-height: 1.6; }
+.actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.actions button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 8px 12px; border: 1px solid currentColor; border-radius: 8px; color: inherit; background: transparent; font: inherit; font-size: 13px; cursor: pointer; }
+.actions .start { background: #4338ca; color: #fff; border-color: #4338ca; }
+.actions button:hover { background: rgb(128 128 128 / 0.15); }
+.actions .start:hover { background: #3730a3; }
+.actions button:disabled { opacity: 0.5; cursor: wait; }
+.actions button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+@media (max-width: 480px) { .reminder { top: 72px; right: 12px; width: calc(100vw - 24px); padding: 14px; } }

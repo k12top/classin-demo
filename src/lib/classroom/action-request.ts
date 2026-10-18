@@ -18,7 +18,7 @@ export function classroomActionCanRetry(action: ClassroomAction) {
   return [
     "setMediaAllowed", "muteAllMicrophones", "unmuteAllMicrophones",
     "setMemberMuted", "muteAll", "setWhiteboardWritable",
-    "setAssistantPermission", "setChatEnabled", "setRecordingStartMode",
+    "setAssistantPermission", "setChatEnabled", "setRecordingStartMode", "setClassStartMode", "startScheduledClass",
     "setInterpretation", "deauthorizeAll", "releaseScreenShare",
     "raiseHand", "lowerHand",
   ].includes(action.type);

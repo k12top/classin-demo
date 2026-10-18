@@ -8,7 +8,6 @@ import { stopRecordingAttempt } from "@/lib/classroom/server/recording-orchestra
 import { retryFailedLiveRecordings } from "@/lib/classroom/server/recording-orchestrator";
 import { reconcilePendingRecordings } from "@/lib/classroom/server/recording-orchestrator";
 import { requestRecordingStart } from "@/lib/classroom/server/recording-orchestrator";
-import { startScheduledClassroomIfDue } from "@/lib/classroom/server/runtime";
 import { reconcileActiveClassroomTranscriptions } from "@/lib/classroom/server/transcription-orchestrator";
 import { reconcileCourseSessionSummaries } from "@/lib/course-session-summary";
 import { enqueueClassroomEvent } from "@/lib/classroom/server/integration-events";
@@ -257,31 +256,12 @@ export async function promoteCoursesIfDue(
     );
   }
 
-  const scheduledClassrooms = await prisma.classroomRuntime.findMany({
-    where: {
-      status: "waiting",
-      recordingStartMode: { in: ["scheduled", "scheduledEarly"] },
-      ...(courseIds?.length ? { courseId: { in: courseIds } } : {}),
-      session: {
-        status: { in: [CourseStatus.SCHEDULED, CourseStatus.LIVE] },
-        startTime: { lte: new Date(now.getTime() + 10 * 60_000) },
-        endTime: { gt: now },
-      },
-    },
-    select: { sessionId: true, courseId: true },
-  });
-  let scheduledClassStartCount = 0;
-  for (const classroom of scheduledClassrooms) {
-    if (await startScheduledClassroomIfDue(classroom.sessionId, now)) {
-      scheduledClassStartCount += 1;
-    }
-  }
-  // A teacher or student request may have crossed the scheduled threshold
-  // before this cron run. Start that lesson's first recorder here as well.
-  const liveScheduledClassrooms = await prisma.classroomRuntime.findMany({
+  // Class start is driven by the ready lead-teacher client, independently of recording.
+  // Recover the first recording of a live lesson, including auto-started lessons.
+  const liveRecordableClassrooms = await prisma.classroomRuntime.findMany({
     where: {
       status: "live",
-      recordingStartMode: { in: ["scheduled", "scheduledEarly"] },
+      recordingStartMode: { not: "disabled" },
       ...(courseIds?.length ? { courseId: { in: courseIds } } : {}),
       session: {
         status: CourseStatus.LIVE,
@@ -291,7 +271,7 @@ export async function promoteCoursesIfDue(
     },
     select: { sessionId: true, courseId: true },
   });
-  for (const classroom of liveScheduledClassrooms) {
+  for (const classroom of liveRecordableClassrooms) {
     try {
       await requestRecordingStart(classroom.courseId, classroom.sessionId);
     } catch (error) {
@@ -317,7 +297,6 @@ export async function promoteCoursesIfDue(
   return (
     finishedSessions.count +
     liveSessions.count +
-    scheduledClassStartCount +
     resultScheduledEnd.count +
     resultScheduledStart.count
   );

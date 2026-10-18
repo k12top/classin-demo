@@ -93,8 +93,12 @@ async function main() {
     await lifecycle(lesson, "end");
     assert.equal(await db.classroomIntegrationEvent.count({ where: { sessionId: lesson.id } }), 4, "reopen creates a new cycle");
 
-    const scheduled = await fixture("scheduled");
-    await Promise.all([api.startScheduledClassroomIfDue(scheduled.id), api.startScheduledClassroomIfDue(scheduled.id)]);
+    const scheduled = await fixture();
+    await db.classroomRuntime.update({ where: { sessionId: scheduled.id }, data: { classStartMode: "scheduled" } });
+    await api.touchClassroomMember(course.id, teacher, "teacher", undefined, scheduled.id);
+    const readyTeacher = { userId: "teacher", clientId: crypto.randomUUID() };
+    await api.touchClassroomConnection(scheduled.id, "teacher", readyTeacher.clientId, true);
+    await Promise.all([api.startScheduledClassroomIfDue(scheduled.id, readyTeacher), api.startScheduledClassroomIfDue(scheduled.id, readyTeacher)]);
     assert.equal(await db.classroomIntegrationEvent.count({ where: { sessionId: scheduled.id } }), 1);
     await db.courseSession.update({ where: { id: scheduled.id }, data: { endTime: new Date(Date.now() - 30 * 60_000) } });
     await api.promoteCoursesIfDue([course.id], { reconcileRecordings: false });
