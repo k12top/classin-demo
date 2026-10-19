@@ -1,5 +1,7 @@
 "use client";
 
+import { copyInvitationText } from "@/lib/invitation-sharing";
+
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
@@ -358,7 +360,10 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
   const copyShareUrl = async (url: string) => {
     try {
-      await navigator.clipboard.writeText(url);
+      if (!await copyInvitationText(url)) {
+        window.prompt(t("courseDetail.copyFailed"), url);
+        return;
+      }
       notify(t("courseDetail.copySuccess"), "success");
     } catch {
       notify(t("courseDetail.copyFailed"), "error");

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
-import { AlertCircle, ChevronDown, ChevronUp, Languages, Loader2, Settings2 } from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronUp, Headphones, Loader2, Settings2 } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
 import { CaptionSelect } from "@/components/classroom/caption-select";
 import { captionLanguageOptions, classroomLanguageLabel } from "@/lib/classroom/languages";
@@ -287,7 +287,7 @@ export function CaptionsPanel({
       <div ref={historyRef} className="classroom-v3-caption-history" data-follow-latest={followLatest}>
         {!visibleCaptions.length ? (
           <div className="classroom-v3-panel-empty">
-            <Languages />
+            <Headphones aria-hidden="true" />
             <strong>{t("classroom.v3.captionsWaiting")}</strong>
             <p>{captionsEmptyHint}</p>
           </div>

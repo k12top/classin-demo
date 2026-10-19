@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, type WheelEvent } from "react";
+import { copyInvitationText, shareInvitation } from "@/lib/invitation-sharing";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
@@ -303,6 +304,8 @@ export default function TeacherCourseDetail({
     defaultJoinLinkPasscode
   );
   const [copyHint, setCopyHint] = useState("");
+  const [manualCopyText, setManualCopyText] = useState("");
+  const [invitationSharing, setInvitationSharing] = useState(false);
   const [joinLinkError, setJoinLinkError] = useState("");
 
   // Courseware Tab State
@@ -648,13 +651,13 @@ export default function TeacherCourseDetail({
   ]);
 
   const copyText = async (text: string, hint: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setJoinLinkError("");
+    const copied = await copyInvitationText(text);
+    setCopyHint("");
+    setManualCopyText(copied ? "" : text);
+    setJoinLinkError(copied ? "" : t("courseDetail.copyFailed"));
+    if (copied) {
       setCopyHint(hint);
       setTimeout(() => setCopyHint(""), 2000);
-    } catch {
-      setCopyHint(t("courseDetail.copyFailed"));
     }
   };
 
@@ -671,19 +674,25 @@ export default function TeacherCourseDetail({
 
   const shareCourseInvitation = async (link: CourseJoinLinkSummary, url: string) => {
     const text = courseInvitationText(link, url);
-    if (typeof navigator.share === "function") {
-      try {
-        await navigator.share({
-          title: t("courseDetail.invitationTitle", { course: course.name }),
-          text,
-          url,
-        });
-        return;
-      } catch (cause) {
-        if (cause instanceof DOMException && cause.name === "AbortError") return;
+    setInvitationSharing(true);
+    try {
+      const result = await shareInvitation({
+        title: t("courseDetail.invitationTitle", { course: course.name }),
+        // A single text payload preserves the name-before-link order in receiving apps.
+        text,
+      });
+      if (result === "manual") {
+        setCopyHint("");
+        setManualCopyText(text);
+        setJoinLinkError(t("courseDetail.copyFailed"));
+      } else if (result === "copied") {
+        setManualCopyText("");
+        setJoinLinkError("");
+        setCopyHint(t("courseDetail.invitationCopied"));
       }
+    } finally {
+      setInvitationSharing(false);
     }
-    await copyText(text, t("courseDetail.invitationCopied"));
   };
 
   const handleCreateJoinLink = async (purpose: "course" | "live") => {
@@ -1926,6 +1935,12 @@ export default function TeacherCourseDetail({
                               <strong className="font-semibold text-sm text-foreground">{link.label || t("courseDetail.noLabel")}</strong>
                               <span className={`w-2 h-2 rounded-full ${link.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></span>
                             </div>
+                            {url && (
+                              <div className="mb-3 space-y-1">
+                                <p className="text-sm font-medium">{course.name}</p>
+                                <Input aria-label={t("courseDetail.inviteLinkTitle")} value={url} readOnly onFocus={(event) => event.currentTarget.select()} className="text-xs" />
+                              </div>
+                            )}
                             <div className="text-xs text-muted-foreground space-y-1 mb-4 flex-1">
                               <p>{t("courseDetail.linkUses", { count: link.useCount })}</p>
                               {renderPasscodeMeta(link)}
@@ -1940,7 +1955,7 @@ export default function TeacherCourseDetail({
                                 <Button size="sm" className="flex-1 bg-primary/10 border border-primary/15 hover:bg-primary/15 text-primary rounded-lg text-xs" onClick={() => void copyText(courseInvitationText(link, url), t("courseDetail.invitationCopied"))}>
                                   <Send className="h-3.5 w-3.5 mr-1" /> {sharingText.copyInvitation}
                                 </Button>
-                                <Button size="sm" variant="outline" className="rounded-lg text-xs" onClick={() => void shareCourseInvitation(link, url)}>
+                                <Button size="sm" variant="outline" className="rounded-lg text-xs" disabled={invitationSharing} onClick={() => void shareCourseInvitation(link, url)}>
                                   <Share2 className="h-3.5 w-3.5 mr-1" /> {sharingText.systemShare}
                                 </Button>
                                 {link.passcode && (
@@ -2017,6 +2032,12 @@ export default function TeacherCourseDetail({
                               <strong className="font-semibold text-sm text-foreground">{link.label || t("courseDetail.noLabel")}</strong>
                               <span className={`w-2 h-2 rounded-full ${link.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></span>
                             </div>
+                            {url && (
+                              <div className="mb-3 space-y-1">
+                                <p className="text-sm font-medium">{course.name}</p>
+                                <Input aria-label={t("courseDetail.inviteLinkTitle")} value={url} readOnly onFocus={(event) => event.currentTarget.select()} className="text-xs" />
+                              </div>
+                            )}
                             <div className="text-xs text-muted-foreground space-y-1 mb-4 flex-1">
                               <p>{t("courseDetail.linkUses", { count: link.useCount })}</p>
                               {renderPasscodeMeta(link)}
@@ -2047,6 +2068,9 @@ export default function TeacherCourseDetail({
               </CardContent>
             </Card>
 
+            {manualCopyText && (
+              <textarea aria-label={t("courseDetail.copyFailed")} className="xl:col-span-2 w-full rounded-xl border p-3 text-sm" rows={4} readOnly value={manualCopyText} onFocus={(event) => event.currentTarget.select()} />
+            )}
             {copyHint && (
               <div className="xl:col-span-2 p-3 bg-green-500/5 border border-green-500/20 rounded-xl text-green-600 dark:text-green-400 text-xs flex items-center gap-2 font-medium">
                 <Check className="h-4 w-4" /> {copyHint}

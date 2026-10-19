@@ -77,7 +77,7 @@ import {
   Headphones,
   Image as ImageIcon,
   LayoutGrid,
-  Languages,
+  Globe,
   Loader2,
   Lock,
   LockOpen,
@@ -1541,7 +1541,7 @@ function DrawerNavigation({
     { id: "rooms", label: t("classroom.v3.breakoutRooms"), icon: DoorOpen, count: counts.rooms },
     { id: "questions", label: t("classroom.v3.questions"), icon: MessagesSquare, count: counts.questions },
     { id: "chat", label: t("classroom.v3.chat"), icon: MessageCircle, count: counts.chat },
-    { id: "captions", label: t("classroom.v3.captions"), icon: Languages },
+    { id: "captions", label: t("classroom.v3.captions"), icon: Headphones },
     { id: "courseware", label: t("classroom.v3.courseware"), icon: BookOpen },
     { id: "engagement", label: t("classroom.v3.engagement"), icon: Zap },
     { id: "tools", label: t("classroom.v3.tools"), icon: LayoutGrid, count: counts.hands },
@@ -6576,7 +6576,7 @@ export function ClassroomV3({
               {theme === "light" ? <Moon /> : <Sun />}
             </button>
             <label className="classroom-v3-interface-language" title={t("classroom.v3.interfaceLanguage")}>
-              <Languages aria-hidden="true" />
+              <Globe aria-hidden="true" />
               <select
                 aria-label={t("classroom.v3.interfaceLanguage")}
                 value={locale}
@@ -7444,10 +7444,10 @@ export function ClassroomV3({
             <button type="button" role="menuitem" onClick={() => { setActivePanel("chat"); setDockMoreOpen(false); }}><MessageCircle />{t("classroom.v3.chat")}</button>
             {sessionData.capabilities.canManageMembers && <button type="button" role="menuitem" onClick={() => { setActivePanel("members"); setDockMoreOpen(false); }}><Users />{t("classroom.v3.members")}</button>}
             <button type="button" role="menuitem" onClick={() => { setActivePanel("courseware"); setDockMoreOpen(false); }}><BookOpen />{t("classroom.v3.courseware")}</button>
-            <button type="button" role="menuitem" onClick={() => { setActivePanel("captions"); setDockMoreOpen(false); }}><Languages />{t("classroom.v3.captions")}</button>
+            <button type="button" role="menuitem" onClick={() => { setActivePanel("captions"); setDockMoreOpen(false); }}><Headphones aria-hidden="true" />{t("classroom.v3.captions")}</button>
             {(sessionData.capabilities.canRunEngagement || sessionData.capabilities.canParticipateInEngagement) && <button type="button" role="menuitem" onClick={() => { setActivePanel("engagement"); setDockMoreOpen(false); }}><Trophy />{t("classroom.v3.engagement")}</button>}
             <button type="button" role="menuitem" onClick={() => { setActivePanel("tools"); setDockMoreOpen(false); }}><LayoutGrid />{t("classroom.v3.classroomTools")}</button>
-            <button type="button" role="menuitem" onClick={() => { setSettingsOpen(true); setDockMoreOpen(false); }}><Settings2 />{t("classroom.v3.interfaceLanguage")}</button>
+            <button type="button" role="menuitem" onClick={() => { setSettingsOpen(true); setDockMoreOpen(false); }}><Globe aria-hidden="true" />{t("classroom.v3.interfaceLanguage")}</button>
             <button type="button" role="menuitem" aria-busy={mediaBusy.includes("recover")} onClick={() => void runMediaAction("recover", async (provider) => { await renewClassroomCredentials(); await provider.recoverMedia(true); })}>{mediaBusy.includes("recover") ? <Loader2 className="animate-spin" /> : <RefreshCw />}{t("classroom.v3.resetMedia")}</button>
             <button type="button" role="menuitem" onClick={leaveClassroom}><LogOut />{t("classroom.v3.leave")}</button>
           </div>}
@@ -7532,7 +7532,7 @@ export function ClassroomV3({
               onClick={() => setActivePanel("captions")}
               title={t("classroom.v3.interpretation")}
             >
-              <Languages />
+              <Headphones aria-hidden="true" />
               <span>{t("classroom.v3.captions")}</span>
             </button>
             {(sessionData.capabilities.canRunEngagement ||

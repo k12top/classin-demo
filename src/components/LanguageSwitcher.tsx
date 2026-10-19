@@ -1,17 +1,18 @@
 "use client";
+import { Globe } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
 import { languageOptions, SupportedLocale } from "@/lib/i18n/locales";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 
 export default function LanguageSwitcher({ className }: { className?: string }) {
-  const { locale, setLocale } = useTranslation();
+  const { locale, setLocale, t } = useTranslation();
   const selectedLanguage = languageOptions.find((option) => option.value === locale);
   
   return (
     <Select value={locale} onValueChange={(val) => setLocale(val as SupportedLocale)}>
-      <SelectTrigger className={`w-[150px] bg-background border border-border/80 hover:border-primary/40 focus:border-primary text-foreground rounded-xl transition-all focus:ring-2 focus:ring-primary/20 h-9 font-semibold text-xs ${className}`}>
+      <SelectTrigger aria-label={t("classroom.v3.interfaceLanguage")} title={t("classroom.v3.interfaceLanguage")} className={`w-[150px] bg-background border border-border/80 hover:border-primary/40 focus:border-primary text-foreground rounded-xl transition-all focus:ring-2 focus:ring-primary/20 h-9 font-semibold text-xs ${className}`}>
         <div className="flex items-center gap-1.5 truncate">
-          <span className="text-sm shrink-0">{selectedLanguage?.flag || "🌐"}</span>
+          <Globe aria-hidden="true" className="h-4 w-4 shrink-0" />
           <span className="truncate">{selectedLanguage?.label || "Language"}</span>
         </div>
       </SelectTrigger>

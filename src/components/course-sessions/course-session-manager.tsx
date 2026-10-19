@@ -1,5 +1,7 @@
 "use client";
 
+import { copyInvitationText } from "@/lib/invitation-sharing";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
@@ -683,9 +685,11 @@ export function CourseSessionManager({
 
   const copySessionLink = async (sessionId: string) => {
     try {
-      await navigator.clipboard.writeText(
-        `${window.location.origin}/classroom?sessionId=${sessionId}`,
-      );
+      const url = `${window.location.origin}/classroom?sessionId=${sessionId}`;
+      if (!await copyInvitationText(url)) {
+        window.prompt(t("courseDetail.copyFailed"), url);
+        return;
+      }
       notify(t("courseDetail.copySuccess"), "success");
     } catch {
       notify(t("courseDetail.copyFailed"), "error");
