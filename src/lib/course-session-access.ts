@@ -12,6 +12,7 @@ import {
   getEffectiveSessionRoster,
   resolveCourseSessionReference,
   rosterContainsUser,
+  type CourseSessionReferenceType,
 } from "@/lib/course-session-roster";
 import type { ClassroomRole } from "@/lib/classroom/types";
 import { verifyShareAccessToken } from "@/lib/join-link";
@@ -84,8 +85,9 @@ function accessCacheKey(
   referenceId: string,
   userId: string,
   userIdAliases: readonly string[] | undefined,
+  referenceType: CourseSessionReferenceType | undefined,
 ) {
-  return JSON.stringify([referenceId, userId, userIdAliases || []]);
+  return JSON.stringify([referenceId, userId, userIdAliases || [], referenceType || "auto"]);
 }
 
 function cacheSuccessfulAccess(
@@ -115,6 +117,7 @@ export async function resolveCourseSessionAccess(
   options: {
     userIdAliases?: readonly string[];
     shareAccessToken?: string | null;
+    referenceType?: CourseSessionReferenceType;
   } = {},
 ): Promise<CourseSessionAccessResult> {
   // Share-token authorization is intentionally never cached: revocation must
@@ -124,7 +127,7 @@ export async function resolveCourseSessionAccess(
   // full lesson roster for each one.
   const cacheKey = options.shareAccessToken?.trim()
     ? null
-    : accessCacheKey(referenceId, userId, options.userIdAliases);
+    : accessCacheKey(referenceId, userId, options.userIdAliases, options.referenceType);
   const cached = cacheKey ? accessCache.get(cacheKey) : undefined;
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   if (cached) accessCache.delete(cacheKey!);
@@ -143,9 +146,10 @@ async function resolveCourseSessionAccessUncached(
   options: {
     userIdAliases?: readonly string[];
     shareAccessToken?: string | null;
+    referenceType?: CourseSessionReferenceType;
   },
 ): Promise<CourseSessionAccessResult> {
-  const initial = await resolveCourseSessionReference(referenceId);
+  const initial = await resolveCourseSessionReference(referenceId, options.referenceType);
   if (!initial) {
     return { ok: false, httpStatus: 404, code: "not_found", reason: "课次不存在" };
   }

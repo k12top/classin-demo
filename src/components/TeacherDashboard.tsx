@@ -18,6 +18,7 @@ import { ArrowRight, Calendar as CalendarIcon, CheckCircle2, Users, LogOut, Play
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom } from "@/lib/course-status";
 import { defaultAutoStudentOnStage } from "@/lib/classroom/mode";
+import { classroomVerifyAccessPath } from "@/lib/classroom/entry-path";
 import { useTranslation } from "@/lib/i18n/context";
 import { prefetchCourseDetail } from "@/lib/course-detail-client-cache";
 import {
@@ -326,7 +327,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     setEnteringCourseId(course.scheduleId || course.id);
     let navigating = false;
     try {
-      const res = await fetch(`/api/courses/${encodeURIComponent(course.sessionId || course.id)}/verify-access`, {
+      const res = await fetch(classroomVerifyAccessPath(course.id, course.sessionId), {
         credentials: "same-origin",
       });
       const data = await res.json().catch(() => ({}));

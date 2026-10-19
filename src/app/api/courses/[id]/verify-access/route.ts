@@ -6,10 +6,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
 import { resolveCourseSessionAccess } from "@/lib/course-session-access";
+import { prisma } from "@/lib/db";
+import { databaseUnavailableResponse } from "@/lib/database-response";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(
+async function verifyAccess(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -22,8 +24,15 @@ export async function GET(
   }
 
   const { id: courseId } = await params;
+  const sessionId = request.nextUrl.searchParams.get("sessionId")?.trim();
+  if (sessionId && !await prisma.courseSession.findFirst({
+    where: { id: sessionId, courseId }, select: { id: true },
+  })) {
+    return NextResponse.json({ allowed: false, role: null, code: "not_found", reason: "课次不存在" }, { status: 404 });
+  }
   const shareAccess = request.nextUrl.searchParams.get("shareAccess");
-  const access = await resolveCourseSessionAccess(courseId, session.userId, {
+  const access = await resolveCourseSessionAccess(sessionId || courseId, session.userId, {
+    referenceType: sessionId ? "session" : "course",
     shareAccessToken: shareAccess,
     userIdAliases: [session.name],
   });
@@ -69,4 +78,14 @@ export async function GET(
       },
     }
   );
+}
+
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  try {
+    return await verifyAccess(request, context);
+  } catch (error) {
+    const response = databaseUnavailableResponse(error, { route: "courses/verify-access", operation: "entry" });
+    if (response) return response;
+    throw error;
+  }
 }

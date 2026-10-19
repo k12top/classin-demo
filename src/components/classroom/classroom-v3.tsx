@@ -133,6 +133,7 @@ import {
 import type { FastboardApp } from "@netless/fastboard";
 import { ScreenShareAnnotations } from "@/components/classroom/screen-share-annotations";
 import { ClassroomLoading, type ClassroomEntryPhase } from "@/components/classroom/classroom-loading";
+import { canonicalClassroomEntryPath } from "@/lib/classroom/entry-path";
 import {
   buildAccessDeniedUrl,
   type CourseAccessDeniedCode,
@@ -3730,6 +3731,7 @@ export function ClassroomV3({
   );
   const requestedSessionId = searchParams.get("sessionId") || "";
   const legacyCourseId = searchParams.get("courseId") || "";
+  const legacyEntrySearch = requestedSessionId ? "" : searchParams.toString();
   // `courseId` remains the local classroom-scope identifier to keep the
   // media/signaling code compact. For V3 links it is the authoritative
   // session id; legacy links resolve their course id to a default session.
@@ -4364,6 +4366,11 @@ export function ClassroomV3({
         setErrorMessage("");
         const payload = await fetchInitialSession();
         if (cancelled) return;
+        const canonicalPath = canonicalClassroomEntryPath(legacyEntrySearch, payload.course.sessionId);
+        if (canonicalPath) {
+          router.replace(canonicalPath);
+          return;
+        }
         setEntryPhase("media");
         setLayoutMode(payload.mode === "oneToOne" ? "split" : "focus");
         sessionRef.current = payload;
@@ -4505,9 +4512,11 @@ export function ClassroomV3({
     fetchInitialSession,
     isRecorder,
     launchAttempt,
+    legacyEntrySearch,
     recorderToken,
     renewClassroomCredentials,
     reportConnectionDiagnostic,
+    router,
     shareAccess,
     stopEndedSession,
     translateSession,

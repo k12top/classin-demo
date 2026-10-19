@@ -112,6 +112,7 @@ export async function POST(request: NextRequest) {
     const access = recorder
       ? null
       : await resolveCourseSessionAccess(referenceId, session!.userId, {
+          referenceType: suppliedSessionId ? "session" : "course",
           shareAccessToken: shareAccess || undefined,
           userIdAliases: [session!.name],
         });

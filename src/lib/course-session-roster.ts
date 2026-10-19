@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { casdoorUserIdCandidates } from "@/lib/course-teacher";
+import { getFinishedDelayMinutes } from "@/lib/course-status";
 
 export type EffectiveSessionTeacher = {
   userId: string;
@@ -33,22 +34,35 @@ function identityKey(value: string): string {
   return (candidates.at(-1) || value).trim().toLowerCase();
 }
 
-export async function resolveCourseSessionReference(referenceId: string) {
-  const direct = await prisma.courseSession.findUnique({
-    where: { id: referenceId },
-  });
-  if (direct) return direct;
+export type CourseSessionReferenceType = "course" | "session" | "auto";
+
+export async function resolveCourseSessionReference(
+  referenceId: string,
+  referenceType: CourseSessionReferenceType = "auto",
+) {
+  // Migrated first lessons reuse their course ID. A known course entry must
+  // select the current lesson; an explicit session must keep its exact target.
+  if (referenceType !== "course") {
+    const direct = await prisma.courseSession.findUnique({
+      where: { id: referenceId },
+    });
+    if (direct || referenceType === "session") return direct;
+  }
 
   // A course is a container for many independent classrooms. Legacy callers
   // may still provide a course ID, so select the lesson a user can reasonably
   // enter now instead of always returning lesson #1 (which is often already
   // finished after a series has started).
+  const now = new Date();
   const live = await prisma.courseSession.findFirst({
     where: {
       courseId: referenceId,
-      status: { in: ["live", "afterClass"] },
+      status: { in: ["scheduled", "live", "afterClass"] },
+      endedAt: null,
+      startTime: { lte: now },
+      endTime: { gt: new Date(now.getTime() - getFinishedDelayMinutes() * 60_000) },
     },
-    orderBy: [{ startTime: "asc" }, { position: "asc" }],
+    orderBy: [{ startTime: "desc" }, { position: "desc" }],
   });
   if (live) return live;
 
@@ -56,7 +70,8 @@ export async function resolveCourseSessionReference(referenceId: string) {
     where: {
       courseId: referenceId,
       status: "scheduled",
-      endTime: { gte: new Date() },
+      endedAt: null,
+      endTime: { gte: now },
     },
     orderBy: [{ startTime: "asc" }, { position: "asc" }],
   });

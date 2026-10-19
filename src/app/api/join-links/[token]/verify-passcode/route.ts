@@ -97,7 +97,10 @@ export async function POST(
     });
   }
 
-  const lesson = await resolveCourseSessionReference(link.sessionId || course.id);
+  const lesson = await resolveCourseSessionReference(
+    link.sessionId || course.id,
+    link.sessionId ? "session" : "course",
+  );
   if (!lesson || lesson.courseId !== course.id) {
     return NextResponse.json({ error: t("join.courseNotExist") }, { status: 404 });
   }

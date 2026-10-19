@@ -134,6 +134,7 @@ export default async function JoinPage({
 
   const lesson = await resolveCourseSessionReference(
     resolved.sessionId || resolved.courseId,
+    resolved.sessionId ? "session" : "course",
   );
   if (!lesson || lesson.courseId !== resolved.courseId) {
     redirect(buildAccessDeniedUrl({ code: "not_found", reason: t("join.courseNotExist") }));
