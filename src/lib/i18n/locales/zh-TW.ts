@@ -123,6 +123,12 @@ export const zhTW = {
     },
     v3: {
       ...zhCN.classroom.v3,
+      offStage: "未上台",
+      cancelStageInvitation: "取消上台邀請",
+      screenShareAuthorizedIdle: "已獲准共享，目前未共享",
+      screenShareStarting: "正在準備共享",
+      cancelScreenShareRequest: "取消共享邀請",
+      revokeScreenSharePermission: "收回共享權限",
       startPolicyTitle: "開課方式",
       startPolicyLabel: "本節課",
       startPolicyManual: "到點提醒，手動開課（預設）",

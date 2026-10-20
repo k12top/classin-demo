@@ -179,6 +179,7 @@ export async function POST(request: NextRequest) {
         role,
         modePolicy,
         sessionId,
+        true,
       );
       if (modePolicy.allowBreakouts) {
         await ensureClassroomSpaceAssignment({

@@ -117,6 +117,34 @@ async function main() {
     assert.equal(response.status, 200);
     assert.equal((await response.json()).credential.screenShare.rtcUid, runtime.composition.screenShares[space.id].rtcUid, 'room tokens must use the same tab identity as publisher ownership');
     console.log('PASS breakout assistants also require an explicit grant and cannot grant themselves permission');
+    const returningLesson = await db.courseSession.create({ data: { courseId: course.id, position: 2, roomUuid: crypto.randomUUID(), roomType: 0, title: 'Re-entry', createdBy: teacher.userId, startTime: new Date(), endTime: new Date(Date.now()+3600000) } });
+    const a = actor('returning-a'), b = actor('returning-b');
+    const enter = (person, joining = true) => api.touchClassroomMember(course.id, person, 'student', undefined, returningLesson.id, joining);
+    const moderate = value => api.applyClassroomAction({ courseId: course.id, sessionId: returningLesson.id, session: teacher, role: 'teacher', clientId, action: value });
+    assert.equal((await enter(a)).onStage, true);
+    assert.equal((await enter(b)).onStage, false);
+    await api.touchClassroomConnection(returningLesson.id, a.userId, clientId, true);
+    await moderate({type:'setMediaAllowed',targetUserId:a.userId,microphoneAllowed:false,cameraAllowed:false});
+    await api.leaveClassroomConnection(returningLesson.id, a.userId, clientId, true);
+    assert.equal((await enter(a, false)).onStage, false, 'background work cannot promote a departed student');
+    let returned = await enter(a);
+    assert.equal(returned.onStage, true); assert.equal(returned.microphoneAllowed, false);
+    await api.touchClassroomConnection(returningLesson.id, a.userId, clientId, true);
+    await moderate({type:'removeStage',targetUserId:a.userId});
+    await api.leaveClassroomConnection(returningLesson.id, a.userId, clientId, true);
+    assert.equal((await enter(a)).onStage, false, 'teacher removal survives a real leave/re-entry');
+    assert.equal((await enter(b)).onStage, true, 'capacity waiter is reconsidered on entry');
+    await moderate({type:'removeStage',targetUserId:b.userId});
+    await moderate({type:'inviteStage',targetUserId:a.userId});
+    await api.applyClassroomAction({courseId:course.id,sessionId:returningLesson.id,session:a,role:'student',clientId,action:{type:'declineStage'}});
+    await api.touchClassroomConnection(returningLesson.id, a.userId, clientId, true);
+    await api.leaveClassroomConnection(returningLesson.id, a.userId, clientId, true);
+    assert.equal((await enter(a)).onStage, false, 'declined invitations survive re-entry');
+    await db.classroomMemberState.updateMany({where:{sessionId:returningLesson.id,role:'student'},data:{onStage:false,stageState:'left'}});
+    const race = await Promise.all([enter(a),enter(b)]);
+    assert.equal(race.filter(member=>member.onStage).length,1,'parallel re-entry reserves exactly one seat');
+    console.log('PASS voluntary re-entry, moderation, declined invitations, capacity waits and concurrent admission');
+
   } finally {
     await db.classroomConnection.deleteMany({ where: { sessionId: lesson.id } });
     await db.course.delete({ where: { id: course.id } });

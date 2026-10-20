@@ -1,8 +1,23 @@
-import type { ClassroomRole, ClassroomScreenShareLease } from "@/lib/classroom/types";
+import type { ClassroomRole, ClassroomScreenShareLease, ClassroomParticipant } from "@/lib/classroom/types";
 
 export type ScreenShareRequestState = "idle" | "requested" | "accepted" | "declined";
 
 export const SCREEN_SHARE_REQUEST_TTL_MS = 2 * 60_000;
+
+/** Permission survives capture stop; only the current publisher's video is sharing. */
+export function memberScreenShareStatus(
+  member: { userId: string; screenShareState: string },
+  lease: ClassroomScreenShareLease | undefined,
+  participants: readonly ClassroomParticipant[],
+): "idle" | "requested" | "ready" | "starting" | "sharing" | "declined" {
+  if (lease?.userId === member.userId) {
+    return participants.some(p => p.kind === "screen" && p.id === String(lease.rtcUid) && p.hasVideo)
+      ? "sharing" : "starting";
+  }
+  if (member.screenShareState === "accepted") return "ready";
+  if (member.screenShareState === "requested") return "requested";
+  return member.screenShareState === "declined" ? "declined" : "idle";
+}
 
 export function canShareClassroomScreen(input: {
   role: ClassroomRole;

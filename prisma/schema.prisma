@@ -569,7 +569,7 @@ model ClassroomMemberState {
   avatar                 String    @default("")
   role                   String    @default("student") // teacher | assistant | student
   presence               String    @default("offline") // online | offline
-  stageState             String    @default("offstage") // offstage | invited | accepted
+  stageState             String    @default("offstage") // offstage | invited | accepted | left | waiting | removed | declined
   screenShareState       String    @default("idle") // idle | requested | accepted
   screenShareRequestedAt DateTime?
   onStage                Boolean   @default(false)

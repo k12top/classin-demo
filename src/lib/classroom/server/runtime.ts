@@ -212,6 +212,7 @@ export async function touchClassroomMember(
   role: ClassroomRole,
   suppliedModePolicy?: ClassroomModePolicy,
   sessionId = courseId,
+  joining = false,
 ) {
   const [runtime, course] = await Promise.all([
     ensureClassroomRuntime(courseId, sessionId),
@@ -236,7 +237,7 @@ export async function touchClassroomMember(
   const studentStartsOnStage =
     role === "student" && mode.defaultStudentOnStage;
   const teachingStartsOnStage = role === "teacher" || assistantStartsOnStage;
-  const upsertInput = (startsOnStage: boolean) => ({
+  const upsertInput = (startsOnStage: boolean, restoreStage = false, restoreMedia = false) => ({
     where: { sessionId_userId: { sessionId, userId: session.userId } },
     create: {
       runtimeId: runtime.id,
@@ -248,7 +249,7 @@ export async function touchClassroomMember(
       role,
       presence: "online",
       onStage: startsOnStage,
-      stageState: startsOnStage ? "accepted" : "offstage",
+      stageState: startsOnStage ? "accepted" : studentStartsOnStage ? "waiting" : "offstage",
       microphoneAllowed: startsOnStage,
       cameraAllowed: startsOnStage,
       // Teachers and assistants always retain their authoring capability.
@@ -264,12 +265,11 @@ export async function touchClassroomMember(
       role,
       presence: "online",
       lastSeenAt: new Date(),
-      ...(teachingStartsOnStage
+      ...((teachingStartsOnStage || restoreStage)
         ? {
             onStage: true,
             stageState: "accepted",
-            microphoneAllowed: true,
-            cameraAllowed: true,
+            ...((teachingStartsOnStage || restoreMedia) ? { microphoneAllowed: true, cameraAllowed: true } : {}),
             // Do not reset a student's temporary grant every time their
             // classroom session refreshes. Teaching roles are made writable
             // defensively in case their roster role changed since joining.
@@ -285,27 +285,25 @@ export async function touchClassroomMember(
   }
   const alreadyJoined = await prisma.classroomMemberState.findUnique({
     where: { sessionId_userId: { sessionId, userId: session.userId } },
-    select: { id: true },
+    select: { id: true, stageState: true },
   });
-  if (alreadyJoined) {
+  if (alreadyJoined && !(joining && ["left", "waiting"].includes(alreadyJoined.stageState))) {
     return prisma.classroomMemberState.upsert(upsertInput(false));
   }
   const redisPresence = await readRedisClassroomPresence(sessionId);
-  // Reserve an automatic seat only on the student's first entry. The lock
-  // keeps simultaneous joins within the mode's stage capacity, and later
-  // refreshes preserve a teacher's explicit removal from the stage.
+  // Re-evaluate voluntary re-entry and capacity waits only on real joins.
+  // Teacher removals and declined invitations survive refreshes and exits.
+  // Serialize admissions so simultaneous returns cannot overbook the stage.
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId"=${sessionId} FOR UPDATE`;
     const existing = await tx.classroomMemberState.findUnique({
       where: { sessionId_userId: { sessionId, userId: session.userId } },
-      select: { id: true },
+      select: { id: true, stageState: true },
     });
-    const occupiedSeats = existing
-      ? 0
-      : await countReservedStudentSeats(tx, sessionId, redisPresence);
-    return tx.classroomMemberState.upsert(
-      upsertInput(Boolean(existing) || occupiedSeats < mode.maxStageStudents),
-    );
+    const eligible = !existing || (joining && ["left", "waiting"].includes(existing.stageState));
+    const occupiedSeats = eligible ? await countReservedStudentSeats(tx, sessionId, redisPresence) : 0;
+    const admit = eligible && occupiedSeats < mode.maxStageStudents;
+    return tx.classroomMemberState.upsert(upsertInput(admit, Boolean(existing) && admit, existing?.stageState === "waiting"));
   });
 }
 
@@ -370,7 +368,7 @@ function publicMember(
   };
 }
 
-/** A retained reconnecting seat counts toward capacity until its lease expires. */
+/** Count both reconnecting seats and admissions awaiting their new connection lease. */
 async function countReservedStudentSeats(tx: Prisma.TransactionClient, sessionId: string, leases: RedisConnectionLease[] | null) {
   const cutoff = new Date(Date.now() - CLASSROOM_RECONNECT_WINDOW_MS);
   const activeUsers = [...new Set((leases || []).filter(lease => lease.leftAt === null && lease.lastSeenAt >= cutoff.getTime()).map(lease => lease.userId))];
@@ -379,9 +377,7 @@ async function countReservedStudentSeats(tx: Prisma.TransactionClient, sessionId
     WHERE m."sessionId" = ${sessionId} AND m."role" = 'student' AND m."onStage" = true
       AND (m."userId" = ANY(${activeUsers}::text[]) OR EXISTS (SELECT 1 FROM "ClassroomConnection" c WHERE c."sessionId" = m."sessionId"
           AND c."userId" = m."userId" AND c."leftAt" IS NULL AND c."lastSeenAt" >= ${cutoff})
-        OR (m."lastSeenAt" >= ${cutoff} AND (m."presence" = 'reconnecting'
-          OR (m."presence" = 'online' AND NOT EXISTS (SELECT 1 FROM "ClassroomConnection" c
-            WHERE c."sessionId" = m."sessionId" AND c."userId" = m."userId")))))
+        OR (m."lastSeenAt" >= ${cutoff} AND m."presence" IN ('reconnecting', 'online')))
   `;
   return Number(row?.count ?? 0);
 }
@@ -870,7 +866,7 @@ export async function applyClassroomAction(input: {
         }
         await tx.classroomMemberState.update({
           where: actorWhere,
-          data: { stageState: "offstage", onStage: false },
+          data: { stageState: "declined", onStage: false },
         });
         break;
       case "inviteStage":
@@ -895,7 +891,7 @@ export async function applyClassroomAction(input: {
             },
           },
           data: {
-            stageState: "offstage",
+            stageState: "removed",
             onStage: false,
             microphoneAllowed: false,
             cameraAllowed: false,
@@ -1339,7 +1335,7 @@ export async function applyClassroomAction(input: {
         await tx.classroomMemberState.updateMany({
           where: { sessionId, role: "student" },
           data: {
-            stageState: "offstage",
+            stageState: "removed",
             onStage: false,
             microphoneAllowed: false,
             cameraAllowed: false,

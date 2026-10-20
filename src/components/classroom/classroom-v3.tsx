@@ -184,7 +184,8 @@ import {
   selectActiveScreenShare,
   shouldHideLocalScreenSharePreview,
 } from "@/lib/classroom/media-routing";
-import { canShareClassroomScreen, ownsScreenShare } from "@/lib/classroom/screen-share-state";
+import { ScreenShareReleaseQueue } from "@/lib/classroom/screen-share-release";
+import { canShareClassroomScreen, ownsScreenShare, memberScreenShareStatus } from "@/lib/classroom/screen-share-state";
 import { shouldApplyClassroomRevision } from "@/lib/classroom/runtime-revision";
 import {
   shouldAutoStartRecordingAfterWhiteboard,
@@ -1978,18 +1979,31 @@ function DrawerNavigation({
 
 function MemberPanel({
   members,
+  screenLease,
+  screenParticipants,
   canManage,
   canRequestScreenShare,
   busy,
   onAction,
 }: {
   members: ClassroomMemberSnapshot[];
+  screenLease?: import("@/lib/classroom/types").ClassroomScreenShareLease;
+  screenParticipants: import("@/lib/classroom/types").ClassroomParticipant[];
   canManage: boolean;
   canRequestScreenShare: boolean;
   busy: string | null;
   onAction: (action: ClassroomAction) => void;
 }) {
   const { t } = useTranslation();
+  const shareStatus = (member: ClassroomMemberSnapshot) => memberScreenShareStatus(member, screenLease, screenParticipants);
+  const shareLabel = (member: ClassroomMemberSnapshot) => ({
+    idle: "", requested: "screenShareRequested", ready: "screenShareAuthorizedIdle",
+    starting: "screenShareStarting", sharing: "screenSharing", declined: "screenShareDeclined",
+  })[shareStatus(member)];
+  const shareActionLabel = (member: ClassroomMemberSnapshot) => ({
+    idle: "requestScreenShare", declined: "requestScreenShare", requested: "cancelScreenShareRequest",
+    ready: "revokeScreenSharePermission", starting: "stopStudentScreenShare", sharing: "stopStudentScreenShare",
+  })[shareStatus(member)];
   const sorted = members.filter(classroomMemberVisible).sort((a, b) => {
     if (a.role !== b.role) {
       const order = { teacher: 0, assistant: 1, student: 2 };
@@ -2044,13 +2058,8 @@ function MemberPanel({
                 {member.handRaisedAt
                   ? ` · ${t("classroom.v3.handRaised")}`
                   : ""}
-                {member.screenShareState === "requested"
-                  ? ` · ${t("classroom.v3.screenShareRequested")}`
-                  : member.screenShareState === "accepted"
-                    ? ` · ${t("classroom.v3.screenShareAccepted")}`
-                    : member.screenShareState === "declined"
-                      ? ` · ${t("classroom.v3.screenShareDeclined")}`
-                      : ""}
+                {member.role === "student" ? ` · ${t(member.onStage ? "classroom.v3.onStage" : member.stageState === "invited" ? "classroom.v3.stageInvitationPending" : "classroom.v3.offStage")}` : ""}
+                {shareLabel(member) ? ` · ${t(`classroom.v3.${shareLabel(member)}`)}` : ""}
               </small>
             </span>
             {member.role === "student" && canManage && (
@@ -2059,13 +2068,13 @@ function MemberPanel({
                   <button
                     type="button"
                     className={member.stageState === "invited" ? "is-pending" : ""}
-                    disabled={member.stageState === "invited"}
-                    onClick={() => onAction({ type: "inviteStage", targetUserId: member.userId })}
+                    disabled={Boolean(busy)}
+                    onClick={() => onAction({ type: member.stageState === "invited" ? "removeStage" : "inviteStage", targetUserId: member.userId })}
                     title={t(member.stageState === "invited"
-                      ? "classroom.v3.stageInvitationPending"
+                      ? "classroom.v3.cancelStageInvitation"
                       : "classroom.v3.inviteStage")}
                   >
-                    <UserPlus />
+                    {member.stageState === "invited" ? <X /> : <UserPlus />}
                   </button>
                 )}
                 {member.onStage && (
@@ -2120,16 +2129,15 @@ function MemberPanel({
                 {canRequestScreenShare && <button
                   type="button"
                   className={
-                    member.screenShareState === "accepted"
+                    shareStatus(member) === "sharing"
                       ? "is-on"
-                      : member.screenShareState === "requested"
+                      : ["requested", "starting"].includes(shareStatus(member))
                         ? "is-pending"
                         : ""
                   }
                   onClick={() =>
                     onAction(
-                      member.screenShareState === "idle" ||
-                        member.screenShareState === "declined"
+                      ["idle", "declined"].includes(shareStatus(member))
                         ? {
                             type: "requestScreenShare",
                             targetUserId: member.userId,
@@ -2140,15 +2148,17 @@ function MemberPanel({
                           },
                     )
                   }
-                  title={
-                    member.screenShareState === "idle" ||
-                    member.screenShareState === "declined"
-                      ? t("classroom.v3.requestScreenShare")
-                      : t("classroom.v3.stopStudentScreenShare")
-                  }
+                  disabled={Boolean(busy)}
+                  aria-pressed={shareStatus(member) === "sharing"}
+                  aria-label={t(`classroom.v3.${shareActionLabel(member)}`)}
+                  title={t(`classroom.v3.${shareActionLabel(member)}`)}
                 >
-                  {member.screenShareState === "accepted" ? (
+                  {["sharing", "starting"].includes(shareStatus(member)) ? (
                     <ScreenShareOff />
+                  ) : shareStatus(member) === "ready" ? (
+                    <ShieldCheck />
+                  ) : shareStatus(member) === "requested" ? (
+                    <X />
                   ) : (
                     <MonitorUp />
                   )}
@@ -6219,12 +6229,21 @@ export function ClassroomV3({
     publishInvalidation(payload.runtime.revision, "runtime");
   }, [clientId, courseId, publishInvalidation, shareAccess, t, updateSession]);
   const localScreenClaimRef = useRef<{ claimId: string; spaceId?: string; provider: ClassroomMediaProvider; started: boolean } | null>(null);
+  const screenReleaseQueue = useRef(new ScreenShareReleaseQueue());
+  const flushScreenReleases = useCallback(() => screenReleaseQueue.current.flush(requestScreenShareAction), [requestScreenShareAction]);
+  useEffect(() => {
+    const flush = () => { void flushScreenReleases().catch(() => undefined); };
+    const timer = window.setInterval(flush, 5_000);
+    window.addEventListener("online", flush);
+    return () => { window.clearInterval(timer); window.removeEventListener("online", flush); };
+  }, [flushScreenReleases]);
   const releaseLocalScreenShare = useCallback(async () => {
     const claim = localScreenClaimRef.current;
     if (!claim) return;
+    screenReleaseQueue.current.add({ type: "releaseScreenShare", claimId: claim.claimId, ...(claim.spaceId && { spaceId: claim.spaceId }) });
     localScreenClaimRef.current = null;
-    await requestScreenShareAction({ type: "releaseScreenShare", claimId: claim.claimId, ...(claim.spaceId && { spaceId: claim.spaceId }) });
-  }, [requestScreenShareAction]);
+    await flushScreenReleases();
+  }, [flushScreenReleases]);
   useEffect(() => {
     const claim = localScreenClaimRef.current;
     if (claim?.started && !claim.provider.getSnapshot().local.screenSharing) {
@@ -6262,6 +6281,7 @@ export function ClassroomV3({
       let authorizationAttempted = false;
       try {
         await provider.startScreenShare(async () => {
+          await flushScreenReleases();
           authorizationAttempted = true;
           await requestScreenShareAction({ type: "startScreenShare", claimId: claim.claimId, ...(claim.spaceId && { spaceId: claim.spaceId }) });
           const lease = sessionRef.current?.runtime.composition.screenShares?.[claim.spaceId || "main"];
@@ -6270,15 +6290,17 @@ export function ClassroomV3({
           }
         });
         claim.started = true;
+        if (!provider.getSnapshot().local.screenSharing) await releaseLocalScreenShare();
       } catch (error) {
         if (localScreenClaimRef.current === claim) localScreenClaimRef.current = null;
         if (authorizationAttempted) {
-          await requestScreenShareAction({ type: "releaseScreenShare", claimId: claim.claimId, ...(claim.spaceId && { spaceId: claim.spaceId }) }).catch(() => undefined);
+          screenReleaseQueue.current.add({ type: "releaseScreenShare", claimId: claim.claimId, ...(claim.spaceId && { spaceId: claim.spaceId }) });
+          await flushScreenReleases().catch(() => undefined);
         }
         throw error;
       }
     });
-  }, [activeSpaceId, clientId, currentUserId, mayClaimScreen, releaseLocalScreenShare, requestScreenShareAction, runMediaAction, screenPermission, t]);
+  }, [activeSpaceId, clientId, currentUserId, flushScreenReleases, mayClaimScreen, releaseLocalScreenShare, requestScreenShareAction, runMediaAction, screenPermission, t]);
   const roomPermissionKey = currentSpaceMember
     ? `${currentSpaceMember.cameraAllowed}:${currentSpaceMember.screenShareAllowed}` : "";
   useEffect(() => {
@@ -7228,6 +7250,8 @@ export function ClassroomV3({
                 {activePanel === "members" && sessionData.capabilities.canManageMembers && (
                   <MemberPanel
                     members={classroomMembers}
+                    screenLease={sessionData.runtime.composition.screenShares?.main}
+                    screenParticipants={media.participants}
                     canManage={sessionData.capabilities.canManageMembers}
                     canRequestScreenShare={sessionData.modePolicy.studentCanShareWhenOnStage}
                     busy={actionBusy}

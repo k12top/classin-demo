@@ -92,7 +92,10 @@ export async function leaveClassroomConnection(sessionId: string, userId: string
     }
     const active = await tx.classroomConnection.count({ where: { sessionId, userId, leftAt: null, lastSeenAt: { gte: new Date(Date.now() - CLASSROOM_RECONNECT_WINDOW_MS) } } });
     if (!active) {
-      await tx.classroomMemberState.updateMany({ where: { sessionId, userId }, data: { presence: voluntary ? "offline" : "reconnecting", lastSeenAt: now, ...(voluntary ? { onStage: false, stageState: "offstage", handRaisedAt: null, screenShareState: "idle", whiteboardWritable: false } : {}) } });
+      const member = await tx.classroomMemberState.findUnique({ where: { sessionId_userId: { sessionId, userId } }, select: { stageState: true, onStage: true } });
+      const preserveStage = member && (["removed", "declined"].includes(member.stageState) || (!member.onStage && member.stageState === "offstage"));
+      const stageState = preserveStage ? member!.stageState : "left";
+      await tx.classroomMemberState.updateMany({ where: { sessionId, userId }, data: { presence: voluntary ? "offline" : "reconnecting", lastSeenAt: now, ...(voluntary ? { onStage: false, stageState, handRaisedAt: null, screenShareState: "idle", whiteboardWritable: false } : {}) } });
       await tx.classroomRuntime.updateMany({ where: { sessionId }, data: { revision: { increment: 1 } } });
     }
   }, { maxWait: 1_500, timeout: 3_500 });
