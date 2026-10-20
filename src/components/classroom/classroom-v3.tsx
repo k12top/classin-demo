@@ -2778,11 +2778,13 @@ function QuestionsPanel({
 function CoursewarePanel({
   items,
   canManage,
+  busy,
   onOpen,
   onUpdate,
 }: {
   items: ClassroomCoursewareSnapshot[];
   canManage: boolean;
+  busy: string | null;
   onOpen: (courseware: ClassroomCoursewareSnapshot) => void;
   onUpdate: (
     coursewareId: string,
@@ -2822,16 +2824,23 @@ function CoursewarePanel({
               <strong>{item.name}</strong>
               <small>
                 {(item.size / 1024 / 1024).toFixed(1)} MB
-                {item.whiteboardEnabled ? ` · ${item.taskStatus}` : ""}
+                {item.whiteboardEnabled ? ` · ${t(item.taskStatus === "Failed" ? "classroom.v3.conversionFailed" : item.taskStatus === "Finished" ? "common.success" : "courseDetail.converting")}` : ""}
               </small>
               {item.conversionError && <em>{item.conversionError}</em>}
             </div>
             <div className="classroom-v3-file-actions">
-              {item.whiteboardEnabled && (
+              {canManage && item.whiteboardEnabled && item.taskStatus === "Failed" && (
+                <button type="button" disabled={busy === `courseware-${item.id}`} aria-busy={busy === `courseware-${item.id}`}
+                  title={t("classroom.v3.retry")} aria-label={`${t("classroom.v3.retry")} ${item.name}`}
+                  onClick={() => onUpdate(item.id, { whiteboardEnabled: true })}>
+                  <RefreshCw />
+                </button>
+              )}
+              {item.whiteboardEnabled && item.taskStatus !== "Failed" && (
                 <button
                   type="button"
                   onClick={() => onOpen(item)}
-                  disabled={item.taskStatus === "Failed"}
+                  disabled={item.taskStatus !== "Finished"}
                   title={t("classroom.v3.openOnWhiteboard")}
                 >
                   <Presentation />
@@ -2852,6 +2861,7 @@ function CoursewarePanel({
                   <input
                     type="checkbox"
                     checked={item.studentCanView}
+                    disabled={busy === `courseware-${item.id}`}
                     onChange={(event) =>
                       onUpdate(item.id, {
                         studentCanView: event.target.checked,
@@ -2865,6 +2875,7 @@ function CoursewarePanel({
                   <input
                     type="checkbox"
                     checked={item.studentCanDownload}
+                    disabled={busy === `courseware-${item.id}`}
                     onChange={(event) =>
                       onUpdate(item.id, {
                         studentCanDownload: event.target.checked,
@@ -2878,6 +2889,7 @@ function CoursewarePanel({
                   <input
                     type="checkbox"
                     checked={item.whiteboardEnabled}
+                    disabled={busy === `courseware-${item.id}`}
                     onChange={(event) =>
                       onUpdate(item.id, {
                         whiteboardEnabled: event.target.checked,
@@ -5549,6 +5561,7 @@ export function ClassroomV3({
     [courseId, publishInvalidation, refreshState, shareAccess, t],
   );
 
+  const coursewareUpdatesRef = useRef(new Set<string>());
   const updateCourseware = useCallback(
     async (
       coursewareId: string,
@@ -5559,27 +5572,35 @@ export function ClassroomV3({
         >
       >,
     ) => {
-      setActionBusy(`courseware-${coursewareId}`);
-      const response = await fetch(
-        `/api/courses/${encodeURIComponent(sessionRef.current?.course.id || legacyCourseId)}/courseware/${encodeURIComponent(coursewareId)}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(update),
-        },
-      );
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setActionError(
-          payload.error || t("classroom.v3.coursewareUpdateFailed"),
+      if (coursewareUpdatesRef.current.has(coursewareId)) return;
+      coursewareUpdatesRef.current.add(coursewareId);
+      const busyKey = `courseware-${coursewareId}`;
+      setActionBusy(busyKey);
+      setActionError("");
+      try {
+        const response = await fetch(
+          `/api/courses/${encodeURIComponent(sessionRef.current?.course.id || legacyCourseId)}/courseware/${encodeURIComponent(coursewareId)}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(update),
+          },
         );
+        const payload = (await response.json()) as { error?: string };
+        if (!response.ok) {
+          setActionError(payload.error || t("classroom.v3.coursewareUpdateFailed"));
+        }
+        await refreshState();
+        publishInvalidation(
+          (sessionRef.current?.runtime.revision || 0) + 1,
+          "courseware",
+        );
+      } catch {
+        setActionError(t("classroom.v3.coursewareUpdateFailed"));
+      } finally {
+        coursewareUpdatesRef.current.delete(coursewareId);
+        setActionBusy((current) => current === busyKey ? null : current);
       }
-      await refreshState();
-      publishInvalidation(
-        (sessionRef.current?.runtime.revision || 0) + 1,
-        "courseware",
-      );
-      setActionBusy(null);
     },
     [legacyCourseId, publishInvalidation, refreshState, t],
   );
@@ -7303,6 +7324,7 @@ export function ClassroomV3({
                   <CoursewarePanel
                     items={sessionData.courseware}
                     canManage={sessionData.capabilities.canManageWhiteboard}
+                    busy={actionBusy}
                     onUpdate={(id, update) => void updateCourseware(id, update)}
                     onOpen={(courseware) =>
                       void performAction({

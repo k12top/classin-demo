@@ -1,6 +1,7 @@
 import { classroomRtcUid } from "@/lib/classroom/rtc-uid";
 import { classroomSignalingUserId } from "@/lib/classroom/signaling/identity";
 import "server-only";
+import { refreshCoursewareConversions } from "@/lib/courseware-conversion";
 import { classroomActionRequiresRevision } from "@/lib/classroom/action-request";
 import { enqueueClassroomEvent } from "./integration-events";
 import { classroomMemberPresence } from "@/lib/classroom/session-lifecycle";
@@ -598,7 +599,7 @@ export async function getClassroomCourseware(
   const includedIds = rules
     .filter((rule) => rule.action === "include")
     .map((rule) => rule.coursewareId);
-  const items = await prisma.courseware.findMany({
+  const items = await refreshCoursewareConversions(await prisma.courseware.findMany({
     where: {
       courseId,
       OR: [
@@ -609,7 +610,7 @@ export async function getClassroomCourseware(
       ...(!teachingRole ? { studentCanView: true } : {}),
     },
     orderBy: { createdAt: "desc" },
-  });
+  }));
   return items.map((item) => ({
     id: item.id,
     name: item.name,

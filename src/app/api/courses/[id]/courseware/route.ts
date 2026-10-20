@@ -8,7 +8,7 @@ import {
 } from "@/lib/aliyun-oss";
 import { resolveCoursewareAccess } from "@/lib/courseware-access";
 import { assertCanTeachCourse } from "@/lib/course-teacher";
-import { getWhiteboardConversionStatus } from "@/lib/whiteboard-convert";
+import { refreshCoursewareConversions } from "@/lib/courseware-conversion";
 import type { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -68,49 +68,10 @@ export async function GET(
       ...(!teaching ? { studentCanView: true } : {}),
     };
 
-    let items = await prisma.courseware.findMany({
+    const items = await refreshCoursewareConversions(await prisma.courseware.findMany({
       where: itemWhere,
       orderBy: { createdAt: "desc" },
-    });
-
-    const converting = items.filter(
-      (item) => item.whiteboardEnabled &&
-        item.taskUuid &&
-        (item.taskStatus === "Pending" || item.taskStatus === "Converting"),
-    );
-    if (converting.length > 0) {
-      await Promise.all(
-        converting.map(async (item) => {
-          try {
-            const result = await getWhiteboardConversionStatus(
-              item.taskUuid!,
-              item.type === "dynamic" ? "dynamic" : "static",
-            );
-            await prisma.courseware.update({
-              where: { id: item.id },
-              data: {
-                taskStatus: result.status,
-                conversion: result as unknown as Prisma.InputJsonValue,
-                conversionError: null,
-              },
-            });
-          } catch (error) {
-            await prisma.courseware.update({
-              where: { id: item.id },
-              data: {
-                taskStatus: "Failed",
-                conversionError:
-                  error instanceof Error ? error.message : "课件转换失败",
-              },
-            });
-          }
-        }),
-      );
-      items = await prisma.courseware.findMany({
-        where: itemWhere,
-        orderBy: { createdAt: "desc" },
-      });
-    }
+    }));
 
     return NextResponse.json(
       {

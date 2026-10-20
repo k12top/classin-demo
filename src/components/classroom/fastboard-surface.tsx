@@ -487,7 +487,7 @@ export function FastboardSurface({
       return;
     }
     const conversion = courseware.conversion as
-      | { scenes?: ConversionScene[] }
+      | { scenes?: ConversionScene[]; prefix?: string }
       | null;
     async function insert() {
       try {
@@ -496,6 +496,7 @@ export function FastboardSurface({
             fileType: "pptx",
             scenePath: `/courseware/${courseware!.id}`,
             taskId: courseware!.taskUuid!,
+            url: conversion?.prefix,
             title: courseware!.name,
           });
         } else {
