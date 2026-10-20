@@ -8,7 +8,8 @@ export async function refreshCoursewareConversions(items: Courseware[]): Promise
     if (!item.whiteboardEnabled || !item.taskUuid || !["Pending", "Converting"].includes(item.taskStatus)) return item;
     let result;
     try {
-      result = await getWhiteboardConversionStatus(item.taskUuid, item.type === "dynamic" ? "dynamic" : "static");
+      const savedRegion = item.conversion && typeof item.conversion === "object" && !Array.isArray(item.conversion) && typeof item.conversion.region === "string" ? item.conversion.region : undefined;
+      result = await getWhiteboardConversionStatus(item.taskUuid, item.type === "dynamic" ? "dynamic" : "static", savedRegion);
     } catch {
       // A failed status query does not mean the remote conversion failed.
       return item;

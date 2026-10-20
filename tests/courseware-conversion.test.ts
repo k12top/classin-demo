@@ -47,3 +47,16 @@ test("provider failure is saved for retry; stale completions cannot restore a re
   const [removed] = await api.refreshCoursewareConversions([original]);
   assert.equal(removed.whiteboardEnabled, false); assert.equal(removed.taskUuid, null);
 });
+
+
+test("polling uses a task's saved conversion region after the default changes", async () => {
+  const api = loadModule<Api>("src/lib/courseware-conversion.ts", {
+    "@/lib/db": { prisma: { courseware: {} } },
+    "@/lib/whiteboard-convert": { getWhiteboardConversionStatus: async (_task: string, _type: string, region?: string) => {
+      assert.equal(region, "cn-hz");
+      return { taskUuid: "task", status: "Converting", type: "static", scenes: [], region };
+    } },
+  });
+  const original = item({ conversion: { region: "cn-hz" } });
+  assert.deepEqual(await api.refreshCoursewareConversions([original]), [original]);
+});

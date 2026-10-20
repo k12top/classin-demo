@@ -9,6 +9,7 @@ export interface ConversionResult {
   type: "static" | "dynamic";
   scenes: ConversionScene[];
   prefix?: string;
+  region?: string;
   errorMessage?: string;
 }
 
@@ -27,11 +28,15 @@ function providerError(data: Record<string, unknown>, status: number, region: st
   return `白板课件转换服务请求失败（HTTP ${status}${detail}），请检查所选区域的转换服务与存储配置后重试`;
 }
 
-async function requestConversion(path: string, init: RequestInit): Promise<Record<string, unknown>> {
+function conversionRegion(override?: string): string {
+  const region = (override || process.env.WHITEBOARD_CONVERSION_REGION || process.env.WHITEBOARD_REGION || "sg").trim();
+  if (!REGIONS.has(region)) throw new Error("互动白板配置错误：文档转换区域无效");
+  return region;
+}
+
+async function requestConversion(path: string, init: RequestInit, region: string): Promise<Record<string, unknown>> {
   const token = process.env.WHITEBOARD_SDK_TOKEN?.trim();
-  const region = (process.env.WHITEBOARD_REGION || "sg").trim();
   if (!token) throw new Error("互动白板尚未配置：缺少 WHITEBOARD_SDK_TOKEN");
-  if (!REGIONS.has(region)) throw new Error("互动白板配置错误：WHITEBOARD_REGION 无效");
   let response: Response;
   try {
     response = await fetch(`${API_BASE}${path}`, {
@@ -61,17 +66,19 @@ function conversionStatus(status: unknown): ConversionResult["status"] {
 
 /** Projector uses resource + region, rather than the legacy converter's url. */
 export async function startWhiteboardConversion(fileUrl: string, ext: string): Promise<Omit<ConversionResult, "scenes">> {
+  const region = conversionRegion();
   const type = ["ppt", "pptx"].includes(ext.toLowerCase()) ? "dynamic" : "static";
   const data = await requestConversion("", {
     method: "POST",
     body: JSON.stringify({ resource: fileUrl, type, preview: true }),
-  });
+  }, region);
   if (typeof data.uuid !== "string" || !data.uuid.trim()) throw new Error("白板课件转换服务未返回任务 UUID");
-  return { taskUuid: data.uuid, status: conversionStatus(data.status ?? "Waiting"), type };
+  return { taskUuid: data.uuid, status: conversionStatus(data.status ?? "Waiting"), type, region };
 }
 
-export async function getWhiteboardConversionStatus(taskUuid: string, type: "static" | "dynamic"): Promise<ConversionResult> {
-  const data = await requestConversion(`/${encodeURIComponent(taskUuid)}`, { method: "GET" });
+export async function getWhiteboardConversionStatus(taskUuid: string, type: "static" | "dynamic", taskRegion?: string): Promise<ConversionResult> {
+  const region = conversionRegion(taskRegion);
+  const data = await requestConversion(`/${encodeURIComponent(taskUuid)}`, { method: "GET" }, region);
   const status = conversionStatus(data.status);
   const scenes: ConversionScene[] = [];
   if (status === "Finished" && type === "static" && data.images && typeof data.images === "object") {
@@ -85,7 +92,7 @@ export async function getWhiteboardConversionStatus(taskUuid: string, type: "sta
     throw new Error("白板课件转换结果缺少可展示的页面或资源地址");
   }
   return {
-    taskUuid, status, type, scenes,
+    taskUuid, status, type, scenes, region,
     ...(typeof data.prefix === "string" ? { prefix: data.prefix } : {}),
     ...(status === "Failed" ? { errorMessage: `白板课件转换失败${data.errorCode ? `（错误码 ${String(data.errorCode).replace(/[^\w-]/g, "").slice(0, 40)}）` : ""}，请检查源文件和转换服务配置后重试` } : {}),
   };

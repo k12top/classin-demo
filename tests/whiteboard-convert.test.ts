@@ -3,7 +3,7 @@ import test from "node:test";
 import { loadModule } from "./helpers/load-module";
 
 type Api = typeof import("../src/lib/whiteboard-convert");
-function api(fetch: (url: string, init: RequestInit) => Promise<Response>, env = { WHITEBOARD_SDK_TOKEN: " secret-token ", WHITEBOARD_REGION: "sg" }) {
+function api(fetch: (url: string, init: RequestInit) => Promise<Response>, env: Record<string, string> = { WHITEBOARD_SDK_TOKEN: " secret-token ", WHITEBOARD_REGION: "sg" }) {
   return loadModule<Api>("src/lib/whiteboard-convert.ts", {}, { fetch, process: { env } });
 }
 const json = (data: unknown, status = 200) => Promise.resolve(Response.json(data, { status }));
@@ -18,8 +18,8 @@ test("Projector creation sends resource and configured region for both PDF and P
     assert.equal(body.preview, true);
     return json({ uuid: `task-${body.type}`, status: "Waiting" });
   });
-  assert.deepEqual(await client.startWhiteboardConversion("https://storage.test/document?signature=private", "pdf"), { taskUuid: "task-static", status: "Pending", type: "static" });
-  assert.deepEqual(await client.startWhiteboardConversion("https://storage.test/document?signature=private", "PPTX"), { taskUuid: "task-dynamic", status: "Pending", type: "dynamic" });
+  assert.deepEqual(await client.startWhiteboardConversion("https://storage.test/document?signature=private", "pdf"), { taskUuid: "task-static", status: "Pending", type: "static", region: "sg" });
+  assert.deepEqual(await client.startWhiteboardConversion("https://storage.test/document?signature=private", "PPTX"), { taskUuid: "task-dynamic", status: "Pending", type: "dynamic", region: "sg" });
 });
 
 test("Projector errors retain HTTP/code and never expose credentials or signed URLs", async () => {
@@ -53,4 +53,16 @@ test("provider Fail is terminal, while malformed completed results are rejected"
   assert.doesNotMatch(result.errorMessage!, /signature/);
   await assert.rejects(api(() => json({ status: "Finished" })).getWhiteboardConversionStatus("task", "static"), /缺少/);
   await assert.rejects(api(() => json({ status: "Finished" })).getWhiteboardConversionStatus("task", "dynamic"), /缺少/);
+});
+
+
+test("conversion region is independent of the room, and existing tasks keep their region", async () => {
+  const regions: string[] = [];
+  const client = api(async (_url, init) => {
+    regions.push((init.headers as Record<string, string>).region);
+    return json(init.method === "POST" ? {uuid: "task", status: "Waiting"} : {status: "Converting"});
+  }, { WHITEBOARD_SDK_TOKEN: "token", WHITEBOARD_REGION: "cn-hz", WHITEBOARD_CONVERSION_REGION: "sg" });
+  assert.equal((await client.startWhiteboardConversion("https://storage.test/lesson.pdf", "pdf")).region, "sg");
+  assert.equal((await client.getWhiteboardConversionStatus("old-task", "static", "cn-hz")).region, "cn-hz");
+  assert.deepEqual(regions, ["sg", "cn-hz"]);
 });

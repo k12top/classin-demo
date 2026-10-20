@@ -56,6 +56,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       const task = await startWhiteboardConversion(sourceUrl, current.ext);
       await prisma.courseware.updateMany({ where: attemptWhere, data: {
         taskUuid: task.taskUuid, taskStatus: task.status, type: task.type, conversionError: null,
+        ...(task.region ? { conversion: { region: task.region } } : {}),
       } });
     } catch (error) {
       await prisma.courseware.updateMany({ where: attemptWhere, data: {

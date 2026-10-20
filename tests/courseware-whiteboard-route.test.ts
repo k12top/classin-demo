@@ -28,7 +28,7 @@ function fixture(patch: Partial<Courseware> = {}) {
     } },
     "@/lib/whiteboard-convert": { startWhiteboardConversion: async () => {
       conversions++; duringConversion?.(); if (failure) throw new Error("HTTP 503");
-      return { taskUuid: "new-task", status: "Pending", type: "dynamic" };
+      return { taskUuid: "new-task", status: "Pending", type: "dynamic", region: "sg" };
     } },
   });
   return {
@@ -41,7 +41,7 @@ function fixture(patch: Partial<Courseware> = {}) {
 
 test("failed enabled courseware can be retried directly without toggling off", async () => {
   const f = fixture(); const response = await f.call({ whiteboardEnabled: true });
-  assert.equal(response.status, 200); assert.equal(f.count(), 1); assert.equal(f.row().taskUuid, "new-task"); assert.equal(f.row().taskStatus, "Pending"); assert.equal(f.row().conversionError, null);
+  assert.equal(response.status, 200); assert.equal(f.count(), 1); assert.equal(f.row().taskUuid, "new-task"); assert.equal(f.row().taskStatus, "Pending"); assert.equal(f.row().conversionError, null); assert.deepEqual(f.row().conversion, { region: "sg" });
   assert.equal((await response.json()).courseware.url, undefined);
   await f.call({ whiteboardEnabled: true }); assert.equal(f.count(), 1, "pending task is reused");
 });
