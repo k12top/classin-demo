@@ -39,6 +39,7 @@ interface CourseDetail {
   teachers?: { id?: string; teacherId: string; teacherName: string; teacherAvatar?: string }[];
   isCourseOwner?: boolean;
   canTeach?: boolean;
+  canUploadCourseware?: boolean;
   status: string;
   startTime: string | null;
   endTime: string | null;

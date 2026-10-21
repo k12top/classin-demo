@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getClassroomCaptions,
   ingestClassroomCaption,
+  recoverClassroomCaptionTranslation,
 } from "@/lib/classroom/server/captions";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
 import { verifyRecorderToken } from "@/lib/classroom/server/recorder-token";
@@ -45,6 +46,8 @@ async function postCaption(
   const body = (await request.json().catch(() => null)) as
     | {
         caption?: Partial<ClassroomCaptionInput>;
+        action?: unknown;
+        captionId?: unknown;
         shareAccess?: unknown;
         recorderToken?: unknown;
       }
@@ -78,6 +81,12 @@ async function postCaption(
   }
   const resolvedCourseId = recorderLesson?.courseId || resolved!.access.courseId;
   const resolvedSessionId = recorderLesson?.id || resolved!.access.sessionId;
+  if (body?.action === "recoverTranslation") {
+    if (recorder || !resolved?.ok || resolved.access.role !== "teacher") return NextResponse.json({ error: "Only teachers can recover translations" }, { status: 403 });
+    if (typeof body.captionId !== "string" || !body.captionId.trim() || body.captionId.length > 240) return NextResponse.json({ error: "Invalid caption" }, { status: 400 });
+    try { return NextResponse.json(await recoverClassroomCaptionTranslation(resolvedCourseId, resolvedSessionId, body.captionId)); }
+    catch { return NextResponse.json({ error: "Translation recovery did not complete; original text is available" }, { status: 409 }); }
+  }
   const caption = body?.caption;
   if (
     !caption ||

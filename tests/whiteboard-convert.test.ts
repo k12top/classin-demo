@@ -30,7 +30,12 @@ test("Projector errors retain HTTP/code and never expose credentials or signed U
     return true;
   });
   await assert.rejects(api(() => json({}, 401)).startWhiteboardConversion("https://storage.test", "pdf"), /鉴权失败/);
-  await assert.rejects(api(() => json({ error: { title: "service not enable" } }, 403)).startWhiteboardConversion("https://storage.test", "pdf"), /sg 区域尚未开通文档转换服务/);
+  await assert.rejects(api(() => json({ error: { title: "service not enable" } }, 403)).startWhiteboardConversion("https://storage.test", "pdf"), error => {
+    assert.match(String(error), /当前项目在 sg 区域.*HTTP 403/);
+    assert.match(String(error), /SDK Token 所属项目.*开通区域/);
+    assert.doesNotMatch(String(error), /尚未开通.*请在声网控制台开通/);
+    return true;
+  });
   await assert.rejects(api(() => json({ status: "Waiting" })).startWhiteboardConversion("https://storage.test", "pdf"), /UUID/);
 });
 

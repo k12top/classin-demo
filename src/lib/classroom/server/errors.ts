@@ -36,3 +36,7 @@ export class ClassroomRecordingStopUncertainError extends Error {
     this.name = "ClassroomRecordingStopUncertainError";
   }
 }
+
+export class ClassroomConnectionEndedError extends Error {
+  constructor() { super("Classroom has ended"); this.name = "ClassroomConnectionEndedError"; }
+}

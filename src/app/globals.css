@@ -5227,6 +5227,28 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
   height: 11px;
 }
 
+.classroom-v3-file-permissions { flex-wrap: wrap; }
+.classroom-v3-file-permissions > button {
+  display: inline-flex; flex: 1 1 120px; align-items: center; justify-content: center;
+  gap: 7px; min-height: 44px; padding: 8px; border: 1px solid #6c7586;
+  border-radius: 9px; background: #1b2230; color: #d4dae6; font-size: 11px;
+}
+.classroom-v3-file-permissions > button[aria-checked="true"],
+.classroom-v3-file-permissions > button.is-added { background: #163d38; color: #c7fff0; border-color: #40b99c; }
+.classroom-v3-file-permissions > button[aria-checked="false"] { background: #242935; color: #c4c9d5; }
+.classroom-v3-file-permissions > button:disabled { cursor: wait; opacity: .72; }
+.classroom-v3-file-permissions > button:focus-visible { outline: 2px solid #b4afff; outline-offset: 3px; }
+.classroom-v3-file-permissions button span { display: grid; gap: 3px; text-align: left; }
+.classroom-v3-file-permissions button small { font-size: 10px; }
+.classroom-v3-file-permissions .courseware-remove { flex: 0 0 44px; }
+.courseware-switch-track { display: block; width: 25px; height: 15px; border-radius: 12px; background: #687080; padding: 2px; margin-left: auto; }
+.courseware-switch-track::after { content: ""; display: block; width: 11px; height: 11px; background: #fff; border-radius: 50%; transition: transform .15s; }
+[aria-checked="true"] .courseware-switch-track { background: #168c74; }
+[aria-checked="true"] .courseware-switch-track::after { transform: translateX(10px); }
+.classroom-v3-courseware-feedback { grid-column: 1 / -1; margin: 3px 0 0; color: #8fe7c7; font-size: 11px; }
+.classroom-v3-courseware-status { color: #a9c8e5; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.classroom-v3-courseware-feedback.is-error, .classroom-v3-courseware-status.is-error { color: #ffa3ae; }
+
 .classroom-v3-tool-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7633,3 +7655,7 @@ html[lang="de"] .classroom-v3-dock button > span {
   border: 1px solid var(--classroom-border, #cad5e3); background: var(--classroom-panel, #fff); color: #334155; z-index: 10;
 }
 .classroom-v3-launch-cancel svg { width: 18px; height: 18px; }
+
+.classroom-v3-device-ack-status { position: fixed; bottom: calc(88px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100vw - 24px); padding: 10px 14px; border: 1px solid #c9d6eb; border-radius: 12px; background: #f4f7fd; color: #263854; font-size: 13px; box-shadow: 0 4px 20px #17243b18; }
+.classroom-v3-device-ack-status button { flex-shrink: 0; padding: 4px; }
+.classroom-v3-device-ack-status svg { width: 16px; height: 16px; }

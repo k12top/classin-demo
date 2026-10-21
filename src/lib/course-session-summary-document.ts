@@ -1,3 +1,4 @@
+import { summaryContent, summarySpeakerName, summarySpeakerReferences } from "./summary-content";
 export type SummaryEvidence = { captionIds: string[]; occurredAt?: string };
 export type SummaryAction = {
   title: string; owner: string; due: string; status: string; description: string;
@@ -77,10 +78,10 @@ function uniqueItems(items: string[], limit = MAX_SUMMARY_ITEMS) {
 function buildTurns(captions: CourseSessionSummaryCaption[]): CaptionTurn[] {
   const turns: CaptionTurn[] = [];
   for (const caption of captions) {
-    const text = cleanText(caption.text, 1_200);
+    const text = cleanText(summaryContent(caption.text), 1_200);
     if (!text) continue;
     const speakerId = caption.speakerId || "unknown";
-    const speakerName = cleanText(caption.speakerName, 80) || "发言人";
+    const speakerName = summarySpeakerName(caption.speakerName).slice(0, 80);
     const previous = turns.at(-1);
     if (
       previous &&
@@ -127,7 +128,7 @@ export function buildCourseSessionSummaryDocument(
     const id = caption.speakerId || "unknown";
     const current = speakerMap.get(id) || {
       id,
-      name: cleanText(caption.speakerName, 80) || "发言人",
+      name: summarySpeakerName(caption.speakerName).slice(0, 80),
       utteranceCount: 0,
       characterCount: 0,
     };
@@ -174,7 +175,7 @@ function speakersFrom(
     if (!id || !name) return [];
     return [{
       id,
-      name,
+      name: summarySpeakerName(name),
       utteranceCount: Math.max(0, Number(record.utteranceCount) || 0),
       characterCount: Math.max(0, Number(record.characterCount) || 0),
     }];
@@ -187,6 +188,15 @@ function objectFrom(value: unknown): Record<string, unknown> {
 }
 function textFrom(value: unknown, limit = 1_200) {
   return typeof value === "string" ? cleanText(value, limit) : "";
+}
+// Older model output sometimes copied internal references into prose. Keep the
+// structured evidence for playback, but never show these annotations as content.
+const withoutReferenceAnnotations = summaryContent;
+function summaryTextFrom(value: unknown, limit = 1_200) {
+  return textFrom(typeof value === "string" ? withoutReferenceAnnotations(value) : value, limit);
+}
+function summaryStringsFrom(value: unknown, limit = MAX_SUMMARY_ITEMS) {
+  return stringsFrom(Array.isArray(value) ? value.map((item) => typeof item === "string" ? withoutReferenceAnnotations(item) : item) : value, limit);
 }
 function recordsFrom(value: unknown, limit = 12) {
   return Array.isArray(value) ? value.slice(0, limit).map(objectFrom) : [];
@@ -204,25 +214,25 @@ export function normalizeCourseSessionSummaryReport(value: unknown): CourseSessi
   const record = objectFrom(value);
   return {
     participantSummaries: recordsFrom(record.participantSummaries, 100).map((item) => ({
-      speakerId: textFrom(item.speakerId, 240), speakerName: textFrom(item.speakerName, 80),
-      summary: textFrom(item.summary), keyPoints: stringsFrom(item.keyPoints),
-      commitments: stringsFrom(item.commitments), evidence: evidenceFrom(item.evidence),
+      speakerId: textFrom(item.speakerId, 240), speakerName: summaryTextFrom(item.speakerName, 80),
+      summary: summaryTextFrom(item.summary), keyPoints: summaryStringsFrom(item.keyPoints),
+      commitments: summaryStringsFrom(item.commitments), evidence: evidenceFrom(item.evidence),
     })).filter((item) => item.speakerId && item.speakerName && item.summary),
     discussionThreads: recordsFrom(record.discussionThreads).map((item) => ({
-      topic: textFrom(item.topic, 160), summary: textFrom(item.summary),
-      participants: stringsFrom(item.participants, 100), evidence: evidenceFrom(item.evidence),
+      topic: summaryTextFrom(item.topic, 160), summary: summaryTextFrom(item.summary),
+      participants: summaryStringsFrom(item.participants, 100), evidence: evidenceFrom(item.evidence),
     })).filter((item) => item.topic && item.summary),
     actionItems: recordsFrom(record.actionItems, 20).map((item) => ({
-      title: textFrom(item.title), owner: textFrom(item.owner, 160), due: textFrom(item.due, 160),
+      title: summaryTextFrom(item.title), owner: summaryTextFrom(item.owner, 160), due: summaryTextFrom(item.due, 160),
       status: ["pending", "in-progress", "completed", "blocked", "cancelled"].includes(String(item.status)) ? String(item.status) : "pending",
-      description: textFrom(item.description), evidence: evidenceFrom(item.evidence),
+      description: summaryTextFrom(item.description), evidence: evidenceFrom(item.evidence),
     })).filter((item) => item.title),
     conclusions: recordsFrom(record.conclusions).map((item) => ({
-      title: textFrom(item.title, 360), detail: textFrom(item.detail), evidence: evidenceFrom(item.evidence),
+      title: summaryTextFrom(item.title, 360), detail: summaryTextFrom(item.detail), evidence: evidenceFrom(item.evidence),
     })).filter((item) => item.title),
     followUps: recordsFrom(record.followUps).map((item) => ({
-      topic: textFrom(item.topic, 360), reason: textFrom(item.reason),
-      owner: textFrom(item.owner, 160), nextCheckAt: textFrom(item.nextCheckAt, 160),
+      topic: summaryTextFrom(item.topic, 360), reason: summaryTextFrom(item.reason),
+      owner: summaryTextFrom(item.owner, 160), nextCheckAt: summaryTextFrom(item.nextCheckAt, 160),
       evidence: evidenceFrom(item.evidence),
     })).filter((item) => item.topic),
   };
@@ -245,17 +255,37 @@ export function normalizeCourseSessionSummaryDocument(
   fallback?: CourseSessionSummaryDocument,
 ): CourseSessionSummaryDocument {
   const record = value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown> : {};
+    ? { ...value as Record<string, unknown> } : {};
   const defaults = fallback || defaultDocument("");
+  const names = new Map<string, string>();
+  for (const speaker of speakersFrom(record.speakers, defaults.speakers)) names.set(speaker.id, summarySpeakerName(speaker.name));
+  for (const participant of recordsFrom(objectFrom(record.report).participantSummaries, 100)) {
+    if (typeof participant.speakerId === "string" && typeof participant.speakerName === "string" && (!names.has(participant.speakerId) || names.get(participant.speakerId) === "发言人")) names.set(participant.speakerId, summarySpeakerName(participant.speakerName));
+  }
+  for (const section of Object.values(objectFrom(record.report))) {
+    for (const item of recordsFrom(section, 100)) {
+      for (const id of stringsFrom(objectFrom(item.evidence).captionIds, 16)) {
+        if (!names.has(id)) names.set(id, "");
+      }
+    }
+  }
+  const clean = (value: unknown, key = ""): unknown => {
+    if (["id", "speakerId", "captionIds", "occurredAt", "generation"].includes(key)) return value;
+    if (typeof value === "string") return summarySpeakerReferences(value, names);
+    if (Array.isArray(value)) return value.map(item => clean(item, key));
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, clean(v, k)]));
+    return value;
+  };
+  for (const key of Object.keys(record)) record[key] = clean(record[key], key);
   const reportInput = record.report === undefined ? defaults.report : record.report;
   const report = reportInput && typeof reportInput === "object" ? normalizeCourseSessionSummaryReport(reportInput) : undefined;
   return {
     version: 1,
-    title: cleanText(typeof record.title === "string" ? record.title : defaults.title, 160) || defaults.title,
-    overview: cleanText(typeof record.overview === "string" ? record.overview : defaults.overview, 4_000),
-    keyPoints: stringsFrom(record.keyPoints, MAX_SUMMARY_ITEMS),
-    questions: stringsFrom(record.questions, 8),
-    actionItems: report ? report.actionItems.map((item) => item.title) : stringsFrom(record.actionItems, 20),
+    title: summaryTextFrom(typeof record.title === "string" ? record.title : defaults.title, 160) || defaults.title,
+    overview: summaryTextFrom(typeof record.overview === "string" ? record.overview : defaults.overview, 4_000),
+    keyPoints: summaryStringsFrom(record.keyPoints, MAX_SUMMARY_ITEMS),
+    questions: summaryStringsFrom(record.questions, 8),
+    actionItems: report ? report.actionItems.map((item) => item.title) : summaryStringsFrom(record.actionItems, 20),
     speakers: speakersFrom(record.speakers, defaults.speakers),
     ...(report ? { report } : {}),
     ...(generationFrom(record.generation ?? fallback?.generation) ? { generation: generationFrom(record.generation ?? fallback?.generation) } : {}),

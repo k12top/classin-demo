@@ -29,3 +29,29 @@ export const exampleAIReport = {
   conclusions: [{ title: "Δ<0 时没有实数解", detail: "2x²+3x+2=0 的判别式为 −7。", evidence: { captionIds: ["caption-3"] } }],
   followUps: [{ topic: "配方法推导求根公式", reason: "本课尚未完成推导，下次课继续并检查理解。", owner: "李老师", nextCheckAt: "下次课", evidence: { captionIds: ["caption-6", "caption-7"] } }],
 };
+
+// Simulated provider output follows the public model contract; storage fixtures
+// still use real caption/speaker references so persistence checks remain useful.
+export function modelReportFor(
+  report: typeof exampleAIReport,
+  transcript: Array<{ line: number; speaker: number; speakerName: string; text: string }>,
+  captions = summaryCaptions,
+) {
+  const positions = new Map(captions.map((caption) => [caption.id,
+    transcript.find((line) => line.text === caption.text && line.speakerName === caption.speakerName)]));
+  const speakers = new Map<string, number>();
+  for (const caption of captions) {
+    const position = positions.get(caption.id);
+    if (position) speakers.set(caption.speakerId, position.speaker);
+  }
+  const sections = ["participantSummaries", "discussionThreads", "actionItems", "conclusions", "followUps"] as const;
+  return { ...report, ...Object.fromEntries(sections.map((section) => [section, report[section].map((item) => {
+    const { evidence, ...text } = item;
+    const reference = { lines: evidence.captionIds.map((id) => positions.get(id)?.line ?? 9999) };
+    if ("speakerId" in text) {
+      const { speakerId, ...participant } = text;
+      return { ...participant, speaker: speakers.get(speakerId) ?? 9999, evidence: reference };
+    }
+    return { ...text, evidence: reference };
+  })])) };
+}

@@ -94,15 +94,21 @@ export function mergeCaptionSnapshots(
     const previous = captions.get(caption.id);
     if (!previous) { captions.set(caption.id, caption); continue; }
     const preferPrevious = (previous.isFinal && !caption.isFinal) ||
-      (previous.isFinal === caption.isFinal && Date.parse(previous.createdAt) > Date.parse(caption.createdAt));
+      (previous.isFinal === caption.isFinal && (
+        previous.updatedAt && !caption.updatedAt ? true
+          : caption.updatedAt && !previous.updatedAt ? false
+          : Date.parse(previous.updatedAt || previous.createdAt) > Date.parse(caption.updatedAt || caption.createdAt)
+      ));
     const preferred = preferPrevious ? previous : caption;
     captions.set(caption.id, {
       ...preferred,
       occurredAt: previous.occurredAt,
       text: preferred.text || previous.text || caption.text,
-      translations: preferPrevious
-        ? { ...caption.translations, ...previous.translations }
-        : { ...previous.translations, ...caption.translations },
+      translations: previous.text && caption.text && previous.text !== caption.text
+        ? preferred.translations
+        : preferPrevious
+          ? { ...caption.translations, ...previous.translations }
+          : { ...previous.translations, ...caption.translations },
       isFinal: previous.isFinal || caption.isFinal,
     });
   }

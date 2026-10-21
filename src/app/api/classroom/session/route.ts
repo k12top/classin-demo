@@ -1,3 +1,4 @@
+import { ClassroomConnectionEndedError } from "@/lib/classroom/server/errors";
 import { canShareClassroomScreen } from "@/lib/classroom/screen-share-state";
 import { normalizeClassroomClientId, touchClassroomConnection } from "@/lib/classroom/server/connections";
 import { after, NextRequest, NextResponse } from "next/server";
@@ -422,6 +423,7 @@ export async function POST(request: NextRequest) {
       },
     );
   } catch (error) {
+    if (error instanceof ClassroomConnectionEndedError) return NextResponse.json({ error: "课堂已经结束", code: "classroom_ended" }, { status: 409 });
     const unavailable = databaseUnavailableResponse(error, { route: "classroom/session", operation: "join", ...diagnostic, durationMs: Math.round(performance.now() - bootstrapStartedAt) });
     if (unavailable) return unavailable;
 

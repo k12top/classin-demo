@@ -22,7 +22,7 @@ function providerError(data: Record<string, unknown>, status: number, region: st
   const code = data.errorCode ?? error?.code;
   const title = typeof error?.title === "string" ? error.title : "";
   const detail = code === undefined ? "" : `，错误码 ${String(code).replace(/[^\w-]/g, "").slice(0, 40)}`;
-  if (title === "service not enable") return `声网白板 ${region} 区域尚未开通文档转换服务（HTTP ${status}），请在声网控制台开通文档转图片/文档转网页并配置存储后重试`;
+  if (title === "service not enable") return `声网拒绝当前项目在 ${region} 区域使用文档转换服务（HTTP ${status}${detail}）。请核对 SDK Token 所属项目、转换服务开通区域及服务端转换区域配置；这不等同于源文件上传失败，也不能据此确认存储配置错误`;
   if (status === 401 || status === 403) return `白板课件转换鉴权失败（HTTP ${status}${detail}），请检查 SDK Token 和所选区域的转换服务配置`;
   if (title === "invalid format") return `白板课件转换请求参数无效（HTTP ${status}${detail}）`;
   return `白板课件转换服务请求失败（HTTP ${status}${detail}），请检查所选区域的转换服务与存储配置后重试`;

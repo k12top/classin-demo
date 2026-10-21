@@ -29,6 +29,7 @@ export function CaptionsPanel({
   overlayVisible,
   preferredLanguage,
   onApplySettings,
+  onRecoverTranslation,
 }: {
   runtime: ClassroomRuntimeSnapshot;
   captions: ClassroomCaptionSnapshot[];
@@ -42,8 +43,19 @@ export function CaptionsPanel({
   preferenceError?: string | null;
   onRetryPreference: () => void;
   onApplySettings: (settings: CaptionSettings) => Promise<boolean>;
+  onRecoverTranslation?: (captionId: string) => Promise<boolean>;
 }) {
   const { t, locale } = useTranslation();
+  const recoveryLock = useRef(false);
+  const [recovering, setRecovering] = useState<string | null>(null);
+  const [recoveryFailed, setRecoveryFailed] = useState<string | null>(null);
+  const recover = async (id: string) => {
+    if (recoveryLock.current || !onRecoverTranslation) return;
+    recoveryLock.current = true; setRecovering(id); setRecoveryFailed(null);
+    try { if (!await onRecoverTranslation(id)) setRecoveryFailed(id); }
+    catch { setRecoveryFailed(id); }
+    finally { recoveryLock.current = false; setRecovering(null); }
+  };
   const settingsId = useId();
   const helpId = useId();
   const settingsButton = useRef<HTMLButtonElement>(null);
@@ -196,6 +208,50 @@ export function CaptionsPanel({
       <div id={settingsId} className="classroom-v3-caption-settings-disclosure" data-open={settingsOpen} aria-hidden={!settingsOpen} inert={!settingsOpen}>
         <div className="classroom-v3-caption-settings-clip">
           <section className="classroom-v3-caption-settings-card" aria-label={t("classroom.v3.captionSettings")}>
+            <div className="classroom-v3-caption-toggles">
+              <div className="classroom-v3-caption-overlay-control">
+                <span>
+                  <strong>{t("classroom.v3.captionOverlay")}</strong>
+                </span>
+                <button
+                  type="button"
+                  className={draftOverlay ? "is-on" : ""}
+                  disabled={saving}
+                  aria-label={t("classroom.v3.captionOverlay")}
+                  aria-pressed={draftOverlay}
+                  onClick={() => setDraftOverlay(!draftOverlay)}
+                >
+                  <i />
+                  {draftOverlay
+                    ? t("classroom.v3.enabled")
+                    : t("classroom.v3.disabled")}
+                </button>
+              </div>
+
+              {canManage ? (
+                <section className="classroom-v3-interpretation-config">
+                  <header>
+                    <div>
+                      <strong>{t("classroom.v3.interpretation")}</strong>
+                    </div>
+                    <button
+                      type="button"
+                      className={enabled ? "is-on" : ""}
+                      disabled={saving}
+                      onClick={() => setEnabled(current => !current)}
+                      aria-label={t("classroom.v3.interpretation")}
+                      aria-pressed={enabled}
+                    >
+                      <i />
+                      {enabled
+                        ? t("classroom.v3.enabled")
+                        : t("classroom.v3.disabled")}
+                    </button>
+                  </header>
+                </section>
+              ) : null}
+            </div>
+
             <div className="classroom-v3-caption-view-settings">
               <CaptionSelect label={t("classroom.v3.displayMode")} value={draftMode} disabled={saving}
                 options={Object.entries(displayLabels).map(([value, label]) => ({ value, label }))}
@@ -209,43 +265,8 @@ export function CaptionsPanel({
                 }} />
             </div>
 
-            <div className="classroom-v3-caption-overlay-control">
-              <span>
-                <strong>{t("classroom.v3.captionOverlay")}</strong>
-              </span>
-              <button
-                type="button"
-                className={draftOverlay ? "is-on" : ""}
-                disabled={saving}
-                aria-pressed={draftOverlay}
-                onClick={() => setDraftOverlay(!draftOverlay)}
-              >
-                <i />
-                {draftOverlay
-                  ? t("classroom.v3.enabled")
-                  : t("classroom.v3.disabled")}
-              </button>
-            </div>
-
             {canManage ? (
               <section className="classroom-v3-interpretation-config">
-                <header>
-                  <div>
-                    <strong>{t("classroom.v3.interpretation")}</strong>
-                  </div>
-                  <button
-                    type="button"
-                    className={enabled ? "is-on" : ""}
-                    disabled={saving}
-                    onClick={() => setEnabled(current => !current)}
-                    aria-pressed={enabled}
-                  >
-                    <i />
-                    {enabled
-                      ? t("classroom.v3.enabled")
-                      : t("classroom.v3.disabled")}
-                  </button>
-                </header>
                 <CaptionSelect label={t("classroom.v3.sourceLanguage")} value={sourceLanguage} disabled={saving}
                   options={sourceOptions.map(language => ({ value: language.code, label: `${language.nativeLabel} · ${language.label}` }))}
                   onChange={setSourceLanguage} />
@@ -307,6 +328,16 @@ export function CaptionsPanel({
                 </small>
               </header>
               {displayMode !== "translated" ? <p>{caption.text}</p> : null}
+              {displayMode !== "original" && !translated && caption.translationStatus && caption.translationStatus !== "completed" ? (
+                <div role="status" data-translation-state={caption.translationStatus}>
+                  <p>{t(`classroom.v3.captionTranslationState${caption.translationStatus[0].toUpperCase()}${caption.translationStatus.slice(1)}`)}</p>
+                  {canManage && onRecoverTranslation && ["failed", "recoverable"].includes(caption.translationStatus) ?
+                    <button type="button" disabled={recovering !== null} aria-busy={recovering === caption.id} onClick={() => void recover(caption.id)}>
+                      {t(caption.translationStatus === "recoverable" ? "classroom.v3.captionTranslationRestore" : "classroom.v3.captionTranslationRetry")}
+                    </button> : null}
+                  {recoveryFailed === caption.id ? <p role="alert">{t("classroom.v3.captionTranslationRecoveryFailed")}</p> : null}
+                </div>
+              ) : null}
               {displayMode !== "original" && translated ? (
                 <p className="is-translation">
                   <i>{classroomLanguageLabel(preferredLanguage)}</i>

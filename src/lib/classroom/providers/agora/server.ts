@@ -274,6 +274,7 @@ function recordingStopIsUncertain(error: unknown): boolean {
       error.status === 408 ||
       error.status === 429 ||
       error.status >= 500 ||
+      response?.code === 49 ||
       response?.code === 62 ||
       response?.code === 65 ||
       recordingResourceExpired(response) ||
@@ -763,7 +764,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
       files,
       playbackObjectKey: playback.objectKey,
       playbackFormat: playback.format,
-      providerState: payload,
+      providerState: { ...payload, queryVerified: Boolean(response?.ok && !queryError) },
     };
   }
 

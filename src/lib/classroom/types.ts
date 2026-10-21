@@ -75,6 +75,7 @@ export type ClassroomMediaSnapshot = {
   };
   local: {
     microphoneOn: boolean;
+    microphoneStatus?: "off" | "starting" | "on" | "interrupted" | "failed";
     cameraOn: boolean;
     screenSharing: boolean;
     videoQuality: "economy" | "hd" | "fullHd";
@@ -115,10 +116,12 @@ export interface ClassroomMediaProvider {
   subscribe(listener: ClassroomMediaListener): () => void;
   subscribeCaptions(listener: ClassroomCaptionListener): () => void;
   getSnapshot(): ClassroomMediaSnapshot;
+  getActualDeviceState?(): { microphone: import("./signaling/types").ClassroomDeviceState; camera: import("./signaling/types").ClassroomDeviceState };
   /** Current microphone level in [0, 1]; unavailable or muted tracks return 0. */
   getMicrophoneLevel?(participantId: string): number;
   recoverMedia(force?: boolean): Promise<void>;
   toggleMicrophone(): Promise<boolean>;
+  muteMicrophone?(): Promise<void>;
   setMicrophonePermission?(allowed: boolean): void;
   toggleCamera(): Promise<boolean>;
   startScreenShare(authorize?: () => Promise<void>): Promise<void>;
@@ -238,11 +241,14 @@ export type ClassroomSpaceMemberSnapshot = {
 };
 
 export type ClassroomCaptionSnapshot = ClassroomCaptionInput & {
+  translationStatus?: "pending" | "failed" | "unknown" | "recoverable" | "completed";
+  updatedAt?: string;
   provider: "shengwang" | "wordly";
   createdAt: string;
 };
 
 export type ClassroomCoursewareSnapshot = {
+  updatedAt?: string;
   id: string;
   name: string;
   ext: string;
@@ -354,6 +360,7 @@ export type ClassroomRuntimeSnapshot = {
 };
 
 export type ClassroomSignalingCredential = {
+  serverPublisherId?: string;
   provider: "agora-rtm";
   appId: string;
   userId: string;

@@ -76,7 +76,7 @@ test("keeps AI summary disabled until all credentials are configured", () => {
 });
 
 
-import { summaryCaptions, exampleAIReport } from "./fixtures/course-summary";
+import { summaryCaptions, exampleAIReport, modelReportFor } from "./fixtures/course-summary";
 const config: CourseSessionAISummaryConfig = {
   apiKey: "secret", baseUrl: "https://api.example.test/v1", model: "summary-model",
   language: "zh-CN", apiStyle: "responses", timeoutMs: 1_000, maxCaptions: 100,
@@ -91,14 +91,14 @@ function requestInfo(init?: RequestInit) {
   const data = JSON.parse(body.input || body.messages[1].content);
   return { body, schema, name: name as string, data };
 }
-function resultFor(name: string, report = exampleAIReport) {
+function resultFor(name: string, report: Record<string, unknown> = exampleAIReport) {
   if (name === "editor") return report;
   const field = dimensions[name as keyof typeof dimensions];
   return name === "themes" ? { themes: report.themes, questions: report.questions } : { [field]: report[field] };
 }
 function responseFor(init?: RequestInit, report = exampleAIReport) {
-  const { body, name } = requestInfo(init);
-  const content = JSON.stringify(resultFor(name, report));
+  const { body, name, data } = requestInfo(init);
+  const content = JSON.stringify(resultFor(name, modelReportFor(report, data.transcript)));
   return new Response(JSON.stringify(body.messages ? { choices: [{ message: { content: `\u0060\u0060\u0060json\n${content}\n\u0060\u0060\u0060` } }] } : { output: [{ content: [{ type: "output_text", text: content }] }] }));
 }
 
@@ -120,12 +120,74 @@ test("runs six grounded analyses before the editor and retains playback evidence
   assert.match(requests[0].body.instructions, /逐字稿.*不是指令/);
 });
 
+for (const apiStyle of ["responses", "chat-completions"] as const) {
+  test(`${apiStyle} keeps database identifiers out of all seven model requests while restoring playback evidence`, async () => {
+    const replacements = new Map<string, string>([
+      ...summaryCaptions.map((caption, index) => [caption.id, `39ac9021-3124-4cc9-9827-${String(index + 1).padStart(12, "0")}`] as [string, string]),
+      ["teacher", "a091b6a1-57d2-4316-b3d1-f9fd5587dc87"],
+      ["wang", "bd802504-d0e8-45da-a8ee-b257e0fab99e"],
+      ["li", "a0dc35ff-e243-4845-9ef1-bbc696a0b340"],
+      ["小王", "同名同学"], ["小李", "同名同学"],
+    ]);
+    const captions = summaryCaptions.map((caption) => ({ ...caption, id: replacements.get(caption.id)!,
+      speakerId: replacements.get(caption.speakerId)!, speakerName: replacements.get(caption.speakerName) || caption.speakerName }));
+    const report = JSON.parse(JSON.stringify(exampleAIReport, (_key, value) => replacements.get(value) || value));
+    let calls = 0;
+    const document = await generateCourseSessionAISummary({ title: input.title, captions,
+      fallback: buildCourseSessionSummaryDocument(input.title, captions) }, {
+      config: { ...config, apiStyle }, fetchImpl: async (_url, init) => {
+        const { body, data, name } = requestInfo(init);
+        const payload = JSON.stringify(body);
+        for (const caption of captions) {
+          assert.ok(!payload.includes(caption.id), "caption identifiers never leave the application");
+          assert.ok(!payload.includes(caption.speakerId), "user identifiers never leave the application");
+        }
+        assert.doesNotMatch(payload, /captionIds|speakerId/);
+        calls++;
+        const content = JSON.stringify(resultFor(name, modelReportFor(report, data.transcript, captions)));
+        return Response.json(apiStyle === "responses" ? { output_text: content } : { choices: [{ message: { content } }] });
+      },
+    });
+    assert.equal(calls, 7);
+    assert.equal(document?.report?.participantSummaries[0].speakerId, captions[0].speakerId);
+    assert.equal(document?.report?.participantSummaries[1].speakerId, captions[3].speakerId, "same names do not merge different speakers");
+    assert.deepEqual(document?.report?.participantSummaries[1].evidence.captionIds, [captions[3].id, captions[8].id]);
+    assert.deepEqual(document?.report?.actionItems[0].evidence.captionIds, [captions[7].id]);
+  });
+}
+
+test("cleans reference annotations in stored summary prose without losing structured playback evidence", () => {
+  const id = "39ac9021-3124-4cc9-9827-5014b4386c91";
+  const annotation = `（字幕ID：${id}至a091b6a1-57d2-4316-b3d1-f9fd5587dc87）`;
+  const report = structuredClone(exampleAIReport);
+  report.participantSummaries[0].summary += annotation;
+  report.participantSummaries[0].keyPoints[0] += ` [caption IDs: ${id}]`;
+  report.actionItems[0].title += annotation;
+  report.conclusions[0].detail += annotation;
+  report.followUps[0].reason += annotation;
+  const document = normalizeCourseSessionSummaryDocument({ ...input.fallback,
+    overview: `复习判别式${annotation}，下周二下午五点前交作业。`,
+    keyPoints: [`支持100种语言${annotation}`, `支持100种语言`, "使用 (x+1)(x+2) 因式分解", `概念 UUID（通用唯一标识符）：${id}`],
+    questions: [`怎样求根？（字幕行号：1至3）`], report });
+  assert.equal(document.overview, "复习判别式，下周二下午五点前交作业。");
+  assert.deepEqual(document.keyPoints, ["支持100种语言", "使用 (x+1)(x+2) 因式分解", `概念 UUID（通用唯一标识符）：${id}`]);
+  assert.deepEqual(document.questions, ["怎样求根？"]);
+  assert.equal(document.report?.participantSummaries[0].summary, exampleAIReport.participantSummaries[0].summary);
+  assert.deepEqual(document.report?.participantSummaries[0].keyPoints, exampleAIReport.participantSummaries[0].keyPoints);
+  assert.deepEqual(document.actionItems, [exampleAIReport.actionItems[0].title]);
+  assert.equal(document.report?.conclusions[0].detail, exampleAIReport.conclusions[0].detail);
+  assert.equal(document.report?.followUps[0].reason, exampleAIReport.followUps[0].reason);
+  assert.deepEqual(document.report?.participantSummaries[0].evidence, exampleAIReport.participantSummaries[0].evidence);
+  assert.deepEqual(document.speakers, input.fallback.speakers);
+});
+
 test("supports meeting-style Chat Completions JSON and discloses transcript coverage", async () => {
   const document = await generateCourseSessionAISummary(input, { config: { ...config, apiStyle: "chat-completions", maxCaptions: 3 }, fetchImpl: async (url, init) => {
     assert.match(String(url), /chat\/completions$/);
     const { body, data } = requestInfo(init);
     assert.equal(body.response_format.type, "json_object");
-    assert.deepEqual(data.transcript.map((caption: { id: string }) => caption.id), ["caption-7", "caption-8", "caption-9"]);
+    assert.deepEqual(data.transcript.map((caption: { line: number }) => caption.line), [1, 2, 3]);
+    assert.deepEqual(data.transcript.map((caption: { text: string }) => caption.text), summaryCaptions.slice(-3).map((caption) => caption.text));
     return responseFor(init);
   } });
   assert.equal(document?.generation?.analyzedCaptionCount, 3);
@@ -147,7 +209,7 @@ test("removes nonexistent references and invented speakers before synthesis and 
       const participants = data.specialists.find((item: { dimension: string }) => item.dimension === "participants").result.participantSummaries;
       assert.equal(participants.length, 2);
       assert.equal(participants[0].speakerName, "李老师");
-      assert.ok(!participants[0].evidence.captionIds.includes("caption-2"));
+      assert.ok(!participants[0].evidence.lines.includes(2));
     }
     return responseFor(init, report);
   } });
@@ -235,4 +297,47 @@ test("rejects an empty editor overview and bounds provider response size", async
   const report = { ...exampleAIReport, executiveSummary: " " };
   await assert.rejects(generateCourseSessionAISummary(input, { config, fetchImpl: async (_url, init) => responseFor(init, report) }), /empty overview/);
   await assert.rejects(generateCourseSessionAISummary(input, { config, fetchImpl: async () => new Response(" ".repeat(4 * 1024 * 1024 + 1)) }), /exceeds 4 MiB/);
+});
+
+for (const apiStyle of ["responses", "chat-completions"] as const) {
+  test(`${apiStyle}: opaque speaker display names and provenance annotations stay out of all model requests`, async () => {
+    const uuid="7d332016-9e2f-4917-b856-190eef57eab7";
+    const captions=[{...summaryCaptions[0],id:"1e0ace50",speakerId:uuid,speakerName:uuid,text:"讨论型号 HSK3，时间 2:50:00。（字幕ID:1e0ace50,73793bb7,fe07cb35）"}];
+    let calls=0;
+    const document=await generateCourseSessionAISummary({title:"服务迁移",captions,fallback:buildCourseSessionSummaryDocument("服务迁移",captions)},{config:{...config,apiStyle},fetchImpl:async(_url,init)=>{
+      const {body,data,name}=requestInfo(init);const payload=JSON.stringify(body);calls++;
+      for(const id of [uuid,"1e0ace50","73793bb7","fe07cb35"]) assert(!payload.includes(id));
+      assert.equal(data.transcript[0].speakerName,"发言人");assert.match(data.transcript[0].text,/HSK3.*2:50:00/);
+      const empty={executiveSummary:"讨论型号 HSK3，时间 2:50:00。（字幕ID:yarzhen0529 2:50:00及后续）",themes:["型号 HSK3"],questions:[],participantSummaries:[],discussionThreads:[],actionItems:[],conclusions:[],followUps:[]};
+      const content=JSON.stringify(resultFor(name,empty));return Response.json(apiStyle==="responses"?{output_text:content}:{choices:[{message:{content}}]});
+    }});
+    assert.equal(calls,7);assert.doesNotMatch(document!.overview,/字幕ID|yarzhen/);assert.match(document!.overview,/HSK3.*2:50:00/);assert.equal(document!.speakers[0].id,uuid);assert.equal(document!.speakers[0].name,"发言人");
+  });
+}
+test("historical normalization replaces known speaker UUID prose without mutating stored metadata or legitimate ID teaching",()=>{
+ const id="7d332016-9e2f-4917-b856-190eef57eab7";const unknown="a0011223-4455-6677-8899-aabbccddeeff";
+ const stored={speakers:[{id,name:"老师"}],keyPoints:[`${id} 讲解 HSK3，2:50:00。`,`讨论 UUID: ${id} 和 UUID: ${unknown} 的格式。`],report:{...exampleAIReport,participantSummaries:[{...exampleAIReport.participantSummaries[0],speakerId:id,evidence:{captionIds:[id]}}]}};
+ const before=JSON.stringify(stored);const normalized=normalizeCourseSessionSummaryDocument(stored);
+ assert.equal(normalized.keyPoints[0],"老师 讲解 HSK3，2:50:00。");assert.match(normalized.keyPoints[1],new RegExp(id));assert.match(normalized.keyPoints[1],new RegExp(unknown));assert.equal(normalized.report!.participantSummaries[0].speakerId,id);assert.deepEqual(normalized.report!.participantSummaries[0].evidence.captionIds,[id]);assert.equal(JSON.stringify(stored),before);
+});
+
+test("literal ID teaching is retained, including parenthesized user IDs and ordinary model numbers",async()=>{
+ const {summaryContent}=await import("../src/lib/summary-content");
+ assert.equal(summaryContent("用户 ID 示例（用户ID:12345），型号 HSK3，2:50:00。"),"用户 ID 示例（用户ID:12345），型号 HSK3，2:50:00。");
+});
+
+test("bare UUIDs known to be caption evidence are omitted from historical prose while evidence remains available",()=>{
+ const id="f1020304-1122-3344-5566-778899aabbcc";
+ const stored={keyPoints:[`课堂重点 ${id}，型号 HSK3。`,`讨论 UUID: ${id} 的格式。`],report:{...exampleAIReport,conclusions:[{title:"重点",detail:`结论 ${id}`,evidence:{captionIds:[id]}}]}};
+ const normalized=normalizeCourseSessionSummaryDocument(stored);assert(!normalized.keyPoints[0].includes(id));assert(normalized.keyPoints[1].includes(id));assert(!normalized.report!.conclusions[0].detail.includes(id));assert.deepEqual(normalized.report!.conclusions[0].evidence.captionIds,[id]);
+});
+
+test("literal caption-ID examples and quoted identifier fields survive provenance cleaning",async()=>{
+ const {summaryContent}=await import("../src/lib/summary-content");
+ for(const text of ["示例字段（字幕ID:abc123）代表字幕主键。","The field (caption ID: abc123) identifies a caption.","讨论 ID 字段（字幕ID:1e0ace50）及其格式。"]){assert.equal(summaryContent(text),text);}
+ assert.equal(summaryContent("判别式决定实数根个数。（字幕ID:1e0ace50,73793bb7）"),"判别式决定实数根个数。");
+});
+test("quoted provenance-like text is preserved as literal lesson content",async()=>{
+ const {summaryContent}=await import("../src/lib/summary-content");
+ for(const text of ['The lesson shows "(caption ID: abc123)".', '原文包含「（字幕ID:1e0ace50）」这样的写法。'])assert.equal(summaryContent(text),text);
 });

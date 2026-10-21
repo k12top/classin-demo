@@ -1,3 +1,4 @@
+import { ClassroomCommandConflict, validClassroomCommandId } from "@/lib/classroom/server/command-receipt";
 import { normalizeClassroomClientId, touchClassroomConnection } from "@/lib/classroom/server/connections";
 import { requestClassroomScreenShare } from "@/lib/classroom/server/screen-share-request";
 import { after, NextRequest, NextResponse } from "next/server";
@@ -92,6 +93,7 @@ export async function POST(
   const { id: courseId } = await params;
   const body = (await request.json().catch(() => null)) as {
     clientId?: unknown;
+    commandId?: unknown;
     action?: ClassroomAction;
     expectedRevision?: unknown;
     shareAccess?: unknown;
@@ -107,6 +109,8 @@ export async function POST(
   ) {
     return NextResponse.json({ error: "课堂操作无效" }, { status: 400 });
   }
+  if (body.commandId !== undefined && !validClassroomCommandId(body.commandId)) return NextResponse.json({ error: "Invalid command identifier" }, { status: 400 });
+  const commandId = typeof body.commandId === "string" ? body.commandId : undefined;
   // Cookie/JWT identity plus a PG-registered Redis lease authorizes only presence,
   // never admission, reads, publishing or moderation. Expired control falls back to PG.
   const heartbeatClientId = normalizeClassroomClientId(body.clientId);
@@ -149,7 +153,7 @@ export async function POST(
     if (body.compactHandRaise === true && (body.action.type === "raiseHand" || body.action.type === "lowerHand")) {
       const handRaise = await setClassroomHandRaised({
         courseId: resolvedCourseId, sessionId, actorId: resolved.session.userId,
-        role: resolved.access.role, clientId, raised: body.action.type === "raiseHand",
+        role: resolved.access.role, clientId, commandId, raised: body.action.type === "raiseHand",
       });
       await synchronizeClassroomRedis(sessionId, true);
       return NextResponse.json({ handRaise });
@@ -158,7 +162,7 @@ export async function POST(
     if (body.compactScreenShareRequest === true && body.action.type === "requestScreenShare") {
       const screenShareRequest = await requestClassroomScreenShare({
         courseId: resolvedCourseId, sessionId, actorId: resolved.session.userId,
-        role: resolved.access.role, targetUserId: body.action.targetUserId,
+        role: resolved.access.role, clientId, commandId, targetUserId: body.action.targetUserId,
       });
       await synchronizeClassroomRedis(sessionId, true);
       return NextResponse.json({ screenShareRequest });
@@ -166,7 +170,7 @@ export async function POST(
     if (body.compactMemberPermissions === true && isMicrophonePermissionAction(body.action)) {
       const memberPermissions = await applyClassroomMemberPermissions({
         courseId: resolvedCourseId, sessionId, actorId: resolved.session.userId,
-        role: resolved.access.role, action: body.action,
+        role: resolved.access.role, clientId, commandId, action: body.action,
       });
       await synchronizeClassroomRedis(sessionId, true);
       return NextResponse.json({ memberPermissions });
@@ -203,24 +207,28 @@ export async function POST(
       if ("syncDue" in heartbeatResult && heartbeatResult.syncDue) after(() => flushClassroomRedisPresence(sessionId));
       return NextResponse.json({ ok: true, status: heartbeatResult.status, refreshed: true });
     }
+    let commandReplayed = false;
     const runtimeSnapshot = await applyClassroomAction({
       courseId: resolvedCourseId,
       sessionId,
       session: resolved.session,
       role: resolved.access.role,
       clientId,
+      commandId,
+      onReplay: () => { commandReplayed = true; },
       expectedRevision:
         typeof body.expectedRevision === "number"
           ? body.expectedRevision
           : undefined,
       action: body.action,
     });
+    if (commandReplayed) return NextResponse.json({ commandId, replayed: true, runtime: runtimeSnapshot, engagement: await getClassroomEngagementSnapshot(sessionId) });
     if ((body.action.type === "startClass" || body.action.type === "startScheduledClass") && runtimeSnapshot.status === "live") after(() => deliverClassroomEvents());
     if (body.action.type === "setRecordingStartMode" && body.action.mode === "disabled") {
       const recordings = await prisma.classroomRecording.findMany({
         where: { sessionId, status: { in: ["starting", "recording", "stopping"] } },
       });
-      const stopping = await Promise.all(recordings.map(requestRecordingStop));
+      const stopping = await Promise.all(recordings.map(recording => requestRecordingStop(recording)));
       after(async () => {
         await Promise.all(stopping.map((recording) => processRecordingStop(recording.id).catch((error) => {
           console.error("[classroom:actions] disable recording stop failed", { sessionId, recordingId: recording.id, error: error instanceof Error ? error.message : String(error) });
@@ -278,6 +286,7 @@ export async function POST(
         { status: 409 },
       );
     }
+    if (error instanceof ClassroomCommandConflict) return NextResponse.json({ error: error.message, code: "command_conflict" }, { status: 409 });
     if (error instanceof ClassroomActionError) {
       return NextResponse.json(
         { error: error.message },

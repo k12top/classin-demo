@@ -4,7 +4,7 @@ import {
   createCoursewareObjectKey,
   getCoursewareOssClient,
 } from "@/lib/aliyun-oss";
-import { assertCanTeachCourse } from "@/lib/course-teacher";
+import { assertCanUploadCourseware, COURSEWARE_UPLOAD_FORBIDDEN } from "@/lib/courseware-upload-access";
 import { getSessionFromRequest } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -37,8 +37,8 @@ export async function POST(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: courseId } = await params;
-  if (session.role !== "teacher" || !(await assertCanTeachCourse(session.userId, courseId))) {
-    return NextResponse.json({ error: "Only the teacher can upload courseware" }, { status: 403 });
+  if (!(await assertCanUploadCourseware(session, courseId))) {
+    return NextResponse.json({ code: COURSEWARE_UPLOAD_FORBIDDEN, error: "Only assigned course teachers can upload courseware" }, { status: 403 });
   }
 
   const { filename, contentType, size } = await request.json();

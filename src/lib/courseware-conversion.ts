@@ -16,6 +16,7 @@ export async function refreshCoursewareConversions(items: Courseware[]): Promise
     }
     if (result.status === item.taskStatus) return item;
     const data = {
+      updatedAt: new Date(),
       taskStatus: result.status,
       conversion: result as unknown as Prisma.InputJsonValue,
       conversionError: result.errorMessage ?? null,

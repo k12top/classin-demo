@@ -1,3 +1,4 @@
+import { recordingStopControl } from "@/lib/classroom/recording-stop-state";
 import type { NextRequest } from "next/server";
 import { after, NextResponse } from "next/server";
 import { POST as controlRecording } from "@/app/api/courses/[id]/recording/route";
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest, context: Context) {
     orderBy: { createdAt: "asc" },
   });
   const pending = recordings.filter((recording) =>
-    recordingNeedsReconciliation(recording.status),
+    recordingNeedsReconciliation(recording.status) && !recordingStopControl(recording.providerState)?.attention,
   );
   const now = Date.now();
   const missingAssets = recordings.filter((recording) => recordingAssetDiscoveryDue(recording, now));
@@ -78,7 +79,7 @@ export async function GET(request: NextRequest, context: Context) {
         Array.isArray(state.fileNamePrefix)
         ? state.fileNamePrefix.filter((part): part is string => typeof part === "string")
         : [];
-      const assets = recording.status === "completed"
+      const assets = (recording.status === "completed" || Boolean(recording.stopRequestedAt && recording.playbackObjectKey))
         ? recordingPlaybackAssets(recording.files, prefix, recording.playbackObjectKey, recording.playbackFormat)
         : [];
       if (!assets.length) return [{

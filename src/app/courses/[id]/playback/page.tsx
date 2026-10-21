@@ -556,7 +556,7 @@ export default function CoursePlaybackPage({
   const canPlayHls = course?.status === "finished" && isHlsPlaybackUrl(recordUrl);
   const selectedSession = sessions.find((session) => session.id === selectedSessionId) || null;
   const playableRecordings = recordings.filter(
-    (recording) => recording.status === "completed" && Boolean(recording.playbackUrl),
+    (recording) => ["completed", "processing", "stopping"].includes(recording.status) && Boolean(recording.playbackUrl),
   );
   const canPlaySessionRecording = playableRecordings.length > 0;
   const recordingIsProcessing = recordings.some((recording) =>
@@ -564,6 +564,7 @@ export default function CoursePlaybackPage({
       recording.status,
     ),
   );
+  const attentionRecording = recordings.find(recording => recording.failureStage === "stop-attention");
   const failedRecording = recordings.find(
     (recording) => recording.status === "failed",
   );
@@ -633,10 +634,12 @@ export default function CoursePlaybackPage({
     (!selectedSessionId && course?.status !== "finished"
       ? copy.notFinished
       : !canPlayInApp
-        ? recordingIsProcessing
+        ? attentionRecording
+          ? attentionRecording.errorMessage || (locale.startsWith("zh") ? "录制停止状态需要教师核查。" : "Recorder exit requires teacher verification.")
+          : recordingIsProcessing
           ? locale.startsWith("zh")
-            ? "课堂回放正在生成，页面会自动刷新。"
-            : "The lesson recording is being prepared. This page will refresh automatically."
+            ? "正在核验录制结束并准备回放，页面会自动刷新。"
+            : "Recorder exit is being verified and replay is being prepared. This page will refresh automatically."
           : failedRecording
             ? recordings.every(recording => recording.status === "failed" && !recording.startedAt)
               ? locale.startsWith("zh")
@@ -759,6 +762,10 @@ export default function CoursePlaybackPage({
               </div>
             ) : canPlayInApp ? (
               <>
+                {selectedRecording && selectedRecording.status !== "completed" && <p role="status" className="border-b border-border p-3 text-sm text-muted-foreground">
+                  {locale.startsWith("zh") ? "可播放已生成片段；录制是否结束仍在核验，内容可能尚未完整。" : "Available recording segments can be played. Recorder exit remains unconfirmed and the recording may be incomplete."}
+                  {isTeacher && attentionRecording?.errorMessage ? ` ${attentionRecording.errorMessage}` : ""}
+                </p>}
                 <PlaybackVideo
                   courseId={id}
                   trackProgress={!isTeacher}

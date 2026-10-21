@@ -38,6 +38,17 @@ async function getState(
   const resolvedCourseId = resolved.access.courseId;
   const sessionId = resolved.access.sessionId;
 
+  // Channel payloads are hints only: every section still resolves viewer access.
+  const scope = request.nextUrl.searchParams.get("scope");
+  if (scope === "runtime" || scope === "captions" || scope === "courseware") {
+    const section = scope === "runtime"
+      ? { runtime: await getClassroomRuntimeSnapshot(resolvedCourseId, sessionId, { ensure: false, coalesce: true }) }
+      : scope === "captions"
+        ? { captions: await classroomSharedRead(sessionId, "captions:100", () => getClassroomCaptions(resolvedCourseId, 100, sessionId)) }
+        : { courseware: await classroomSharedRead(sessionId, `conversion-courseware:${resolved.access.role}`, () => getClassroomCourseware(resolvedCourseId, resolved.access.role, sessionId, true)) };
+    return NextResponse.json(section, { headers: { "Cache-Control": "no-store" } });
+  }
+
   const lesson = await prisma.courseSession.findUnique({
     where: { id: sessionId },
     select: {
@@ -108,7 +119,11 @@ async function getState(
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const startedAt = performance.now();
   const { id } = await context.params;
-  try { return await getState(request, context); }
+  try {
+    const response = await getState(request, context);
+    response.headers.set("Server-Timing", `classroom;dur=${Math.round(performance.now() - startedAt)}`);
+    return response;
+  }
   catch (error) {
     const response = databaseUnavailableResponse(error, { route: "classroom/state", sessionId: id, operation: "poll", durationMs: Math.round(performance.now() - startedAt) });
     if (response) return response;

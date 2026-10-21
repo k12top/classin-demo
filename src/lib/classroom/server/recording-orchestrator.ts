@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ClassroomRecording, Prisma } from "@prisma/client";
+import { Prisma, type ClassroomRecording } from "@prisma/client";
 import { classroomMediaProfile } from "@/lib/classroom/config";
 import { shouldRecoverRecording } from "@/lib/classroom/recording-continuity";
 import { appendRecordingProviderState } from "@/lib/classroom/recording-provider-state";
@@ -13,9 +13,10 @@ import {
 import { courseIdToRoomUuid } from "@/lib/course-room";
 import { CourseStatus } from "@/lib/course-status";
 import { prisma } from "@/lib/db";
-import { ClassroomRecordingStopUncertainError } from "@/lib/classroom/server/errors";
+import { queueDurableRecordingStop, reconcileDurableRecordingStop } from "./recording-stop";
+import { recordingProviderExited, recordingStopControl } from "../recording-stop-state";
 
-const ACTIVE_RECORDING_STATUSES = ["starting", "recording", "stopping"];
+const ACTIVE_RECORDING_STATUSES = ["starting", "recording", "stopping", "processing"];
 const RECONCILABLE_RECORDING_STATUSES = [
   "starting",
   "recording",
@@ -105,7 +106,7 @@ async function confirmRecordingStart(recordingId: string) {
               lastProviderCheckAt: new Date(),
               startRetryCount: { increment: 1 },
               retryCount: { increment: 1 },
-              failureStage: "start",
+              failureStage: "start-unknown",
               errorMessage:
                 "Cloud recorder did not reach an active state within 90 seconds",
             }
@@ -126,7 +127,7 @@ async function confirmRecordingStart(recordingId: string) {
             lastProviderCheckAt: new Date(),
             startRetryCount: { increment: 1 },
             retryCount: { increment: 1 },
-            failureStage: "start",
+            failureStage: "start-unknown",
             errorMessage: errorMessage(
               error,
               "Cloud recorder startup confirmation timed out",
@@ -171,7 +172,8 @@ export async function requestRecordingStart(
     throw new Error("Recording cannot start after a lesson has ended");
   }
   const latest = lesson.recordings[0];
-  if (latest && ACTIVE_RECORDING_STATUSES.includes(latest.status)) return latest;
+  if (latest?.failureStage === "start-unknown") throw new Error("Verify the previous provider startup outcome before starting another recording");
+  if (latest && ACTIVE_RECORDING_STATUSES.includes(latest.status) && !recordingStopControl(latest.providerState)?.confirmedAt) return latest;
 
   const provider = getRecordingProvider(lesson.recordingProvider);
   provider.validateConfiguration();
@@ -202,6 +204,7 @@ export async function requestRecordingStart(
         latest?.failureStage === "start" ? latest.startRetryCount : 0,
       errorMessage: null,
       failureStage: null,
+      providerState: { startDispatch: "not_dispatched" },
     },
   });
 }
@@ -242,7 +245,15 @@ export async function processRecordingStart(recordingId: string) {
     return confirmRecordingStart(recording.id);
   }
 
+  const priorDispatch = providerStateRecord(recording.providerState)?.startDispatch;
+  if (priorDispatch === "dispatching") {
+    await prisma.classroomRecording.updateMany({ where: { id: recording.id, status: "starting" }, data: {
+      status: "failed", failureStage: "start-unknown", errorMessage: "Startup outcome is unknown; verify the provider task before starting another recorder",
+    } });
+    return prisma.classroomRecording.findUnique({ where: { id: recording.id } });
+  }
   const provider = getRecordingProvider(recording.provider);
+  let dispatched = false;
   let started:
     | Awaited<ReturnType<(typeof provider)["start"]>>
     | null = null;
@@ -271,6 +282,11 @@ export async function processRecordingStart(recordingId: string) {
         pageUrl = null;
       }
     }
+    const dispatchClaim = await prisma.classroomRecording.updateMany({ where: { id: recording.id, status: "starting", lastProviderCheckAt: claimedAt }, data: {
+      providerState: inputJson({ ...providerStateRecord(recording.providerState), startDispatch: "dispatching" }),
+    } });
+    if (!dispatchClaim.count) return prisma.classroomRecording.findUnique({ where: { id: recording.id } });
+    dispatched = true;
     started = await provider.start({
       recordingId: recording.id,
       courseId: recording.sessionId,
@@ -297,24 +313,21 @@ export async function processRecordingStart(recordingId: string) {
       },
     });
 
-    // A stop request may win while acquire/start is in flight. In that case
-    // immediately stop the newly-created provider session instead of reviving
-    // the UI back to REC.
+    // Persist the late SID before cleanup; the minute cron can recover even if this worker exits.
     if (claimed.count === 0) {
-      await provider
-        .stop({
-          channelName: recording.channelName,
-          recorderUserId: started.recorderUserId,
-          resourceId: started.resourceId,
-          providerSessionId: started.providerSessionId,
-          providerState: started.providerState,
-        })
-        .catch((error) => {
-          console.error("[classroom:recording] cancelled start cleanup failed", {
-            recordingId,
-            error: errorMessage(error, "Provider cleanup failed"),
-          });
-        });
+      await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT "id" FROM "ClassroomRecording" WHERE "id" = ${recording.id} FOR UPDATE`;
+        const current = await tx.classroomRecording.findUnique({ where: { id: recording.id } });
+        if (!current || !started) return;
+        const control = recordingStopControl(current.providerState);
+        await tx.classroomRecording.update({ where: { id: recording.id }, data: {
+          recorderUserId: started.recorderUserId, resourceId: started.resourceId, providerSessionId: started.providerSessionId,
+          mode: started.mode, status: "stopping", stopRequestedAt: current.stopRequestedAt ?? new Date(), stoppedAt: null,
+          providerState: inputJson({ ...providerStateRecord(current.providerState), ...started.providerState, startDispatch: "dispatched",
+            ...(control ? { stopControl: { ...control, attention: undefined, nextAt: 0, nextAction: "stop" } } : {}) }),
+        } });
+      });
+      return processRecordingStop(recording.id);
     }
   } catch (error) {
     await prisma.classroomRecording.updateMany({
@@ -323,7 +336,7 @@ export async function processRecordingStart(recordingId: string) {
         status: "failed",
         startRetryCount: { increment: 1 },
         retryCount: { increment: 1 },
-        failureStage: "start",
+        failureStage: dispatched ? "start-unknown" : "start",
         errorMessage: errorMessage(error, "Recording start failed"),
       },
     });
@@ -397,145 +410,12 @@ export async function resumeRecordingWhenReady(
   return updated.count ? "ready" : "stopped";
 }
 
-export async function requestRecordingStop(recording: ClassroomRecording) {
-  if (["completed", "failed", "processing"].includes(recording.status)) {
-    return recording;
-  }
-  await prisma.classroomRecording.updateMany({
-    where: {
-      id: recording.id,
-      status: { in: ["starting", "recording", "stopping"] },
-    },
-    data: {
-      status: "stopping",
-      stopRequestedAt: recording.stopRequestedAt || new Date(),
-      lastProviderCheckAt: null,
-      errorMessage: null,
-      failureStage: null,
-    },
-  });
-  return prisma.classroomRecording.findUniqueOrThrow({
-    where: { id: recording.id },
-  });
+export async function requestRecordingStop(recording: ClassroomRecording, retryVerification = false) {
+  return queueDurableRecordingStop(recording.id, retryVerification);
 }
 
 export async function processRecordingStop(recordingId: string) {
-  const claimedAt = new Date();
-  const claimed = await prisma.classroomRecording.updateMany({
-    where: {
-      id: recordingId,
-      status: "stopping",
-      OR: [
-        { lastProviderCheckAt: null },
-        {
-          lastProviderCheckAt: {
-            lt: new Date(claimedAt.getTime() - PROVIDER_TRANSITION_LEASE_MS),
-          },
-        },
-      ],
-    },
-    data: { lastProviderCheckAt: claimedAt },
-  });
-  if (!claimed.count) {
-    return prisma.classroomRecording.findUnique({ where: { id: recordingId } });
-  }
-  const recording = await prisma.classroomRecording.findUnique({
-    where: { id: recordingId },
-  });
-  if (!recording || recording.status !== "stopping") return recording;
-
-  if (
-    !recording.resourceId ||
-    !recording.providerSessionId ||
-    recording.recorderUserId === "pending"
-  ) {
-    await prisma.classroomRecording.updateMany({
-      where: { id: recording.id, status: "stopping" },
-      data: {
-        status: "completed",
-        stoppedAt: new Date(),
-        errorMessage: null,
-        failureStage: null,
-      },
-    });
-    return prisma.classroomRecording.findUnique({
-      where: { id: recording.id },
-    });
-  }
-
-  try {
-    const provider = getRecordingProvider(recording.provider);
-    const stopped = await provider.stop({
-      channelName: recording.channelName,
-      recorderUserId: recording.recorderUserId,
-      resourceId: recording.resourceId,
-      providerSessionId: recording.providerSessionId,
-      providerState: providerStateRecord(recording.providerState),
-    });
-    await prisma.classroomRecording.updateMany({
-      where: { id: recording.id, status: "stopping" },
-      data: {
-        status: stopped.playbackObjectKey ? "completed" : "processing",
-        playbackObjectKey: stopped.playbackObjectKey,
-        playbackFormat: stopped.playbackFormat,
-        files: inputJson(stopped.files),
-        providerState: inputJson(
-          appendRecordingProviderState(
-            recording.providerState,
-            "lastStop",
-            stopped.providerState,
-          ),
-        ),
-        lastProviderCheckAt: new Date(),
-        stoppedAt: new Date(),
-        errorMessage: null,
-        failureStage: null,
-      },
-    });
-    return prisma.classroomRecording.findUnique({
-      where: { id: recording.id },
-    });
-  } catch (error) {
-    if (error instanceof ClassroomRecordingStopUncertainError) {
-      await prisma.classroomRecording.updateMany({
-        where: { id: recording.id, status: "stopping" },
-        data: {
-          status: "processing",
-          providerState: inputJson(
-            appendRecordingProviderState(
-              recording.providerState,
-              "lastStop",
-              {
-                uncertain: true,
-                message: error.message,
-                occurredAt: new Date().toISOString(),
-              },
-            ),
-          ),
-          stoppedAt: new Date(),
-          lastProviderCheckAt: new Date(),
-          failureStage: null,
-          errorMessage:
-            "停止请求已发送，正在核验声网任务并等待 OSS 生成回放文件",
-        },
-      });
-      return prisma.classroomRecording.findUnique({
-        where: { id: recording.id },
-      });
-    }
-    const nextRetryCount = recording.stopRetryCount + 1;
-    await prisma.classroomRecording.updateMany({
-      where: { id: recording.id, status: "stopping" },
-      data: {
-        status:
-          nextRetryCount >= MAX_PROVIDER_RETRIES ? "failed" : "stopping",
-        stopRetryCount: nextRetryCount,
-        failureStage: "stop",
-        errorMessage: errorMessage(error, "Recording stop failed"),
-      },
-    });
-    throw error;
-  }
+  return reconcileDurableRecordingStop(recordingId);
 }
 
 export async function reconcileRecordingAttempt(recordingId: string) {
@@ -554,7 +434,10 @@ export async function reconcileRecordingAttempt(recordingId: string) {
     return processRecordingStop(requested.id);
   }
   if (recording.status === "starting") return processRecordingStart(recording.id);
-  if (recording.status === "stopping") return processRecordingStop(recording.id);
+  if (recording.failureStage === "start-unknown" || recording.stopRequestedAt || recording.status === "stopping" || recording.status === "processing" || recording.failureStage === "stop") {
+    await requestRecordingStop(recording);
+    return processRecordingStop(recording.id);
+  }
   if (!["recording", "processing"].includes(recording.status)) return recording;
   if (!recording.resourceId || !recording.providerSessionId) return recording;
 
@@ -621,7 +504,7 @@ export async function reconcileRecordingAttempt(recordingId: string) {
   const objectKey = queried.playbackObjectKey || recording.playbackObjectKey;
   const format = playbackFormat(queried.playbackFormat || recording.playbackFormat);
   const stoppedUnexpectedly =
-    !queried.active &&
+    recordingProviderExited(queried.providerState) &&
     !objectKey &&
     !recording.stopRequestedAt &&
     recording.status === "recording";
@@ -629,7 +512,7 @@ export async function reconcileRecordingAttempt(recordingId: string) {
     recording.stoppedAt || recording.stopRequestedAt || recording.updatedAt;
   const finalizationExpired =
     recording.status === "processing" &&
-    !queried.active &&
+    recordingProviderExited(queried.providerState) &&
     !objectKey &&
     Date.now() - finalizationStartedAt.getTime() >=
       RECORDING_FINALIZATION_TIMEOUT_MS;
@@ -656,7 +539,7 @@ export async function reconcileRecordingAttempt(recordingId: string) {
           ? recording.status === "processing"
             ? "processing"
             : "recording"
-          : objectKey
+          : objectKey && recordingProviderExited(queried.providerState)
             ? "completed"
             : "processing",
       ...(stoppedUnexpectedly
@@ -673,7 +556,7 @@ export async function reconcileRecordingAttempt(recordingId: string) {
                 "Cloud recording finished without a playable MP4 or HLS file",
             }
           : {}),
-      ...(objectKey && !recording.stoppedAt ? { stoppedAt: new Date() } : {}),
+      ...(recordingProviderExited(queried.providerState) && !recording.stoppedAt ? { stoppedAt: new Date() } : {}),
     },
   });
   return prisma.classroomRecording.findUnique({
@@ -699,7 +582,7 @@ export async function stopActiveRecordingsForCourse(
     where: {
       courseId,
       ...(sessionId ? { sessionId } : {}),
-      status: { in: ["starting", "recording", "stopping"] },
+      OR: [{ status: { in: ["starting", "recording", "stopping", "processing"] } }, { status: "failed", failureStage: "stop" }],
     },
   });
   const failures: unknown[] = [];
@@ -720,7 +603,7 @@ export async function stopActiveRecordingsForCourse(
   return recordings.length;
 }
 
-export async function retryFailedLiveRecordings(): Promise<number> {
+export async function retryFailedLiveRecordings(deadline = Date.now() + 180_000): Promise<number> {
   const runtimes = await prisma.classroomRuntime.findMany({
     where: { status: "live", recordingStartMode: { not: "disabled" } },
     select: {
@@ -739,6 +622,7 @@ export async function retryFailedLiveRecordings(): Promise<number> {
   });
   let started = 0;
   for (const runtime of runtimes) {
+    if (Date.now() >= deadline) break;
     const latest = runtime.session.recordings[0];
     if (
       !getRecordingProvider(runtime.session.recordingProvider).isConfigured() ||
@@ -805,14 +689,20 @@ export async function recoverInterruptedRecordingForSession(
   return prisma.classroomRecording.findUnique({ where: { id: requested.id } });
 }
 
-export async function reconcilePendingRecordings(): Promise<number> {
+export async function reconcilePendingRecordings(deadline = Date.now() + 180_000): Promise<number> {
   const pending = await prisma.classroomRecording.findMany({
-    where: { status: { in: RECONCILABLE_RECORDING_STATUSES } },
+    where: { AND: [
+      { OR: [{ failureStage: null }, { failureStage: { not: "stop-attention" } }] },
+      { OR: [{ providerState: { path: ["stopControl"], equals: Prisma.AnyNull } }, { providerState: { path: ["stopControl", "nextAt"], lte: Date.now() } }] },
+    ], OR: [{ status: { in: RECONCILABLE_RECORDING_STATUSES } }, { status: "failed", failureStage: { in: ["stop", "start-unknown"] } },
+      // Bounded release audit for recent legacy rows completed from a file alone.
+      { status: "completed", stopRequestedAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) } }] },
     orderBy: { updatedAt: "asc" },
     take: 50,
   });
   let reconciled = 0;
   for (const recording of pending) {
+    if (Date.now() >= deadline) break;
     try {
       await reconcileRecordingAttempt(recording.id);
       reconciled += 1;

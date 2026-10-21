@@ -41,7 +41,8 @@ export function stopDisallowedMicrophone(provider: ClassroomMediaProvider): Prom
   const pending = muting.get(provider);
   if (pending) return pending;
   const operation = Promise.resolve().then(async () => {
-    if (provider.getSnapshot().local.microphoneOn) await provider.toggleMicrophone();
+    if (provider.muteMicrophone) await provider.muteMicrophone();
+    else if (provider.getSnapshot().local.microphoneOn) await provider.toggleMicrophone();
   });
   muting.set(provider, operation);
   void operation.finally(() => {

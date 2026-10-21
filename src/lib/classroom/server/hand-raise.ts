@@ -1,3 +1,4 @@
+import { readClassroomCommand, saveClassroomCommand } from "./command-receipt";
 import "server-only";
 import { prisma } from "@/lib/db";
 import { classroomModePolicy } from "../mode";
@@ -10,7 +11,7 @@ import { readRedisClassroomPresence } from "@/lib/classroom/server/redis-presenc
 /** Commit the student's own hand without reading the full classroom/engagement roster. */
 export async function setClassroomHandRaised(input: {
   courseId: string; sessionId: string; actorId: string; role: ClassroomRole;
-  clientId?: string; raised: boolean;
+  clientId?: string; commandId?: string; raised: boolean;
 }): Promise<ClassroomHandRaiseUpdate> {
   const { courseId, sessionId, actorId, role, clientId, raised } = input;
   if (role !== "student") throw new ClassroomActionError("只有学生可以举手", 403);
@@ -30,12 +31,17 @@ export async function setClassroomHandRaised(input: {
       connection.leftAt || Math.max(connection.lastSeenAt.getTime(), lease?.lastSeenAt || 0) < Date.now() - CLASSROOM_RECONNECT_WINDOW_MS) {
       throw new ClassroomActionError("请重新进入课堂后举手", 409);
     }
+    const command = { sessionId, actorId, role, clientId: input.clientId, commandId: input.commandId, action: { type: raised ? "raiseHand" : "lowerHand" } };
+    const replay = await readClassroomCommand(tx, command);
+    if (replay) return replay as ClassroomHandRaiseUpdate;
     const handRaisedAt = raised ? member.handRaisedAt || new Date() : null;
     let revision = runtime.revision;
     if (Boolean(handRaisedAt) !== Boolean(member.handRaisedAt)) {
       await tx.classroomMemberState.update({ where: { id: member.id }, data: { handRaisedAt } });
       revision = (await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { revision: { increment: 1 } }, select: { revision: true } })).revision;
     }
-    return { courseId: sessionId, topic: "hand-raise", actorId, revision, handRaisedAt: handRaisedAt?.toISOString() || null };
+    const response: ClassroomHandRaiseUpdate = { ...(input.commandId && { commandId: input.commandId }), courseId: sessionId, topic: "hand-raise", actorId, revision, handRaisedAt: handRaisedAt?.toISOString() || null };
+    await saveClassroomCommand(tx, command, response);
+    return response;
   }, { maxWait: 1_500, timeout: 3_500 });
 }

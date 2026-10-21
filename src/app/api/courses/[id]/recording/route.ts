@@ -1,3 +1,4 @@
+import { recordingStopControl } from "@/lib/classroom/recording-stop-state";
 import { after, NextRequest, NextResponse } from "next/server";
 import {
   ClassroomProviderConfigurationError,
@@ -70,6 +71,7 @@ function publicRecording(recording: {
   playbackFormat?: string | null;
   playbackObjectKey?: string | null;
   failureStage?: string | null;
+  providerState?: unknown;
 }) {
   return {
     id: recording.id,
@@ -85,6 +87,10 @@ function publicRecording(recording: {
       ? `/api/sessions/${encodeURIComponent(recording.sessionId)}/recordings/${encodeURIComponent(recording.id)}/play`
       : null,
     failureStage: recording.failureStage ?? null,
+    stopVerification: recordingStopControl(recording.providerState)?.confirmedAt ? "confirmed"
+      : recordingStopControl(recording.providerState)?.attention ? "attention" : "unconfirmed",
+    stopConfirmedAt: recordingStopControl(recording.providerState)?.confirmedAt ?? null,
+    replayReady: Boolean(recording.playbackObjectKey),
   };
 }
 
@@ -226,7 +232,7 @@ export async function POST(
         recording: latest ? publicRecording(latest) : null,
       });
     }
-    const recording = await requestRecordingStop(latest);
+    const recording = await requestRecordingStop(latest, true);
     after(() => processRecordingStop(recording.id).catch((error) => {
       console.error("[classroom:recording] deferred stop failed", {
         recordingId: recording.id,

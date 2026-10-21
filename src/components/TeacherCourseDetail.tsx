@@ -6,13 +6,14 @@ import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { Button } from "@/components/ui/button";
+import { CoursewareUploader } from "@/components/courseware-uploader";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlayCircle, Clock, Users, Link as LinkIcon, Search, Trash2, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw, AlertCircle, Upload, CalendarClock, ChevronLeft, ChevronRight, Share2, Send, Film } from "lucide-react";
+import { PlayCircle, Clock, Users, Link as LinkIcon, Search, Trash2, Check, Copy, BookOpen, FileText, Loader2, Key, User, Pencil, X, RefreshCw, AlertCircle, CalendarClock, ChevronLeft, ChevronRight, Share2, Send, Film } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { useTranslation } from "@/lib/i18n/context";
 import TimeDisplay from "@/components/TimeDisplay";
@@ -169,6 +170,7 @@ interface TeacherCourse {
   teachers?: CourseTeacherSummary[];
   isCourseOwner?: boolean;
   canTeach?: boolean;
+  canUploadCourseware?: boolean;
   status: string;
   startTime: string | null;
   endTime: string | null;
@@ -310,11 +312,6 @@ export default function TeacherCourseDetail({
 
   // Courseware Tab State
   const [courseware, setCourseware] = useState<CoursewareItem[]>([]);
-  const [cwName, setCwName] = useState("");
-  const [cwFile, setCwFile] = useState<File | null>(null);
-  const [cwAdding, setCwAdding] = useState(false);
-  const [cwError, setCwError] = useState("");
-  const cwFileInputRef = useRef<HTMLInputElement>(null);
 
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
@@ -546,73 +543,6 @@ export default function TeacherCourseDetail({
       });
     }
   }, [course.canTeach, fetchCourseware]);
-
-  const handleAddCourseware = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!cwFile) {
-      setCwError(t("courseDetail.coursewareFileRequired"));
-      return;
-    }
-    const fileName = cwName.trim() || cwFile.name;
-    const extension = cwFile.name.split(".").pop()?.toLowerCase() || "";
-    if (!extension) {
-      setCwError(t("courseDetail.coursewareExtensionRequired"));
-      return;
-    }
-    
-    setCwAdding(true);
-    setCwError("");
-    try {
-      const uploadUrlRes = await fetch(`/api/courses/${course.id}/courseware/upload-url`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: cwFile.name,
-          contentType: cwFile.type || "application/octet-stream",
-          size: cwFile.size,
-        }),
-      });
-      const uploadUrlData = await uploadUrlRes.json();
-      if (!uploadUrlRes.ok) {
-        throw new Error(uploadUrlData.error || t("courseDetail.errCwAddFailed"));
-      }
-
-      const uploadRes = await fetch(uploadUrlData.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": uploadUrlData.contentType },
-        body: cwFile,
-      });
-      if (!uploadRes.ok) {
-        throw new Error(t("courseDetail.coursewareOssUploadFailed"));
-      }
-
-      const res = await fetch(`/api/courses/${course.id}/courseware`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: fileName,
-          objectKey: uploadUrlData.objectKey,
-          ext: extension,
-          size: cwFile.size,
-        }),
-      });
-      
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || t("courseDetail.errCwAddFailed"));
-      }
-      
-      setCwName("");
-      setCwFile(null);
-      if (cwFileInputRef.current) cwFileInputRef.current.value = "";
-      setCwError("");
-      await fetchCourseware();
-    } catch (err) {
-      setCwError(err instanceof Error ? err.message : t("courseDetail.errCwAddFailed"));
-    } finally {
-      setCwAdding(false);
-    }
-  };
 
   /** 一对一 (roomType 0) 仅支持直配学生，不使用学生组。 */
   const supportsStudentGroups = course.roomType !== 0;
@@ -2093,56 +2023,9 @@ export default function TeacherCourseDetail({
                 <CardDescription className="text-xs">{t("courseDetail.addCoursewareDesc")}</CardDescription>
               </CardHeader>
               <CardContent>
-                <form onSubmit={handleAddCourseware} className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("courseDetail.coursewareName")}</label>
-                    <Input
-                      placeholder={t("courseDetail.coursewareNamePlaceholder")}
-                      value={cwName}
-                      onChange={(e) => setCwName(e.target.value)}
-                      className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("courseDetail.chooseCoursewareFile")}</label>
-                    <Input
-                      ref={cwFileInputRef}
-                      type="file"
-                      accept=".ppt,.pptx,.pdf,.doc,.docx,.png,.jpg,.jpeg,.gif,.mp3,.mp4"
-                      onChange={(event) => {
-                        const file = event.target.files?.[0] || null;
-                        setCwFile(file);
-                        if (file && !cwName.trim()) setCwName(file.name);
-                      }}
-                      className="cursor-pointer bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary hover:file:bg-primary/15"
-                    />
-                    <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
-                      {t("courseDetail.coursewareUploadHint")}
-                    </p>
-                  </div>
-
-                  {cwError && (
-                    <p className="text-xs text-red-500 bg-red-500/5 p-2 rounded-lg border border-red-500/20">
-                      {cwError}
-                    </p>
-                  )}
-
-                  <Button
-                    type="submit"
-                    disabled={cwAdding || !cwFile}
-                    className="w-full bg-primary hover:bg-primary/95 text-white rounded-xl text-xs font-semibold shadow-sm active:scale-[0.98]"
-                  >
-                    {cwAdding ? (
-                      <span className="flex items-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin text-current" />
-                        {t("courseDetail.uploadingToOss")}
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-2"><Upload className="h-4 w-4" />{t("courseDetail.uploadCourseware")}</span>
-                    )}
-                  </Button>
-                </form>
+                <CoursewareUploader key={course.id} courseId={course.id}
+                  canUpload={course.canUploadCourseware ?? (user?.role === "teacher" && Boolean(course.canTeach))}
+                  onUploaded={fetchCourseware} />
               </CardContent>
             </Card>
 

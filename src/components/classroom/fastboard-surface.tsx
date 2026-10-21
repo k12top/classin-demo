@@ -1,5 +1,7 @@
 "use client";
 
+import { presentCoursewareOnWhiteboard, cancelCoursewarePresentation } from "@/lib/classroom/courseware-presentation";
+
 import { useEffect, useRef, useState } from "react";
 import type { FastboardApp } from "@netless/fastboard";
 import type {
@@ -16,11 +18,6 @@ export function preloadFastboard() {
   fastboardModulePromise ??= import("@netless/fastboard");
   return fastboardModulePromise;
 }
-
-type ConversionScene = {
-  name: string;
-  ppt?: { src: string; width?: number; height?: number };
-};
 
 type WhiteboardError = {
   key?: string;
@@ -83,6 +80,8 @@ export function FastboardSurface({
   identity,
   displayName,
   courseware,
+  insertionAttempt = 0,
+  onCoursewareInsertion,
   recorderMode = false,
   onControllerChange,
   onAppChange,
@@ -93,6 +92,8 @@ export function FastboardSurface({
   identity: string;
   displayName: string;
   courseware: ClassroomCoursewareSnapshot | null;
+  insertionAttempt?: number;
+  onCoursewareInsertion?: (id: string, status: "inserting" | "inserted" | "failed", error?: string) => void;
   recorderMode?: boolean;
   onControllerChange?: (
     controller: ClassroomWhiteboardController | null,
@@ -105,7 +106,7 @@ export function FastboardSurface({
   const containerRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<FastboardApp | null>(null);
   const activeToolRef = useRef<ClassroomWhiteboardTool>("selector");
-  const insertedRef = useRef(new Set<string>());
+  const presentationRef = useRef<{ app: FastboardApp; key: string } | null>(null);
   const automaticRetryCountRef = useRef(0);
   const [error, setError] = useState<WhiteboardError | null>(null);
   const [ready, setReady] = useState(false);
@@ -257,6 +258,7 @@ export function FastboardSurface({
           return;
         }
         appRef.current = createdApp;
+        presentationRef.current = null;
         ui = fastboard.mount(createdApp, mountTarget, {
           theme: "dark",
           language: locale.toLowerCase().startsWith("zh") ? "zh-CN" : "en",
@@ -474,69 +476,27 @@ export function FastboardSurface({
 
   useEffect(() => {
     const app = appRef.current;
-    if (
-      !app ||
-      !ready ||
-      !credential.writable ||
-      !courseware ||
-      !courseware.whiteboardEnabled ||
-      courseware.taskStatus !== "Finished" ||
-      !courseware.taskUuid ||
-      insertedRef.current.has(courseware.id)
-    ) {
-      return;
+    if (!app || !ready) { presentationRef.current = null; return; }
+    if (!credential.writable || !courseware?.whiteboardEnabled || courseware.taskStatus !== "Finished" || !courseware.taskUuid) {
+      cancelCoursewarePresentation(app); presentationRef.current = null; return;
     }
-    const conversion = courseware.conversion as
-      | { scenes?: ConversionScene[]; prefix?: string }
-      | null;
-    async function insert() {
-      try {
-        if (courseware!.type === "dynamic") {
-          await app!.insertDocs({
-            fileType: "pptx",
-            scenePath: `/courseware/${courseware!.id}`,
-            taskId: courseware!.taskUuid!,
-            url: conversion?.prefix,
-            title: courseware!.name,
-          });
-        } else {
-          const scenes = (conversion?.scenes || [])
-            .filter((scene) => scene.ppt?.src)
-            .map((scene, index) => ({
-              name: scene.name || String(index + 1),
-              ppt: {
-                src: scene.ppt!.src,
-                width: scene.ppt!.width || 1280,
-                height: scene.ppt!.height || 720,
-              },
-            }));
-          if (scenes.length === 0) {
-            throw new Error(EMPTY_CONVERSION_ERROR);
-          }
-          await app!.insertDocs({
-            fileType: "pdf",
-            scenePath: `/courseware/${courseware!.id}`,
-            scenes,
-            title: courseware!.name,
-          });
-        }
-        insertedRef.current.add(courseware!.id);
-      } catch (insertError) {
-        setError(
-          insertError instanceof Error &&
-            insertError.message !== EMPTY_CONVERSION_ERROR
-            ? { message: insertError.message }
-            : {
-                key:
-                  insertError instanceof Error
-                    ? "classroom.v3.conversionEmpty"
-                    : "classroom.v3.addToWhiteboardFailed",
-              },
-        );
-      }
-    }
-    void insert();
-  }, [courseware, credential.writable, ready]);
+    const key = `${courseware.id}:${courseware.taskUuid}:${insertionAttempt}`;
+    if (presentationRef.current?.app === app && presentationRef.current.key === key) return;
+    const presentation = { app, key };
+    presentationRef.current = presentation;
+    const id = courseware.id;
+    setError(null);
+    onCoursewareInsertion?.(id, "inserting");
+    void presentCoursewareOnWhiteboard(app, courseware, () => appRef.current === app).then(() => {
+      if (appRef.current === app) onCoursewareInsertion?.(id, "inserted");
+    }).catch((failure: unknown) => {
+      if (appRef.current !== app) return;
+      onCoursewareInsertion?.(id, "failed", t("classroom.v3.addToWhiteboardFailed"));
+      if (presentationRef.current !== presentation) return;
+      setError(failure instanceof Error && failure.message !== EMPTY_CONVERSION_ERROR
+        ? { message: failure.message } : { key: "classroom.v3.addToWhiteboardFailed" });
+    });
+  }, [courseware, credential.writable, ready, insertionAttempt, onCoursewareInsertion, t]);
 
   if (!credential.enabled) {
     const pending = credential.error === "whiteboard_pending";

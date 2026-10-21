@@ -1,3 +1,4 @@
+import { readClassroomCommand, saveClassroomCommand } from "./command-receipt";
 import "server-only";
 import { prisma } from "@/lib/db";
 import type { ClassroomRole } from "../types";
@@ -8,6 +9,7 @@ import { ClassroomActionError } from "./runtime";
 /** The moderation response needs no roster, reward totals or engagement reads. */
 export async function applyClassroomMemberPermissions(input: {
   courseId: string; sessionId: string; actorId: string; role: ClassroomRole;
+  clientId?: string; commandId?: string;
   action: ClassroomMicrophonePermissionAction;
 }): Promise<ClassroomMemberPermissionUpdate> {
   const { courseId, sessionId, actorId, role, action } = input;
@@ -24,6 +26,9 @@ export async function applyClassroomMemberPermissions(input: {
     if (role === "assistant" && (runtime.assistantPermissions as Record<string, boolean>)[actorId] !== true) {
       throw new ClassroomActionError("主讲老师尚未授予管理权限", 403);
     }
+    const command = { sessionId, actorId, role, clientId: input.clientId, commandId: input.commandId, action: action };
+    const replay = await readClassroomCommand(tx, command);
+    if (replay) return replay as ClassroomMemberPermissionUpdate;
     const microphoneAllowed = action.type === "setMediaAllowed" ? action.microphoneAllowed : action.type === "unmuteAllMicrophones";
     const result = await tx.classroomMemberState.updateMany({
       where: action.type === "setMediaAllowed" ? { sessionId, userId: action.targetUserId } : { sessionId, role: "student" },
@@ -31,8 +36,10 @@ export async function applyClassroomMemberPermissions(input: {
     });
     if (action.type === "setMediaAllowed" && !result.count) throw new ClassroomActionError("课堂成员不存在", 404);
     const confirmed = await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { revision: { increment: 1 } }, select: { revision: true } });
-    return { courseId: sessionId, topic: "member-permissions", actorId, revision: confirmed.revision,
+    const response: ClassroomMemberPermissionUpdate = { ...(input.commandId && { commandId: input.commandId }), courseId: sessionId, topic: "member-permissions", actorId, revision: confirmed.revision,
       scope: action.type === "setMediaAllowed" ? "member" : "students", microphoneAllowed,
       ...(action.type === "setMediaAllowed" && { targetUserId: action.targetUserId, cameraAllowed: action.cameraAllowed }) };
+    await saveClassroomCommand(tx, command, response);
+    return response;
   }, { maxWait: 1_500, timeout: 3_500 });
 }

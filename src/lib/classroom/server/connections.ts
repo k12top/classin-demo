@@ -1,4 +1,6 @@
 import "server-only";
+import { ClassroomConnectionEndedError } from "./errors";
+import { classroomEmptyGraceMs } from "../empty-room-policy";
 import { prisma } from "@/lib/db";
 import { refreshCaptionDemand } from "./caption-demand";
 import { classroomPgFallback, classroomRedisEnabled } from "./redis";
@@ -15,7 +17,9 @@ export function normalizeClassroomClientId(value: unknown): string | undefined {
 export async function touchClassroomConnection(sessionId: string, userId: string, clientId: string, rejoin = false) {
   const identity = `${userId}:${clientId}`;
   if (!rejoin) {
-    const cached = await redisClassroomHeartbeat(sessionId, userId, clientId);
+    // With empty-room closure enabled, heartbeat must share the durable runtime
+    // lock with the closer. Redis-only refreshes cannot authorize a DB close.
+    const cached = classroomEmptyGraceMs() ? null : await redisClassroomHeartbeat(sessionId, userId, clientId);
     if (cached) return cached;
     // A heartbeat is a lease refresh, not a join or a permission update.
     // The connection lease must refresh even when moderation locks the member.
@@ -23,7 +27,7 @@ export async function touchClassroomConnection(sessionId: string, userId: string
     const now = new Date();
     const [result] = await classroomPgFallback(`heartbeat:${sessionId}:${identity}`, () => prisma.$queryRaw<Array<{ status: string | null; refreshed: boolean; registered: boolean; leftAt: Date | null }>>`
       WITH runtime_state AS (
-        SELECT "status" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId}
+        SELECT "status" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR SHARE SKIP LOCKED
       ), available AS (
         SELECT c."id" FROM "ClassroomConnection" c
         WHERE c."id" = ${`${sessionId}:${identity}`} AND c."leftAt" IS NULL
@@ -57,9 +61,14 @@ export async function touchClassroomConnection(sessionId: string, userId: string
   // Scope the row key to authenticated identity; a supplied tab id cannot overwrite another user.
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SET LOCAL lock_timeout = '1s'`;
+    await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
+    const runtime = await tx.classroomRuntime.findUnique({ where: { sessionId }, select: { status: true } });
+    if (!runtime || runtime.status === "ended") throw new ClassroomConnectionEndedError();
     await tx.$queryRaw`SELECT "id" FROM "ClassroomMemberState" WHERE "sessionId" = ${sessionId} AND "userId" = ${userId} FOR UPDATE`;
     await tx.classroomMemberState.updateMany({ where: { sessionId, userId }, data: { presence: "online", lastSeenAt: values.lastSeenAt } });
     await tx.classroomConnection.upsert({ where: { id: `${sessionId}:${identity}` }, create: { id: `${sessionId}:${identity}`, ...values }, update: values });
+    await tx.classroomProviderEvent.updateMany({ where: { noticeId: `classroom-empty:${sessionId}` },
+      data: { payload: { cancelledAt: values.lastSeenAt.getTime() } } });
   }, { maxWait: 1_500, timeout: 3_500 });
   await synchronizeClassroomRedis(sessionId, true);
 }

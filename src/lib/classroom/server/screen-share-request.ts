@@ -1,3 +1,4 @@
+import { readClassroomCommand, saveClassroomCommand } from "./command-receipt";
 import "server-only";
 import { prisma } from "@/lib/db";
 import { classroomModePolicy } from "../mode";
@@ -11,6 +12,7 @@ export async function requestClassroomScreenShare(input: {
   sessionId: string;
   actorId: string;
   role: ClassroomRole;
+  clientId?: string; commandId?: string;
   targetUserId: string;
 }): Promise<ClassroomScreenShareRequest> {
   const { courseId, sessionId, actorId, role, targetUserId } = input;
@@ -34,6 +36,9 @@ export async function requestClassroomScreenShare(input: {
     if (role === "assistant" && (runtime.assistantPermissions as Record<string, boolean>)[actorId] !== true) {
       throw new ClassroomActionError("主讲老师尚未授予管理权限", 403);
     }
+    const command = { sessionId, actorId, role, clientId: input.clientId, commandId: input.commandId, action: { type: "requestScreenShare", targetUserId } };
+    const replay = await readClassroomCommand(tx, command);
+    if (replay) return replay as ClassroomScreenShareRequest;
     const targetWhere = { sessionId_userId: { sessionId, userId: targetUserId } };
     const target = await tx.classroomMemberState.findUnique({ where: targetWhere, select: { role: true } });
     if (!target || target.role !== "student") throw new ClassroomActionError("只能向当前课堂的学生发起共享请求", 409);
@@ -44,7 +49,9 @@ export async function requestClassroomScreenShare(input: {
     const confirmed = await tx.classroomRuntime.update({
       where: { id: runtime.id }, data: { revision: { increment: 1 } }, select: { revision: true },
     });
-    return { courseId: sessionId, topic: "screen-share-request", actorId, revision: confirmed.revision,
+    const response: ClassroomScreenShareRequest = { ...(input.commandId && { commandId: input.commandId }), courseId: sessionId, topic: "screen-share-request", actorId, revision: confirmed.revision,
       targetUserId, requestedAt: requestedAt.toISOString() };
+    await saveClassroomCommand(tx, command, response);
+    return response;
   }, { maxWait: 1_500, timeout: 3_500 });
 }

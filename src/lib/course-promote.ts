@@ -12,6 +12,7 @@ import { reconcileActiveClassroomTranscriptions } from "@/lib/classroom/server/t
 import { reconcileCourseSessionSummaries } from "@/lib/course-session-summary";
 import { enqueueClassroomEvent } from "@/lib/classroom/server/integration-events";
 import { prisma } from "@/lib/db";
+import { closeEmptyClassrooms } from "@/lib/classroom/server/empty-room";
 
 function courseAttendanceCloseTime(
   endTime: Date | null | undefined,
@@ -49,6 +50,9 @@ export async function promoteCoursesIfDue(
   const reconcileRecordings = options.reconcileRecordings ?? true;
   const delayMinutes = getFinishedDelayMinutes();
   const now = new Date();
+  const recordingDeadline = Date.now() + 180_000;
+  // The same minute cron closes empty rooms; subsequent terminal cleanup independently stops recorders.
+  const emptyClosed = await closeEmptyClassrooms(courseIds, now);
   const threshold = new Date(now.getTime() - delayMinutes * 60 * 1000);
 
   const sessionScope = courseIds?.length
@@ -206,7 +210,7 @@ export async function promoteCoursesIfDue(
   if (reconcileRecordings) {
     const recordingsToStop = await prisma.classroomRecording.findMany({
       where: {
-        status: { in: ["recording", "stopping"] },
+        OR: [{ status: { in: ["starting", "recording", "stopping", "processing"] } }, { status: "failed", failureStage: "stop" }],
         session: {
           status: {
             in: [
@@ -220,6 +224,7 @@ export async function promoteCoursesIfDue(
       },
     });
     for (const recording of recordingsToStop) {
+      if (Date.now() >= recordingDeadline) break;
       try {
         await stopRecordingAttempt(recording);
       } catch (error) {
@@ -287,14 +292,15 @@ export async function promoteCoursesIfDue(
   // a 5-second client poll would repeatedly attempt provider startup.
   if (reconcileRecordings && !courseIds?.length) {
     await Promise.all([
-      reconcilePendingRecordings(),
-      retryFailedLiveRecordings(),
+      reconcilePendingRecordings(recordingDeadline),
+      retryFailedLiveRecordings(recordingDeadline),
       reconcileActiveClassroomTranscriptions(),
       reconcileCourseSessionSummaries(),
     ]);
   }
 
   return (
+    emptyClosed +
     finishedSessions.count +
     liveSessions.count +
     resultScheduledEnd.count +

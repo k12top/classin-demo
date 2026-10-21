@@ -1,3 +1,4 @@
+import { serverRtmConfiguration, serverRtmPublisherId, assertClientSignalingIdentity } from "./server-publisher";
 import "server-only";
 
 import { classroomSignalingUserId } from "./identity";
@@ -14,8 +15,11 @@ export function issueAgoraSignalingCredential(
   const appCertificate = process.env.AGORA_APP_CERTIFICATE?.trim();
   if (!appId || !appCertificate) return null;
   const normalizedUserId = classroomSignalingUserId(userId);
+  const server = serverRtmConfiguration();
+  if (server) assertClientSignalingIdentity(courseId, normalizedUserId, server);
   return {
     provider: "agora-rtm",
+    ...(server && { serverPublisherId: serverRtmPublisherId(courseId, server) }),
     appId,
     userId: normalizedUserId,
     channelName: `classroom-${courseId}`,

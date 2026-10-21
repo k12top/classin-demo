@@ -7,7 +7,7 @@ import {
   toCoursewareStorageUrl,
 } from "@/lib/aliyun-oss";
 import { resolveCoursewareAccess } from "@/lib/courseware-access";
-import { assertCanTeachCourse } from "@/lib/course-teacher";
+import { assertCanUploadCourseware, COURSEWARE_UPLOAD_FORBIDDEN } from "@/lib/courseware-upload-access";
 import { refreshCoursewareConversions } from "@/lib/courseware-conversion";
 import type { Prisma } from "@prisma/client";
 
@@ -113,10 +113,9 @@ export async function POST(
 
   try {
     if (
-      session.role !== "teacher" ||
-      !(await assertCanTeachCourse(session.userId, courseId))
+      !(await assertCanUploadCourseware(session, courseId))
     ) {
-      return NextResponse.json({ error: "Only the teacher can upload courseware" }, { status: 403 });
+      return NextResponse.json({ code: COURSEWARE_UPLOAD_FORBIDDEN, error: "Only assigned course teachers can upload courseware" }, { status: 403 });
     }
 
     const body = await request.json();

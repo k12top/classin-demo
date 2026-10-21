@@ -28,6 +28,8 @@ import {
   rosterContainsUser,
 } from "@/lib/course-session-roster";
 
+import { canUploadCoursewareForCourse } from "@/lib/courseware-upload-access";
+
 export const dynamic = "force-dynamic";
 
 const courseDetailInclude = {
@@ -182,6 +184,7 @@ export async function GET(
       statusLabel: string;
       isCourseOwner: boolean;
       canTeach: boolean;
+      canUploadCourseware: boolean;
       requiresPasscode: boolean;
       nextSession: unknown;
       sessionCount: number;
@@ -197,6 +200,7 @@ export async function GET(
         : {}),
       isCourseOwner: userOwnsCourse(course, session.userId),
       canTeach: isTeacher,
+      canUploadCourseware: canUploadCoursewareForCourse(session, course),
       requiresPasscode: course.roomType === 10 && Boolean(course.passcode),
     }) as SerializedCourse;
     if (!isTeacher) {

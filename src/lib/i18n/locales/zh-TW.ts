@@ -3,6 +3,11 @@ import type { DeepPartial } from "../types";
 
 export const zhTW = {
   ...zhCN,
+  courseDetail: {
+    ...zhCN.courseDetail,
+    coursewareUploaded: "課件已上傳",
+    coursewareUploadForbidden: "目前帳號沒有此課程的課件上傳權限。請確認已登入教師帳號，並由課程擁有者核對授課教師分配。",
+  },
   playback: {
     ...zhCN.playback,
     compatibility: {
@@ -123,6 +128,20 @@ export const zhTW = {
     },
     v3: {
       ...zhCN.classroom.v3,
+      coursewarePermissionOn: "已開啟",
+      coursewarePermissionOff: "已關閉",
+      coursewareSaving: "儲存中…",
+      coursewareSaved: "設定已儲存",
+      coursewareSaveUnconfirmed: "尚未確認儲存結果，請重新整理並核對設定後重試",
+      coursewareStartAccepted: "轉換任務已建立，完成後可在白板開啟",
+      coursewareOpening: "正在加入白板…",
+      coursewareAdded: "已加入白板",
+      coursewareReady: "轉換完成，可在白板開啟",
+      coursewareConverting: "課件正在轉換…",
+      coursewareRemove: "移出白板課件",
+
+
+
       offStage: "未上台",
       cancelStageInvitation: "取消上台邀請",
       screenShareAuthorizedIdle: "已獲准共享，目前未共享",
@@ -164,6 +183,15 @@ export const zhTW = {
       captionHelp: "字幕說明",
       captionSettings: "字幕設定",
       captionFollowLatest: "跟隨最新",
+      captionTranslationStatePending: "翻譯處理中。",
+      captionTranslationStateFailed: "翻譯未能開始，可重試。",
+      captionTranslationStateUnknown: "翻譯結果暫無法確認，原文已保留。",
+      captionTranslationStateRecoverable: "翻譯結果已儲存，等待恢復。",
+      captionTranslationRestore: "恢復翻譯",
+      captionTranslationRetry: "重試翻譯",
+      captionTranslationRecoveryFailed: "翻譯尚未恢復，原文已保留。",
+      deviceReports: "裝置回應 {received} 個；失敗 {failed} 個；處理中或未知 {unknown} 個。權限已儲存。",
+      deviceReportsUnavailable: "尚未收到裝置回應。權限已儲存，請檢查成員連線。",
       captionTranslationPending: "翻譯中…",
       microphoneLevel: "麥克風音量",
       captionSettingsExpand: "展開字幕設定",

@@ -59,3 +59,7 @@ test("long countdown has explicit day hour and minute units in the interface loc
   assert.match(formatTimeUntilClass(30 * 60_000, "en"), /30.*min/);
   assert.match(formatTimeUntilClass(20_000, "en"), /1.*min/);
 });
+
+test("one command ID survives bounded transport retries",async()=>{
+ const ids:string[]=[];await requestClassroomAction("/actions",{clientId:"tab",action:{type:"muteAllMicrophones"}},async(_url,init)=>{ids.push(JSON.parse(String(init?.body)).commandId);return ids.length===1?reply(503,{code:"database_unavailable"}):reply(200,{});},async()=>{});assert.equal(ids.length,2);assert.equal(ids[0],ids[1]);assert.match(ids[0],/^[a-f\d-]{36}$/i);
+});

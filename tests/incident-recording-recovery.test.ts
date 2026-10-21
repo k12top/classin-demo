@@ -16,6 +16,11 @@ test("finished lessons queue and stop a recording instead of restarting it", asy
   let stopped = 0;
   const service = loadModule<{ reconcileRecordingAttempt(id: string): Promise<typeof row> }>(path, {
     ...aliasStubs(path), "server-only": {},
+    "../recording-stop-state": {},
+    "./recording-stop": {
+      queueDurableRecordingStop: async () => { row.stopRequestedAt = new Date() as never; return row; },
+      reconcileDurableRecordingStop: async () => { stopped++; row.status = "processing"; return row; },
+    },
     "@/lib/course-status": { CourseStatus: { FINISHED: "finished", AFTER_CLASS: "afterClass", CANCELLED: "cancelled" } },
     "@/lib/classroom/server/errors": {},
     "@/lib/classroom/recording-provider-state": { appendRecordingProviderState: (state: object, key: string, value: unknown) => ({ ...state, [key]: value }) },
@@ -25,7 +30,7 @@ test("finished lessons queue and stop a recording instead of restarting it", asy
       updateMany: async ({ data }: { data: object }) => { Object.assign(row, data); return { count: 1 }; },
     } } },
   });
-  assert.equal((await service.reconcileRecordingAttempt("attempt")).status, "completed");
+  assert.equal((await service.reconcileRecordingAttempt("attempt")).status, "processing");
   assert.equal(stopped, 1);
   assert.ok(row.stopRequestedAt);
 });
@@ -37,7 +42,7 @@ test("ordinary classroom polls do not acquire a write transaction", async () => 
   let transactions = 0;
   const runtime = loadModule<{ ensureClassroomRuntime(courseId: string, sessionId: string): Promise<unknown> }>(path, {
     ...aliasStubs(path), "server-only": {}, "./integration-events": {}, "./shared-cache": {},
-    "./redis-presence": {}, "./redis-sync": {}, "./caption-demand": {},
+    "./redis-presence": {}, "./redis-sync": {}, "./caption-demand": {}, "./command-receipt": {},
     "@/lib/course-status": { CourseStatus: { FINISHED: "finished", CANCELLED: "cancelled", SCHEDULED: "scheduled", LIVE: "live" } },
     "@/lib/classroom/policy": { classroomGraceEndAt: () => graceEndsAt },
     "@/lib/db": { prisma: {

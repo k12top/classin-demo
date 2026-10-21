@@ -40,6 +40,7 @@ export async function requestClassroomAction(
     action: ClassroomAction;
     expectedRevision?: number;
     clientId: string;
+    commandId?: string;
     shareAccess?: string;
   },
   fetcher: typeof fetch = fetch,
@@ -50,6 +51,7 @@ export async function requestClassroomAction(
   const { expectedRevision, ...rest } = body;
   const requestBody = {
     ...rest,
+    commandId: body.commandId || globalThis.crypto.randomUUID(),
     ...(isMicrophonePermissionAction(body.action) && { compactMemberPermissions: true }),
     ...(body.action.type === "requestScreenShare" && { compactScreenShareRequest: true }),
     ...(["raiseHand", "lowerHand"].includes(body.action.type) && { compactHandRaise: true }),

@@ -82,9 +82,14 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   private displayName = "";
   private microphoneTrack: IMicrophoneAudioTrack | null = null;
   private microphoneAllowed = true;
+  private microphoneRequestedOn = false;
+  private microphonePublished = false;
+  private microphoneObservers = new WeakSet<object>();
   private microphoneControlVersion = 0;
   private microphoneControlTail: Promise<void> = Promise.resolve();
+  private microphoneOperation: Promise<boolean> | null = null;
   private cameraTrack: ICameraVideoTrack | null = null;
+  private cameraPublished = false;
   private screenTrack: ILocalVideoTrack | null = null;
   private screenAudioTrack: ILocalAudioTrack | null = null;
   private preferredMicrophoneId: string | undefined;
@@ -148,6 +153,17 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       })),
       network: { ...this.snapshot.network },
       local: { ...this.snapshot.local },
+    };
+  }
+
+  getActualDeviceState() {
+    const microphone = this.microphoneTrack?.getMediaStreamTrack();
+    const microphoneOn = this.microphonePublished && this.microphoneRequestedOn && this.microphoneAllowed && microphone?.enabled && microphone.readyState !== "ended" && !microphone.muted && !this.microphoneTrack?.muted;
+    const camera = this.cameraTrack?.getMediaStreamTrack();
+    const cameraOn = this.cameraPublished && this.snapshot.local.cameraOn && camera?.readyState !== "ended" && camera?.enabled && !camera?.muted && !this.cameraTrack?.muted;
+    return {
+      microphone: microphoneOn ? "on" as const : microphone?.readyState === "ended" || microphone?.muted ? "interrupted" as const : this.snapshot.local.microphoneStatus === "starting" ? "pending" as const : this.snapshot.local.microphoneStatus || "off" as const,
+      camera: cameraOn ? "on" as const : camera?.readyState === "ended" || camera?.muted ? "interrupted" as const : this.cameraTrack && !this.cameraPublished ? "pending" as const : "off" as const,
     };
   }
 
@@ -553,6 +569,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     if (cameraWasOn && this.cameraTrack && (force || this.cameraTrack.getMediaStreamTrack().readyState === "ended" || this.cameraTrack.getMediaStreamTrack().muted)) {
       const track = this.cameraTrack;
       this.cameraTrack = null;
+      this.cameraPublished = false;
       this.snapshot.local.cameraOn = false;
       await client.unpublish(track).catch(() => undefined);
       track.close();
@@ -560,93 +577,155 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       await this.toggleCamera();
       assertCurrent();
     }
-    if (this.snapshot.local.microphoneOn && this.microphoneTrack && (force || this.microphoneTrack.getMediaStreamTrack().readyState === "ended" || this.microphoneTrack.getMediaStreamTrack().muted)) {
+    if (!this.microphoneOperation && this.microphoneAllowed && (this.microphoneRequestedOn || this.snapshot.local.microphoneOn) && (!this.microphoneTrack || force || this.microphoneTrack.getMediaStreamTrack().readyState === "ended" || this.microphoneTrack.getMediaStreamTrack().muted)) {
       const track = this.microphoneTrack;
       this.microphoneTrack = null;
+      this.microphonePublished = false;
       this.snapshot.local.microphoneOn = false;
-      await client.unpublish(track).catch(() => undefined);
-      track.close();
+      this.snapshot.local.microphoneStatus = "starting";
+      this.emit();
+      if (track) { await client.unpublish(track).catch(() => undefined); track.close(); }
       assertCurrent();
-      await this.toggleMicrophone();
+      try { await this.toggleMicrophone(); }
+      catch (failure) { this.snapshot.local.microphoneStatus = "failed"; this.emit(); throw failure; }
     }
   }
+  private synchronizeMicrophone(track: IMicrophoneAudioTrack) {
+    if (this.microphoneTrack !== track) return;
+    const native = track.getMediaStreamTrack();
+    const live = native.readyState !== "ended" && !native.muted;
+    this.snapshot.local.microphoneOn = this.microphoneRequestedOn && this.microphoneAllowed && this.microphonePublished && native.enabled && live && !track.muted;
+    this.snapshot.local.microphoneStatus = this.snapshot.local.microphoneOn ? "on"
+      : this.microphoneRequestedOn && !live ? "interrupted"
+      : this.microphoneRequestedOn && !this.microphonePublished ? "starting" : "off";
+    const id = this.cameraId();
+    if (id) this.upsertParticipant(id, { hasAudio: this.snapshot.local.microphoneOn });
+    else this.emit();
+  }
+
+  private observeMicrophone(track: IMicrophoneAudioTrack) {
+    const synchronize = () => this.synchronizeMicrophone(track);
+    if (!this.microphoneObservers.has(track)) {
+      this.microphoneObservers.add(track);
+      track.on?.("track-ended", synchronize);
+    }
+    const native = track.getMediaStreamTrack();
+    if (!this.microphoneObservers.has(native)) {
+      this.microphoneObservers.add(native);
+      for (const event of ["ended", "mute", "unmute"]) native.addEventListener?.(event, synchronize);
+    }
+  }
+
   setMicrophonePermission(allowed: boolean): void {
     this.microphoneAllowed = allowed;
-    if (this.microphoneTrack) this.microphoneTrack.getMediaStreamTrack().enabled = allowed && this.snapshot.local.microphoneOn;
+    if (!allowed) {
+      ++this.microphoneControlVersion;
+      this.microphoneRequestedOn = false;
+      this.snapshot.local.microphoneOn = false;
+      this.snapshot.local.microphoneStatus = "off";
+    }
+    if (this.microphoneTrack) {
+      this.microphoneTrack.getMediaStreamTrack().enabled = allowed && this.microphoneRequestedOn;
+      this.synchronizeMicrophone(this.microphoneTrack);
+    } else this.emit();
   }
 
-  async toggleMicrophone(): Promise<boolean> {
-    if (!this.client || !this.credential) {
-      throw new Error("课堂尚未连接");
-    }
-    if (!credentialCanPublish(this.credential)) {
-      throw new Error("学生需要老师邀请上台后才能发言");
-    }
-    const client = this.client;
-    const rtcUid = String(this.credential.rtcUid);
-    const version = ++this.microphoneControlVersion;
-    if ((!this.microphoneTrack || !this.snapshot.local.microphoneOn) && !this.microphoneAllowed) {
-      throw new Error("老师暂未允许发言");
-    }
-
-    if (!this.microphoneTrack) {
-      const track = await AgoraRTC.createMicrophoneAudioTrack({
-        ...(this.preferredMicrophoneId && {
-          microphoneId: this.preferredMicrophoneId,
-        }),
-        AEC: true,
-        AGC: true,
-        ANS: true,
-        encoderConfig: "speech_standard",
-      });
-      if (this.client !== client || !this.credential || !credentialCanPublish(this.credential) || !this.microphoneAllowed || version !== this.microphoneControlVersion) {
-        track.close();
-        throw new DOMException("Classroom left or publication revoked", "AbortError");
+  async muteMicrophone(): Promise<void> {
+    ++this.microphoneControlVersion;
+    this.microphoneRequestedOn = false;
+    this.snapshot.local.microphoneOn = false;
+    this.snapshot.local.microphoneStatus = "off";
+    const track = this.microphoneTrack;
+    if (track) track.getMediaStreamTrack().enabled = false;
+    this.emit();
+    const changing = this.microphoneControlTail.then(async () => {
+      if (track && this.microphoneTrack === track) {
+        await track.setMuted(true);
+        this.synchronizeMicrophone(track);
       }
-      this.microphoneTrack = track;
-      this.snapshot.local.microphoneOn = true;
-      this.upsertParticipant(rtcUid, { hasAudio: true });
-      const publishing = client.publish(track);
-      this.microphoneControlTail = publishing.then(() => undefined, () => undefined);
-      try { await publishing; }
-      catch (error) {
-        track.close();
-        if (this.microphoneTrack === track) {
-          this.microphoneTrack = null; this.snapshot.local.microphoneOn = false;
-          this.upsertParticipant(rtcUid, { hasAudio: false });
-        }
-        throw error;
-      }
-    } else {
-      const next = !this.snapshot.local.microphoneOn;
-      const track = this.microphoneTrack;
-      track.getMediaStreamTrack().enabled = next;
-      this.snapshot.local.microphoneOn = next;
-      this.upsertParticipant(String(this.credential.rtcUid), { hasAudio: next });
-
-      const changing = this.microphoneControlTail.then(async () => {
-        if (this.microphoneTrack !== track || this.client !== client) throw new DOMException("Microphone replaced", "AbortError");
-        await track.setMuted(!next);
-        if (this.microphoneTrack === track) track.getMediaStreamTrack().enabled = this.snapshot.local.microphoneOn && this.microphoneAllowed;
-      });
-      this.microphoneControlTail = changing.then(() => undefined, () => undefined);
-      try { await changing; }
-      catch (error) {
-        if (version === this.microphoneControlVersion && this.microphoneTrack === track) {
-          const rollback = !next && this.microphoneAllowed;
-          track.getMediaStreamTrack().enabled = rollback;
-          this.snapshot.local.microphoneOn = rollback;
-          this.upsertParticipant(rtcUid, { hasAudio: rollback });
-        }
-        throw error;
-      }
-    }
-
-    if (this.client !== client) throw new DOMException("Classroom left", "AbortError");
-    this.upsertParticipant(rtcUid, {
-      hasAudio: this.snapshot.local.microphoneOn,
     });
-    return this.snapshot.local.microphoneOn;
+    this.microphoneControlTail = changing.then(() => undefined, () => undefined);
+    await changing;
+  }
+
+  toggleMicrophone(): Promise<boolean> {
+    if (this.microphoneOperation) return this.microphoneOperation;
+    const operation = this.toggleMicrophoneNow();
+    this.microphoneOperation = operation;
+    void operation.finally(() => { if (this.microphoneOperation === operation) this.microphoneOperation = null; }).catch(() => undefined);
+    return operation;
+  }
+
+  private async toggleMicrophoneNow(): Promise<boolean> {
+    if (!this.client || !this.credential) throw new Error("课堂尚未连接");
+    if (!credentialCanPublish(this.credential)) throw new Error("学生需要老师邀请上台后才能发言");
+    if (!this.microphoneAllowed && !this.snapshot.local.microphoneOn) throw new Error("老师暂未允许发言");
+    const client = this.client;
+    const version = ++this.microphoneControlVersion;
+    const previous = this.microphoneRequestedOn;
+    const next = !this.snapshot.local.microphoneOn;
+    this.microphoneRequestedOn = next;
+    this.snapshot.local.microphoneStatus = next ? "starting" : "off";
+    this.emit();
+    try {
+      if (!this.microphoneTrack || this.microphoneTrack.getMediaStreamTrack().readyState === "ended") {
+        const old = this.microphoneTrack;
+        this.microphoneTrack = null;
+        this.microphonePublished = false;
+        if (old) { await client.unpublish(old).catch(() => undefined); old.close(); }
+        const track = await AgoraRTC.createMicrophoneAudioTrack({
+          ...(this.preferredMicrophoneId && { microphoneId: this.preferredMicrophoneId }),
+          AEC: true, AGC: true, ANS: true, encoderConfig: "speech_standard",
+        });
+        if (this.client !== client || version !== this.microphoneControlVersion || !this.microphoneAllowed || !this.credential || !credentialCanPublish(this.credential)) {
+          track.close(); throw new DOMException("Microphone authorization changed", "AbortError");
+        }
+        this.microphoneTrack = track;
+        this.observeMicrophone(track);
+        const publishing = client.publish(track);
+        this.microphoneControlTail = publishing.then(() => undefined, () => undefined);
+        try { await publishing; }
+        catch (failure) {
+          if (this.microphoneTrack === track) this.microphoneTrack = null;
+          track.close(); throw failure;
+        }
+        if (this.client !== client || this.microphoneTrack !== track || version !== this.microphoneControlVersion || !this.microphoneAllowed) {
+          await client.unpublish(track).catch(() => undefined);
+          if (this.microphoneTrack === track) this.microphoneTrack = null;
+          track.close(); throw new DOMException("Microphone authorization changed", "AbortError");
+        }
+        this.microphonePublished = true;
+        this.synchronizeMicrophone(track);
+      } else {
+        const track = this.microphoneTrack;
+        // Stop native capture immediately; report "on" only after SDK unmute succeeds.
+        track.getMediaStreamTrack().enabled = next && this.microphoneAllowed;
+        if (!next) this.snapshot.local.microphoneOn = false;
+        this.emit();
+        const changing = this.microphoneControlTail.then(async () => {
+          if (this.microphoneTrack !== track || this.client !== client) throw new DOMException("Microphone replaced", "AbortError");
+          await track.setMuted(!next);
+          if (this.microphoneTrack === track) {
+            track.getMediaStreamTrack().enabled = this.microphoneRequestedOn && this.microphoneAllowed;
+            this.synchronizeMicrophone(track);
+          }
+        });
+        this.microphoneControlTail = changing.then(() => undefined, () => undefined);
+        await changing;
+      }
+      return this.snapshot.local.microphoneOn;
+    } catch (failure) {
+      if (version === this.microphoneControlVersion) {
+        this.microphoneRequestedOn = previous && this.microphoneAllowed;
+        if (this.microphoneTrack) {
+          this.microphoneTrack.getMediaStreamTrack().enabled = previous && this.microphoneAllowed;
+          this.synchronizeMicrophone(this.microphoneTrack);
+        } else this.snapshot.local.microphoneOn = false;
+        this.snapshot.local.microphoneStatus = "failed";
+        this.emit();
+      }
+      throw failure;
+    }
   }
 
   async toggleCamera(): Promise<boolean> {
@@ -709,11 +788,13 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         this.upsertParticipant(rtcUid, { hasVideo: true });
         this.renderVideoTargets(rtcUid);
         await client.publish(cameraTrack);
+        if (this.client === client && this.cameraTrack === cameraTrack) this.cameraPublished = true;
       } catch (error) {
         cameraTrack.close();
         if (this.cameraTrack === cameraTrack) {
           await this.releaseVirtualBackgroundProcessor();
           this.cameraTrack = null;
+          this.cameraPublished = false;
           this.snapshot.local.cameraOn = false;
           this.upsertParticipant(rtcUid, { hasVideo: false });
           this.clearVideoTargets(rtcUid);
@@ -956,7 +1037,14 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
 
   async setMicrophoneDevice(deviceId: string): Promise<void> {
     if (!deviceId) return;
-    if (this.microphoneTrack) await this.microphoneTrack.setDevice(deviceId);
+    const track = this.microphoneTrack;
+    if (track) {
+      await track.setDevice(deviceId);
+      if (this.microphoneTrack !== track) throw new DOMException("Microphone replaced", "AbortError");
+      track.getMediaStreamTrack().enabled = this.microphoneRequestedOn && this.microphoneAllowed;
+      this.observeMicrophone(track);
+      this.synchronizeMicrophone(track);
+    }
     this.preferredMicrophoneId = deviceId;
   }
 
@@ -1114,7 +1202,11 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.cameraTrack?.close();
     this.microphoneTrack = null;
     this.cameraTrack = null;
+    this.cameraPublished = false;
+    this.microphoneRequestedOn = false;
+    this.microphonePublished = false;
     this.snapshot.local.microphoneOn = false;
+    this.snapshot.local.microphoneStatus = "off";
     this.snapshot.local.cameraOn = false;
     this.upsertParticipant(String(this.credential.rtcUid), {
       hasAudio: false,
@@ -1133,6 +1225,9 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
 
   async disconnect(): Promise<void> {
     this.connectionGeneration++;
+    ++this.microphoneControlVersion;
+    this.microphoneRequestedOn = false;
+    this.microphonePublished = false;
     const client = this.client;
     this.client = null;
     for (const observer of this.videoTargetObservers.values()) observer.disconnect();
@@ -1160,6 +1255,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.cameraTrack?.close();
     this.microphoneTrack = null;
     this.cameraTrack = null;
+    this.cameraPublished = false;
     this.remoteUsers.clear();
     this.participants.clear();
     for (const id of this.videoElements.keys()) this.clearVideoTargets(id);

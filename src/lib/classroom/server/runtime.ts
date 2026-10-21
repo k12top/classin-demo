@@ -1,3 +1,4 @@
+import { readClassroomCommand, saveClassroomCommand } from "./command-receipt";
 import { classroomRtcUid } from "@/lib/classroom/rtc-uid";
 import { classroomSignalingUserId } from "@/lib/classroom/signaling/identity";
 import "server-only";
@@ -583,6 +584,7 @@ export async function getClassroomCourseware(
   courseId: string,
   role: ClassroomRole,
   sessionId = courseId,
+  refreshConversions = false,
 ): Promise<ClassroomCoursewareSnapshot[]> {
   const teachingRole = role === "teacher" || role === "assistant";
   const rules = await prisma.courseSessionCourseware.findMany({
@@ -595,7 +597,7 @@ export async function getClassroomCourseware(
   const includedIds = rules
     .filter((rule) => rule.action === "include")
     .map((rule) => rule.coursewareId);
-  const items = await refreshCoursewareConversions(await prisma.courseware.findMany({
+  const storedItems = await prisma.courseware.findMany({
     where: {
       courseId,
       OR: [
@@ -606,9 +608,11 @@ export async function getClassroomCourseware(
       ...(!teachingRole ? { studentCanView: true } : {}),
     },
     orderBy: { createdAt: "desc" },
-  }));
+  });
+  const items = refreshConversions ? await refreshCoursewareConversions(storedItems) : storedItems;
   return items.map((item) => ({
     id: item.id,
+    updatedAt: item.updatedAt.toISOString(),
     name: item.name,
     ext: item.ext,
     size: item.size,
@@ -657,6 +661,8 @@ export async function applyClassroomAction(input: {
   role: ClassroomRole;
   clientId?: string;
   expectedRevision?: number;
+  commandId?: string;
+  onReplay?: () => void;
   action: ClassroomAction;
 }): Promise<ClassroomRuntimeSnapshot> {
   const { courseId, session, role, action } = input;
@@ -709,6 +715,8 @@ export async function applyClassroomAction(input: {
         throw new ClassroomActionError("主讲老师尚未授予管理权限", 403);
       }
     }
+    const command = { sessionId, actorId: session.userId, clientId: input.clientId, role, commandId: input.commandId, action };
+    if (await readClassroomCommand(tx, command)) { input.onReplay?.(); return; }
     if (
       classroomActionRequiresRevision(action) &&
       input.expectedRevision !== undefined &&
@@ -1636,6 +1644,7 @@ export async function applyClassroomAction(input: {
       where: { id: runtime.id },
       data: { revision: { increment: 1 } },
     });
+    await saveClassroomCommand(tx, command);
   });
 
   return getClassroomRuntimeSnapshot(courseId, sessionId, { ensure: false });
