@@ -4,8 +4,8 @@ import type { ClassroomMediaProfile } from "@/lib/classroom/types";
  * Provider-neutral classroom media defaults.
  *
  * Camera publishers send a high and low stream. Receivers subscribe to the
- * low stream for thumbnails and high for a focused or enlarged video surface,
- * including the surface rendered by the cloud recorder.
+ * low stream for thumbnails and high for prioritized visible surfaces, within
+ * a shared receive-pixel budget (also used by the cloud recorder).
  */
 const thumbnail = {
   width: 160,
@@ -74,16 +74,9 @@ export const classroomVideoPresets = {
   Pick<ClassroomMediaProfile, "camera" | "screen">
 >;
 
-const requestedPreset = process.env.NEXT_PUBLIC_CLASSROOM_VIDEO_PRESET;
-const selectedPreset =
-  requestedPreset === "economy" ||
-  requestedPreset === "hd" ||
-  requestedPreset === "fullHd"
-    ? classroomVideoPresets[requestedPreset]
-    : classroomVideoPresets.hd;
-
 export const classroomMediaProfile: ClassroomMediaProfile = {
-  ...selectedPreset,
+  // Fixed product defaults; participants cannot raise the receive cost in settings.
+  ...classroomVideoPresets.hd,
   recording: {
     width: 1280,
     height: 720,

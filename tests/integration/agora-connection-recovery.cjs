@@ -7,7 +7,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 const ts = require("../../node_modules/typescript");
 
-function fixture() {
+function fixture(touch = false) {
   const clients = [], tracks = [], subscriptions = [], streamTypes = [], observers = [];
   class ResizeObserver {
     constructor(callback) { this.callback = callback; observers.push(this); }
@@ -28,7 +28,7 @@ function fixture() {
   }
   const sdk = {
     registerExtensions: () => undefined, checkSystemRequirements: () => true,
-    createCameraVideoTrack: async (config) => makeTrack(config.cameraId || "main"),
+    createCameraVideoTrack: async (config) => { const track = makeTrack(config.cameraId || "main"); track.encoder = config.encoderConfig; return track; },
     createMicrophoneAudioTrack: async () => makeTrack("microphone"),
     createScreenVideoTrack: async () => makeTrack("screen"),
     createClient: () => {
@@ -40,6 +40,7 @@ function fixture() {
         leave: async () => { client.left = true; },
         renewToken: async (token) => { client.token = token; },
         subscribe: async (user, kind) => subscriptions.push([user.uid, kind]),
+        unsubscribe: async (user, kind) => { client.unsubscriptions ??= []; client.unsubscriptions.push([user.uid, kind]); },
         setRemoteVideoStreamType: async (uid, type) => { streamTypes.push([uid, type]); },
         setClientRole: async (role) => { client.role = role; },
         setLowStreamParameter: () => undefined, enableDualStream: async () => undefined,
@@ -53,11 +54,11 @@ function fixture() {
   const recovery = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/agora-credential-recovery.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: recovery, DOMException });
   const profile = { width: 1280, height: 720, frameRate: 30, bitrateKbps: 1200 };
-  vm.runInNewContext(source, { exports, console, DOMException, ResizeObserver, window: { matchMedia: () => ({ matches: false }) },
+  vm.runInNewContext(source, { exports, console, DOMException, Error, ResizeObserver, window: { matchMedia: () => ({ matches: touch }) },
     require(name) {
       if (name === "agora-rtc-sdk-ng") return sdk;
       if (name === "agora-extension-virtual-background") return class {};
-      if (name.endsWith("/config")) return { classroomMediaProfile: { screen: profile, camera: { low: { width: 160, height: 120, frameRate: 15, bitrateKbps: 65 } } }, classroomVideoPresets: { hd: { camera: { high: profile } }, fullHd: { camera: { high: { ...profile, width: 1920 } } } } };
+      if (name.endsWith("/config")) return { classroomMediaProfile: { screen: { ...profile, width: 1920, height: 1080 }, camera: { high: profile, low: { width: 160, height: 120, frameRate: 15, bitrateKbps: 65 } } } };
       if (name.endsWith("/screen-share")) return { isScreenShareUserId: () => false };
       if (name.endsWith("/rtc-uid")) return { isClassroomScreenRtcUid: (id) => Number(id) > 1e9 && Number(id) <= 2e9, isClassroomAuxiliaryRtcUid: (id) => Number(id) > 2e9 };
       if (name.endsWith("/stt-caption")) return { decodeClassroomSttCaption: () => null };
@@ -388,7 +389,7 @@ test("a shared camera stays high until its last enlarged surface is removed", as
   provider.attachVideo("2", podium); provider.attachVideo("2", stage); provider.attachVideo("2", preview); await tick();
   assert.deepEqual(streamTypes.at(-1), [2, 0]);
   provider.detachVideo("2", stage); await tick();
-  assert.equal(streamTypes.length, 2);
+  assert.equal(streamTypes.length, 1);
   provider.detachVideo("2", preview); await tick();
   assert.deepEqual(streamTypes.at(-1), [2, 1]);
   assert.equal(observers[1].disconnected, true);
@@ -427,17 +428,15 @@ test("a slow fullscreen upgrade is followed by the latest small-window request",
   await provider.disconnect();
 });
 
-test("hidden cameras use low while shared screens stay high", async () => {
-  const { provider, clients, streamTypes } = fixture();
+test("hidden cameras and screens are not subscribed; focus does not subscribe hidden media", async () => {
+  const { provider, clients, streamTypes, subscriptions } = fixture();
   await provider.connect(credential, "教师");
   provider.attachVideo("2", videoSurface(1000, 0));
-  for (const uid of [2, 1_500_000_000]) {
-    clients[0].emit("user-published", { uid, hasVideo: true }, "video");
-  }
+  for (const uid of [2, 1_500_000_000]) clients[0].emit("user-published", { uid, hasVideo: true }, "video");
   await tick();
-  assert.deepEqual(streamTypes, [[2, 1], [1_500_000_000, 0]]);
-  await provider.focusParticipant("2"); assert.deepEqual(streamTypes.at(-1), [2, 0]);
-  await provider.focusParticipant(null); assert.deepEqual(streamTypes.at(-1), [2, 1]);
+  await provider.focusParticipant("2");
+  assert.deepEqual(subscriptions, []);
+  assert.deepEqual(streamTypes, []);
   await provider.disconnect();
 });
 
@@ -455,7 +454,7 @@ test("leaving removes video observers and stale resize callbacks cannot change s
   await provider.disconnect();
 });
 
-test("six-person and dense twelve-person layouts keep every enlarged camera high", async () => {
+test("six-person and twelve-person grids stay within the Full HD receive budget", async () => {
   const { provider, clients, streamTypes, observers } = fixture();
   await provider.connect(credential, "教师");
   const surfaces = Array.from({ length: 12 }, (_, index) => {
@@ -476,7 +475,10 @@ test("six-person and dense twelve-person layouts keep every enlarged camera high
     }
     await tick();
     const latest = new Map(streamTypes);
-    for (const [index, { uid }] of surfaces.entries()) assert.equal(latest.get(uid), index < count ? 0 : 1);
+    assert.equal([...latest.values()].filter(type => type === 0).length, 2);
+    const pixels = [...latest.values()].reduce((sum, type) => sum + (type === 0 ? 1280 * 720 : 160 * 120), 0);
+    assert.ok(pixels <= 1920 * 1080, String(pixels));
+    assert.equal(provider.getSnapshot().participants.filter(p => p.videoSubscriptionPaused).length, 0);
   }
   for (const [index, { element }] of surfaces.entries()) {
     element.width = 142; element.height = 82; observers[index].callback();
@@ -494,7 +496,81 @@ test("only surfaces within the native thumbnail resolution keep the low stream",
   provider.attachVideo("2", surface); await tick();
   for (const [width, height, expected] of [[160, 120, 1], [161, 120, 0], [160, 121, 0], [0, 720, 1], [1280, 0, 1], [159.9, 119.9, 1]]) {
     surface.width = width; surface.height = height; observers[0].callback(); await tick();
-    assert.equal(streamTypes.at(-1)[1], expected, `${width}x${height}`);
+    if (width && height) assert.equal(streamTypes.at(-1)[1], expected, `${width}x${height}`);
+    else assert.ok(clients[0].unsubscriptions.some(([uid]) => uid === 2));
   }
+  await provider.disconnect();
+});
+
+test("1080p sharing pauses other video, preserves audio, and restores cameras after sharing ends", async () => {
+  const { provider, clients, subscriptions, streamTypes } = fixture();
+  await provider.connect(credential, "教师");
+  const camera = { uid: 2, hasVideo: true, hasAudio: true, audioTrack: { play() {} } };
+  const screen = { uid: 1_500_000_000, hasVideo: true };
+  provider.attachVideo("2", videoSurface(800, 450));
+  clients[0].emit("user-published", camera, "video");
+  clients[0].emit("user-published", camera, "audio"); await tick();
+  provider.attachVideo(String(screen.uid), videoSurface(1920, 1080));
+  clients[0].emit("user-published", screen, "video"); await tick();
+  assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, true);
+  assert.deepEqual(clients[0].unsubscriptions, [[2, "video"]]);
+  assert.ok(subscriptions.some(([uid, kind]) => uid === 2 && kind === "audio"));
+  assert.deepEqual(streamTypes.at(-1), [screen.uid, 0]);
+  screen.hasVideo = false; clients[0].emit("user-unpublished", screen, "video"); await tick();
+  assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, false);
+  assert.equal(subscriptions.filter(([uid, kind]) => uid === 2 && kind === "video").length, 2);
+  await provider.disconnect();
+});
+
+test("focus replaces a high stream only after downgrading the previous camera; auxiliary thumbnails stay low", async () => {
+  const { provider, clients, streamTypes } = fixture();
+  await provider.connect(credential, "教师");
+  for (const uid of [2, 3, 4, 2_500_000_000]) {
+    provider.attachVideo(String(uid), videoSurface(uid > 1e9 ? 160 : 500, uid > 1e9 ? 120 : 300));
+    clients[0].emit("user-published", { uid, hasVideo: true }, "video");
+  }
+  await tick();
+  assert.equal(new Map(streamTypes).get(2_500_000_000), 1);
+  streamTypes.length = 0;
+  await provider.focusParticipant("4");
+  assert.deepEqual(streamTypes, [[3, 1], [4, 0]]);
+  await provider.disconnect();
+});
+
+test("mobile capture and stale-device retry both retain bounded encoder constraints", async () => {
+  const { provider, sdk, makeTrack } = fixture(true);
+  await provider.connect(credential, "教师");
+  const options = [];
+  sdk.createCameraVideoTrack = async config => {
+    options.push(config);
+    if (options.length === 1) throw new Error("OverconstrainedError");
+    return makeTrack("mobile");
+  };
+  await provider.toggleCamera();
+  for (const config of options) {
+    assert.equal(config.encoderConfig.width.max, 1280);
+    assert.equal(config.encoderConfig.height.max, 720);
+  }
+  assert.equal(options.length, 2);
+  assert.equal(provider.setVideoQuality, undefined);
+  await provider.disconnect();
+});
+
+test("a failed video subscription does not prevent other visible cameras from receiving", async () => {
+  const { provider, clients, subscriptions } = fixture();
+  await provider.connect(credential, "教师");
+  const subscribe = clients[0].subscribe;
+  clients[0].subscribe = async (user, kind) => {
+    if (user.uid === 2 && kind === "video") throw new Error("publisher unavailable");
+    return subscribe(user, kind);
+  };
+  for (const uid of [2, 3]) {
+    provider.attachVideo(String(uid), videoSurface(800, 450));
+    clients[0].emit("user-published", { uid, hasVideo: true }, "video");
+  }
+  await tick();
+  assert.ok(subscriptions.some(([uid, kind]) => uid === 3 && kind === "video"));
+  assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, true);
+  assert.equal(provider.getSnapshot().participants.find(p => p.id === "3").videoSubscriptionPaused, false);
   await provider.disconnect();
 });

@@ -239,7 +239,6 @@ const EMPTY_MEDIA: ClassroomMediaSnapshot = {
     microphoneOn: false,
     cameraOn: false,
     screenSharing: false,
-    videoQuality: "hd",
   },
   focusedParticipantId: null,
 };
@@ -322,13 +321,15 @@ function MediaSurface({
   }, [participant.hasVideo, participant.id, provider]);
 
   return (
-    <div className={`classroom-v3-media ${className}`} data-media-video={participant.hasVideo} data-participant-id={participant.id}>
+    <div className={`classroom-v3-media ${className}`} data-media-video={participant.hasVideo && !participant.videoSubscriptionPaused} data-participant-id={participant.id}>
       <div ref={targetRef} className="classroom-v3-media-video" />
-      {!participant.hasVideo && (
+      {(!participant.hasVideo || participant.videoSubscriptionPaused) && (
         <div className="classroom-v3-media-fallback">
           <span>{initialOf(displayName)}</span>
           <small>
-            {participant.kind === "screen"
+            {participant.videoSubscriptionPaused
+              ? t("classroom.v3.videoPausedForSharedContent")
+              : participant.kind === "screen"
               ? t("classroom.v3.waitingForSharedContent")
               : t("classroom.v3.cameraOffWithName", { name: displayName })}
           </small>
@@ -3176,7 +3177,6 @@ function DeviceSettings({
   theme,
   onThemeChange,
   provider,
-  media,
   runtime,
   canManageRecording,
   onAssistantPermission,
@@ -3439,29 +3439,6 @@ function DeviceSettings({
                     </select>
                   </label>
                 </div>
-                <fieldset className="classroom-v3-quality-options">
-                  <legend>{t("classroom.v3.cameraQuality")}</legend>
-                  {[
-                    ["economy", t("classroom.v3.economy"), "640 × 360"],
-                    ["hd", t("classroom.v3.hd"), "1280 × 720"],
-                    ["fullHd", t("classroom.v3.fullHd"), "1920 × 1080"],
-                  ].map(([value, label, detail]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={media.local.videoQuality === value ? "is-selected" : ""}
-                      onClick={() =>
-                        void provider?.setVideoQuality(
-                          value as "economy" | "hd" | "fullHd",
-                        )
-                      }
-                    >
-                      <span>{label}</span>
-                      <small>{detail}</small>
-                      {media.local.videoQuality === value && <Check />}
-                    </button>
-                  ))}
-                </fieldset>
                 <fieldset className="classroom-v3-background-options">
                   <legend>{t("classroom.v3.videoBackground")}</legend>
                   <button

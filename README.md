@@ -178,11 +178,12 @@ WHITEBOARD_APP_IDENTIFIER=team-id/app-id
 WHITEBOARD_SDK_TOKEN=your-netless-sdk-token
 WHITEBOARD_REGION=sg
 
-# Classroom lifecycle and camera preset.
+# Classroom lifecycle.
 COURSE_EARLY_ENTRY_MINUTES=60
 COURSE_FINISHED_DELAY_MINUTES=30
-NEXT_PUBLIC_CLASSROOM_VIDEO_PRESET=hd
 ```
+
+Classroom video quality is automatic: cameras use 720p/15fps with 160×120 thumbnails, screen sharing is capped at 1080p/15fps, and cloud recording uses 720p/15fps. Receivers prioritize visible shared content, then focused/enlarged cameras within a Full HD pixel budget. Other video may temporarily show an avatar while audio continues; video resumes when the layout frees capacity. Quality is not configurable in device settings.
 
 Vercel preview deployments use their own `VERCEL_URL` for the web recorder,
 even when `CLASSROOM_PUBLIC_BASE_URL` points to production. The production

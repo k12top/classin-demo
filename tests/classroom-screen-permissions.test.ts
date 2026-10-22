@@ -20,7 +20,7 @@ test("being on stage does not grant screen sharing, and assistant management mus
 });
 
 test("the authorized publisher wins while a replaced RTC track is still present", () => {
-  const main: ClassroomMediaSnapshot = { connectionState: "connected", local: { cameraOn: false, microphoneOn: false, screenSharing: false, videoQuality: "hd" },
+  const main: ClassroomMediaSnapshot = { connectionState: "connected", local: { cameraOn: false, microphoneOn: false, screenSharing: false },
     network: { uplinkQuality: 1, downlinkQuality: 1, latencyMs: null, packetLossPercent: null }, focusedParticipantId: null,
     participants: ["1000000001", "1000000002"].map(id => ({ id, displayName: id, kind: "screen", isLocal: false, hasVideo: true, hasAudio: false })) };
   const room = { ...main, participants: [] };

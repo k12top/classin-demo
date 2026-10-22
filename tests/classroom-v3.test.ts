@@ -4,7 +4,7 @@ import {
   classroomGraceEndAt,
   classroomStageSeatLimit,
 } from "../src/lib/classroom/policy";
-import { classroomVideoPresets } from "../src/lib/classroom/config";
+import { classroomMediaProfile, classroomVideoPresets } from "../src/lib/classroom/config";
 import {
   classroomModeFromRoomType,
   classroomModePolicy,
@@ -263,3 +263,8 @@ assert.deepEqual(classroomVideoPresets.hd.screen, {
 });
 assert.equal(classroomVideoPresets.fullHd.camera.high.width, 1920);
 assert.equal(classroomVideoPresets.fullHd.camera.high.bitrateKbps, 2500);
+
+assert.deepEqual(classroomMediaProfile.camera, classroomVideoPresets.hd.camera);
+assert.deepEqual(classroomMediaProfile.screen, classroomVideoPresets.hd.screen);
+assert.equal(classroomMediaProfile.recording.width, 1280);
+assert.equal(classroomMediaProfile.recording.height, 720);

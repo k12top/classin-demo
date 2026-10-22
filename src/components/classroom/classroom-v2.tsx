@@ -57,7 +57,6 @@ const EMPTY_MEDIA_SNAPSHOT: ClassroomMediaSnapshot = {
     microphoneOn: false,
     cameraOn: false,
     screenSharing: false,
-    videoQuality: "hd",
   },
   focusedParticipantId: null,
 };
@@ -105,7 +104,7 @@ function VideoSurface({
       })}
     >
       <div ref={videoRef} className="absolute inset-0" />
-      {!participant.hasVideo && (
+      {(!participant.hasVideo || participant.videoSubscriptionPaused) && (
         <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_50%_35%,rgba(124,92,255,0.25),transparent_55%)]">
           <div
             className={[

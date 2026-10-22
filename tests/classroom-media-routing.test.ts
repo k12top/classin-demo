@@ -42,7 +42,6 @@ function snapshot(
       microphoneOn: false,
       cameraOn: false,
       screenSharing,
-      videoQuality: "hd",
     },
     focusedParticipantId: null,
   };

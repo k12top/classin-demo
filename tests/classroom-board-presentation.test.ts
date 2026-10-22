@@ -13,7 +13,7 @@ const hidden = new Set<string>();
 const snapshot = (participants: ClassroomParticipant[] = [], sharing = false): ClassroomMediaSnapshot => ({
   connectionState: "connected", participants, focusedParticipantId: null,
   network: { uplinkQuality: 1, downlinkQuality: 1, latencyMs: 20, packetLossPercent: 0 },
-  local: { microphoneOn: false, cameraOn: false, screenSharing: sharing, videoQuality: "hd" },
+  local: { microphoneOn: false, cameraOn: false, screenSharing: sharing },
 });
 const screen = { id: "screen-123", displayName: "Screen", isLocal: false, kind: "screen", hasAudio: false, hasVideo: true } as const;
 

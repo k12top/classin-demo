@@ -55,6 +55,8 @@ export type ClassroomParticipant = {
   kind: "camera" | "screen";
   hasAudio: boolean;
   hasVideo: boolean;
+  /** Published video is temporarily suspended by the receiver budget. Audio continues. */
+  videoSubscriptionPaused?: boolean;
 };
 
 export type ClassroomMediaSnapshot = {
@@ -78,7 +80,6 @@ export type ClassroomMediaSnapshot = {
     microphoneStatus?: "off" | "starting" | "on" | "interrupted" | "failed";
     cameraOn: boolean;
     screenSharing: boolean;
-    videoQuality: "economy" | "hd" | "fullHd";
   };
   focusedParticipantId: string | null;
 };
@@ -141,7 +142,6 @@ export interface ClassroomMediaProvider {
   }>;
   setMicrophoneDevice(deviceId: string): Promise<void>;
   setCameraDevice(deviceId: string): Promise<void>;
-  setVideoQuality(quality: "economy" | "hd" | "fullHd"): Promise<void>;
   supportsVirtualBackground(): boolean;
   setVirtualBackground(effect: ClassroomVideoBackgroundEffect): Promise<void>;
 }

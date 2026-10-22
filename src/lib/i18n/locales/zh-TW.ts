@@ -128,6 +128,9 @@ export const zhTW = {
     },
     v3: {
       ...zhCN.classroom.v3,
+      deviceSettings: "裝置設定",
+      screenQualityHint: "畫質自動調整，共享畫面最高 1080p。",
+      videoPausedForSharedContent: "優先顯示重點畫面，語音保持連通",
       coursewarePermissionOn: "已開啟",
       coursewarePermissionOff: "已關閉",
       coursewareSaving: "儲存中…",
