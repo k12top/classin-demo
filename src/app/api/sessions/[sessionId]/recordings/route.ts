@@ -1,4 +1,4 @@
-import { recordingStopControl } from "@/lib/classroom/recording-stop-state";
+import { recordingStopControl, recordingVerification } from "@/lib/classroom/recording-stop-state";
 import type { NextRequest } from "next/server";
 import { after, NextResponse } from "next/server";
 import { POST as controlRecording } from "@/app/api/courses/[id]/recording/route";
@@ -73,6 +73,7 @@ export async function GET(request: NextRequest, context: Context) {
       stoppedAt: string | null; playbackFormat: string | null;
       playbackUrl: string | null; errorMessage: string | null;
       failureStage: string | null;
+      verification?: ReturnType<typeof recordingVerification>;
     }> => {
       const assets = recordingReplayAssets(recording);
       if (!assets.length) return [{
@@ -88,6 +89,7 @@ export async function GET(request: NextRequest, context: Context) {
         playbackUrl: null,
         errorMessage: access.teaching ? recording.errorMessage : null,
         failureStage: access.teaching ? recording.failureStage : null,
+        ...(access.teaching ? { verification: recordingVerification(recording.providerState) } : {}),
       }];
       return assets.map((asset, index) => ({
         id: `${recording.id}:${index}`,
@@ -104,6 +106,7 @@ export async function GET(request: NextRequest, context: Context) {
         playbackUrl: `/api/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recording.id)}/play?asset=${encodeURIComponent(asset.objectKey)}`,
         errorMessage: access.teaching ? recording.errorMessage : null,
         failureStage: access.teaching ? recording.failureStage : null,
+        ...(access.teaching ? { verification: recordingVerification(recording.providerState) } : {}),
       }));
     }).map((recording, index) => ({ ...recording, segment: index + 1 })),
   });

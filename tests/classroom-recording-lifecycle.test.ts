@@ -136,3 +136,55 @@ test("only an explicit teacher stop action rearms an exhausted verification budg
  await f.api.requestRecordingStop(f.row as any,true);await f.api.processRecordingStop("recording");
  assert.equal(f.calls.queryCalls,1);assert.equal(f.row.providerState.stopControl.queryAttempts,1);
 });
+
+function missingTaskFixture() {
+  const f = fixture({ providerState: { mode: "web", started: { sid: "sid" }, acquire: { resourceId: "resource" } } });
+  f.provider.stop = async () => ({ files: [], playbackObjectKey: "clip.mp4", playbackFormat: "mp4",
+    providerState: { sid: "sid", resourceId: "resource", stopVerified: true, serverResponse: { status: 6 } } });
+  f.provider.query = async () => ({ active: false, files: [], playbackObjectKey: "clip.mp4", playbackFormat: "mp4",
+    providerState: { code: 404, queryVerified: false, queryHttpStatus: 404, queryNotFound: true, storageFingerprint: "manifest-v1" } });
+  return f;
+}
+test("accepted same-SID stop + sustained 404 beyond failover + stable assets completes without status8", async () => {
+  const f = missingTaskFixture();
+  await f.api.stopRecordingAttempt(f.row as any);
+  f.advance(15_000); await f.api.reconcileRecordingAttempt("recording");
+  assert.equal(f.row.status, "processing"); assert.equal(f.row.stoppedAt, null);
+  f.advance(89_999); await f.api.reconcileRecordingAttempt("recording");
+  assert.equal(f.row.status, "processing");
+  f.advance(60_001); await f.api.reconcileRecordingAttempt("recording");
+  assert.equal(f.row.status, "completed"); assert(f.row.stoppedAt);
+  assert.equal(f.row.providerState.stopControl.confirmation, "provider_resource_gone");
+});
+test("a recovered worker resets missing evidence and receives a bounded stop for the same SID", async () => {
+  const f = missingTaskFixture(); await f.api.stopRecordingAttempt(f.row as any);
+  f.advance(); await f.api.reconcileRecordingAttempt("recording");
+  f.provider.query = async () => ({ active: true, files: [], providerState: { queryVerified: true, queryHttpStatus: 200, serverResponse: { status: 5 } } });
+  f.advance(); await f.api.reconcileRecordingAttempt("recording");
+  assert.equal(f.row.providerState.stopControl.missingSince, undefined);
+  assert.equal(f.row.providerState.stopControl.nextAction, "stop"); assert.equal(f.row.stoppedAt, null);
+});
+test("404 cannot complete with wrong task identity, failed stop, missing manifest or a growing manifest", async () => {
+  for (const condition of ["wrong-start", "wrong-stop", "failed-stop", "no-manifest", "growing-manifest"]) {
+    const f = missingTaskFixture();
+    if (condition === "wrong-start") f.row.providerState.started.sid = "old-sid";
+    await f.api.stopRecordingAttempt(f.row as any);
+    if (condition === "wrong-stop") f.row.providerState.lastStop.sid = "old-sid";
+    if (condition === "failed-stop") f.row.providerState.lastStop.code = 50;
+    let sequence = 0;
+    if (["no-manifest", "growing-manifest"].includes(condition)) f.provider.query = async () => ({
+      active: false, files: [], playbackObjectKey: "clip.mp4", providerState: { code: 404, queryHttpStatus: 404, queryNotFound: true,
+        ...(condition === "growing-manifest" ? { storageFingerprint: `manifest-${sequence++}` } : {}) } });
+    for (let i = 0; i < 4; i++) { f.advance(); await f.api.reconcileRecordingAttempt("recording"); }
+    assert.equal(f.row.status, "processing", condition); assert.equal(f.row.stoppedAt, null, condition);
+  }
+});
+test("synchronous same-task stop with uploaded files confirms exit immediately", async () => {
+  const f = missingTaskFixture();
+  f.provider.stop = async () => ({ files: [{ fileName: "clip.mp4" }], playbackObjectKey: "clip.mp4", playbackFormat: "mp4",
+    providerState: { sid: "sid", resourceId: "resource", stopVerified: true, stopSynchronous: true,
+      serverResponse: { extensionServiceState: [{ serviceName: "upload_service", payload: { uploadingStatus: "uploaded" } }] } } });
+  await f.api.stopRecordingAttempt(f.row as any);
+  assert.equal(f.row.status, "completed"); assert(f.row.stoppedAt);
+  assert.equal(f.row.providerState.stopControl.confirmation, "synchronous_stop");
+});

@@ -4,7 +4,8 @@ import type { ClassroomRecording, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getRecordingProvider } from "./provider-factory";
 import { newRecordingStopControl, recordingProviderExited, recordingProviderStatus,
-  recordingState, recordingStopBackoff, recordingStopControl,
+  recordingState, recordingStopBackoff, recordingStopControl, recordingUploadComplete,
+  RECORDING_RESOURCE_GONE_WINDOW_MS,
   RECORDING_QUERY_LIMIT, RECORDING_STOP_LEASE_MS, RECORDING_STOP_LIMIT,
   type RecordingStopControl } from "../recording-stop-state";
 
@@ -107,8 +108,45 @@ export async function reconcileDurableRecordingStop(id: string) {
     const next: RecordingStopControl = { ...latest, leaseId: undefined, leaseUntil: undefined,
       nextAction: "query", nextAt: completedAt.getTime() + recordingStopBackoff(Math.max(latest.stopAttempts, latest.queryAttempts)) };
     const objectKey = result?.playbackObjectKey || current.playbackObjectKey;
-    const exited = operation === "query" && result && recordingProviderExited(result.providerState);
+    const evidence = recordingState(result?.providerState);
+    const sameTask = (value: unknown) => {
+      const response = recordingState(value);
+      return response.sid === row.providerSessionId && response.resourceId === row.resourceId &&
+        (response.code === undefined || response.code === 0);
+    };
+    const acceptedStop = sameTask(currentState.lastStop) ||
+      (operation === "stop" && evidence.stopVerified === true && sameTask(evidence));
+    const synchronousStop = operation === "stop" && evidence.stopVerified === true && sameTask(evidence) && evidence.stopSynchronous === true &&
+      recordingUploadComplete(evidence);
+    const exited = Boolean(result && ((operation === "query" && recordingProviderExited(evidence)) || synchronousStop));
     if (exited) { next.confirmedAt ??= completedAt.toISOString(); next.confirmation = "provider_exit"; }
+    if (synchronousStop) next.confirmation = "synchronous_stop";
+    if (operation === "query") {
+      const time = completedAt.getTime();
+      if (typeof evidence.storageFingerprint === "string") {
+        if (next.assetFingerprint !== evidence.storageFingerprint) next.assetStableSince = time;
+        next.assetFingerprint = evidence.storageFingerprint;
+      } else {
+        next.assetFingerprint = undefined; next.assetStableSince = undefined;
+      }
+      if (evidence.queryNotFound === true && evidence.queryHttpStatus === 404 && evidence.code === 404) {
+        next.missingSince ??= time; next.missingCount = (next.missingCount ?? 0) + 1;
+        const knownTask = recordingState(currentState.started).sid === row.providerSessionId &&
+          recordingState(currentState.acquire).resourceId === row.resourceId;
+        // Query is only valid while a task exists. After an accepted same-SID
+        // stop, sustained absence beyond failover + a stable complete OSS listing
+        // proves exit without requiring a terminal query response that may never exist.
+        if (acceptedStop && knownTask && row.stopRequestedAt && objectKey &&
+          time - row.stopRequestedAt.getTime() >= RECORDING_RESOURCE_GONE_WINDOW_MS &&
+          time - next.missingSince >= RECORDING_RESOURCE_GONE_WINDOW_MS &&
+          (next.missingCount ?? 0) >= 2 && next.assetStableSince !== undefined &&
+          time - next.assetStableSince >= RECORDING_RESOURCE_GONE_WINDOW_MS) {
+          next.confirmedAt ??= completedAt.toISOString(); next.confirmation = "provider_resource_gone";
+        }
+      } else {
+        next.missingSince = undefined; next.missingCount = undefined;
+      }
+    }
     if (!next.confirmedAt && operation === "query" && result) {
       const status = recordingProviderStatus(result.providerState);
       // Retry the same task only when the provider positively reports it is still live/starting.
