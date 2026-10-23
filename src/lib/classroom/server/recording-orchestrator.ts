@@ -577,11 +577,14 @@ export async function stopRecordingAttempt(recording: ClassroomRecording) {
 export async function stopActiveRecordingsForCourse(
   courseId: string,
   sessionId?: string,
+  createdBefore?: Date,
 ): Promise<number> {
   const recordings = await prisma.classroomRecording.findMany({
     where: {
       courseId,
       ...(sessionId ? { sessionId } : {}),
+      // Deferred cleanup from an ended class cannot stop a reopened class's recorder.
+      ...(createdBefore ? { createdAt: { lte: createdBefore } } : {}),
       OR: [{ status: { in: ["starting", "recording", "stopping", "processing"] } }, { status: "failed", failureStage: "stop" }],
     },
   });

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- Real disposable PG; local file/AI providers only. */
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),http=require('node:http'),esbuild=require('esbuild');
 const root=path.resolve(__dirname,'../..'),database=new URL(process.env.DATABASE_URL||'http://invalid');
-assert.ok(database.hostname==='127.0.0.1'&&database.port==='55439'&&database.pathname==='/classroom_recovery_scale_clean','requires the dedicated disposable database');
+assert.ok(database.hostname==='127.0.0.1'&&database.port==='55439'&&['/classroom_recovery_scale_clean','/classroom_pr_review_clean_20261023'].includes(database.pathname),'requires a dedicated disposable database');
 assert.equal(process.env.CLASSROOM_REDIS_URL,'');assert.equal(process.env.REDIS_URL,'');
 async function main(){
  let calls=0;const seen=[];
@@ -66,6 +66,9 @@ async function main(){
   actor('assistant','assistant');const commandId=crypto.randomUUID(),extended=await change({action:'extend',minutes:30,commandId});assert.equal(extended.status,200);const timing=(await extended.json()).timing;assert.equal(Date.parse(timing.endTime)-lesson.endTime.getTime(),1800000);
   assert.equal((await(await change({action:'extend',minutes:30,commandId})).json()).timing.endTime,timing.endTime);snapshot=await api.getClassroomRuntimeSnapshot(course.id,lesson.id,{ensure:false});assert.equal(snapshot.scheduledEndAt,timing.endTime);assert.ok(Date.parse(snapshot.graceEndsAt)>Date.parse(timing.endTime));pass('assistant can extend once; duplicate command preserves the deadline; runtime advertises the new scheduled end');
   await db.classroomRuntime.update({where:{id:runtime.id},data:{status:'ended'}});await db.courseSession.update({where:{id:lesson.id},data:{status:'finished',endedAt:new Date(),startTime:new Date(Date.now()-7200000),endTime:new Date(Date.now()-3600000)}});
+  await db.classroomRuntime.update({where:{id:runtime.id},data:{transcriptionStatus:'stopping'}});assert.equal((await change({action:'reopen',commandId:crypto.randomUUID()})).status,409);
+  await db.classroomRuntime.update({where:{id:runtime.id},data:{transcriptionStatus:'stopped',transcriptionSyncLeaseUntil:new Date(Date.now()+60000)}});assert.equal((await change({action:'reopen',commandId:crypto.randomUUID()})).status,409);
+  await db.classroomRuntime.update({where:{id:runtime.id},data:{transcriptionSyncLeaseUntil:null}});pass('reopening waits for previous caption shutdown and in-flight caption synchronization');
   const restartCommand=crypto.randomUUID(),restart=await change({action:'reopen',commandId:restartCommand});assert.equal(restart.status,200);const restarted=(await restart.json()).timing;assert.ok(Date.parse(restarted.endTime)>Date.now());assert.ok(Math.abs(Date.parse(restarted.startTime)-Date.now())<5000);assert.equal((await(await change({action:'reopen',commandId:restartCommand})).json()).timing.startTime,restarted.startTime);
   const after=await db.courseSession.findUnique({where:{id:lesson.id}});assert.equal(after.roomUuid,lesson.roomUuid);assert.equal(after.endedAt,null);assert.equal(await db.classroomMessage.count({where:{sessionId:lesson.id}}),2);assert.equal(await db.classroomMemberState.count({where:{sessionId:lesson.id}}),3);assert.equal((await db.classroomMemberState.findUnique({where:{sessionId_userId:{sessionId:lesson.id,userId:'student'}}})).microphoneAllowed,false);pass('assistant restart resets timer and expired end, preserves link/members/messages, and revokes old student stage grants');
   console.log(`PASS ${passed} feedback integration scenarios; no external services or production DB`);

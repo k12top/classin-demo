@@ -108,6 +108,11 @@ async function handlePost(request: NextRequest, context: Context) {
   if (body.commandId !== undefined && !validClassroomCommandId(body.commandId)) return NextResponse.json({ error: "Invalid command identifier" }, { status: 400 });
   if (body.action === "extend" || body.action === "reopen") {
     try {
+      if (body.action === "reopen") {
+        const closing = await prisma.classroomRuntime.findUnique({ where: { sessionId: resolved.sessionId }, select: { status: true, transcriptionStatus: true } });
+        // Recover an interrupted end callback before admitting a new cycle.
+        if (closing?.status === "ended" && closing.transcriptionStatus === "stopping") await stopClassroomTranscription(resolved.courseId, resolved.sessionId, { endedBefore: new Date() });
+      }
       const timing = await changeClassroomTiming({ sessionId: resolved.sessionId, courseId: resolved.courseId, actorId: resolved.identity.userId,
         role: resolved.classroomRole, action: body.action, commandId: typeof body.commandId === "string" ? body.commandId : undefined, minutes: typeof body.minutes === "number" ? body.minutes : undefined });
       clearCourseSessionAccessCache();
@@ -268,8 +273,8 @@ async function handlePost(request: NextRequest, context: Context) {
         }
       }
       const results = await Promise.allSettled([
-        stopActiveRecordingsForCourse(resolved.courseId, resolved.sessionId),
-        stopClassroomTranscription(resolved.courseId, resolved.sessionId),
+        stopActiveRecordingsForCourse(resolved.courseId, resolved.sessionId, now),
+        stopClassroomTranscription(resolved.courseId, resolved.sessionId, { endedBefore: now }),
       ]);
       for (const result of results) {
         if (result.status === "rejected") {

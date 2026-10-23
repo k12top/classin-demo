@@ -21,6 +21,7 @@ export async function changeClassroomTiming(input: { sessionId: string; courseId
     const runtime = await tx.classroomRuntime.findUnique({ where: { sessionId: input.sessionId } });
     if (lesson.status === "cancelled") throw new ClassroomActionError("已取消课次不能执行此操作", 409);
     if (input.action === "reopen" && lesson.status !== "finished" && !lesson.endedAt && runtime?.status !== "ended") throw new ClassroomActionError("课堂尚未结束", 409);
+    if (input.action === "reopen" && (runtime?.transcriptionStatus === "stopping" || (runtime?.transcriptionSyncLeaseUntil && runtime.transcriptionSyncLeaseUntil > now))) throw new ClassroomActionError("课堂正在结束，请稍后重新开课", 409);
     if (input.action === "extend" && (lesson.endedAt || runtime?.status === "ended" || !["scheduled", "live"].includes(lesson.status))) throw new ClassroomActionError("请先重新开课，再延长课程", 409);
     const startTime = input.action === "reopen" ? now : lesson.startTime;
     const endTime = input.action === "reopen" ? new Date(now.getTime() + Math.max(15 * 60_000, lesson.endTime.getTime() - lesson.startTime.getTime()))

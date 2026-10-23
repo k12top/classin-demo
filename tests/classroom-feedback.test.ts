@@ -41,3 +41,34 @@ test("courseware byte serving never redirects or fetches arbitrary legacy hosts,
   assert.equal((await api.coursewareFileResponse({ url: "oss://file.svg", name: "file.svg" }, true)).status, 415);
   const response = await api.coursewareFileResponse({ url: "oss://file.png", name: "课堂图片.png" }); assert.equal(response.status, 200); assert.equal(response.headers.get("Location"), null); assert.match(response.headers.get("Content-Disposition")!, /^attachment/); assert.equal(await response.text(), "file");
 });
+
+test("a slow translation claim becomes retryable after bounded polling instead of spinning forever", async () => {
+  const states: unknown[] = [];
+  let slot = 0, calls = 0;
+  let work: (() => Promise<void>) | undefined;
+  let cleanup: (() => void) | undefined;
+  const api = loadModule<typeof import("../src/lib/classroom/use-chat-translations")>("src/lib/classroom/use-chat-translations.ts", {
+    react: {
+      useState: (initial: unknown) => {
+        const index = slot++;
+        states[index] = initial;
+        return [initial, (next: unknown) => { states[index] = typeof next === "function" ? next(states[index]) : next; }];
+      },
+      useEffect: (effect: () => (() => void) | undefined) => { cleanup = effect(); },
+    },
+  }, {
+    fetch: async () => { calls++; return Response.json({ translations: { message: { status: "pending" } } }); },
+    setTimeout: (callback: () => Promise<void>, delay: number) => {
+      if (delay === 200) work = callback;
+      else void Promise.resolve().then(callback);
+      return 1;
+    },
+    clearTimeout: () => {},
+  });
+  api.useChatTranslations("lesson", [{ id: "message", deletedAt: null }] as import("../src/lib/classroom/types").ClassroomMessageSnapshot[], "zh-CN", true);
+  assert.ok(work);
+  await work();
+  assert.equal(calls, 3);
+  assert.deepEqual(states[0], { "zh-CN:message": { status: "failed" } });
+  cleanup?.();
+});

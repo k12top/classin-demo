@@ -11,5 +11,6 @@
       "path": "/api/cron/promote-course-status",
       "schedule": "*/1 * * * *"
     }
-  ]
+  ],
+  "ignoreCommand": "git log -1 --pretty=%B | grep -Fq '[skip-classroom-deploy]'"
 }

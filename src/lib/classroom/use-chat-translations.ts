@@ -25,7 +25,8 @@ export function useChatTranslations(sessionId: string, messages: ClassroomMessag
           await new Promise(resolve => setTimeout(resolve, 1500));
           controller.signal.throwIfAborted();
         }
-        if (!controller.signal.aborted) { setUnavailable(false); setValues(previous => ({ ...previous, ...Object.fromEntries(ids.map(id => [`${language}:${id}`, batch[id] || { status: "failed" }])) })); }
+        // Exhausted pending claims must expose retry, rather than a spinner that never polls again.
+        if (!controller.signal.aborted) { setUnavailable(false); setValues(previous => ({ ...previous, ...Object.fromEntries(ids.map(id => [`${language}:${id}`, batch[id]?.status === "completed" ? batch[id] : { status: "failed" }])) })); }
       } catch {
         if (!controller.signal.aborted) setValues(previous => ({ ...previous, ...Object.fromEntries(ids.map(id => [`${language}:${id}`, { status: "failed" as const }])) }));
       }

@@ -29,38 +29,54 @@ const TRANSCRIPTION_HEALTH_CHECK_INTERVAL_MS = 30_000;
 export async function stopClassroomTranscription(
   courseId: string,
   sessionId = courseId,
+  options: { claimed?: boolean; endedBefore?: Date } = {},
 ) {
-  const runtime = await prisma.classroomRuntime.findUnique({ where: { sessionId } });
-  if (!runtime) return;
-  const agentId = runtime.transcriptionAgentId;
-  await prisma.classroomRuntime.update({
-    where: { id: runtime.id },
-    data: { transcriptionStatus: "stopping", transcriptionError: null },
-  });
-  const results = await Promise.allSettled([
-    agentId ? stopAgoraTranscription(agentId) : Promise.resolve(),
-    runtime.interpretationProvider === "wordly"
-      ? stopWordlyRoom(sessionId)
-      : Promise.resolve(),
-  ]);
-  const failure = results.find(
-    (result): result is PromiseRejectedResult => result.status === "rejected",
-  );
-  await prisma.classroomRuntime.update({
-    where: { id: runtime.id },
-    data: {
-      transcriptionAgentId: null,
-      transcriptionConfigKey: null,
-      transcriptionStatus: failure ? "failed" : "stopped",
-      transcriptionError: failure
-        ? (failure.reason instanceof Error
-            ? failure.reason.message
-            : String(failure.reason)
-          ).slice(0, 1000)
-        : null,
-      transcriptionLastCheckedAt: new Date(),
-    },
-  });
+  // Share the synchronization lease: an old end callback must never stop a
+  // replacement agent or clear a new class cycle's transcription state.
+  const leaseUntil = new Date(Date.now() + 120_000);
+  if (!options.claimed) {
+    const claimed = await prisma.classroomRuntime.updateMany({
+      where: { sessionId, OR: [{ transcriptionSyncLeaseUntil: null }, { transcriptionSyncLeaseUntil: { lt: new Date() } }] },
+      data: { transcriptionSyncLeaseUntil: leaseUntil },
+    });
+    if (!claimed.count) return;
+  }
+  try {
+    const runtime = await prisma.classroomRuntime.findUnique({ where: { sessionId } });
+    if (!runtime || (options.endedBefore && (runtime.status !== "ended" || (runtime.startedAt && runtime.startedAt > options.endedBefore)))) return;
+    const agentId = runtime.transcriptionAgentId;
+    await prisma.classroomRuntime.update({
+      where: { id: runtime.id },
+      data: { transcriptionStatus: "stopping", transcriptionError: null },
+    });
+    const results = await Promise.allSettled([
+      agentId ? stopAgoraTranscription(agentId) : Promise.resolve(),
+      runtime.interpretationProvider === "wordly"
+        ? stopWordlyRoom(sessionId)
+        : Promise.resolve(),
+    ]);
+    const failure = results.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    await prisma.classroomRuntime.updateMany({
+      where: { id: runtime.id, startedAt: runtime.startedAt, transcriptionAgentId: agentId,
+        ...(!options.claimed && { transcriptionSyncLeaseUntil: leaseUntil }) },
+      data: {
+        transcriptionAgentId: null,
+        transcriptionConfigKey: null,
+        transcriptionStatus: failure ? "failed" : "stopped",
+        transcriptionError: failure
+          ? (failure.reason instanceof Error
+              ? failure.reason.message
+              : String(failure.reason)
+            ).slice(0, 1000)
+          : null,
+        transcriptionLastCheckedAt: new Date(),
+      },
+    });
+  } finally {
+    if (!options.claimed) await prisma.classroomRuntime.updateMany({ where: { sessionId, transcriptionSyncLeaseUntil: leaseUntil }, data: { transcriptionSyncLeaseUntil: null } });
+  }
 }
 
 export async function syncClassroomTranscription(
@@ -90,7 +106,7 @@ export async function syncClassroomTranscription(
       result = await syncClassroomTranscriptionTask(courseId, { ...options, restart: attempt === 0 && options.restart, claimed: true });
       const current = await prisma.classroomRuntime.findUniqueOrThrow({ where: { sessionId } });
       if (!current.interpretationEnabled || current.status !== "live") {
-        if (current.transcriptionAgentId) await stopClassroomTranscription(courseId, sessionId);
+        if (current.transcriptionAgentId) await stopClassroomTranscription(courseId, sessionId, { claimed: true });
         return prisma.classroomRuntime.findUniqueOrThrow({ where: { sessionId } });
       }
       if (current.transcriptionStatus === "failed" || current.transcriptionConfigKey === transcriptionConfigKey(current)) return result;
@@ -132,7 +148,7 @@ async function syncClassroomTranscriptionTask(
   }
 
   if (!runtime.interpretationEnabled || runtime.status !== "live") {
-    if (runtime.transcriptionAgentId || !["stopped", "failed"].includes(runtime.transcriptionStatus)) await stopClassroomTranscription(courseId, sessionId);
+    if (runtime.transcriptionAgentId || !["stopped", "failed"].includes(runtime.transcriptionStatus)) await stopClassroomTranscription(courseId, sessionId, { claimed: options.claimed });
     return prisma.classroomRuntime.findUniqueOrThrow({ where: { sessionId } });
   }
 
