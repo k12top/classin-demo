@@ -134,10 +134,10 @@ export default function CoursePlaybackPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ embed?: string }>;
+  searchParams: Promise<{ embed?: string; sessionId?: string }>;
 }) {
   const { id } = use(params);
-  const { embed } = use(searchParams);
+  const { embed, sessionId: requestedSessionId } = use(searchParams);
   const embedded = embed === "1" || embed === "true";
   const router = useRouter();
   const { user, loading: authLoading, logout } = useAuth();
@@ -148,11 +148,14 @@ export default function CoursePlaybackPage({
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [error, setError] = useState("");
   const [sessions, setSessions] = useState<PlaybackSession[]>([]);
-  const [selectedSessionId, setSelectedSessionId] = useState("");
+  // A lesson link already identifies the target. Start its authorized recording
+  // read alongside the course/session reads instead of adding another waterfall.
+  const [selectedSessionId, setSelectedSessionId] = useState(requestedSessionId || "");
   const [recordings, setRecordings] = useState<PlaybackRecording[]>([]);
   const [recordingsLoading, setRecordingsLoading] = useState(false);
   const [recordingsError, setRecordingsError] = useState("");
   const [recordingsRevision, setRecordingsRevision] = useState(0);
+  const [verificationBusy, setVerificationBusy] = useState(false);
   const recordingsLoadedSessionRef = useRef("");
   const [summary, setSummary] = useState<LessonSummary | null>(null);
   const [lessonCaptions, setLessonCaptions] = useState<LessonCaption[]>([]);
@@ -342,6 +345,7 @@ export default function CoursePlaybackPage({
   }, [authLoading, fetchCourse, fetchSessions, authenticatedUserId]);
 
   useEffect(() => {
+    if (authLoading || !authenticatedUserId) return;
     if (!selectedSessionId) {
       queueMicrotask(() => setRecordings([]));
       return;
@@ -398,7 +402,26 @@ export default function CoursePlaybackPage({
         if (!controller.signal.aborted) setRecordingsLoading(false);
       });
     return () => { controller.abort(); clearTimeout(refreshTimer); };
-  }, [copy.forbidden, copy.loadFailed, recordingsRevision, selectedSessionId]);
+  }, [authLoading, authenticatedUserId, copy.forbidden, copy.loadFailed, recordingsRevision, selectedSessionId]);
+
+  const retryRecordingVerification = async () => {
+    if (!selectedSessionId || !attentionRecording || verificationBusy) return;
+    setVerificationBusy(true);
+    setRecordingsError("");
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}/recordings`, {
+        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "stop", recordingId: attentionRecording.id.split(":")[0] }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || copy.loadFailed);
+      setRecordingsRevision(value => value + 1);
+    } catch (cause) {
+      setRecordingsError(cause instanceof Error ? cause.message : copy.loadFailed);
+    } finally {
+      setVerificationBusy(false);
+    }
+  };
 
   const fetchSummary = useCallback(async () => {
     const requestId = ++summaryRequestIdRef.current;
@@ -493,8 +516,9 @@ export default function CoursePlaybackPage({
   }, [captionsLoadingMore, copy.loadFailed, nextCaptionCursor, selectedSessionId]);
 
   useEffect(() => {
+    if (authLoading || !authenticatedUserId) return;
     queueMicrotask(() => void fetchSummary());
-  }, [fetchSummary]);
+  }, [authLoading, authenticatedUserId, fetchSummary]);
 
   const selectedLessonEnded = sessions.some(lesson => lesson.id === selectedSessionId && ["afterClass", "finished"].includes(lesson.status));
   const summaryGenerating = summaryGenerationActive(summaryGeneration);
@@ -593,6 +617,16 @@ export default function CoursePlaybackPage({
   const selectedRecording = playableRecordings.find((recording) => recording.id === selectedRecordingId)
     || playableRecordings[0] || null;
   const captionCanSync = Boolean(selectedRecording?.startedAt && selectedRecording?.stoppedAt && lessonCaptions.length);
+  const zh = locale.startsWith("zh");
+  const captionStateLabel = summaryLoading ? (zh ? "正在加载字幕" : "Loading captions")
+    : !lessonCaptions.length ? (zh ? "本课暂无最终字幕" : "No final captions for this lesson")
+    : !selectedRecording?.startedAt || !selectedRecording?.stoppedAt
+      ? selectedRecording?.status === "completed"
+        ? (zh ? "此录像片段尚无字幕对齐信息" : "Caption alignment unavailable for this segment")
+        : (zh ? "录像时间核验中，字幕暂无法对齐" : "Verifying recording times for caption alignment")
+      : captionMode === "off" ? (zh ? "视频字幕已关闭" : "Video captions off")
+        : captionMode === "bilingual" ? (zh ? "双语" : "Bilingual")
+          : captionMode === "original" ? (zh ? "原文" : "Original") : (zh ? "译文" : "Translation");
   const activeCaption = lessonCaptions[activeCaptionIndex(lessonCaptions, selectedRecording, mediaTime)] || null;
   const captionLanguages = Array.from(new Set(
     lessonCaptions.flatMap((caption) => Object.keys(caption.translations || {})),
@@ -777,11 +811,10 @@ export default function CoursePlaybackPage({
               </div>
             ) : canPlayInApp ? (
               <>
-                {selectedRecording && selectedRecording.status !== "completed" && <p role="status" className="border-b border-border p-3 text-sm text-muted-foreground">
-                  {locale.startsWith("zh") ? "可播放已生成片段；录制是否结束仍在核验，内容可能尚未完整。" : "Available recording segments can be played. Recorder exit remains unconfirmed and the recording may be incomplete."}
-                  {isTeacher && attentionRecording?.errorMessage ? ` ${attentionRecording.errorMessage}` : ""}
-                </p>}
                 <PlaybackVideo
+                  title={selectedSession?.title || course?.name || (zh ? "课程回放" : "Lesson replay")}
+                  onRecheck={isTeacher && attentionRecording ? () => void retryRecordingVerification() : undefined}
+                  recheckBusy={verificationBusy}
                   courseId={id}
                   trackProgress={!isTeacher}
                   locale={locale}
@@ -812,7 +845,7 @@ export default function CoursePlaybackPage({
                       aria-label={locale.startsWith("zh") ? "字幕设置" : "Caption settings"}
                       onClick={() => setCaptionSettingsOpen((open) => !open)}
                       className="rounded-md border border-white/30 p-1.5 text-white/80 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"><Settings2 className="h-4 w-4" /></button>
-                    <span className="text-xs text-white/60">{!selectedRecording?.startedAt || !selectedRecording?.stoppedAt ? (locale.startsWith("zh") ? "当前录像缺少字幕时间信息" : "Caption timing unavailable") : !lessonCaptions.length ? (locale.startsWith("zh") ? "暂无最终字幕" : "No final captions") : captionMode === "off" ? (locale.startsWith("zh") ? "视频字幕已关闭" : "Video captions off") : captionMode === "bilingual" ? (locale.startsWith("zh") ? "双语" : "Bilingual") : captionMode === "original" ? (locale.startsWith("zh") ? "原文" : "Original") : (locale.startsWith("zh") ? "译文" : "Translation")}</span>
+                    <span className="text-xs text-white/60">{captionStateLabel}</span>
                   </div>
                   <span className="text-xs text-white/50">{locale.startsWith("zh") ? "点击时间线发言可定位视频" : "Select an utterance to seek the video"}</span>
                 </div>
@@ -1278,6 +1311,9 @@ function formatDuration(totalSeconds: number): string {
 }
 
 function PlaybackVideo({
+  title,
+  onRecheck,
+  recheckBusy,
   courseId,
   trackProgress,
   locale,
@@ -1294,6 +1330,9 @@ function PlaybackVideo({
   captionMode,
   captionAppearance,
 }: {
+  title: string;
+  onRecheck?: () => void;
+  recheckBusy?: boolean;
   courseId: string;
   trackProgress: boolean;
   locale: string;
@@ -1313,6 +1352,7 @@ function PlaybackVideo({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const { issue, directUrl, retry } = usePlaybackMedia(videoRef, src, isHls);
   const [watchedSec, setWatchedSec] = useState(0);
+  const [firstFrameReady, setFirstFrameReady] = useState(false);
   const [trackingState, setTrackingState] = useState<TrackingState>(
     trackProgress ? "idle" : "teacher"
   );
@@ -1561,21 +1601,31 @@ function PlaybackVideo({
   const captionSize = captionAppearance.size === "small" ? "text-xs sm:text-sm" : captionAppearance.size === "large" ? "text-base sm:text-lg" : "text-sm sm:text-base";
 
   return (
-    <div className="bg-black">
+    <div className="relative bg-black">
       <div className="relative">
         <video
           ref={videoRef}
           className="aspect-video w-full bg-black object-contain"
           controls
           playsInline
+          poster="/classroom/replay-placeholder.svg"
           preload="metadata"
+          onLoadedData={() => setFirstFrameReady(true)}
           onTimeUpdate={(event) => onTimeUpdate(event.currentTarget.currentTime)}
           onSeeking={(event) => onTimeUpdate(event.currentTarget.currentTime)}
           onEnded={onEnded}
           onCanPlay={(event) => {
+            setFirstFrameReady(true);
             if (autoStart) void event.currentTarget.play().catch(() => {});
           }}
         />
+        {!firstFrameReady && <div role="status" className="pointer-events-none absolute inset-x-6 bottom-[18%] flex flex-col items-center gap-2 text-center text-slate-700">
+          <p className="max-w-[90%] truncate text-sm font-semibold sm:text-lg">{title}</p>
+          <p className="flex items-center gap-2 text-xs sm:text-sm">
+            {!issue && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+            {locale.startsWith("zh") ? issue ? "视频尚未加载，请打开播放帮助重试" : "正在准备回放，即将显示画面" : issue ? "Video unavailable. Open Playback help to retry." : "Preparing your replay…"}
+          </p>
+        </div>}
         {captionMode !== "off" && hasVisibleText && (
           <div className={`pointer-events-none absolute inset-x-4 flex justify-start ${captionAppearance.position === "top" ? "top-4" : "bottom-16"}`}>
             <div className={`max-w-[70%] rounded-xl px-4 py-2 text-center leading-relaxed text-white shadow-lg ${captionSize} ${captionAppearance.background === "transparent" ? "bg-transparent [text-shadow:0_2px_5px_rgba(0,0,0,0.95),0_0_2px_#000]" : "bg-[#202124]/90"}`}>
@@ -1586,8 +1636,9 @@ function PlaybackVideo({
         )}
       </div>
       <PlaybackCompatibility issue={issue} directUrl={directUrl} src={src} isHls={isHls}
-        sharePath={sharePath} onRetry={retry} onExternalPlay={() => videoRef.current?.pause()} />
-      <div className="flex flex-col gap-2 border-t border-white/10 bg-zinc-950 px-4 py-3 text-zinc-300 sm:flex-row sm:items-center sm:justify-between">
+        sharePath={sharePath} onRetry={retry} onExternalPlay={() => videoRef.current?.pause()}
+        onRecheck={onRecheck} recheckBusy={recheckBusy} />
+      {trackProgress && <div className="flex flex-col gap-2 border-t border-white/10 bg-zinc-950 px-4 py-3 text-zinc-300 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-2 text-xs">
           {trackingState === "recording" ? (
             <Activity className="h-4 w-4 shrink-0 text-emerald-400" />
@@ -1606,7 +1657,7 @@ function PlaybackVideo({
             </span>
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

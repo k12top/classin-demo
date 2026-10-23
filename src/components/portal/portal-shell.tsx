@@ -11,6 +11,8 @@ import {
   BookOpen,
   CalendarDays,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
   Settings,
   Sparkles,
   Users,
@@ -77,7 +79,26 @@ export function PortalShell({
   // only after hydration so a minute boundary cannot force a full remount.
   const [now, setNow] = useState<Date | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let collapsed = window.matchMedia("(max-width: 1024px)").matches;
+    try {
+      const saved = localStorage.getItem("classroom.portal.sidebar.v1");
+      if (saved) collapsed = saved === "collapsed";
+    } catch { /* Local preferences may be unavailable in private browsing. */ }
+    queueMicrotask(() => setSidebarCollapsed(collapsed));
+  }, []);
+
+  const toggleSidebar = () => {
+    const collapsed = !sidebarCollapsed;
+    setSidebarCollapsed(collapsed);
+    try { localStorage.setItem("classroom.portal.sidebar.v1", collapsed ? "collapsed" : "expanded"); } catch { /* Keep the current choice in memory. */ }
+  };
+  const sidebarLabel = locale.startsWith("zh")
+    ? sidebarCollapsed ? "展开导航" : "收起导航"
+    : sidebarCollapsed ? "Expand navigation" : "Collapse navigation";
 
   useEffect(() => {
     // Schedule the first client-only clock update after hydration. Keeping the
@@ -170,6 +191,8 @@ export function PortalShell({
             data-active={activePage === item.id}
             onClick={() => onPageChange(item.id as PortalPage)}
             aria-current={activePage === item.id ? "page" : undefined}
+            aria-label={item.label}
+            title={item.label}
           >
             <span className={styles.navIcon}>
               <Icon aria-hidden="true" />
@@ -185,7 +208,7 @@ export function PortalShell({
   if (embedded) return <div className={`${styles.shell} p-4 sm:p-6`}>{children}</div>;
 
   return (
-    <div className={styles.shell}>
+    <div className={styles.shell} data-sidebar-collapsed={sidebarCollapsed}>
       <aside className={styles.sidebar}>
         <button
           type="button"
@@ -203,7 +226,7 @@ export function PortalShell({
           </span>
         </button>
 
-        <nav className={styles.nav} aria-label={copy.navigation}>
+        <nav id="portal-navigation" className={styles.nav} aria-label={copy.navigation}>
           <p className={styles.navLabel}>{copy.navigation}</p>
           {nav}
         </nav>
@@ -218,12 +241,18 @@ export function PortalShell({
             </span>
             <strong>{t("common.appName")}</strong>
           </div>
+          <div className={styles.pageHeading}>
+          <button type="button" className={styles.sidebarToggle} onClick={toggleSidebar}
+            aria-label={sidebarLabel} title={sidebarLabel} aria-expanded={!sidebarCollapsed} aria-controls="portal-navigation">
+            {sidebarCollapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
+          </button>
           <div className={styles.pageIdentity}>
             <small>
               <Sparkles className="mr-1 inline h-3 w-3" aria-hidden="true" />
               {copy.workspace}
             </small>
             <h1>{title}</h1>
+          </div>
           </div>
           <div className={styles.utility}>
             <div className={styles.headerPreferences} aria-label={copy.language}>

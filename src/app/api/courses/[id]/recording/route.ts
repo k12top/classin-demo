@@ -167,6 +167,7 @@ export async function POST(
 
     const body = (await request.json().catch(() => ({}))) as {
       action?: unknown;
+      recordingId?: unknown;
     };
     action = body.action;
     if (action !== "start" && action !== "stop" && action !== "auto-start-whiteboard-ready") {
@@ -177,7 +178,18 @@ export async function POST(
     }
 
     const { course, lesson } = resolved;
-    const latest = lesson.recordings[0];
+    // A replay can show an older attempt. Never let its recheck stop the newest
+    // recorder, and never accept a recorder belonging to another lesson.
+    if (action === "stop" && body.recordingId !== undefined &&
+      (typeof body.recordingId !== "string" || !body.recordingId)) {
+      return NextResponse.json({ error: "Invalid recording ID" }, { status: 400 });
+    }
+    const latest = action === "stop" && typeof body.recordingId === "string"
+      ? await prisma.classroomRecording.findFirst({ where: { id: body.recordingId, sessionId: lesson.id } })
+      : lesson.recordings[0];
+    if (action === "stop" && body.recordingId && !latest) {
+      return NextResponse.json({ error: "Recording not found" }, { status: 404 });
+    }
     if (action === "start") {
       const runtimeState = await prisma.classroomRuntime.findUnique({
         where: { sessionId: lesson.id },
