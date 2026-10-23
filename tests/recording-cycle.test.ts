@@ -76,3 +76,10 @@ test("scheduled end re-reads eligibility after the extension or reopen acquires 
   assert.deepEqual(await module.lockDueLessons(tx as any, {}, start), []);
   assert.equal(reads, 2);
 });
+
+
+test("explicit start cannot hide an unknown old provider task behind a successful queued response", async () => {
+  const f = fixture([{ status: "failed", failureStage: "start-unknown" }]);
+  await assert.rejects(f.start(), /Verify the previous provider startup outcome/);
+  assert.equal(f.rows.length, 1);
+});

@@ -179,6 +179,7 @@ export async function requestRecordingStart(
   // Serialize starts with end/reopen/extend and all other starts. Never orphan an older task.
   const blocker = await tx.classroomRecording.findFirst({ where: { sessionId: lesson.id,
     OR: [{ status: { in: ACTIVE_RECORDING_STATUSES } }, { failureStage: "start-unknown" }] }, orderBy: { createdAt: "desc" } });
+  if (blocker?.failureStage === "start-unknown") throw new Error("Verify the previous provider startup outcome before starting another recording");
   if (blocker && !recordingStopControl(blocker.providerState)?.confirmedAt) return blocker;
   const previousCycle = latest && recordingIsFromPreviousCycle(latest, runtime.startedAt);
   if (latest?.failureStage === "start-unknown") throw new Error("Verify the previous provider startup outcome before starting another recording");
