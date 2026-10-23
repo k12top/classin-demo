@@ -1,5 +1,6 @@
 "use client";
 
+import { CoursewareUploader } from "@/components/courseware-uploader";
 import Image from "next/image";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useRef, useState } from "react";
@@ -10,8 +11,10 @@ import type { ClassroomCoursewareSnapshot } from "@/lib/classroom/types";
 export type CoursewareUpdate = Partial<Pick<ClassroomCoursewareSnapshot, "studentCanView" | "studentCanDownload" | "whiteboardEnabled">>;
 export type CoursewareInsertion = { status: "inserting" | "inserted" | "failed"; error?: string };
 
-export function CoursewarePanel({ items, canManage, busy, insertion, boardAvailable, onOpen, onUpdate, shareAccess }: {
+export function CoursewarePanel({ items, canManage, busy, insertion, boardAvailable, onOpen, onUpdate, shareAccess, uploadScope, onUploaded }: {
   shareAccess?: string | null;
+  uploadScope?: { courseId: string; sessionId: string };
+  onUploaded?: () => void | Promise<void>;
   items: ClassroomCoursewareSnapshot[];
   canManage: boolean;
   busy: string | null;
@@ -75,6 +78,10 @@ export function CoursewarePanel({ items, canManage, busy, insertion, boardAvaila
 
   return <div className="classroom-v3-panel-body">
     <div className="classroom-v3-panel-heading"><div><small>{t("classroom.v3.courseFilesEyebrow")}</small><h2>{t("classroom.v3.coursewareTitle")}</h2></div><span>{t("classroom.v3.coursewareCount", { count: items.length })}</span></div>
+    {uploadScope && onUploaded && <details className="mb-5 rounded-xl border border-border p-3">
+      <summary className="cursor-pointer py-2 font-medium">{t("courseDetail.uploadCourseware")}</summary>
+      <div className="pt-3"><CoursewareUploader {...uploadScope} canUpload onUploaded={onUploaded} /></div>
+    </details>}
     <div className="classroom-v3-courseware-list">
       {!items.length && <div className="classroom-v3-panel-empty"><BookOpen /><strong>{t("classroom.v3.coursewareEmpty")}</strong><p>{t("classroom.v3.coursewareHint")}</p></div>}
       {items.map(item => {

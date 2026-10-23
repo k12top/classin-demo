@@ -1,6 +1,11 @@
 // Localized copy for the portal refinements. All supported locales carry the same keys.
 export const portalUpdates = {
   "en": {
+    "materialDeniedTitle": "Course materials are not available to this account",
+    "materialDeniedDesc": "Students enrolled in this class can view and download shared materials. Check that you are signed in to the enrolled account, or ask the teaching team to confirm your class membership.",
+    "materialLoadFailed": "Unable to load course materials. Please try again.",
+    "materialUploadLesson": "Upload to lesson",
+
     "expandNavigation": "Expand navigation",
     "collapseNavigation": "Collapse navigation",
     "playbackHelp": "Playback help",
@@ -38,6 +43,11 @@ export const portalUpdates = {
     "userId": "User ID"
   },
   "zh-CN": {
+    "materialDeniedTitle": "当前账号暂时无法查看课件",
+    "materialDeniedDesc": "本课堂内的学生可以查看和下载已开放的课件。请确认已登录报名账号，或联系主讲老师、助教核对课次成员资格。",
+    "materialLoadFailed": "课件暂时加载失败，请稍后重试。",
+    "materialUploadLesson": "上传到课次",
+
     "expandNavigation": "展开导航",
     "collapseNavigation": "收起导航",
     "playbackHelp": "播放帮助",
@@ -75,6 +85,11 @@ export const portalUpdates = {
     "userId": "用户 ID"
   },
   "zh-TW": {
+    "materialDeniedTitle": "目前帳號暫時無法查看課件",
+    "materialDeniedDesc": "本課堂內的學生可以查看和下載已開放的課件。請確認已登入報名帳號，或聯絡主講老師、助教核對課次成員資格。",
+    "materialLoadFailed": "課件暫時載入失敗，請稍後重試。",
+    "materialUploadLesson": "上傳至課次",
+
     "expandNavigation": "展開導覽",
     "collapseNavigation": "收起導覽",
     "playbackHelp": "播放說明",
@@ -112,6 +127,11 @@ export const portalUpdates = {
     "userId": "使用者 ID"
   },
   "id": {
+    "materialDeniedTitle": "Materi belum tersedia untuk akun ini",
+    "materialDeniedDesc": "Siswa yang terdaftar dapat melihat dan mengunduh materi yang dibagikan. Pastikan akun Anda benar atau hubungi guru dan asisten untuk memeriksa keanggotaan kelas.",
+    "materialLoadFailed": "Materi gagal dimuat. Silakan coba lagi.",
+    "materialUploadLesson": "Unggah ke sesi",
+
     "expandNavigation": "Perluas navigasi",
     "collapseNavigation": "Ciutkan navigasi",
     "playbackHelp": "Bantuan pemutaran",
@@ -149,6 +169,11 @@ export const portalUpdates = {
     "userId": "ID pengguna"
   },
   "ja": {
+    "materialDeniedTitle": "このアカウントでは教材を閲覧できません",
+    "materialDeniedDesc": "受講登録した学生は公開教材を閲覧・ダウンロードできます。登録アカウントでログインするか、講師に受講資格をご確認ください。",
+    "materialLoadFailed": "教材を読み込めません。再試行してください。",
+    "materialUploadLesson": "アップロード先の授業",
+
     "expandNavigation": "ナビゲーションを展開",
     "collapseNavigation": "ナビゲーションを折りたたむ",
     "playbackHelp": "再生ヘルプ",
@@ -186,6 +211,11 @@ export const portalUpdates = {
     "userId": "ユーザーID"
   },
   "ko": {
+    "materialDeniedTitle": "이 계정에서는 자료를 볼 수 없습니다",
+    "materialDeniedDesc": "수강 등록한 학생은 공개 자료를 보고 다운로드할 수 있습니다. 등록 계정인지 확인하거나 교사에게 수강 자격을 문의하세요.",
+    "materialLoadFailed": "자료를 불러오지 못했습니다. 다시 시도하세요.",
+    "materialUploadLesson": "업로드할 수업",
+
     "expandNavigation": "탐색 펼치기",
     "collapseNavigation": "탐색 접기",
     "playbackHelp": "재생 도움말",
@@ -223,6 +253,11 @@ export const portalUpdates = {
     "userId": "사용자 ID"
   },
   "fr": {
+    "materialDeniedTitle": "Supports indisponibles pour ce compte",
+    "materialDeniedDesc": "Les élèves inscrits peuvent consulter et télécharger les supports partagés. Vérifiez votre compte ou contactez l’équipe pédagogique pour confirmer votre inscription.",
+    "materialLoadFailed": "Impossible de charger les supports. Réessayez.",
+    "materialUploadLesson": "Séance de destination",
+
     "expandNavigation": "Développer la navigation",
     "collapseNavigation": "Réduire la navigation",
     "playbackHelp": "Aide à la lecture",
@@ -260,6 +295,11 @@ export const portalUpdates = {
     "userId": "ID utilisateur"
   },
   "es": {
+    "materialDeniedTitle": "Materiales no disponibles para esta cuenta",
+    "materialDeniedDesc": "El alumnado inscrito puede consultar y descargar los materiales compartidos. Comprueba tu cuenta o pide al equipo docente que confirme tu inscripción.",
+    "materialLoadFailed": "No se pudieron cargar los materiales. Inténtalo de nuevo.",
+    "materialUploadLesson": "Subir a la sesión",
+
     "expandNavigation": "Expandir navegación",
     "collapseNavigation": "Contraer navegación",
     "playbackHelp": "Ayuda de reproducción",
@@ -297,6 +337,11 @@ export const portalUpdates = {
     "userId": "ID de usuario"
   },
   "pt": {
+    "materialDeniedTitle": "Materiais indisponíveis para esta conta",
+    "materialDeniedDesc": "Alunos inscritos podem consultar e baixar materiais compartilhados. Confira sua conta ou peça à equipe docente que confirme sua inscrição.",
+    "materialLoadFailed": "Não foi possível carregar os materiais. Tente novamente.",
+    "materialUploadLesson": "Enviar para a aula",
+
     "expandNavigation": "Expandir navegação",
     "collapseNavigation": "Recolher navegação",
     "playbackHelp": "Ajuda de reprodução",
@@ -334,6 +379,11 @@ export const portalUpdates = {
     "userId": "ID do usuário"
   },
   "de": {
+    "materialDeniedTitle": "Materialien für dieses Konto nicht verfügbar",
+    "materialDeniedDesc": "Angemeldete Lernende können freigegebene Materialien ansehen und herunterladen. Prüfen Sie Ihr Konto oder lassen Sie die Teilnahme vom Lehrteam bestätigen.",
+    "materialLoadFailed": "Materialien konnten nicht geladen werden. Bitte erneut versuchen.",
+    "materialUploadLesson": "In Unterrichtseinheit hochladen",
+
     "expandNavigation": "Navigation ausklappen",
     "collapseNavigation": "Navigation einklappen",
     "playbackHelp": "Wiedergabehilfe",
@@ -371,6 +421,11 @@ export const portalUpdates = {
     "userId": "Benutzer-ID"
   },
   "it": {
+    "materialDeniedTitle": "Materiali non disponibili per questo account",
+    "materialDeniedDesc": "Gli studenti iscritti possono visualizzare e scaricare i materiali condivisi. Verifica il tuo account o chiedi ai docenti di confermare l’iscrizione.",
+    "materialLoadFailed": "Impossibile caricare i materiali. Riprova.",
+    "materialUploadLesson": "Carica nella lezione",
+
     "expandNavigation": "Espandi navigazione",
     "collapseNavigation": "Comprimi navigazione",
     "playbackHelp": "Guida alla riproduzione",
@@ -408,6 +463,11 @@ export const portalUpdates = {
     "userId": "ID utente"
   },
   "ru": {
+    "materialDeniedTitle": "Материалы недоступны этому аккаунту",
+    "materialDeniedDesc": "Ученики занятия могут просматривать и скачивать открытые материалы. Проверьте аккаунт или попросите преподавателя подтвердить участие.",
+    "materialLoadFailed": "Не удалось загрузить материалы. Повторите попытку.",
+    "materialUploadLesson": "Загрузить в занятие",
+
     "expandNavigation": "Развернуть навигацию",
     "collapseNavigation": "Свернуть навигацию",
     "playbackHelp": "Помощь с воспроизведением",
@@ -445,6 +505,11 @@ export const portalUpdates = {
     "userId": "ID пользователя"
   },
   "vi": {
+    "materialDeniedTitle": "Tài liệu chưa khả dụng cho tài khoản này",
+    "materialDeniedDesc": "Học sinh đã đăng ký có thể xem và tải tài liệu được chia sẻ. Kiểm tra tài khoản hoặc nhờ giáo viên xác nhận tư cách thành viên lớp.",
+    "materialLoadFailed": "Không thể tải tài liệu. Vui lòng thử lại.",
+    "materialUploadLesson": "Tải lên buổi học",
+
     "expandNavigation": "Mở rộng điều hướng",
     "collapseNavigation": "Thu gọn điều hướng",
     "playbackHelp": "Trợ giúp phát video",
@@ -482,6 +547,11 @@ export const portalUpdates = {
     "userId": "ID người dùng"
   },
   "ms": {
+    "materialDeniedTitle": "Bahan tidak tersedia untuk akaun ini",
+    "materialDeniedDesc": "Pelajar berdaftar boleh melihat dan memuat turun bahan yang dikongsi. Semak akaun anda atau hubungi guru untuk mengesahkan keahlian kelas.",
+    "materialLoadFailed": "Bahan gagal dimuatkan. Cuba lagi.",
+    "materialUploadLesson": "Muat naik ke sesi",
+
     "expandNavigation": "Kembangkan navigasi",
     "collapseNavigation": "Kecilkan navigasi",
     "playbackHelp": "Bantuan main balik",
@@ -519,6 +589,11 @@ export const portalUpdates = {
     "userId": "ID pengguna"
   },
   "fil": {
+    "materialDeniedTitle": "Hindi available ang materyales sa account na ito",
+    "materialDeniedDesc": "Maaaring tingnan at i-download ng mga naka-enroll ang ibinahaging materyales. Suriin ang account o ipasuri sa guro ang pagiging miyembro ng klase.",
+    "materialLoadFailed": "Hindi ma-load ang materyales. Subukang muli.",
+    "materialUploadLesson": "I-upload sa sesyon",
+
     "expandNavigation": "Palawakin ang nabigasyon",
     "collapseNavigation": "Paliitin ang nabigasyon",
     "playbackHelp": "Tulong sa pag-play",
@@ -556,6 +631,11 @@ export const portalUpdates = {
     "userId": "ID ng user"
   },
   "ar": {
+    "materialDeniedTitle": "المواد غير متاحة لهذا الحساب",
+    "materialDeniedDesc": "يمكن للطلاب المسجلين عرض المواد المشتركة وتنزيلها. تحقق من حسابك أو اطلب من فريق التدريس تأكيد تسجيلك.",
+    "materialLoadFailed": "تعذر تحميل المواد. يرجى المحاولة مجددًا.",
+    "materialUploadLesson": "رفع إلى الحصة",
+
     "expandNavigation": "توسيع التنقل",
     "collapseNavigation": "طي التنقل",
     "playbackHelp": "مساعدة التشغيل",
@@ -593,6 +673,11 @@ export const portalUpdates = {
     "userId": "معرّف المستخدم"
   },
   "hi": {
+    "materialDeniedTitle": "इस खाते के लिए सामग्री उपलब्ध नहीं है",
+    "materialDeniedDesc": "कक्षा में नामांकित छात्र साझा सामग्री देख और डाउनलोड कर सकते हैं। अपना खाता जाँचें या शिक्षक से सदस्यता की पुष्टि करवाएँ।",
+    "materialLoadFailed": "सामग्री लोड नहीं हुई। फिर से प्रयास करें।",
+    "materialUploadLesson": "पाठ में अपलोड करें",
+
     "expandNavigation": "नेविगेशन फैलाएँ",
     "collapseNavigation": "नेविगेशन समेटें",
     "playbackHelp": "प्लेबैक सहायता",
@@ -630,6 +715,11 @@ export const portalUpdates = {
     "userId": "उपयोगकर्ता आईडी"
   },
   "sw": {
+    "materialDeniedTitle": "Nyenzo hazipatikani kwa akaunti hii",
+    "materialDeniedDesc": "Wanafunzi walioandikishwa wanaweza kuona na kupakua nyenzo zilizoshirikiwa. Hakiki akaunti yako au wasiliana na walimu kuthibitisha usajili wako.",
+    "materialLoadFailed": "Imeshindwa kupakia nyenzo. Jaribu tena.",
+    "materialUploadLesson": "Pakia kwenye somo",
+
     "expandNavigation": "Panua urambazaji",
     "collapseNavigation": "Kunja urambazaji",
     "playbackHelp": "Msaada wa uchezaji",
@@ -667,6 +757,11 @@ export const portalUpdates = {
     "userId": "Kitambulisho cha mtumiaji"
   },
   "th": {
+    "materialDeniedTitle": "บัญชีนี้ยังดูเอกสารไม่ได้",
+    "materialDeniedDesc": "นักเรียนที่ลงทะเบียนสามารถดูและดาวน์โหลดเอกสารที่แชร์ได้ โปรดตรวจสอบบัญชีหรือติดต่อครูเพื่อยืนยันการเป็นสมาชิกชั้นเรียน",
+    "materialLoadFailed": "โหลดเอกสารไม่สำเร็จ โปรดลองอีกครั้ง",
+    "materialUploadLesson": "อัปโหลดไปยังคาบเรียน",
+
     "expandNavigation": "ขยายเมนู",
     "collapseNavigation": "ย่อเมนู",
     "playbackHelp": "ความช่วยเหลือการเล่น",
@@ -704,6 +799,11 @@ export const portalUpdates = {
     "userId": "รหัสผู้ใช้"
   },
   "lo": {
+    "materialDeniedTitle": "ບັນຊີນີ້ຍັງເບິ່ງເອກະສານບໍ່ໄດ້",
+    "materialDeniedDesc": "ນັກຮຽນທີ່ລົງທະບຽນສາມາດເບິ່ງແລະດາວໂຫຼດເອກະສານທີ່ແບ່ງປັນໄດ້. ກວດບັນຊີ ຫຼືຕິດຕໍ່ຄູເພື່ອຢືນຢັນສະມາຊິກ.",
+    "materialLoadFailed": "ໂຫຼດເອກະສານບໍ່ສຳເລັດ. ລອງໃໝ່.",
+    "materialUploadLesson": "ອັບໂຫຼດໄປບົດຮຽນ",
+
     "expandNavigation": "ຂະຫຍາຍເມນູ",
     "collapseNavigation": "ຫຍໍ້ເມນູ",
     "playbackHelp": "ຊ່ວຍເຫຼືອການຫຼິ້ນ",
@@ -741,6 +841,11 @@ export const portalUpdates = {
     "userId": "ລະຫັດຜູ້ໃຊ້"
   },
   "my": {
+    "materialDeniedTitle": "ဤအကောင့်အတွက် သင်ခန်းစာဖိုင်များ မရရှိနိုင်ပါ",
+    "materialDeniedDesc": "စာရင်းသွင်းထားသော ကျောင်းသားများသည် မျှဝေထားသောဖိုင်များကို ကြည့်ရှု၍ ဒေါင်းလုဒ်လုပ်နိုင်သည်။ အကောင့်ကို စစ်ဆေးပါ သို့မဟုတ် အတန်းဝင်ခွင့်ကို ဆရာထံ အတည်ပြုပါ။",
+    "materialLoadFailed": "ဖိုင်များကို မတင်နိုင်ပါ။ ထပ်ကြိုးစားပါ။",
+    "materialUploadLesson": "သင်ခန်းစာသို့ ဖိုင်တင်ရန်",
+
     "expandNavigation": "လမ်းညွှန်ကို ဖြန့်ပါ",
     "collapseNavigation": "လမ်းညွှန်ကို ခေါက်ပါ",
     "playbackHelp": "ဗီဒီယိုဖွင့်ရန် အကူအညီ",
@@ -778,6 +883,11 @@ export const portalUpdates = {
     "userId": "အသုံးပြုသူ ID"
   },
   "km": {
+    "materialDeniedTitle": "គណនីនេះមិនអាចមើលឯកសារបានទេ",
+    "materialDeniedDesc": "សិស្សដែលបានចុះឈ្មោះអាចមើល និងទាញយកឯកសារដែលបានចែករំលែក។ សូមពិនិត្យគណនី ឬទាក់ទងគ្រូដើម្បីបញ្ជាក់សមាជិកភាព។",
+    "materialLoadFailed": "មិនអាចផ្ទុកឯកសារបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+    "materialUploadLesson": "ផ្ទុកឡើងទៅមេរៀន",
+
     "expandNavigation": "ពង្រីកម៉ឺនុយ",
     "collapseNavigation": "បង្រួមម៉ឺនុយ",
     "playbackHelp": "ជំនួយចាក់វីដេអូ",
@@ -815,6 +925,11 @@ export const portalUpdates = {
     "userId": "លេខសម្គាល់អ្នកប្រើ"
   },
   "ta": {
+    "materialDeniedTitle": "இந்தக் கணக்கிற்கு பாடக் கோப்புகள் கிடைக்கவில்லை",
+    "materialDeniedDesc": "பதிவு செய்த மாணவர்கள் பகிரப்பட்ட கோப்புகளைப் பார்க்கவும் பதிவிறக்கவும் முடியும். உங்கள் கணக்கைச் சரிபார்க்கவும் அல்லது வகுப்பு உறுப்பினர் நிலையை ஆசிரியரிடம் உறுதிப்படுத்தவும்.",
+    "materialLoadFailed": "கோப்புகளை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+    "materialUploadLesson": "பாடத்திற்கு பதிவேற்றவும்",
+
     "expandNavigation": "வழிசெலுத்தலை விரி",
     "collapseNavigation": "வழிசெலுத்தலைச் சுருக்கு",
     "playbackHelp": "இயக்க உதவி",

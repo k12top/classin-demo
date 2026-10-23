@@ -7322,6 +7322,11 @@ export function ClassroomV3({
                 {activePanel === "courseware" && (
                   <CoursewarePanel
                     shareAccess={shareAccess}
+                    uploadScope={!shareAccess && isClassroomTeachingRole(sessionData.credential.role) ? { courseId: sessionData.course.id, sessionId: sessionData.course.sessionId } : undefined}
+                    onUploaded={async () => {
+                      publishInvalidation(sessionRef.current?.runtime.revision || 0, "courseware");
+                      await refreshSection("courseware");
+                    }}
                     items={sessionData.courseware}
                     canManage={sessionData.capabilities.canManageWhiteboard}
                     busy={actionBusy}
