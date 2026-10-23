@@ -17,6 +17,8 @@ import {
 import { isTransientDatabaseError, prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
 import { resolveCourseSessionAccess } from "@/lib/course-session-access";
+import { resolveCourseSessionReference } from "@/lib/course-session-roster";
+import { resolveCoursewareAccess } from "@/lib/courseware-access";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -31,20 +33,28 @@ function databaseUnavailableResponse() {
   );
 }
 
-async function teacherCourse(request: NextRequest, courseId: string) {
+async function teacherCourse(request: NextRequest, courseId: string, archiveAccess = false) {
   const session = await getSessionFromRequest(request);
   if (!session) return { error: "Unauthorized", status: 401 } as const;
-  const access = await resolveCourseSessionAccess(courseId, session.userId, {
-    userIdAliases: [session.name],
-  });
-  if (!access.ok) {
-    return { error: access.reason, status: access.httpStatus } as const;
-  }
-  if (access.role !== "teacher" && access.role !== "assistant") {
-    return { error: "Forbidden", status: 403 } as const;
+  let sessionId: string;
+  if (archiveAccess) {
+    // Stopping/verifying a recorder is cleanup, not permission to enter a room.
+    // The classroom entry gate rejects ended lessons before checking membership.
+    const reference = await resolveCourseSessionReference(courseId);
+    if (!reference) return { error: "Course session not found", status: 404 } as const;
+    const scope = await resolveCoursewareAccess(session, reference.courseId, reference.id);
+    if (!scope.allowed || !scope.teaching) return { error: "Forbidden", status: 403 } as const;
+    sessionId = reference.id;
+  } else {
+    const access = await resolveCourseSessionAccess(courseId, session.userId, {
+      userIdAliases: [session.name],
+    });
+    if (!access.ok) return { error: access.reason, status: access.httpStatus } as const;
+    if (access.role !== "teacher" && access.role !== "assistant") return { error: "Forbidden", status: 403 } as const;
+    sessionId = access.sessionId;
   }
   const lesson = await prisma.courseSession.findUnique({
-    where: { id: access.sessionId },
+    where: { id: sessionId },
     include: {
       course: true,
       recordings: {
@@ -55,7 +65,7 @@ async function teacherCourse(request: NextRequest, courseId: string) {
   });
   if (!lesson) return { error: "Course session not found", status: 404 } as const;
 
-  return { session, access, course: lesson.course, lesson } as const;
+  return { session, course: lesson.course, lesson } as const;
 }
 
 function publicRecording(recording: {
@@ -101,7 +111,7 @@ export async function GET(
   const { id } = await params;
   let resolved: Awaited<ReturnType<typeof teacherCourse>>;
   try {
-    resolved = await teacherCourse(request, id);
+    resolved = await teacherCourse(request, id, true);
   } catch (error) {
     if (isTransientDatabaseError(error)) return databaseUnavailableResponse();
     throw error;
@@ -157,7 +167,12 @@ export async function POST(
   const { id } = await params;
   let action: unknown = null;
   try {
-    const resolved = await teacherCourse(request, id);
+    const body = (await request.json().catch(() => ({}))) as {
+      action?: unknown;
+      recordingId?: unknown;
+    };
+    action = body.action;
+    const resolved = await teacherCourse(request, id, action === "stop");
     if ("error" in resolved) {
       return NextResponse.json(
         { error: resolved.error },
@@ -165,11 +180,6 @@ export async function POST(
       );
     }
 
-    const body = (await request.json().catch(() => ({}))) as {
-      action?: unknown;
-      recordingId?: unknown;
-    };
-    action = body.action;
     if (action !== "start" && action !== "stop" && action !== "auto-start-whiteboard-ready") {
       return NextResponse.json(
         { error: 'action must be "start", "stop", or "auto-start-whiteboard-ready"' },

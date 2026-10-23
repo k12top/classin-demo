@@ -14,7 +14,9 @@ function fixture(role = "teacher", authenticated = true) {
     "next/server": { after: () => {}, NextResponse: { json: (body: unknown, init?: ResponseInit) => Response.json(body, init) } },
     "@/lib/classroom/recording-stop-state": stopState,
     "@/lib/session": { getSessionFromRequest: async () => authenticated ? { userId: "host" } : null },
-    "@/lib/course-session-access": { resolveCourseSessionAccess: async () => ({ ok: true, role, sessionId: "lesson" }) },
+    "@/lib/course-session-access": { resolveCourseSessionAccess: async () => ({ ok: false, httpStatus: 403, reason: "课次已结束" }) },
+    "@/lib/course-session-roster": { resolveCourseSessionReference: async () => ({ id: "lesson", courseId: "course", status: "finished" }) },
+    "@/lib/courseware-access": { resolveCoursewareAccess: async () => ({ allowed: true, teaching: ["teacher", "assistant"].includes(role) }) },
     "@/lib/db": { isTransientDatabaseError: () => false, prisma: {
       courseSession: { findUnique: async () => lesson },
       classroomRecording: { findFirst: async ({ where }: { where: { id: string; sessionId: string } }) => {
@@ -48,4 +50,10 @@ test("assistant can recheck, students and unauthenticated users cannot", async (
     const response = await f.post({ action: "stop", recordingId: "old-attempt" });
     assert([401, 403].includes(response.status)); assert.deepEqual(f.queued, []);
   }
+});
+test("an ended lesson allows verified teacher cleanup but cannot be started again by the stop authorization path", async () => {
+  const f = fixture();
+  assert.equal((await f.post({ action: "stop", recordingId: "old-attempt" })).status, 202);
+  assert.equal((await f.post({ action: "start" })).status, 403);
+  assert.deepEqual(f.queued, ["old-attempt"]);
 });
