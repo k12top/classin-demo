@@ -139,7 +139,7 @@ export const zhCN = {
       captionBackgroundColor: "背景颜色",
       captionDragHint: "拖动字幕文字可调整位置。",
       assistantPermissions: "助教管理权限",
-      assistantPermissionsHint: "主讲老师始终拥有管理权限。开启后，该助教可管理成员、白板、聊天和课堂工具。",
+      assistantPermissionsHint: "主讲老师始终拥有管理权限。助教默认可管理成员、白板、聊天和课堂工具，可在此关闭。",
       leaveTemporarily: "暂时离开",
       applyingInterpretation: "正在应用同传设置…",
       loginExpired: "登录已失效，请重新登录后停止录制。",

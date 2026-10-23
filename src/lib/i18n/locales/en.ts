@@ -141,7 +141,7 @@ export const en: typeof zhCN = {
       captionBackgroundColor: "Background color",
       captionDragHint: "Drag the caption text to move it.",
       assistantPermissions: "Assistant management permissions",
-      assistantPermissionsHint: "The lead teacher always has management access. Enable assistants to manage members, whiteboard, chat and classroom tools.",
+      assistantPermissionsHint: "The lead teacher always has management access. Assistants can manage members, whiteboard, chat and classroom tools by default. Turn off to revoke access.",
       leaveTemporarily: "Leave temporarily",
       applyingInterpretation: "Applying interpretation settings…",
       loginExpired: "Your login expired. Sign in again to stop recording.",

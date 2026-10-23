@@ -33,7 +33,7 @@ export async function requestClassroomScreenShare(input: {
     });
     if (!runtime || runtime.courseId !== courseId) throw new ClassroomActionError("课堂不存在", 404);
     if (runtime.status === "ended") throw new ClassroomActionError("课堂已经结束", 409);
-    if (role === "assistant" && (runtime.assistantPermissions as Record<string, boolean>)[actorId] !== true) {
+    if (role === "assistant" && (runtime.assistantPermissions as Record<string, boolean>)[actorId] === false) {
       throw new ClassroomActionError("主讲老师尚未授予管理权限", 403);
     }
     const command = { sessionId, actorId, role, clientId: input.clientId, commandId: input.commandId, action: { type: "requestScreenShare", targetUserId } };

@@ -23,7 +23,7 @@ export async function applyClassroomMemberPermissions(input: {
     const runtime = await tx.classroomRuntime.findUnique({ where: { sessionId }, select: { id: true, courseId: true, status: true, assistantPermissions: true } });
     if (!runtime || runtime.courseId !== courseId) throw new ClassroomActionError("课堂不存在", 404);
     if (runtime.status === "ended") throw new ClassroomActionError("课堂已结束", 409);
-    if (role === "assistant" && (runtime.assistantPermissions as Record<string, boolean>)[actorId] !== true) {
+    if (role === "assistant" && (runtime.assistantPermissions as Record<string, boolean>)[actorId] === false) {
       throw new ClassroomActionError("主讲老师尚未授予管理权限", 403);
     }
     const command = { sessionId, actorId, role, clientId: input.clientId, commandId: input.commandId, action: action };

@@ -237,7 +237,7 @@ export async function POST(request: NextRequest) {
         runtimeSnapshot.status !== "ended" &&
         canShareClassroomScreen({ role, member,
           studentSharingSupported: modePolicy.studentCanShareWhenOnStage,
-          assistantManagementAllowed: runtimeSnapshot.assistantPermissions?.[userId] === true }),
+          assistantManagementAllowed: runtimeSnapshot.assistantPermissions?.[userId] !== false }),
     });
 
     if (!recorder && role === "student") {
@@ -381,7 +381,7 @@ export async function POST(request: NextRequest) {
               canParticipateInEngagement: false,
             }
           : {
-              ...classroomCapabilities(role, modePolicy, role !== "assistant" || runtimeSnapshot.assistantPermissions?.[userId] === true),
+              ...classroomCapabilities(role, modePolicy, role !== "assistant" || runtimeSnapshot.assistantPermissions?.[userId] !== false),
               ...(role === "student" && {
                 canShareScreen: Boolean(
                   modePolicy.studentCanShareWhenOnStage &&

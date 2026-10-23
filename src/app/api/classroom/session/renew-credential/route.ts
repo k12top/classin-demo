@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
         (role === "assistant" && mode.mode !== "largeClass") || Boolean(acceptedStudent)),
       allowScreenShare: !recorder && canShareClassroomScreen({ role, member,
         studentSharingSupported: mode.studentCanShareWhenOnStage,
-        assistantManagementAllowed: (lesson.classroomRuntime?.assistantPermissions as Record<string, boolean> | undefined)?.[userId] === true }),
+        assistantManagementAllowed: (lesson.classroomRuntime?.assistantPermissions as Record<string, boolean> | undefined)?.[userId] !== false }),
     });
     const clientId = normalizeClassroomClientId(body?.clientId);
     return NextResponse.json({ credential, signaling: recorder ? null : issueAgoraSignalingCredential(sessionId, clientId ? `${userId}:${clientId}` : userId) });

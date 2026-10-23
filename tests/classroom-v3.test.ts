@@ -90,7 +90,9 @@ assert.equal(teacher.canManageStage, true);
 assert.equal(teacher.canManageInterpretation, true);
 
 const assistant = classroomCapabilities("assistant", undefined, true);
-const unprivilegedAssistant = classroomCapabilities("assistant");
+const unprivilegedAssistant = classroomCapabilities("assistant", undefined, false);
+assert.equal(classroomCapabilities("assistant").canManageMembers, true);
+assert.equal(classroomCapabilities("assistant").canManageStage, true);
 assert.equal(unprivilegedAssistant.canManageMembers, false);
 assert.equal(unprivilegedAssistant.canManageWhiteboard, false);
 assert.equal(unprivilegedAssistant.canStartClass, false);

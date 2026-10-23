@@ -488,7 +488,7 @@ export async function updateClassroomSpace(input: {
   await assertLargeClass(input.courseId, sessionId);
   if (input.actorRole === "assistant" && input.screenShareAllowed === true) {
     const runtime = await prisma.classroomRuntime.findUnique({ where: { sessionId }, select: { assistantPermissions: true } });
-    if ((runtime?.assistantPermissions as Record<string, boolean> | undefined)?.[input.actorId] !== true) {
+    if (!runtime || (runtime.assistantPermissions as Record<string, boolean> | undefined)?.[input.actorId] === false) {
       throw new ClassroomSpaceError("主讲老师尚未授予共享授权的管理权限", 403);
     }
   }

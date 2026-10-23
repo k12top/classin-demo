@@ -10,7 +10,8 @@ export const classroomStageSeatLimit = 6;
 export function classroomCapabilities(
   role: ClassroomRole,
   mode?: ClassroomModePolicy,
-  managementAllowed = role !== "assistant",
+  // Assistants manage the classroom by default; an explicit revocation still applies.
+  managementAllowed = true,
 ): ClassroomCapabilities {
   const teacher = role === "teacher";
   const teachingRole = teacher || (role === "assistant" && managementAllowed);

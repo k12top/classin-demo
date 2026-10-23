@@ -251,7 +251,7 @@ export const zhTW = {
       captionBackgroundColor: "背景顏色",
       captionDragHint: "拖動字幕文字可調整位置。",
       assistantPermissions: "助教管理權限",
-      assistantPermissionsHint: "主講老師始終擁有管理權限。開啟後，該助教可管理成員、白板、聊天和課堂工具。",
+      assistantPermissionsHint: "主講老師始終擁有管理權限。助教預設可管理成員、白板、聊天和課堂工具，可在此關閉。",
       leaveTemporarily: "暫時離開", applyingInterpretation: "正在套用同傳設定…",
       loginExpired: "登入已失效，請重新登入後停止錄製。",
       recordingForbidden: "目前帳號不是本課次主講老師，無法控制錄製。",

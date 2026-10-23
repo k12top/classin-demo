@@ -6,5 +6,5 @@ export async function canManageClassroom(sessionId: string, userId: string, role
   if (role !== "assistant") return false;
   const runtime = await prisma.classroomRuntime.findUnique({ where: { sessionId }, select: { assistantPermissions: true } });
   const permissions = runtime?.assistantPermissions as Record<string, boolean> | undefined;
-  return permissions?.[userId] === true;
+  return Boolean(runtime) && permissions?.[userId] !== false;
 }

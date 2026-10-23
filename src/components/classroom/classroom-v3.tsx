@@ -3551,7 +3551,7 @@ function DeviceSettings({
                   )}
                   <p>{t("classroom.v3.captionDragHint")}</p>
                 </fieldset>
-                {canManageRecording && runtime && <fieldset className="classroom-v3-caption-settings"><legend>{t("classroom.v3.assistantPermissions")}</legend><p>{t("classroom.v3.assistantPermissionsHint")}</p>{runtime.members.filter((member) => member.role === "assistant").map((member) => <label key={member.userId}><span>{member.displayName}</span><input type="checkbox" checked={runtime.assistantPermissions?.[member.userId] === true} onChange={(event) => onAssistantPermission(member.userId, event.target.checked)} /></label>)}</fieldset>}
+                {canManageRecording && runtime && <fieldset className="classroom-v3-caption-settings"><legend>{t("classroom.v3.assistantPermissions")}</legend><p>{t("classroom.v3.assistantPermissionsHint")}</p>{runtime.members.filter((member) => member.role === "assistant").map((member) => <label key={member.userId}><span>{member.displayName}</span><input type="checkbox" checked={runtime.assistantPermissions?.[member.userId] !== false} onChange={(event) => onAssistantPermission(member.userId, event.target.checked)} /></label>)}</fieldset>}
 
               </div>
             </div>
@@ -4000,7 +4000,7 @@ export function ClassroomV3({
         }) }),
       };
       if (next.credential.role === "assistant") {
-        next.capabilities = classroomCapabilities("assistant", next.modePolicy, next.runtime.assistantPermissions?.[next.credential.userId] === true);
+        next.capabilities = classroomCapabilities("assistant", next.modePolicy, next.runtime.assistantPermissions?.[next.credential.userId] !== false);
       }
       sessionRef.current = next;
       if (next.runtime.status === "ended") liveRequestsRef.current?.abort();
@@ -6121,7 +6121,7 @@ export function ClassroomV3({
   const mainScreenPermission = Boolean(sessionData && canShareClassroomScreen({
     role: sessionData.credential.role, member: currentMember,
     studentSharingSupported: sessionData.modePolicy.studentCanShareWhenOnStage,
-    assistantManagementAllowed: sessionData.runtime.assistantPermissions?.[currentUserId] === true,
+    assistantManagementAllowed: sessionData.runtime.assistantPermissions?.[currentUserId] !== false,
   }));
   const screenScope = controlsRoomMedia ? activeSpaceId || "main" : "main";
   const screenLeases = sessionData?.runtime.composition.screenShares;

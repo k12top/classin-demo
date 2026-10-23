@@ -711,7 +711,7 @@ export async function applyClassroomAction(input: {
       where: { sessionId },
     });
     if (role === "assistant" && !["raiseHand", "lowerHand", "acceptStage", "declineStage", "acceptScreenShare", "declineScreenShare", "startScreenShare", "releaseScreenShare", "submitBuzz"].includes(action.type)) {
-      if ((runtime.assistantPermissions as Record<string, boolean>)[session.userId] !== true) {
+      if ((runtime.assistantPermissions as Record<string, boolean>)[session.userId] === false) {
         throw new ClassroomActionError("主讲老师尚未授予管理权限", 403);
       }
     }
@@ -941,7 +941,7 @@ export async function applyClassroomAction(input: {
         } else {
           const member = await tx.classroomMemberState.findUnique({ where: actorWhere });
           if (!canShareClassroomScreen({ role, member, studentSharingSupported: mode.studentCanShareWhenOnStage,
-            assistantManagementAllowed: (runtime.assistantPermissions as Record<string, boolean>)[session.userId] === true })) {
+            assistantManagementAllowed: (runtime.assistantPermissions as Record<string, boolean>)[session.userId] !== false })) {
             throw new ClassroomActionError("老师尚未授予屏幕共享权限", 403);
           }
         }

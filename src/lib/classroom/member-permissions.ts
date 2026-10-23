@@ -21,7 +21,7 @@ export function applyClassroomMemberPermissionUpdate(
     (update.scope === "member" && typeof update.targetUserId !== "string")) return null;
   const actor = runtime.members.find(member => member.userId === update.actorId);
   if (!trustedResponse && (!publisherId || !actor?.signalingUserIds?.includes(publisherId) ||
-    !(actor.role === "teacher" || (actor.role === "assistant" && runtime.assistantPermissions?.[actor.userId] === true)))) return null;
+    !(actor.role === "teacher" || (actor.role === "assistant" && runtime.assistantPermissions?.[actor.userId] !== false)))) return null;
   return {
     ...runtime, revision: update.revision,
     members: runtime.members.map(member =>

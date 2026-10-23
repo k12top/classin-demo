@@ -5,7 +5,7 @@ import { canShareClassroomScreen, ownsScreenShare } from "../src/lib/classroom/s
 import { selectActiveScreenShare } from "../src/lib/classroom/media-routing";
 import type { ClassroomMediaSnapshot } from "../src/lib/classroom/types";
 
-test("being on stage does not grant screen sharing, and assistant management must be explicit", () => {
+test("being on stage does not grant screen sharing, and assistant management defaults on and explicit revocation applies", () => {
   const input = { role: "student" as const, studentSharingSupported: true,
     member: { onStage: true, stageState: "accepted", screenShareState: "idle" } };
   assert.equal(canShareClassroomScreen(input), false);
@@ -14,8 +14,9 @@ test("being on stage does not grant screen sharing, and assistant management mus
   assert.equal(canShareClassroomScreen(accepted), true);
   assert.equal(canShareClassroomScreen({ ...accepted, studentSharingSupported: false }), false);
   assert.equal(canShareClassroomScreen({ ...accepted, member: { ...accepted.member, onStage: false } }), false);
-  assert.equal(canShareClassroomScreen({ ...input, role: "assistant" }), false);
+  assert.equal(canShareClassroomScreen({ ...input, role: "assistant" }), true);
   assert.equal(canShareClassroomScreen({ ...input, role: "assistant", assistantManagementAllowed: true }), true);
+  assert.equal(canShareClassroomScreen({ ...input, role: "assistant", assistantManagementAllowed: false }), false);
   assert.equal(canShareClassroomScreen({ ...input, role: "teacher" }), true);
 });
 

@@ -31,9 +31,9 @@ test("lead and authorized assistant may move another member's camera without adv
   }
 });
 
-test("own-camera ownership never authorizes students or unapproved assistants", () => {
+test("own-camera ownership never authorizes students or explicitly revoked assistants", () => {
   assert.equal(applyClassroomCompositionPreview(runtime, { ...preview, actorId: "student" }, "student:connection", "teacher"), null);
-  assert.equal(applyClassroomCompositionPreview({ ...runtime, assistantPermissions: {} }, { ...preview, actorId: "assistant" }, "assistant:connection", "teacher"), null);
+  assert.equal(applyClassroomCompositionPreview({ ...runtime, assistantPermissions: { assistant: false } }, { ...preview, actorId: "assistant" }, "assistant:connection", "teacher"), null);
 });
 
 test("preview publisher must belong to the actual manager and self echoes are ignored", () => {
