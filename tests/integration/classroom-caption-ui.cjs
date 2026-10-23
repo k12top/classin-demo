@@ -13,7 +13,7 @@ async function main() {
   const bundle = await esbuild.build({ stdin: { contents: `
     import React, {useState} from 'react';
     import {createRoot} from 'react-dom/client';
-    import {I18nProvider} from '@/lib/i18n/context';
+    import {I18nProvider,useTranslation} from '@/lib/i18n/context';
     import {CaptionsPanel} from '@/components/classroom/captions-panel';
     import {LiveCaptionOverlay} from '@/components/classroom/live-caption-overlay';
     import {TestLiveRailSeat} from '@/components/classroom/classroom-v3';
@@ -31,6 +31,10 @@ async function main() {
     const member = {userId:'student',displayName:'李明 · Alex',role:'student',avatar:'',onStage:true,microphoneAllowed:true,cameraAllowed:true,rewardCount:0};
     const media = {local:{microphoneOn:true,cameraOn:false}};
     function Fixture(){
+      const {setLocale}=useTranslation();
+      const [preferredLanguage,setPreferredLanguage]=useState('en-US');
+      const [overlayVisible,setOverlayVisible]=useState(true);
+      const [interpretation,setInterpretation]=useState(runtime.interpretation);
       const [captions,setCaptions]=useState(initial);
       const [mode,setMode]=useState('bilingual');
       const [microphoneOn,setMicrophoneOn]=useState(true);
@@ -42,7 +46,7 @@ async function main() {
         oldLate(){setCaptions(current=>current.map(value=>value.id==='history-0'?{...value,translations:{'en-US':'A late translation from an earlier sentence.'}}:value))},
         poll(){setCaptions(current=>current.map(value=>({...value,translations:{...value.translations}})))},
         preview(){setClock(baseTime+20000);setMode('bilingual');setCaptions(current=>[...current.filter(value=>value.id.startsWith('history-')),caption('first',-17),caption('second',-18),caption('third',-19)])},
-        setMode,setMicrophoneOn,setHasVideo,setClock,baseTime,
+        setMode,setMicrophoneOn,setHasVideo,setClock,baseTime,setLocale,
       };
       const live=useLiveCaptions(captions,'en-US',mode,clock);
       return <main className="classroom-v3-shell is-classin-layout fixture">
@@ -54,9 +58,14 @@ async function main() {
           <section className="classroom-v3-stage"><div className="fixture-board">课堂白板</div>
             <LiveCaptionOverlay captions={live} language="en-US" mode={mode} background="text" color="#202124" />
           </section>
-          <aside className="classroom-v3-drawer"><CaptionsPanel runtime={runtime} captions={captions} availability={{shengwang:true,wordly:true}}
-            canManage={true} displayMode={mode} overlayVisible={true} preferredLanguage="en-US" onRetryPreference={()=>{}}
-            onApplySettings={async settings=>{setMode(settings.displayMode);return true}} />
+          <aside className="classroom-v3-drawer"><CaptionsPanel runtime={{...runtime,interpretation}} captions={captions} availability={{shengwang:true,wordly:true}}
+            canManage={true} displayMode={mode} overlayVisible={overlayVisible} preferredLanguage={preferredLanguage} onRetryPreference={()=>{}}
+            onApplySettings={async settings=>{window.appliedCalls=(window.appliedCalls||0)+1;
+              if(window.holdSave)await new Promise(resolve=>window.releaseSave=resolve);
+              if(window.failNextSave){window.failNextSave=false;return false;}
+              window.appliedSettings=settings;setMode(settings.displayMode);
+              setOverlayVisible(settings.overlayVisible);setPreferredLanguage(settings.preferredLanguage);
+              if(settings.interpretation)setInterpretation({...interpretation,...settings.interpretation});return true}} />
           </aside>
         </div>
       </main>;
@@ -144,7 +153,7 @@ async function main() {
   await waitFor("document.querySelector('[role=switch]').getAttribute('aria-label')==='跟随最新'");
   const overlayAtBottom = "(()=>{const el=document.querySelector('.classroom-v3-caption-overlay');return el.scrollHeight-el.clientHeight-el.scrollTop<2})()";
   await waitFor(overlayAtBottom);
-  const output = path.join(root, "outputs/classroom-feedback-2026-10-17");
+  const output = path.join(root, "outputs/classroom-caption-controls-2026-10-23");
   await fs.mkdir(output, { recursive: true });
   await fs.writeFile(path.join(output, "desktop.png"), (await window.webContents.capturePage()).toPNG());
   window.setContentSize(390, 844);
@@ -159,8 +168,115 @@ async function main() {
   await window.reload();
   await waitFor("Boolean(window.fixture)");
   assert.equal(await run("document.querySelector('[role=switch]').getAttribute('aria-checked')"), "false", "follow preference survives reload");
+  await run("fixture.setLocale('zh-CN')");
+  await waitFor("document.documentElement.lang==='zh-CN'");
+  await run("document.querySelector('.classroom-v3-caption-settings-summary').click()");
+  await waitFor("document.querySelector('.classroom-v3-caption-settings-disclosure').dataset.open==='true'");
+  await new Promise(resolve => setTimeout(resolve, 300));
+  const controlsInOrder = "(()=>{const panel=document.querySelector('.is-captions');const switches=Array.from(panel.querySelectorAll('.classroom-v3-caption-toggles [aria-pressed]'));return switches.length===2 && switches.every(button=>button.closest('.classroom-v3-caption-heading') && !button.closest('.classroom-v3-caption-settings-disclosure') && (button.compareDocumentPosition(panel.querySelector('.classroom-v3-caption-settings-summary')) & Node.DOCUMENT_POSITION_FOLLOWING)!==0)})()";
+  assert.ok(await run(controlsInOrder), "quick switches stay in the heading beside the title, outside the settings disclosure");
+  assert.ok(await run("(()=>{const title=document.querySelector('.classroom-v3-caption-title h2').getBoundingClientRect();return Array.from(document.querySelectorAll('.classroom-v3-caption-toggles button')).every(button=>{const r=button.getBoundingClientRect();return Math.abs((r.top+r.height/2)-(title.top+title.height/2))<3})})()"), "quick switches align with the title on the same row");
+  assert.deepEqual(await run("Array.from(document.querySelectorAll('.classroom-v3-caption-toggles button')).map(button=>button.getAttribute('aria-label'))"), ['舞台字幕浮窗','课堂同传']);
+  assert.ok(await run("document.documentElement.scrollWidth<=innerWidth"), "mobile settings have no horizontal overflow");
+  await fs.writeFile(path.join(output, "mobile-settings.png"), (await window.webContents.capturePage()).toPNG());
+  window.setContentSize(1280, 850);
+  await waitFor("innerWidth===1280");
+  await fs.writeFile(path.join(output, "desktop-settings.png"), (await window.webContents.capturePage()).toPNG());
+  const capturePanel = async name => {
+    // capturePage reads the compositor frame; let the disclosure transition and paint finish.
+    await new Promise(resolve => setTimeout(resolve, 250));
+    const rect = await run("(()=>{const panel=document.querySelector('.classroom-v3-drawer').getBoundingClientRect();const popup=document.querySelector('.classroom-v3-caption-language-content')?.getBoundingClientRect();const x=Math.max(0,Math.floor(Math.min(panel.left,popup?.left??panel.left))-10);const y=Math.max(0,Math.floor(Math.min(panel.top,popup?.top??panel.top))-10);return {x,y,width:Math.min(innerWidth-x,Math.ceil(Math.max(panel.right,popup?.right??panel.right))-x+10),height:Math.min(innerHeight-y,Math.ceil(Math.max(panel.bottom,popup?.bottom??panel.bottom))-y+10)}})()");
+    await fs.writeFile(path.join(output, name), (await window.webContents.capturePage(rect)).toPNG());
+  };
+  await capturePanel("desktop-controls.png");
+  const quickButtons = "document.querySelectorAll('.classroom-v3-caption-toggles button')";
+  await run(`${quickButtons}[0].dispatchEvent(new MouseEvent('mouseover',{bubbles:true}))`);
+  await waitFor("document.querySelector('.classroom-v3-caption-quick-toggle [role=tooltip]')!==null");
+  await capturePanel("desktop-tooltip.png");
+  await run(`${quickButtons}[0].dispatchEvent(new MouseEvent('mouseout',{bubbles:true,relatedTarget:document.body}))`);
+  await run("document.querySelector('.classroom-v3-caption-settings-summary').click()");
+  await waitFor("document.querySelector('.classroom-v3-caption-settings-disclosure').dataset.open==='false'");
+  await waitFor("getComputedStyle(document.querySelector('.classroom-v3-caption-settings-disclosure')).visibility==='hidden'");
+  await capturePanel("desktop-header-collapsed.png");
+  await run(`${quickButtons}[0].click()`);
+  await waitFor(`${quickButtons}[0].getAttribute('aria-pressed')==='false' && !${quickButtons}[1].disabled`);
+  assert.equal(await run("window.appliedSettings.overlayVisible"), false, "overlay switch saves immediately with settings closed");
+  await run(`${quickButtons}[1].click()`);
+  await waitFor("Array.from(document.querySelectorAll('.classroom-v3-caption-toggles button')).every(button=>button.getAttribute('aria-pressed')==='false')");
+  assert.equal(await run("window.appliedSettings.interpretation.enabled"), false, "interpretation switch saves immediately");
+  await run(`window.failNextSave=true;${quickButtons}[1].click()`);
+  await waitFor("document.querySelector('.classroom-v3-caption-feed [role=alert]')!==null");
+  assert.equal(await run(`${quickButtons}[1].getAttribute('aria-pressed')`), 'false', "failed quick save preserves the applied state");
+  await run(`window.holdSave=true;window.callsBefore=window.appliedCalls;${quickButtons}[1].click();${quickButtons}[0].click()`);
+  await waitFor(`${quickButtons}[0].disabled && Boolean(window.releaseSave)`);
+  assert.equal(await run("window.appliedCalls-window.callsBefore"), 1, "in-flight quick saves cannot overlap");
+  await run("window.holdSave=false;window.releaseSave()");
+  await waitFor(`${quickButtons}[1].getAttribute('aria-pressed')==='true' && !${quickButtons}[0].disabled`);
+  await run(`${quickButtons}[0].click()`);
+  await waitFor(`${quickButtons}[0].getAttribute('aria-pressed')==='true' && !${quickButtons}[1].disabled`);
+  await run("document.querySelector('.classroom-v3-caption-settings-summary').click()");
+  await waitFor("document.querySelector('.classroom-v3-caption-settings-disclosure').dataset.open==='true'");
+  const languageTrigger = "document.querySelector('.classroom-v3-caption-view-settings .classroom-v3-caption-select-field:nth-child(2) button')";
+  await run(`${languageTrigger}.click()`);
+  await waitFor("document.querySelector('.classroom-v3-caption-language-search input')===document.activeElement");
+  const optionValues = await run("Array.from(document.querySelectorAll('[role=option]')).map(option=>option.textContent)");
+  const alphabet = new Intl.Collator('en',{sensitivity:'base',numeric:true});
+  assert.ok(optionValues.every((label,index)=>index===0 || alphabet.compare(optionValues[index-1],label)<=0), "visible language names are alphabetical");
+  assert.ok(optionValues.findIndex(label=>label.startsWith('Bahasa Indonesia')) < optionValues.findIndex(label=>label.startsWith('Français')), "Indonesian is under B");
+  await capturePanel("desktop-language-list.png");
+  const searchFor = async query => {
+    await run(`(()=>{const input=document.querySelector('.classroom-v3-caption-language-search input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(query)});input.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+    await waitFor(`document.querySelector('.classroom-v3-caption-language-search input').value===${JSON.stringify(query)}`);
+  };
+  for(const query of ['Bahasa Indo','Indonesian','印度尼西亚语','id-ID']) {
+    await searchFor(query);
+    await waitFor("document.querySelectorAll('[role=option]').length===1 && document.querySelector('[role=option]').textContent.includes('Bahasa Indonesia')");
+  }
+  await searchFor('印度尼西亚');
+  await waitFor("document.querySelectorAll('[role=option]').length===2");
+  await capturePanel("desktop-language-search.png");
+  await searchFor('zzzz-no-language');
+  await waitFor("document.querySelectorAll('[role=option]').length===0 && document.querySelector('.classroom-v3-caption-language-empty')!==null");
+  await searchFor('francais');
+  await waitFor("document.querySelector('[role=option]').textContent.includes('Français')");
+  await run("document.querySelector('.classroom-v3-caption-language-search button').click()");
+  await waitFor("document.querySelectorAll('[role=option]').length===150");
+  window.webContents.sendInputEvent({type:'keyDown',keyCode:'ESC'}); window.webContents.sendInputEvent({type:'keyUp',keyCode:'ESC'});
+  await waitFor("document.querySelector('.classroom-v3-caption-language-content')===null");
+  assert.equal(await run("document.querySelector('.classroom-v3-caption-settings-disclosure').dataset.open"), 'true', "Escape closes only the language popup");
+  assert.ok(await run(`${languageTrigger}===document.activeElement`), "popup restores focus to its trigger");
+  await run(`${languageTrigger}.click()`);
+  await waitFor("document.querySelector('.classroom-v3-caption-language-search input')===document.activeElement");
+  await searchFor('Bahasa Indo');
+  await waitFor("document.querySelectorAll('[role=option]').length===1");
+  window.webContents.sendInputEvent({type:'keyDown',keyCode:'Down'}); window.webContents.sendInputEvent({type:'keyUp',keyCode:'Down'});
+  window.webContents.sendInputEvent({type:'keyDown',keyCode:'Return'}); window.webContents.sendInputEvent({type:'keyUp',keyCode:'Return'});
+  await waitFor("document.querySelector('.classroom-v3-caption-language-content')===null");
+  assert.ok(await run(`${languageTrigger}.textContent.includes('Bahasa Indonesia')`), "keyboard selection updates the draft");
+  assert.equal(await run("window.appliedSettings.preferredLanguage"), 'en-US', "language choice stays a draft until Apply");
+  await run("document.querySelector('.classroom-v3-interpretation-save').click()");
+  await waitFor("window.appliedSettings.preferredLanguage==='id-ID' && document.querySelector('.classroom-v3-caption-settings-disclosure').dataset.open==='false'");
+  window.setContentSize(390, 844);
+  await waitFor("innerWidth===390");
+  await run("document.querySelector('.classroom-v3-caption-settings-summary').click()");
+  await waitFor("document.querySelector('.classroom-v3-caption-settings-disclosure').dataset.open==='true'");
+  await run(`${languageTrigger}.click()`);
+  await waitFor("document.querySelector('.classroom-v3-caption-language-search input')===document.activeElement");
+  assert.ok(await run("(()=>{const r=document.querySelector('.classroom-v3-caption-language-content').getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && r.top>=0 && r.bottom<=innerHeight})()"), "mobile popup fits the viewport");
+  await fs.writeFile(path.join(output, "mobile-language-list.png"), (await window.webContents.capturePage()).toPNG());
+  await searchFor('Indonesian');
+  await waitFor("document.querySelectorAll('[role=option]').length===1");
+  await new Promise(resolve => setTimeout(resolve, 250));
+  await fs.writeFile(path.join(output, "mobile-language-search.png"), (await window.webContents.capturePage()).toPNG());
+  window.webContents.sendInputEvent({type:'keyDown',keyCode:'ESC'}); window.webContents.sendInputEvent({type:'keyUp',keyCode:'ESC'});
+  await waitFor("document.querySelector('.classroom-v3-caption-language-content')===null");
+  await run("document.querySelector('.classroom-v3-caption-settings-summary').click()");
+  await waitFor("document.querySelector('.classroom-v3-caption-settings-disclosure').dataset.open==='false'");
+  await waitFor("getComputedStyle(document.querySelector('.classroom-v3-caption-settings-disclosure')).visibility==='hidden'");
+  await new Promise(resolve => setTimeout(resolve, 250));
+  await fs.writeFile(path.join(output, "mobile-header-collapsed.png"), (await window.webContents.capturePage()).toPNG());
   assert.deepEqual(errors, [], "no browser errors");
-  console.log("PASS: production seat/name, changing microphone level and mute; three ordered captions and late translations; follow on/off, reading position, preference persistence; desktop/mobile layout. Media and translation delivery are simulated.");
+  console.log("PASS: heading quick toggles save immediately, failure and in-flight guards; alphabetic language list, Chinese/English/native/code search, accents, clear/empty results, keyboard selection, Escape/focus restoration; desktop/mobile popup layout; existing caption and follow checks. Media and translation delivery are simulated. Screenshots: " + output);
 }
 main().then(() => cleanup(0), error => { console.error(error); cleanup(1); });
 function cleanup(code) { window?.destroy(); server?.close(); app.exit(code); }

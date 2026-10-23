@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
-import { AlertCircle, ChevronDown, ChevronUp, Headphones, Loader2, Settings2 } from "lucide-react";
+import { AlertCircle, Captions, Check, ChevronDown, ChevronUp, Headphones, Loader2, Settings2 } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
 import { CaptionSelect } from "@/components/classroom/caption-select";
-import { captionLanguageOptions, classroomLanguageLabel } from "@/lib/classroom/languages";
+import { captionLanguageSelectOptions, classroomLanguageLabel } from "@/lib/classroom/languages";
 import { supportedCaptionTranslationCodes } from "@/lib/classroom/translation-capabilities";
 import { captionTranslation } from "@/lib/classroom/caption-display";
 import type { CaptionDisplayMode } from "@/lib/classroom/caption-preferences";
@@ -15,6 +15,22 @@ export type CaptionSettings = {
   overlayVisible: boolean;
   interpretation?: Extract<ClassroomAction, { type: "setInterpretation" }>;
 };
+
+function CaptionQuickToggle({ label, hint, pressed, disabled, onClick, children }: {
+  label: string; hint: string; pressed: boolean; disabled: boolean; onClick: () => void; children: React.ReactNode;
+}) {
+  const { t } = useTranslation();
+  const tooltipId = useId();
+  const [showHint, setShowHint] = useState(false);
+  return <div className="classroom-v3-caption-quick-toggle" onMouseEnter={() => setShowHint(true)} onMouseLeave={() => setShowHint(false)}>
+    <button type="button" aria-label={label} aria-pressed={pressed} aria-describedby={showHint ? tooltipId : undefined}
+      disabled={disabled} onClick={onClick} onFocus={() => setShowHint(true)} onBlur={() => setShowHint(false)}
+      onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setShowHint(false); } }}>
+      {children}<span className="classroom-v3-caption-toggle-state" aria-hidden="true">{pressed && <Check />}</span>
+    </button>
+    {showHint && <div id={tooltipId} role="tooltip"><strong>{label}<small>{t(pressed ? "classroom.v3.enabled" : "classroom.v3.disabled")}</small></strong><p>{hint}</p></div>}
+  </div>;
+}
 
 export function CaptionsPanel({
   busy,
@@ -78,10 +94,9 @@ export function CaptionsPanel({
   const [helpOpen, setHelpOpen] = useState(false);
   const [draftMode, setDraftMode] = useState(displayMode);
   const [draftLanguage, setDraftLanguage] = useState(preferredLanguage);
-  const [draftOverlay, setDraftOverlay] = useState(overlayVisible);
   const [applying, setApplying] = useState(false);
+  const applyLock = useRef(false);
   const [applyFailed, setApplyFailed] = useState(false);
-  const [enabled, setEnabled] = useState(runtime.interpretation.enabled);
   const [sourceLanguage, setSourceLanguage] = useState(
     runtime.interpretation.sourceLanguage,
   );
@@ -110,9 +125,9 @@ export function CaptionsPanel({
       : t("classroom.v3.captionsWaitingHint");
 
   const supportedSources = new Set(supportedCaptionTranslationCodes("shengwang"));
-  const sourceOptions = captionLanguageOptions(effectiveProvider).filter(language => supportedSources.has(language.code));
-  const languageOptions = captionLanguageOptions(configuredProvider);
-  const currentLanguageLabel = languageOptions.find(language => language.code === preferredLanguage)?.nativeLabel || classroomLanguageLabel(preferredLanguage);
+  const sourceOptions = captionLanguageSelectOptions(effectiveProvider, locale).filter(language => supportedSources.has(language.value));
+  const languageOptions = captionLanguageSelectOptions(configuredProvider, locale);
+  const currentLanguageLabel = classroomLanguageLabel(preferredLanguage, locale);
   const displayLabels: Record<CaptionDisplayMode, string> = {
     off: t("classroom.v3.captionsOff"),
     original: t("classroom.v3.originalOnly"),
@@ -130,29 +145,27 @@ export function CaptionsPanel({
     // Each opening starts from the applied values, discarding unsaved edits.
     setDraftMode(displayMode);
     setDraftLanguage(preferredLanguage);
-    setDraftOverlay(overlayVisible);
-    setEnabled(runtime.interpretation.enabled);
     setSourceLanguage(runtime.interpretation.sourceLanguage);
     setApplyFailed(false);
     setSettingsOpen(true);
   };
   const applySettings = async () => {
-    if (saving) return;
+    if (saving || applyLock.current) return;
+    applyLock.current = true;
     setApplying(true);
     setApplyFailed(false);
     try {
       const interpretationChanged = canManage && (
-        enabled !== runtime.interpretation.enabled ||
         sourceLanguage !== runtime.interpretation.sourceLanguage ||
         effectiveProvider !== configuredProvider
       );
       const saved = await onApplySettings({
         displayMode: draftMode,
         preferredLanguage: draftLanguage,
-        overlayVisible: draftOverlay,
+        overlayVisible,
         ...(interpretationChanged && { interpretation: {
           type: "setInterpretation" as const,
-          enabled,
+          enabled: runtime.interpretation.enabled,
           provider: effectiveProvider,
           sourceLanguage,
           targetLanguages,
@@ -163,8 +176,30 @@ export function CaptionsPanel({
     } catch {
       setApplyFailed(true);
     } finally {
+      applyLock.current = false;
       setApplying(false);
     }
+  };
+  const quickToggle = async (kind: "overlay" | "interpretation") => {
+    if (saving || applyLock.current) return;
+    applyLock.current = true;
+    setApplying(true);
+    setApplyFailed(false);
+    try {
+      const saved = await onApplySettings({
+        displayMode, preferredLanguage,
+        overlayVisible: kind === "overlay" ? !overlayVisible : overlayVisible,
+        ...(kind === "interpretation" && canManage && { interpretation: {
+          type: "setInterpretation" as const,
+          enabled: !runtime.interpretation.enabled,
+          provider: effectiveProvider,
+          sourceLanguage: runtime.interpretation.sourceLanguage,
+          targetLanguages,
+        } }),
+      });
+      if (!saved) setApplyFailed(true);
+    } catch { setApplyFailed(true); }
+    finally { applyLock.current = false; setApplying(false); }
   };
   const visibleCaptions = captions.slice(-80);
   const preferenceFailure = preferenceError ? <div className="classroom-v3-caption-preference-error" role="alert">
@@ -189,6 +224,13 @@ export function CaptionsPanel({
               <p>{t("classroom.v3.captionOverlayHint")}</p>
             </div>}
           </div>
+          <div className="classroom-v3-caption-toggles" role="group" aria-label={t("classroom.v3.captionQuickControls")}>
+            <CaptionQuickToggle label={t("classroom.v3.captionOverlay")} hint={t("classroom.v3.captionOverlayHint")}
+              pressed={overlayVisible} disabled={saving} onClick={() => void quickToggle("overlay")}><Captions aria-hidden="true" /></CaptionQuickToggle>
+            {canManage && <CaptionQuickToggle label={t("classroom.v3.interpretation")} hint={t("classroom.v3.captionInterpretationHint")}
+              pressed={runtime.interpretation.enabled} disabled={saving || (!runtime.interpretation.enabled && !availability[effectiveProvider])}
+              onClick={() => void quickToggle("interpretation")}><Headphones aria-hidden="true" /></CaptionQuickToggle>}
+          </div>
         </div>
         <div className="classroom-v3-caption-heading-actions">
           <span data-status={runtime.interpretation.status}>{interpretationStateLabel}</span>
@@ -208,57 +250,13 @@ export function CaptionsPanel({
       <div id={settingsId} className="classroom-v3-caption-settings-disclosure" data-open={settingsOpen} aria-hidden={!settingsOpen} inert={!settingsOpen}>
         <div className="classroom-v3-caption-settings-clip">
           <section className="classroom-v3-caption-settings-card" aria-label={t("classroom.v3.captionSettings")}>
-            <div className="classroom-v3-caption-toggles">
-              <div className="classroom-v3-caption-overlay-control">
-                <span>
-                  <strong>{t("classroom.v3.captionOverlay")}</strong>
-                </span>
-                <button
-                  type="button"
-                  className={draftOverlay ? "is-on" : ""}
-                  disabled={saving}
-                  aria-label={t("classroom.v3.captionOverlay")}
-                  aria-pressed={draftOverlay}
-                  onClick={() => setDraftOverlay(!draftOverlay)}
-                >
-                  <i />
-                  {draftOverlay
-                    ? t("classroom.v3.enabled")
-                    : t("classroom.v3.disabled")}
-                </button>
-              </div>
-
-              {canManage ? (
-                <section className="classroom-v3-interpretation-config">
-                  <header>
-                    <div>
-                      <strong>{t("classroom.v3.interpretation")}</strong>
-                    </div>
-                    <button
-                      type="button"
-                      className={enabled ? "is-on" : ""}
-                      disabled={saving}
-                      onClick={() => setEnabled(current => !current)}
-                      aria-label={t("classroom.v3.interpretation")}
-                      aria-pressed={enabled}
-                    >
-                      <i />
-                      {enabled
-                        ? t("classroom.v3.enabled")
-                        : t("classroom.v3.disabled")}
-                    </button>
-                  </header>
-                </section>
-              ) : null}
-            </div>
-
             <div className="classroom-v3-caption-view-settings">
               <CaptionSelect label={t("classroom.v3.displayMode")} value={draftMode} disabled={saving}
                 options={Object.entries(displayLabels).map(([value, label]) => ({ value, label }))}
                 onChange={value => setDraftMode(value as CaptionDisplayMode)} />
               <CaptionSelect label={t("classroom.v3.myCaptionLanguage")} value={draftLanguage}
                 disabled={saving || !availability[configuredProvider]}
-                options={languageOptions.map(language => ({ value: language.code, label: language.nativeLabel }))}
+                searchable options={languageOptions}
                 onChange={value => {
                     setDraftLanguage(value);
                     if (draftMode === "off" || draftMode === "original") setDraftMode("bilingual");
@@ -268,7 +266,7 @@ export function CaptionsPanel({
             {canManage ? (
               <section className="classroom-v3-interpretation-config">
                 <CaptionSelect label={t("classroom.v3.sourceLanguage")} value={sourceLanguage} disabled={saving}
-                  options={sourceOptions.map(language => ({ value: language.code, label: `${language.nativeLabel} · ${language.label}` }))}
+                  searchable options={sourceOptions}
                   onChange={setSourceLanguage} />
                 {runtime.interpretation.error ? (
                   <p className="classroom-v3-interpretation-error">
@@ -294,6 +292,7 @@ export function CaptionsPanel({
 
       <div className="classroom-v3-caption-feed">
       {!settingsOpen && preferenceFailure}
+      {!settingsOpen && applyFailed && !preferenceError && <p className="classroom-v3-caption-preference-error" role="alert">{t("classroom.v3.interpretationSaveFailed")}</p>}
 
       <div className="classroom-v3-caption-follow">
         <span>{t("classroom.v3.captionFollowLatest")}</span>

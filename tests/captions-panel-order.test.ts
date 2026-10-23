@@ -26,12 +26,15 @@ function render(canManage: boolean) {
   }));
 }
 
-test("teacher caption switches precede display/language selectors while summary and source language remain intact", () => {
+test("teacher quick switches stay in the caption header outside collapsed settings", () => {
   const html = render(true);
   const summary = html.indexOf('class="classroom-v3-caption-settings-summary"');
   const toggles = html.indexOf('class="classroom-v3-caption-toggles"');
   const display = html.indexOf('class="classroom-v3-caption-view-settings"');
-  assert.ok(summary >= 0 && summary < toggles && toggles < display);
+  const disclosure = html.indexOf('class="classroom-v3-caption-settings-disclosure"');
+  assert.ok(toggles >= 0 && toggles < summary && summary < disclosure && disclosure < display);
+  assert.ok(html.indexOf('class="classroom-v3-caption-title"') < toggles);
+  assert.ok(toggles < html.indexOf('class="classroom-v3-caption-heading-actions"'));
   assert.ok(html.indexOf('aria-label="舞台字幕浮窗"') < html.indexOf('aria-label="课堂同传"'));
   assert.ok(html.indexOf('aria-label="课堂同传"') < display);
   assert.match(html, /显示方式/);

@@ -82,9 +82,40 @@ export function normalizeTargetLanguages(
   ).slice(0, maxTargets);
 }
 
-export function classroomLanguageLabel(code: string): string {
+const displayNamesCache = new Map<string, Intl.DisplayNames>();
+
+function languageDisplayName(code: string, locale: string): string | undefined {
+  try {
+    let names = displayNamesCache.get(locale);
+    if (!names) {
+      names = new Intl.DisplayNames([locale], { type: "language", fallback: "none" });
+      displayNamesCache.set(locale, names);
+    }
+    return names.of(code);
+  } catch {
+    // Older browsers and provider dialect identifiers can lack Intl support.
+    return undefined;
+  }
+}
+
+/** Keep each language recognizable in its own script and in the interface locale. */
+export function classroomLanguageLabel(code: string, locale?: string): string {
   const language = classroomLanguages.find((item) => item.code === code);
-  return language?.nativeLabel || code;
+  const nativeLabel = language?.nativeLabel || languageDisplayName(code, code)
+    || shengwangTranslationLanguages.find(item => item.code === code)?.label || code;
+  const localizedLabel = locale ? languageDisplayName(code, locale) : undefined;
+  return localizedLabel && localizedLabel !== nativeLabel
+    ? `${nativeLabel} · ${localizedLabel}` : nativeLabel;
+}
+
+/** Sort the names people see; retain English, native and localized names for search. */
+export function captionLanguageSelectOptions(provider: CaptionTranslationProvider, locale: string) {
+  const alphabet = new Intl.Collator("en", { sensitivity: "base", numeric: true });
+  return captionLanguageOptions(provider).map(language => ({
+    value: language.code,
+    label: classroomLanguageLabel(language.code, locale),
+    searchText: [language.label, language.nativeLabel, languageDisplayName(language.code, "en"), language.code].join(" "),
+  })).sort((a, b) => alphabet.compare(a.label, b.label) || alphabet.compare(a.value, b.value));
 }
 
 const interfaceLocaleToClassroomLanguage: Record<string, string> = {

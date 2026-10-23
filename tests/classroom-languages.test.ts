@@ -6,7 +6,39 @@ import {
   normalizeClassroomLanguage,
   normalizeTargetLanguages,
   captionLanguageOptions,
+  classroomLanguageLabel,
+  captionLanguageSelectOptions,
 } from "../src/lib/classroom/languages";
+
+test("caption choices sort by visible names and carry multilingual search aliases", () => {
+  for (const provider of ["shengwang", "wordly"] as const) {
+    const options = captionLanguageSelectOptions(provider, "zh-CN");
+    const alphabet = new Intl.Collator("en", { sensitivity: "base", numeric: true });
+    assert.equal(options.length, captionLanguageOptions(provider).length);
+    for (let i = 1; i < options.length; i++) {
+      assert.ok(alphabet.compare(options[i - 1].label, options[i].label) <= 0);
+    }
+    assert.ok(options.findIndex(option => option.value === "id-ID") < options.findIndex(option => option.value === "fr-FR"), "Bahasa Indonesia sorts under B, before Français");
+    const indonesian = options.find(option => option.value === "id-ID")!;
+    assert.match(indonesian.label, /印度尼西亚/);
+    assert.match(indonesian.searchText, /Indonesian/);
+    assert.match(indonesian.searchText, /Bahasa Indonesia/);
+  }
+});
+
+test("caption language names show native scripts and follow the interface locale", () => {
+  for (const [code, nativeName] of [["vi-VN", "Tiếng Việt"], ["id-ID", "Bahasa Indonesia"], ["ru-RU", "Русский"]]) {
+    assert.equal(classroomLanguageLabel(code), nativeName);
+    for (const locale of ["zh-CN", "en", "ru", "ar"]) {
+      const label = classroomLanguageLabel(code, locale);
+      assert.ok(label.startsWith(nativeName));
+      assert.ok(label.includes(new Intl.DisplayNames([locale], { type: "language" }).of(code)!));
+      assert.ok(!label.includes(code));
+    }
+  }
+  assert.notEqual(classroomLanguageLabel("fr-CA", "zh-CN"), "fr-CA", "provider regional languages have readable names");
+  assert.equal(classroomLanguageLabel("invalid_code", "zh-CN"), "invalid_code", "unknown identifiers do not throw");
+});
 import {
   effectiveCaptionLanguage,
   initialCaptionLanguage,

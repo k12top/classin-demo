@@ -4380,15 +4380,81 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
   font-size: 10px;
 }
 
-.classroom-v3-caption-settings-card .classroom-v3-caption-overlay-control {
-  min-height: 36px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+.classroom-v3-caption-toggles {
+  position: static;
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
 }
 
-.classroom-v3-caption-settings-card .classroom-v3-interpretation-config {
+.classroom-v3-caption-quick-toggle > button {
+  position: relative;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--classroom-mist) 26%, transparent);
+  border-radius: 10px;
+  color: var(--classroom-mist);
+  background: var(--classroom-panel-raised);
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+
+.classroom-v3-caption-quick-toggle > button:hover {
+  border-color: var(--classroom-iris);
+  color: var(--classroom-iris);
+}
+
+.classroom-v3-caption-quick-toggle > button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--classroom-iris) 45%, transparent);
+  color: var(--classroom-iris);
+  background: color-mix(in srgb, var(--classroom-iris) 12%, var(--classroom-panel));
+}
+
+.classroom-v3-caption-quick-toggle > button > svg { width: 18px; height: 18px; }
+
+.classroom-v3-caption-toggle-state {
+  position: absolute;
+  inset-inline-end: -3px;
+  bottom: -3px;
+  display: grid;
+  width: 12px;
+  height: 12px;
+  place-items: center;
+  border: 2px solid var(--classroom-panel);
+  border-radius: 50%;
+  background: var(--classroom-mist);
+}
+
+.classroom-v3-caption-quick-toggle > button[aria-pressed="true"] .classroom-v3-caption-toggle-state {
+  color: var(--classroom-panel);
+  background: var(--classroom-iris);
+}
+
+.classroom-v3-caption-toggle-state svg { width: 8px; height: 8px; stroke-width: 3; }
+
+.classroom-v3-caption-quick-toggle [role="tooltip"] {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 8px);
+  inset-inline-start: 0;
+  width: min(260px, calc(100vw - 56px));
+  padding: 12px 14px;
+  border-radius: 10px;
+  color: var(--classroom-frost);
+  background: var(--classroom-panel);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.classroom-v3-caption-quick-toggle [role="tooltip"] strong { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.classroom-v3-caption-quick-toggle [role="tooltip"] small { margin-inline-start: auto; color: var(--classroom-iris); font-size: 12px; font-weight: 400; }
+.classroom-v3-caption-quick-toggle [role="tooltip"] p { margin: 5px 0 0; color: var(--classroom-mist); }
+
+.is-captions .classroom-v3-caption-settings-card .classroom-v3-interpretation-config {
   padding: 14px 0 0;
   border: 0;
   border-top: 1px solid color-mix(in srgb, var(--classroom-mist) 22%, transparent);
@@ -4493,6 +4559,71 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
   line-height: 1.5;
 }
 
+.classroom-v3-caption-language-content {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  padding: 8px;
+}
+
+.classroom-v3-caption-language-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.classroom-v3-caption-language-search {
+  display: flex;
+  min-height: 40px;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--classroom-mist) 30%, transparent);
+  border-radius: 8px;
+  color: var(--classroom-mist);
+  background: var(--classroom-panel-raised);
+}
+
+.classroom-v3-caption-language-search:focus-within { border-color: var(--classroom-iris); outline: 2px solid color-mix(in srgb, var(--classroom-iris) 18%, transparent); }
+.classroom-v3-caption-language-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 0;
+  border: 0;
+  outline: none;
+  color: var(--classroom-frost);
+  background: transparent;
+  font: inherit;
+  caret-color: var(--classroom-iris);
+}
+.classroom-v3-caption-language-search input::placeholder { color: var(--classroom-mist); opacity: 1; }
+.classroom-v3-caption-language-search > button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--classroom-mist);
+  background: transparent;
+  cursor: pointer;
+}
+.classroom-v3-caption-language-search > button:hover { color: var(--classroom-iris); background: var(--classroom-panel); }
+.classroom-v3-caption-language-meta { display: flex; flex-shrink: 0; justify-content: space-between; gap: 8px; padding: 10px 6px 6px; color: var(--classroom-mist); font-size: 11px; }
+.classroom-v3-caption-language-content .classroom-v3-caption-select-viewport { min-height: 0; overflow: auto; }
+.classroom-v3-caption-language-content .classroom-v3-caption-select-option { width: 100%; border: 0; color: inherit; background: transparent; text-align: start; font: inherit; }
+.classroom-v3-caption-language-content .classroom-v3-caption-select-option:is([data-highlighted], [aria-selected="true"]) { color: var(--classroom-iris); background: var(--classroom-panel-raised); }
+.classroom-v3-caption-language-empty { padding: 24px 12px; color: var(--classroom-mist); text-align: center; font-size: 13px; }
+.classroom-v3-caption-language-content :is(input, button):focus-visible { outline: 2px solid var(--classroom-iris); outline-offset: 2px; }
+.classroom-v3-caption-language-content ::selection { color: var(--classroom-panel); background: var(--classroom-iris); }
+
 .classroom-v3-caption-select-viewport {
   padding: 4px;
   overscroll-behavior: contain;
@@ -4537,8 +4668,10 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
 }
 
 @media (pointer: coarse) {
+  .classroom-v3-caption-language-search input { font-size: 16px; }
   .classroom-v3-caption-help > button,
   .classroom-v3-caption-heading-actions > button,
+  .classroom-v3-caption-quick-toggle > button,
   .classroom-v3-caption-settings-summary,
   .classroom-v3-caption-settings-footer > button,
   .classroom-v3-caption-select-trigger,
@@ -4550,6 +4683,7 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
 
 @media (prefers-reduced-motion: reduce) {
   .classroom-v3-caption-settings-disclosure { transition: none; }
+  .classroom-v3-caption-quick-toggle > button { transition: none; }
 }
 
 @media (max-height: 500px) and (max-width: 1024px) {
