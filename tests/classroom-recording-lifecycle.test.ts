@@ -16,7 +16,7 @@ function fixture(overrides: Row = {}) {
   let stopCalls=0,queryCalls=0;
   const provider = { stop: async():Promise<any> => { stopCalls++; return {files:[],playbackObjectKey:"asset.m3u8",playbackFormat:"hls",providerState:{serverResponse:{status:6}}}; },
     query: async():Promise<any> => { queryCalls++; return {active:true,files:[],playbackObjectKey:null,playbackFormat:null,providerState:{serverResponse:{status:5}}}; } };
-  const table = {findUnique:async()=>({...row}),findUniqueOrThrow:async()=>({...row}),findMany:async()=>[{...row}],
+  const table = {findUnique:async()=>({...row}),findUniqueOrThrow:async()=>({...row}),findMany:async({where}:Row={})=>where?.createdAt?.lte && row.createdAt > where.createdAt.lte ? [] : [{...row}],
     update:async({data}:Row)=>{Object.assign(row,data);return {...row};},updateMany:async({where,data}:Row)=>{
       if(typeof where.status === "string" && row.status !== where.status) return {count:0};
       Object.assign(row,data);return {count:1};}};
@@ -42,6 +42,13 @@ test("async stop + replay cannot complete or set stoppedAt until provider exit i
   assert.equal(f.row.status,"processing");assert.equal(f.row.stoppedAt,null);assert.equal(f.row.playbackObjectKey,"asset.m3u8");
   f.advance();f.provider.query=async()=>({active:false,files:[],playbackObjectKey:null,providerState:{serverResponse:{status:8}}});
   await f.api.reconcileRecordingAttempt("recording");assert.equal(f.row.status,"completed");assert(f.row.stoppedAt);
+});
+test("deferred end cleanup stops only recorders created before that class ended",async()=>{
+  const f=fixture({createdAt:new Date(2000)});
+  assert.equal(await f.api.stopActiveRecordingsForCourse("course","session",new Date(1000)),0);
+  assert.equal(f.calls.stopCalls,0);
+  assert.equal(await f.api.stopActiveRecordingsForCourse("course","session",new Date(3000)),1);
+  assert.equal(f.calls.stopCalls,1);
 });
 test("processing task that remains active is queried then receives another bounded same-SID stop",async()=>{
   const f=fixture({status:"processing",stopRequestedAt:new Date(1)});

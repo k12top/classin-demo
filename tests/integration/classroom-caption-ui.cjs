@@ -14,6 +14,7 @@ async function main() {
     import React, {useState} from 'react';
     import {createRoot} from 'react-dom/client';
     import {I18nProvider,useTranslation} from '@/lib/i18n/context';
+    import {TestPlaybackCaptionSettings} from '@/app/courses/[id]/playback/page';
     import {CaptionsPanel} from '@/components/classroom/captions-panel';
     import {LiveCaptionOverlay} from '@/components/classroom/live-caption-overlay';
     import {TestLiveRailSeat} from '@/components/classroom/classroom-v3';
@@ -32,6 +33,7 @@ async function main() {
     const media = {local:{microphoneOn:true,cameraOn:false}};
     function Fixture(){
       const {setLocale}=useTranslation();
+      const [playbackSettings,setPlaybackSettings]=useState(false);
       const [preferredLanguage,setPreferredLanguage]=useState('en-US');
       const [overlayVisible,setOverlayVisible]=useState(true);
       const [interpretation,setInterpretation]=useState(runtime.interpretation);
@@ -46,9 +48,12 @@ async function main() {
         oldLate(){setCaptions(current=>current.map(value=>value.id==='history-0'?{...value,translations:{'en-US':'A late translation from an earlier sentence.'}}:value))},
         poll(){setCaptions(current=>current.map(value=>({...value,translations:{...value.translations}})))},
         preview(){setClock(baseTime+20000);setMode('bilingual');setCaptions(current=>[...current.filter(value=>value.id.startsWith('history-')),caption('first',-17),caption('second',-18),caption('third',-19)])},
-        setMode,setMicrophoneOn,setHasVideo,setClock,baseTime,setLocale,
+        setMode,setMicrophoneOn,setHasVideo,setClock,baseTime,setLocale,setPlaybackSettings,
       };
       const live=useLiveCaptions(captions,'en-US',mode,clock);
+      if(playbackSettings) return <TestPlaybackCaptionSettings mode={mode} onModeChange={setMode}
+        language={preferredLanguage} languages={['vi-VN','id-ID','ru-RU']} onLanguageChange={setPreferredLanguage}
+        appearance={{background:'solid',size:'medium',position:'bottom'}} onAppearanceChange={()=>{}} chinese={false}/>;
       return <main className="classroom-v3-shell is-classin-layout fixture">
         <div className="classroom-v3-live-rail"><div className="classroom-v3-seats">
           <TestLiveRailSeat member={member} participant={{id:'student-rtc',displayName:'student-rtc',isLocal:false,kind:'camera',hasAudio:microphoneOn,hasVideo}}
@@ -75,6 +80,9 @@ async function main() {
     define: { "process.env": "{}" },
     plugins: [{ name: "private-seat-fixture-export", setup(build) {
       build.onLoad({ filter: /\.module\.css$/ }, () => ({ contents: "export default {};", loader: "js" }));
+      build.onLoad({ filter: /courses[\\/]\[id\][\\/]playback[\\/]page\.tsx$/ }, async args => ({
+        contents: await fs.readFile(args.path, "utf8") + "\nexport {CaptionSettings as TestPlaybackCaptionSettings};", loader: "tsx", resolveDir: path.dirname(args.path),
+      }));
       build.onLoad({ filter: /classroom-v3\.tsx$/ }, async args => ({
         contents: await fs.readFile(args.path, "utf8") + "\nexport {LiveRailSeat as TestLiveRailSeat};", loader: "tsx", resolveDir: path.dirname(args.path),
       }));
@@ -275,8 +283,17 @@ async function main() {
   await waitFor("getComputedStyle(document.querySelector('.classroom-v3-caption-settings-disclosure')).visibility==='hidden'");
   await new Promise(resolve => setTimeout(resolve, 250));
   await fs.writeFile(path.join(output, "mobile-header-collapsed.png"), (await window.webContents.capturePage()).toPNG());
+  for (const locale of ['zh-CN','en','ru','ar']) {
+    await run(`fixture.setLocale(${JSON.stringify(locale)});fixture.setPlaybackSettings(true)`);
+    await waitFor(`document.documentElement.lang===${JSON.stringify(locale)} && document.querySelector('#playback-caption-settings')!==null`);
+    const labels = await run("Array.from(document.querySelector('#playback-caption-settings select').options).filter(option=>option.value.includes('-')).map(option=>option.textContent)");
+    for (const [index, name] of ['Tiếng Việt','Bahasa Indonesia','Русский'].entries()) {
+      assert.ok(labels[index].startsWith(name), `${locale} keeps native language names`);
+      assert.ok(!labels[index].includes(['vi-VN','id-ID','ru-RU'][index]), `${locale} does not expose language codes`);
+    }
+  }
   assert.deepEqual(errors, [], "no browser errors");
-  console.log("PASS: heading quick toggles save immediately, failure and in-flight guards; alphabetic language list, Chinese/English/native/code search, accents, clear/empty results, keyboard selection, Escape/focus restoration; desktop/mobile popup layout; existing caption and follow checks. Media and translation delivery are simulated. Screenshots: " + output);
+  console.log("PASS: heading quick toggles save immediately, failure and in-flight guards; alphabetic language list, Chinese/English/native/code search, accents, clear/empty results, keyboard selection, Escape/focus restoration; desktop/mobile popup layout; existing caption, follow and playback checks. Media and translation delivery are simulated. Screenshots: " + output);
 }
 main().then(() => cleanup(0), error => { console.error(error); cleanup(1); });
 function cleanup(code) { window?.destroy(); server?.close(); app.exit(code); }

@@ -1,11 +1,10 @@
 import "server-only";
 import { ClassroomConnectionEndedError } from "./errors";
-import { classroomEmptyGraceMs } from "../empty-room-policy";
 import { prisma } from "@/lib/db";
 import { refreshCaptionDemand } from "./caption-demand";
 import { classroomPgFallback, classroomRedisEnabled } from "./redis";
 import { redisClassroomHeartbeat } from "./redis-presence";
-import { synchronizeClassroomRedis } from "./redis-sync";
+import { synchronizeClassroomRedis, registerClassroomRedisConnection } from "./redis-sync";
 import { enqueueClassroomEvent } from "./integration-events";
 import { classroomRtcUid } from "@/lib/classroom/rtc-uid";
 import { normalizeClassroomComposition } from "@/lib/classroom/composition";
@@ -17,10 +16,12 @@ export function normalizeClassroomClientId(value: unknown): string | undefined {
 export async function touchClassroomConnection(sessionId: string, userId: string, clientId: string, rejoin = false) {
   const identity = `${userId}:${clientId}`;
   if (!rejoin) {
-    // With empty-room closure enabled, heartbeat must share the durable runtime
-    // lock with the closer. Redis-only refreshes cannot authorize a DB close.
-    const cached = classroomEmptyGraceMs() ? null : await redisClassroomHeartbeat(sessionId, userId, clientId);
-    if (cached) return cached;
+    if (classroomRedisEnabled()) {
+      // The automatic closer now fences Redis renewals before its durable recheck.
+      const cached = await redisClassroomHeartbeat(sessionId, userId, clientId);
+      if (cached) return cached;
+      return { status: "unknown", refreshed: false, reason: "busy" };
+    }
     // A heartbeat is a lease refresh, not a join or a permission update.
     // The connection lease must refresh even when moderation locks the member.
     // Skip busy rows, and never resurrect a tab that explicitly left.
@@ -53,7 +54,6 @@ export async function touchClassroomConnection(sessionId: string, userId: string
         EXISTS (SELECT 1 FROM "ClassroomConnection" WHERE "id" = ${`${sessionId}:${identity}`}) AS "registered",
         (SELECT "leftAt" FROM "ClassroomConnection" WHERE "id" = ${`${sessionId}:${identity}`}) AS "leftAt"
     `);
-    if (result?.refreshed && classroomRedisEnabled()) await synchronizeClassroomRedis(sessionId, true);
     return { status: result?.status ?? "missing", refreshed: result?.refreshed === true,
       reason: result?.refreshed ? "refreshed" : result?.status === "ended" ? "ended" : !result?.registered ? "missing" : result.leftAt ? "left" : "busy" };
   }
@@ -70,7 +70,7 @@ export async function touchClassroomConnection(sessionId: string, userId: string
     await tx.classroomProviderEvent.updateMany({ where: { noticeId: `classroom-empty:${sessionId}` },
       data: { payload: { cancelledAt: values.lastSeenAt.getTime() } } });
   }, { maxWait: 1_500, timeout: 3_500 });
-  await synchronizeClassroomRedis(sessionId, true);
+  await registerClassroomRedisConnection(sessionId, `${sessionId}:${identity}`);
 }
 export async function leaveClassroomConnection(sessionId: string, userId: string, clientId?: string, voluntary = false) {
   await prisma.$transaction(async (tx) => {

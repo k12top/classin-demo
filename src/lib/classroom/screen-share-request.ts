@@ -15,7 +15,7 @@ export function applyClassroomScreenShareRequest(
     !Number.isFinite(requestedAt) || now - requestedAt > SCREEN_SHARE_REQUEST_TTL_MS) return null;
   const actor = runtime.members.find(member => member.userId === request.actorId);
   if (!trustedResponse && (!publisherId || !actor?.signalingUserIds?.includes(publisherId) ||
-    !(actor.role === "teacher" || (actor.role === "assistant" && runtime.assistantPermissions?.[actor.userId] !== false)))) return null;
+    !(actor.role === "teacher" || actor.role === "assistant"))) return null;
   if (!runtime.members.some(member => member.userId === request.targetUserId && member.role === "student")) return null;
   return {
     ...runtime,

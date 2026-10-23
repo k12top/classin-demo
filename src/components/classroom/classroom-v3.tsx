@@ -1,4 +1,10 @@
 "use client";
+import { ClassTimingControls } from "./class-timing-controls";
+import { CaptionSelect } from "./caption-select";
+import { captionLanguageSelectOptions } from "@/lib/classroom/languages";
+import { useChatTranslations } from "@/lib/classroom/use-chat-translations";
+
+import { isClassroomTeachingRole } from "@/lib/classroom/policy";
 import { createDeviceAckTracker, type DeviceReport } from "@/lib/classroom/signaling/device-ack";
 import type { ClassroomDeviceAck, ClassroomSignalingEvent } from "@/lib/classroom/signaling/types";
 
@@ -16,6 +22,8 @@ import { applyClassroomHandRaiseUpdate, raisedClassroomHands } from "@/lib/class
 import { useCaptionSubscription } from "@/lib/classroom/use-caption-subscription";
 import { supportedCaptionTranslationCodes } from "@/lib/classroom/translation-capabilities";
 import { TeacherAssistant } from "@/components/classroom/teacher-assistant";
+import { StageSettings } from "@/components/classroom/stage-settings";
+import { classroomStudentStageLimit } from "@/lib/classroom/stage-settings";
 import { assistantConversationKey, classroomAssistantTeacher } from "@/lib/classroom/assistant";
 import { ClassStartSettings, ClassStartReminder } from "@/components/classroom/class-start-controls";
 import { useScheduledClassStart } from "@/components/classroom/use-scheduled-class-start";
@@ -968,6 +976,7 @@ function StatusPill({
   const { t } = useTranslation();
   const rtcConnected = media.connectionState === "connected";
   const connected = rtcConnected && presenceHealthy;
+  const connectionLabel = !rtcConnected ? t("classroom.v3.reconnecting") : !presenceHealthy ? t("presenceReliability.checking") : t("classroom.v3.connected");
   const recordingActive = ["starting", "recording"].includes(
     recording || "",
   );
@@ -976,19 +985,17 @@ function StatusPill({
       <span
         className={connected ? "is-online" : "is-warning"}
         tabIndex={0}
-        title={connected ? t("classroom.v3.connected") : t("classroom.v3.reconnecting")}
+        title={connectionLabel}
       >
         <Wifi />
-        {connected
-          ? t("classroom.v3.connected")
-          : t("classroom.v3.reconnecting")}
+        {connectionLabel}
         <span className="classroom-v3-network-popover">
           <strong>{t("classroom.v3.connectionDetail")}</strong>
           <small>
             <i className={rtcConnected ? "is-good" : ""} />
             {rtcConnected ? t("classroom.v3.rtcConnected") : t("classroom.v3.rtcRecovering")}
           </small>
-          {!presenceHealthy && <small>{t("classroom.v3.databaseUnavailable")}</small>}
+          {!presenceHealthy && <small>{t("presenceReliability.unavailable")}</small>}
           <small>
             <Clock3 />
             {t("classroom.v3.networkLatency", {
@@ -1323,7 +1330,7 @@ function LiveRail({
   ) => void;
   onRemoveStage: (userId: string) => void;
   onReward: (userId: string) => void;
-  maxStudentSeats: number;
+  maxStudentSeats: number | null;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   seatOrder: string[];
@@ -1340,8 +1347,7 @@ function LiveRail({
       (classroomMemberVisible(member) || member.userId === currentUserId),
   );
   const students = members
-    .filter((member) => member.role === "student" && member.onStage && (classroomMemberVisible(member) || member.userId === currentUserId))
-    .slice(0, maxStudentSeats);
+    .filter((member) => member.role === "student" && member.onStage && (classroomMemberVisible(member) || member.userId === currentUserId));
   // The lead seat is the classroom's orientation point.  Keep teachers in
   // the rail even when their camera has also been placed on the board; a
   // student object can leave the rail, but the teacher should never make the
@@ -1409,7 +1415,7 @@ function LiveRail({
         <i />
         <span>{t("classroom.v3.stageSeats")}</span>
         <strong>
-          {seatedMembers.length} / {teachers.length + maxStudentSeats}
+          {seatedMembers.length} / {teachers.length + Math.max(maxStudentSeats ?? members.filter(member => member.role === "student" && classroomMemberVisible(member)).length, students.length)}
         </strong>
       </div>
       <div className="classroom-v3-seats">
@@ -2190,8 +2196,11 @@ function MemberPanel({
   );
 }
 
-function ChatPanel({
+export function TestChatPanel({
   messages,
+  sessionId = "",
+  translationLanguage = "en-US",
+  shareAccess,
   currentUserId,
   role,
   spaces,
@@ -2205,6 +2214,9 @@ function ChatPanel({
   busy,
 }: {
   messages: ClassroomMessageSnapshot[];
+  sessionId?: string;
+  translationLanguage?: string;
+  shareAccess?: string | null;
   currentUserId: string;
   role: ClassroomMemberSnapshot["role"];
   spaces: ClassroomSpaceSnapshot[];
@@ -2242,6 +2254,10 @@ function ChatPanel({
     if (scope === "room") return message.scope === "room" && message.spaceId === roomId;
     return message.scope === scope;
   });
+  const [translateEnabled, setTranslateEnabled] = useState(true);
+  const [languageOverride, setLanguageOverride] = useState("");
+  const language = languageOverride || translationLanguage;
+  const chatTranslation = useChatTranslations(sessionId, visibleMessages, language, translateEnabled, shareAccess);
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "nearest" });
@@ -2299,6 +2315,11 @@ function ChatPanel({
           </button>
         ) : null}
       </nav>
+      <div className="classroom-v3-chat-translation-controls">
+        <label><input type="checkbox" checked={translateEnabled} onChange={event => setTranslateEnabled(event.target.checked)} />{t("classroomUpdates.translateChat")}</label>
+        <CaptionSelect label={t("classroomUpdates.chatTranslationLanguage")} value={language} disabled={!translateEnabled} searchable options={captionLanguageSelectOptions("shengwang", locale)} onChange={setLanguageOverride} />
+      </div>
+      {translateEnabled && chatTranslation.unavailable && <p role="status">{t("classroomUpdates.translationUnavailable")}</p>}
       <div
         className="classroom-v3-message-list"
         aria-live="polite"
@@ -2344,6 +2365,11 @@ function ChatPanel({
                   ? t("classroom.v3.messageWithdrawn")
                   : message.content}
               </p>
+              {translateEnabled && !pending && !message.deletedAt && <div className="classroom-v3-message-translation" lang={language}>
+                {chatTranslation.translations[message.id]?.status === "completed" ? <><small>{t("classroomUpdates.translated")}</small><p>{chatTranslation.translations[message.id].text}</p></>
+                  : chatTranslation.translations[message.id]?.status === "failed" || chatTranslation.translations[message.id]?.status === "pending" ? <button type="button" onClick={chatTranslation.retry}>{t("classroomUpdates.translationFailed")}</button>
+                  : <small>{t("classroomUpdates.translationPending")}</small>}
+              </div>}
             </article>
           );
         })}
@@ -2424,7 +2450,7 @@ function BreakoutPanel({
   );
   const unassigned = members.filter(
     (member) =>
-      member.role !== "teacher" &&
+      !isClassroomTeachingRole(member.role) &&
       !assignedIds.has(member.userId),
   );
   const activeSpace = spaces.find((space) => space.id === activeSpaceId) ?? null;
@@ -2439,7 +2465,7 @@ function BreakoutPanel({
         <span>{t("classroom.v3.roomCount", { count: spaces.length })}</span>
       </div>
 
-      {role === "teacher" && spaces.length === 0 ? (
+      {isClassroomTeachingRole(role) && spaces.length === 0 ? (
         <section className="classroom-v3-breakout-setup">
           <p>{t("classroom.v3.breakoutSetupHint")}</p>
           <div>
@@ -2484,7 +2510,7 @@ function BreakoutPanel({
         </section>
       ) : null}
 
-      {role === "teacher" && spaces.length > 0 ? (
+      {isClassroomTeachingRole(role) && spaces.length > 0 ? (
         <div className="classroom-v3-breakout-command">
           <button type="button" disabled={busy} onClick={onAutoAssign}>
             <Shuffle />
@@ -2501,7 +2527,7 @@ function BreakoutPanel({
         </div>
       ) : null}
 
-      {spaces.length === 0 && role !== "teacher" ? (
+      {spaces.length === 0 && !isClassroomTeachingRole(role) ? (
         <div className="classroom-v3-panel-empty">
           <DoorOpen />
           <strong>{t("classroom.v3.noAssignedRoom")}</strong>
@@ -2529,7 +2555,7 @@ function BreakoutPanel({
               >
                 <Headphones />
               </button>
-              {role === "teacher" && (
+              {isClassroomTeachingRole(role) && (
                 <button
                   type="button"
                   disabled={busy}
@@ -2598,7 +2624,7 @@ function BreakoutPanel({
                       >
                         <MonitorUp />
                       </button>
-                      {role === "teacher" ? (
+                      {isClassroomTeachingRole(role) ? (
                         <button
                           type="button"
                           onClick={() =>
@@ -2621,7 +2647,7 @@ function BreakoutPanel({
               ) : null}
             </div>
 
-            {role === "teacher" && unassigned.length > 0 ? (
+            {isClassroomTeachingRole(role) && unassigned.length > 0 ? (
               <select
                 value=""
                 onChange={(event) => {
@@ -2649,7 +2675,7 @@ function BreakoutPanel({
           <header>
             <span><i />{activeSpace.name}</span>
             <small>{t("classroom.v3.roomAudioConnected")}</small>
-            {role === "teacher" ? (
+            {isClassroomTeachingRole(role) ? (
               <button type="button" disabled={busy} onClick={onDisconnect}>
                 {t("classroom.v3.returnToMainRoom")}
               </button>
@@ -2709,7 +2735,7 @@ function QuestionsPanel({
         </div>
         <span>{questions.filter((item) => item.status === "open").length}</span>
       </div>
-      {role !== "teacher" ? (
+      {!isClassroomTeachingRole(role) ? (
         <form
           className="classroom-v3-question-form"
           onSubmit={(event) => {
@@ -3177,19 +3203,19 @@ function DeviceSettings({
   theme,
   onThemeChange,
   provider,
+  media,
   runtime,
   canManageRecording,
-  onAssistantPermission,
-  captionDisplayMode,
-  captionBackgroundMode,
-  captionBackgroundColor,
+  canManageStage,
+  stageStudentLimit,
+  stageDefaultStudentLimit,
+  stageSettingsBusy,
+  onStageSettingsChange,
   onClassStartModeChange,
   startSettingsBusy,
   focusClassStart = false,
   onRecordingStartModeChange,
-  onCaptionDisplayModeChange,
-  onCaptionBackgroundModeChange,
-  onCaptionBackgroundColorChange,
+  onOpenCaptions,
   onClose,
 }: {
   open: boolean;
@@ -3199,17 +3225,16 @@ function DeviceSettings({
   media: ClassroomMediaSnapshot;
   runtime: ClassroomRuntimeSnapshot | null;
   canManageRecording: boolean;
-  onAssistantPermission: (userId: string, allowed: boolean) => void;
-  captionDisplayMode: CaptionDisplayMode;
-  captionBackgroundMode: CaptionBackgroundMode;
-  captionBackgroundColor: string;
+  canManageStage: boolean;
+  stageStudentLimit: number | null;
+  stageDefaultStudentLimit: number | null;
+  stageSettingsBusy: boolean;
+  onStageSettingsChange: (studentLimit: number | null, inviteBypassLimit: boolean) => void;
   onClassStartModeChange: (mode: ClassStartMode) => void;
   startSettingsBusy: boolean;
   focusClassStart?: boolean;
   onRecordingStartModeChange: (mode: "classStart" | "scheduled" | "scheduledEarly" | "disabled") => void;
-  onCaptionDisplayModeChange: (mode: CaptionDisplayMode) => void;
-  onCaptionBackgroundModeChange: (mode: CaptionBackgroundMode) => void;
-  onCaptionBackgroundColorChange: (color: string) => void;
+  onOpenCaptions?: () => void;
   onClose: () => void;
 }) {
   const { t, locale, setLocale } = useTranslation();
@@ -3524,34 +3549,15 @@ function DeviceSettings({
                   </fieldset>
                 </>}
                 <fieldset className="classroom-v3-caption-settings"><legend>{t("classroom.v3.interfaceLanguage")}</legend><select aria-label={t("classroom.v3.interfaceLanguage")} value={locale} onChange={(event) => setLocale(event.target.value as SupportedLocale)}>{languageOptions.map((language) => <option key={language.value} value={language.value}>{language.label}</option>)}</select></fieldset>
-                <fieldset className="classroom-v3-caption-settings">
-                  <legend>{t("classroom.v3.captionsTitle")}</legend>
-                  <label>
-                    <span>{t("classroom.v3.displayMode")}</span>
-                    <select value={captionDisplayMode} onChange={(event) => onCaptionDisplayModeChange(event.target.value as CaptionDisplayMode)}>
-                      <option value="off">{t("classroom.v3.captionsOff")}</option>
-                      <option value="original">{t("classroom.v3.originalOnly")}</option>
-                      <option value="translated">{t("classroom.v3.translatedOnly")}</option>
-                      <option value="bilingual">{t("classroom.v3.bilingual")}</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>{t("classroom.v3.captionBackground")}</span>
-                    <select value={captionBackgroundMode} onChange={(event) => onCaptionBackgroundModeChange(event.target.value as CaptionBackgroundMode)}>
-                      <option value="text">{t("classroom.v3.captionBackgroundText")}</option>
-                      <option value="transparent">{t("classroom.v3.captionBackgroundTransparent")}</option>
-                      <option value="solid">{t("classroom.v3.captionBackgroundSolid")}</option>
-                    </select>
-                  </label>
-                  {captionBackgroundMode !== "transparent" && (
-                    <label>
-                      <span>{t("classroom.v3.captionBackgroundColor")}</span>
-                      <input type="color" value={captionBackgroundColor} onChange={(event) => onCaptionBackgroundColorChange(event.target.value)} />
-                    </label>
-                  )}
-                  <p>{t("classroom.v3.captionDragHint")}</p>
-                </fieldset>
-                {canManageRecording && runtime && <fieldset className="classroom-v3-caption-settings"><legend>{t("classroom.v3.assistantPermissions")}</legend><p>{t("classroom.v3.assistantPermissionsHint")}</p>{runtime.members.filter((member) => member.role === "assistant").map((member) => <label key={member.userId}><span>{member.displayName}</span><input type="checkbox" checked={runtime.assistantPermissions?.[member.userId] !== false} onChange={(event) => onAssistantPermission(member.userId, event.target.checked)} /></label>)}</fieldset>}
+                <button type="button" className="classroom-v3-caption-settings-link" onClick={() => { onClose(); onOpenCaptions?.(); }}><Headphones />{t("classroomUpdates.openCaptionSettings")}</button>
+
+                {canManageStage && runtime && <StageSettings
+                  key={stageStudentLimit}
+                  studentLimit={stageStudentLimit} inviteBypassLimit={runtime.stageInviteBypassLimit !== false}
+                  defaultStudentLimit={stageDefaultStudentLimit}
+                  studentCount={runtime.members.filter(member => member.role === "student" && classroomMemberVisible(member)).length}
+                  busy={stageSettingsBusy} onChange={onStageSettingsChange}
+                />}
 
               </div>
             </div>
@@ -3944,7 +3950,7 @@ export function ClassroomV3({
       mediaConnected: media.connectionState === "connected",
       whiteboardEnabled: sessionData.whiteboard.enabled,
       whiteboardReady,
-      isTeacher: sessionData.credential.role === "teacher",
+      isTeacher: isClassroomTeachingRole(sessionData.credential.role),
       mode: sessionData.runtime.recordingStartMode,
       status: sessionData.runtime.status,
     })) return;
@@ -3988,11 +3994,19 @@ export function ClassroomV3({
     (update: Partial<ClassroomSessionResponse>, confirmed = true) => {
       const current = sessionRef.current;
       if (!current || (current.runtime.status === "ended" && update.runtime && update.runtime.status !== "ended") || !shouldApplyClassroomRevision(current.runtime.revision, update.runtime?.revision)) return;
+      if (update.runtime?.presenceUncertain && update.runtime.status !== "ended" && current.runtime) {
+        const priorMembers = new Map(current.runtime.members.map(member => [member.userId, member]));
+        update = { ...update, runtime: { ...update.runtime, members: update.runtime.members.map(member => {
+          const prior = priorMembers.get(member.userId);
+          return prior ? { ...member, online: prior.online, connectionStatus: prior.connectionStatus, lastSeenAt: prior.lastSeenAt, reconnectUntil: prior.reconnectUntil } : member;
+        }) } };
+      }
       if (update.runtime?.presenceObservedAt && update.runtime.presenceObservedAt !== current.runtime.presenceObservedAt) {
         presenceClockOffsetRef.current = classroomPresenceClockOffset(update.runtime.presenceObservedAt);
         setPresenceClockOffset(presenceClockOffsetRef.current);
       }
       const next = { ...current, ...update,
+        ...(update.runtime?.scheduledEndAt && { course: { ...current.course, ...update.course, endTime: update.runtime.scheduledEndAt, startTime: update.runtime.scheduledStartAt || current.course.startTime } }),
         ...(update.captions && { captions: mergeCaptionSnapshots(current.captions, update.captions) }),
         ...(update.courseware && { courseware: update.courseware.map(item => {
           const previous = current.courseware.find(candidate => candidate.id === item.id);
@@ -4122,7 +4136,7 @@ export function ClassroomV3({
         }),
         refreshAuth: isRecorder ? undefined : tryOAuthRefresh,
         onResponse: (status, value) => {
-          const response = value as { error?: string; code?: string; courseId?: string };
+          const response = value as { error?: string; code?: string; courseId?: string; sessionId?: string };
           if (stopEndedSession(status, response)) throw new DOMException("Classroom ended", "AbortError");
           if (!isRecorder && status === 403 && response.code) router.replace(buildAccessDeniedUrl({
             code: response.code as CourseAccessDeniedCode, reason: response.error || translateSession("classroom.v3.accessDenied"),
@@ -4453,7 +4467,7 @@ export function ClassroomV3({
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       await refreshMessages();
-      if (!cancelled) timer = setTimeout(poll, classroomPollDelay(signalingReadyRef.current ? 5_000 : 3_000, messagesFailuresRef.current, document.visibilityState === "hidden") + Math.random() * 500);
+      if (!cancelled) timer = setTimeout(poll, classroomPollDelay(signalingReadyRef.current ? 15_000 : 5_000, messagesFailuresRef.current, document.visibilityState === "hidden") + Math.random() * 500);
     };
     void poll();
     return () => { cancelled = true; clearTimeout(timer); messagesAbortRef.current?.abort(); messagesAbortRef.current = null; };
@@ -4606,7 +4620,7 @@ export function ClassroomV3({
       loadingState !== "ready" ||
       !sessionData ||
       sessionData.mode !== "largeClass" ||
-      sessionData.credential.role === "teacher" ||
+      isClassroomTeachingRole(sessionData.credential.role) ||
       isRecorder
     ) {
       return;
@@ -4637,7 +4651,7 @@ export function ClassroomV3({
     if (
       loadingState !== "ready" ||
       !sessionData ||
-      sessionData.credential.role !== "teacher" ||
+      !isClassroomTeachingRole(sessionData.credential.role) ||
       !activeSpaceId ||
       isRecorder
     ) {
@@ -4657,7 +4671,7 @@ export function ClassroomV3({
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       if (document.visibilityState === "visible" || media.local.screenSharing || roomMedia.local.screenSharing) await refreshState();
-      const base = !signalingReadyRef.current || ["starting", "stopping", "processing"].includes(recordingStatus || "") ? 2_000 : 5_000;
+      const base = !signalingReadyRef.current || ["starting", "stopping", "processing"].includes(recordingStatus || "") ? 5_000 : 15_000;
       if (!cancelled) timer = setTimeout(poll, classroomPollDelay(base, stateFailuresRef.current, document.visibilityState === "hidden") + Math.random() * 500);
     };
     timer = setTimeout(poll, 2_500 + Math.random() * 500);
@@ -4874,7 +4888,7 @@ export function ClassroomV3({
             durationMs: performance.now() - startedAt, lastSuccessAgeMs: Date.now() - lastSuccessAt,
             ...(error instanceof ClassroomRecoveryError ? { status: error.status } : {}),
           });
-          if (failures >= 2) setPresenceHealthy(false);
+          setPresenceHealthy(false);
         }
       } finally {
         inFlight = false;
@@ -4951,7 +4965,7 @@ export function ClassroomV3({
       isRecorder ||
       classEnded ||
       !mediaProvider ||
-      sessionData?.credential.role !== "teacher" ||
+      !isClassroomTeachingRole(sessionData?.credential.role) ||
       media.connectionState !== "connected" ||
       media.local.cameraOn ||
       teacherCameraAutostartedRef.current
@@ -5334,7 +5348,7 @@ export function ClassroomV3({
   useScheduledClassStart({
     enabled: Boolean(sessionData && sessionData.runtime.status === "waiting" && sessionData.runtime.classStartMode === "scheduled" &&
       classStartReadiness({
-        isTeacher: sessionData.credential.role === "teacher", isRecorder, pageReady: loadingState === "ready",
+        isTeacher: isClassroomTeachingRole(sessionData.credential.role), isRecorder, pageReady: loadingState === "ready",
         mediaConnected: media.connectionState === "connected",
         whiteboardRequired: sessionData.whiteboard.enabled || (classinLayout && sessionData.mode !== "publicLive") || sessionData.runtime.stageMode === "whiteboard",
         whiteboardReady,
@@ -5352,7 +5366,7 @@ export function ClassroomV3({
       if (!session || session.runtime.status === "ended") return;
       const useRoomProvider =
         session?.mode === "largeClass" &&
-        session.credential.role !== "teacher" &&
+        !isClassroomTeachingRole(session.credential.role) &&
         !(
           session.credential.role === "student" &&
           session.runtime.members.some(
@@ -5792,7 +5806,7 @@ export function ClassroomV3({
     if (
       !courseId ||
       !current ||
-      current.credential.role !== "teacher" ||
+      !isClassroomTeachingRole(current.credential.role) ||
       current.runtime.status !== "live" ||
       actionBusy ||
       isRecorder
@@ -5915,19 +5929,19 @@ export function ClassroomV3({
   );
   const controlsRoomMedia =
     sessionData?.mode === "largeClass" &&
-    sessionData.credential.role !== "teacher" &&
+    !isClassroomTeachingRole(sessionData.credential.role) &&
     !acceptedStudentOnStage &&
     Boolean(roomProvider);
   const requiresRoomMedia =
     sessionData?.mode === "largeClass" &&
-    sessionData.credential.role !== "teacher" &&
+    !isClassroomTeachingRole(sessionData.credential.role) &&
     !acceptedStudentOnStage;
   const actualControlMedia = controlsRoomMedia ? roomMedia : media;
   const controlMedia = { ...actualControlMedia, local: { ...actualControlMedia.local,
     cameraOn: mediaIntent.camera ?? actualControlMedia.local.cameraOn,
     microphoneOn: actualControlMedia.local.microphoneOn } };
 
-  const classroomMembers = reconcileClassroomRtcPresence(sessionData?.runtime.members ?? [], media, now - presenceClockOffset, roomMedia);
+  const classroomMembers = reconcileClassroomRtcPresence(sessionData?.runtime.members ?? [], media, now - presenceClockOffset, roomMedia, sessionData?.runtime.presenceUncertain || !presenceHealthy);
   const decorateParticipant = (participant: ClassroomParticipant) => {
     const member = classroomMembers.find(
       (candidate) =>
@@ -6112,16 +6126,17 @@ export function ClassroomV3({
         : sessionData.runtime.timerDurationSec -
         (now - new Date(sessionData.runtime.timerStartedAt).getTime()) / 1000
       : null;
+  const canUseWhiteboard = Boolean(!isRecorder && (sessionData?.capabilities.canManageWhiteboard || currentMember?.whiteboardWritable));
   const canUseMedia = requiresRoomMedia
     ? controlsRoomMedia && Boolean(currentSpaceMember)
-    : sessionData?.credential.role !== "student" || studentPublishReady;
+    : sessionData?.credential.role !== "student" || Boolean(currentMember?.onStage && currentMember.stageState === "accepted");
   const microphoneAllowed = controlsRoomMedia
     ? currentSpaceMember?.microphoneAllowed !== false
     : currentMember?.microphoneAllowed !== false;
   const mainScreenPermission = Boolean(sessionData && canShareClassroomScreen({
     role: sessionData.credential.role, member: currentMember,
     studentSharingSupported: sessionData.modePolicy.studentCanShareWhenOnStage,
-    assistantManagementAllowed: sessionData.runtime.assistantPermissions?.[currentUserId] !== false,
+    assistantManagementAllowed: true,
   }));
   const screenScope = controlsRoomMedia ? activeSpaceId || "main" : "main";
   const screenLeases = sessionData?.runtime.composition.screenShares;
@@ -6130,7 +6145,7 @@ export function ClassroomV3({
     ? controlsRoomMedia && Boolean(currentSpaceMember?.screenShareAllowed)
     : mainScreenPermission;
   const mayClaimScreen = !screenLease || ownsScreenShare(screenLease, currentUserId, clientId) ||
-    (!controlsRoomMedia && sessionData?.credential.role === "teacher");
+    (!controlsRoomMedia && isClassroomTeachingRole(sessionData?.credential.role));
   const isScreenShareAllowed = !isRecorder && !classEnded && (controlMedia.local.screenSharing ||
     (screenPermission && mayClaimScreen && (controlsRoomMedia || Boolean(sessionData?.credential.screenShare)) && canUseMedia));
   const screenCredentialRefreshRef = useRef(false);
@@ -6284,9 +6299,6 @@ export function ClassroomV3({
     sourceLanguage: sessionData?.runtime.interpretation.sourceLanguage || "zh-CN",
     provider: sessionData?.runtime.interpretation.provider || "shengwang",
   });
-  const changeCaptionMode = async (mode: CaptionDisplayMode) => {
-    if (await captionSubscription.save(effectiveCaptionLanguage, mode)) setCaptionDisplayMode(mode);
-  };
   const liveCaptions = useLiveCaptions(
     isRecorder ? undefined : sessionData?.captions,
     effectiveCaptionLanguage,
@@ -6387,7 +6399,13 @@ export function ClassroomV3({
               <strong>{formatClock(timerRemaining)}</strong>
             </span>
           )}
-          {!classEnded && <StatusPill media={media} recording={recordingStatus} presenceHealthy={presenceHealthy} />}
+          {!isRecorder && !classEnded && <div className="classroom-caption-access">
+            <button type="button" aria-pressed={captionOverlayVisible && captionDisplayMode !== "off"} onClick={() => { setCaptionOverlayVisible(!captionOverlayVisible || captionDisplayMode === "off"); if (captionDisplayMode === "off") setCaptionDisplayMode("bilingual"); }}>
+              {t("captionAppearance.toggle")} · {captionOverlayVisible && captionDisplayMode !== "off" ? t("captionAppearance.on") : t("captionAppearance.off")}
+            </button>
+            <button type="button" onClick={() => { setSettingsOpen(false); setActivePanel("captions"); window.setTimeout(() => document.querySelector(".classroom-caption-appearance")?.scrollIntoView({ block: "center" }), 150); }}>{t("captionAppearance.settings")}</button>
+          </div>}
+          {!classEnded && <StatusPill media={media} recording={recordingStatus} presenceHealthy={presenceHealthy && !sessionData.runtime.presenceUncertain} />}
 
         </div>
         {!isRecorder && !settingsOpen && <ClassStartReminder role={sessionData.credential.role} status={sessionData.runtime.status}
@@ -6402,10 +6420,13 @@ export function ClassroomV3({
         })} />}
         {!isRecorder && (
           <div className="classroom-v3-top-actions">
+            {sessionData.capabilities.canEndClass && !classEnded && <ClassTimingControls courseId={sessionData.course.id} sessionId={courseId} ended={classEnded}
+              onExtended={timing => { updateSession({ course: { ...sessionData.course, endTime: timing.endTime }, runtime: { ...sessionData.runtime, scheduledEndAt: timing.endTime, scheduledStartAt: timing.startTime, revision: timing.revision } }); publishInvalidation(timing.revision, "runtime"); void refreshState(); }} />}
+
             <span
               className={`classroom-v3-role-context is-${sessionData.credential.role}`}
               title={
-                sessionData.credential.role === "teacher"
+                isClassroomTeachingRole(sessionData.credential.role)
                   ? t("classroom.v3.leadRoleHint")
                   : sessionData.credential.role === "assistant"
                     ? t("classroom.v3.assistantRoleHint")
@@ -6427,10 +6448,10 @@ export function ClassroomV3({
             </div>}
             {canUseMedia && (
               <>
-                <button
+                {microphoneAllowed && <button
                   type="button"
                   className={`is-header-secondary ${!controlMedia.local.microphoneOn ? "is-device-off" : ""}`}
-                  disabled={!microphoneAllowed || mediaBusy.includes("microphone") || mediaBusy.includes("recover")}
+                  disabled={!microphoneAllowed || (!controlsRoomMedia && sessionData.credential.role === "student" && !studentPublishReady) || mediaBusy.includes("microphone") || mediaBusy.includes("recover")}
                   aria-busy={mediaBusy.includes("microphone")}
                   aria-pressed={actualControlMedia.local.microphoneOn}
                   data-media-status={actualControlMedia.local.microphoneStatus || (actualControlMedia.local.microphoneOn ? "on" : "off")}
@@ -6442,11 +6463,11 @@ export function ClassroomV3({
                   title={t("classroom.v3.microphone")}
                 >
                   {mediaBusy.includes("microphone") ? <Loader2 className="animate-spin" /> : controlMedia.local.microphoneOn ? <Mic /> : <MicOff />}
-                </button>
-                <button
+                </button>}
+                {(controlsRoomMedia ? currentSpaceMember?.cameraAllowed !== false : currentMember?.cameraAllowed !== false) && <button
                   type="button"
                   className={`is-header-secondary ${!controlMedia.local.cameraOn ? "is-device-off" : ""}`}
-                  disabled={mediaBusy.includes("camera") || mediaBusy.includes("recover")}
+                  disabled={(!controlsRoomMedia && sessionData.credential.role === "student" && !studentPublishReady) || mediaBusy.includes("camera") || mediaBusy.includes("recover")}
                   aria-busy={mediaBusy.includes("camera")}
                   onClick={() =>
                     void runMediaAction("camera", (provider) =>
@@ -6457,7 +6478,7 @@ export function ClassroomV3({
                   aria-pressed={controlMedia.local.cameraOn}
                 >
                   {controlMedia.local.cameraOn ? <Video /> : <VideoOff />}
-                </button>
+                </button>}
               </>
             )}
             <button
@@ -6466,7 +6487,7 @@ export function ClassroomV3({
               disabled={isLeaving}
               aria-busy={isLeaving}
               title={t(
-                sessionData.credential.role === "teacher"
+                isClassroomTeachingRole(sessionData.credential.role)
                   ? "classroom.v3.leaveTemporarily"
                   : "classroom.v3.leave",
               )}
@@ -6597,7 +6618,7 @@ export function ClassroomV3({
           canManage={sessionData.capabilities.canManageStage && !isRecorder}
           canReward={sessionData.capabilities.canGiveReward && !isRecorder}
           busy={Boolean(actionBusy)}
-          maxStudentSeats={sessionData.modePolicy.maxStageStudents}
+          maxStudentSeats={classroomStudentStageLimit(sessionData.modePolicy, sessionData.runtime)}
           onSpotlight={(userId) =>
             void performAction(
               classinLayout
@@ -6682,7 +6703,7 @@ export function ClassroomV3({
         <motion.section
           layout
           className="classroom-v3-stage"
-          data-board-tools-visible={!isRecorder && !classEnded && drawingSurfaceAvailable && sessionData.whiteboard.writable}
+          data-board-tools-visible={!isRecorder && !classEnded && drawingSurfaceAvailable && canUseWhiteboard && sessionData.whiteboard.writable}
           ref={stageElementRef}
           transition={{ type: "spring", stiffness: 320, damping: 32 }}
         >
@@ -6774,6 +6795,8 @@ export function ClassroomV3({
                   <small>{t("classroom.v3.classEndedLabel")}</small>
                   <h2>{t("classroom.v3.classEnded")}</h2>
                   <p>{t("classroom.v3.playbackHint")}</p>
+                  {!isRecorder && sessionData.capabilities.canStartClass && <ClassTimingControls courseId={sessionData.course.id} sessionId={courseId} ended />}
+
                 </motion.div>
               ) : !screenParticipant &&
               useMediaGallery ? (
@@ -6935,7 +6958,7 @@ export function ClassroomV3({
                     <ScreenShareAnnotations
                       app={whiteboardApp}
                       screenId={`${activeScreenShare?.source}-${screenParticipant.participant.id}`}
-                      writable={sessionData.whiteboard.writable && !isRecorder}
+                      writable={sessionData.whiteboard.writable && canUseWhiteboard}
                       onControllerChange={setScreenAnnotationController}
                     />
                   )}
@@ -7123,7 +7146,7 @@ export function ClassroomV3({
 
         <section
           className={`classroom-v3-side ${activePanel ? "is-open" : ""}`}
-          data-board-writable={drawingSurfaceAvailable && sessionData.whiteboard.writable}
+          data-board-writable={drawingSurfaceAvailable && canUseWhiteboard && sessionData.whiteboard.writable}
           data-panel-open={Boolean(activePanel)}
           onPointerEnter={wakeToolRail}
           onFocusCapture={wakeToolRail}
@@ -7135,7 +7158,7 @@ export function ClassroomV3({
               visiblePanels={visibleDrawerPanels}
               whiteboardActive={showWhiteboard}
               screenAnnotationActive={Boolean(screenParticipant)}
-              canDraw={drawingSurfaceAvailable && sessionData.whiteboard.writable}
+              canDraw={drawingSurfaceAvailable && canUseWhiteboard && sessionData.whiteboard.writable}
               canShareScreen={isScreenShareAllowed && (screenShareSupported || controlMedia.local.screenSharing)}
               screenSharing={controlMedia.local.screenSharing}
               onOpenWhiteboard={openWhiteboard}
@@ -7147,7 +7170,7 @@ export function ClassroomV3({
               whiteboardController={drawingController}
               whiteboardTool={whiteboardTool}
               onWhiteboardToolChange={setWhiteboardTool}
-              railLevel={mobileControls && sessionData.whiteboard.writable ? "expanded" : toolRailLevel}
+              railLevel={mobileControls && canUseWhiteboard ? "expanded" : toolRailLevel}
               onInteract={wakeToolRail}
               canManageStage={
                 sessionData.capabilities.canManageStage && !isRecorder
@@ -7239,7 +7262,8 @@ export function ClassroomV3({
                   />
                 )}
                 {activePanel === "chat" && (
-                  <ChatPanel
+                  <TestChatPanel
+                    sessionId={courseId} translationLanguage={effectiveCaptionLanguage} shareAccess={shareAccess}
                     students={sessionData.runtime.members.filter(member => member.role === "student")}
                     messages={[...sessionData.messages, ...pendingMessages]}
                     currentUserId={currentUserId}
@@ -7272,7 +7296,9 @@ export function ClassroomV3({
                     displayMode={captionDisplayMode}
                     overlayVisible={captionOverlayVisible}
                     preferredLanguage={effectiveCaptionLanguage}
-                    onRecoverTranslation={sessionData.credential.role === "teacher" && !classEnded ? async captionId => {
+                    backgroundMode={captionBackgroundMode} backgroundColor={captionBackgroundColor}
+                    onBackgroundModeChange={setCaptionBackgroundMode} onBackgroundColorChange={setCaptionBackgroundColor}
+                    onRecoverTranslation={isClassroomTeachingRole(sessionData.credential.role) && !classEnded ? async captionId => {
                       const response = await fetch(`/api/sessions/${encodeURIComponent(courseId)}/classroom/captions`, {
                         method: "POST", headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ action: "recoverTranslation", captionId, ...(shareAccess && { shareAccess }) }),
@@ -7295,6 +7321,7 @@ export function ClassroomV3({
                 )}
                 {activePanel === "courseware" && (
                   <CoursewarePanel
+                    shareAccess={shareAccess}
                     items={sessionData.courseware}
                     canManage={sessionData.capabilities.canManageWhiteboard}
                     busy={actionBusy}
@@ -7448,7 +7475,7 @@ export function ClassroomV3({
         <footer className="classroom-v3-dock-wrap">
           {dockMoreOpen && <div className="classroom-v3-dock-overflow" role="menu">
             {isScreenShareAllowed && (screenShareSupported || controlMedia.local.screenSharing) && <button type="button" role="menuitem" onClick={() => { void toggleScreenShare(); setDockMoreOpen(false); }}><MonitorUp />{controlMedia.local.screenSharing ? t("classroom.v3.stopSharing") : t("classroom.v3.screenShare")}</button>}
-            <button type="button" role="menuitem" onClick={() => { setActivePanel("chat"); setDockMoreOpen(false); }}><MessageCircle />{t("classroom.v3.chat")}</button>
+            {canUseWhiteboard && <button type="button" role="menuitem" onClick={() => { openWhiteboard(); setDockMoreOpen(false); }}><PenTool />{t("classroom.v3.whiteboard")}</button>}
             {sessionData.capabilities.canManageMembers && <button type="button" role="menuitem" onClick={() => { setActivePanel("members"); setDockMoreOpen(false); }}><Users />{t("classroom.v3.members")}</button>}
             <button type="button" role="menuitem" onClick={() => { setActivePanel("courseware"); setDockMoreOpen(false); }}><BookOpen />{t("classroom.v3.courseware")}</button>
             <button type="button" role="menuitem" onClick={() => { setActivePanel("captions"); setDockMoreOpen(false); }}><Headphones aria-hidden="true" />{t("classroom.v3.captions")}</button>
@@ -7461,9 +7488,9 @@ export function ClassroomV3({
           <div className="classroom-v3-dock" data-more-open={dockMoreOpen}>
             {canUseMedia && (
               <>
-                <button
+                {microphoneAllowed && <button
                   type="button"
-                  disabled={!microphoneAllowed || mediaBusy.includes("microphone") || mediaBusy.includes("recover")}
+                  disabled={!microphoneAllowed || (!controlsRoomMedia && sessionData.credential.role === "student" && !studentPublishReady) || mediaBusy.includes("microphone") || mediaBusy.includes("recover")}
                   aria-busy={mediaBusy.includes("microphone")}
                   aria-pressed={actualControlMedia.local.microphoneOn}
                   data-media-status={actualControlMedia.local.microphoneStatus || (actualControlMedia.local.microphoneOn ? "on" : "off")}
@@ -7477,10 +7504,10 @@ export function ClassroomV3({
                 >
                   {mediaBusy.includes("microphone") ? <Loader2 className="animate-spin" /> : controlMedia.local.microphoneOn ? <Mic /> : <MicOff />}
                   <span>{t("classroom.v3.microphone")}</span>
-                </button>
-                <button
+                </button>}
+                {(controlsRoomMedia ? currentSpaceMember?.cameraAllowed !== false : currentMember?.cameraAllowed !== false) && <button
                   type="button"
-                  disabled={mediaBusy.includes("camera") || mediaBusy.includes("recover")}
+                  disabled={(!controlsRoomMedia && sessionData.credential.role === "student" && !studentPublishReady) || mediaBusy.includes("camera") || mediaBusy.includes("recover")}
                   aria-busy={mediaBusy.includes("camera")}
                   className={!controlMedia.local.cameraOn ? "is-off" : ""}
                   onClick={() =>
@@ -7492,7 +7519,7 @@ export function ClassroomV3({
                 >
                   {controlMedia.local.cameraOn ? <Video /> : <VideoOff />}
                   <span>{t("classroom.v3.camera")}</span>
-                </button>
+                </button>}
               </>
             )}
             {sessionData.credential.role === "student" &&
@@ -7523,14 +7550,15 @@ export function ClassroomV3({
                 </span>
               </button>
             )}
-            <button
+            <button type="button" className={activePanel === "chat" ? "is-active" : ""} onClick={() => setActivePanel("chat")}><MessageCircle /><span>{t("classroom.v3.chat")}{unreadMessages > 0 ? ` (${unreadMessages})` : ""}</span></button>
+            {canUseWhiteboard && <button
               type="button"
-              className={sessionData.runtime.stageMode === "whiteboard" ? "is-active" : ""}
+              className={`is-dock-secondary ${sessionData.runtime.stageMode === "whiteboard" ? "is-active" : ""}`}
               onClick={openWhiteboard}
             >
               <PenTool />
               <span>{t("classroom.v3.whiteboard")}</span>
-            </button>
+            </button>}
             <button className="is-dock-secondary" type="button" onClick={() => setActivePanel("courseware")}>
               <BookOpen />
               <span>{t("classroom.v3.courseware")}</span>
@@ -7751,18 +7779,17 @@ export function ClassroomV3({
         provider={controlsRoomMedia ? roomProvider : mediaProvider}
         media={controlMedia}
         runtime={sessionData?.runtime || null}
-        canManageRecording={sessionData?.credential.role === "teacher" && !isRecorder}
-        onAssistantPermission={(targetUserId, allowed) => void performAction({ type: "setAssistantPermission", targetUserId, allowed })}
-        captionDisplayMode={captionDisplayMode}
-        captionBackgroundMode={captionBackgroundMode}
-        captionBackgroundColor={captionBackgroundColor}
+        canManageRecording={isClassroomTeachingRole(sessionData?.credential.role) && !isRecorder}
+        canManageStage={Boolean(sessionData?.capabilities.canManageStage && !isRecorder)}
+        stageStudentLimit={sessionData?.runtime.stageStudentLimit ?? null}
+        stageDefaultStudentLimit={sessionData?.modePolicy.maxStageStudents ?? null}
+        stageSettingsBusy={Boolean(actionBusy)}
+        onStageSettingsChange={(studentLimit, inviteBypassLimit) => void performAction({ type: "setStageSettings", studentLimit, inviteBypassLimit })}
         focusClassStart={focusClassStart}
         startSettingsBusy={Boolean(actionBusy)}
         onClassStartModeChange={(mode) => void performAction({ type: "setClassStartMode", mode })}
         onRecordingStartModeChange={(mode) => void performAction({ type: "setRecordingStartMode", mode })}
-        onCaptionDisplayModeChange={mode => void changeCaptionMode(mode)}
-        onCaptionBackgroundModeChange={setCaptionBackgroundMode}
-        onCaptionBackgroundColorChange={setCaptionBackgroundColor}
+        onOpenCaptions={() => setActivePanel("captions")}
         onClose={() => setSettingsOpen(false)}
       />
     </main>

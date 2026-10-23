@@ -1,10 +1,16 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm run build:deploy",
+  "git": {
+    "deploymentEnabled": {
+      "feature/classroom-live-reliability": false
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/promote-course-status",
       "schedule": "*/1 * * * *"
     }
-  ]
+  ],
+  "ignoreCommand": "git log -1 --pretty=%B | grep -Fq '[skip-classroom-deploy]'"
 }

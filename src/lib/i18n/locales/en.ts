@@ -1,6 +1,9 @@
 import { zhCN } from "./zh-CN";
 
 export const en: typeof zhCN = {
+  classroomUpdates: {"chatTranslationLanguage": "Translate to", "captionAppearance": "Caption appearance · this device", "localAppearanceHint": "Drag the handle above captions to move them, including on mobile. These settings affect only this device.", "openCaptionSettings": "Open bilingual captions and appearance", "preview": "Preview material", "previewUnavailable": "Preview is unavailable for this format. Download it to view.", "downloadPreparing": "Preparing download…", "downloadFailed": "Download failed. Try again.", "saveImageHint": "In WeChat, press and hold the image to save it. Close the preview to return to class.", "translateChat": "Auto translate", "translationPending": "Translating…", "translationFailed": "Translation unavailable. Retry", "translationUnavailable": "Chat translation is not configured. Original messages remain available.", "original": "Original", "translated": "Translation", "restart": "Restart class", "extend": "Extend class", "extendMinutes": "Extend by {minutes} minutes", "restartHint": "Keep the classroom link, members and history, and start a new class timer.", "restartConfirm": "Confirm restart", "lifecycleFailed": "Action was not completed. Refresh and try again.", "courseControls": "Class controls", "extended": "Class extended", "restarted": "Class restarted", "download": "Download", "closePreview": "Close material preview"},
+  presenceReliability: { checking: "Checking online status", unavailable: "Online status is temporarily unverified. Counts show the last confirmed result; audio/video connectivity is checked separately." },
+  captionAppearance: {"on": "On", "off": "Off","title": "Caption appearance (this device)", "localOnly": "Only changes your own captions. Drag captions to keep content visible.", "width": "Width", "height": "Maximum height", "fontSize": "Text size", "opacity": "Background opacity", "textColor": "Text color", "toggle": "Caption toggle", "settings": "Caption appearance settings"},
   common: {
     loading: "Loading...",
     submitting: "Submitting...",
@@ -105,6 +108,21 @@ export const en: typeof zhCN = {
     verifyingAccess: "Verifying access permissions...",
     initializing: "Initializing classroom...",
     v3: {
+      stageSettings: "Student stage settings",
+      stageStudentLimit: "Student seat limit",
+      stageSettingsApply: "Apply",
+      stageStudentLimitHint: "Choose 1–100 students, excluding teachers and assistants. Lowering this keeps current students on stage.",
+      stageInviteBypassLimit: "Allow teacher invitations beyond the seat limit",
+      stageInviteBypassHint: "When enabled, stage and screen-sharing invitations from the lead teacher or authorized assistants can exceed the regular limit.",
+      stageSettingsSaving: "Saving…",
+      stageSettingsCurrent: "Regular student seats for this lesson: {count}",
+      stageSettingsRule: "Stage seat rule",
+      stageSettingsFollow: "Follow entering students (grows automatically)",
+      stageSettingsCustom: "Fixed number",
+      stageSettingsDefault: "Default: {count} students",
+      stageSettingsFollowHint: "Seats grow as students enter, including late arrivals. Teachers and assistants do not use student seats.",
+      stageSettingsDefaultHint: "Use the classroom mode default, or choose a fixed number. Teachers and assistants are excluded.",
+      stageSettingsFollowing: "Following entering students: {count} currently present",
       startPolicyTitle: "Class start",
       startPolicyLabel: "This lesson",
       startPolicyManual: "Remind at scheduled time (default)",
@@ -646,7 +664,7 @@ export const en: typeof zhCN = {
     title: "Course playback",
     playableOnly: "This playback link is not an MP4 or M3U8 video and cannot be played here.",
     notFinished: "Playback is available after the course has finished.",
-    noUrl: "No playback video has been set for this course.",
+    noUrl: "No recording is ready to play yet. If the lesson just ended, files may still be processing. Try reloading the recording status shortly.",
     loadFailed: "Failed to load playback.",
     hlsUnsupported: "This browser cannot play HLS/M3U8 here. Try another browser.",
     browserHint: "If the video does not play, check that the link is accessible and browser playback is supported.",

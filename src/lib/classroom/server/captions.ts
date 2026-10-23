@@ -120,6 +120,7 @@ export async function ingestClassroomCaption(
   let initialReservation: Prisma.InputJsonObject | null = null;
   const result = await prisma.$transaction(
     async (transaction) => {
+      await transaction.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId"=${sessionId} FOR UPDATE`;
       // Serialize every update for this logical caption across server instances.
       // This prevents duplicate Wordly billing and prevents a late partial from
       // overwriting an already persisted final sentence.
@@ -319,6 +320,7 @@ export async function ingestClassroomCaption(
     },
     commit: async translated => {
       await prisma.$transaction(async transaction => {
+        await transaction.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId"=${sessionId} FOR UPDATE`;
         await transaction.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtext(${sessionId}), hashtext(${externalId}))`;
         const current = await transaction.classroomCaption.findUnique({ where: { sessionId_externalId: { sessionId, externalId } } });
         // A correction received during translation owns the current text. Never
@@ -339,6 +341,7 @@ export async function ingestClassroomCaption(
     },
     fail: async stage => {
       await prisma.$transaction(async transaction => {
+        await transaction.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId"=${sessionId} FOR UPDATE`;
         const changed = await transaction.classroomProviderEvent.updateMany({ where: { noticeId, payload: { equals: ownedPayload } }, data: { processedAt: new Date(), payload: payloadFor(stage === "prepare" ? "failed" : "unknown") } });
         if (changed.count !== 1) return;
         const state = await transaction.classroomRuntime.update({ where: { id: runtime.id }, data: { revision: { increment: 1 }, transcriptionError: stage === "prepare" ? "Translation could not start; original captions are available." : "Translation outcome is unknown; original captions are available." } });

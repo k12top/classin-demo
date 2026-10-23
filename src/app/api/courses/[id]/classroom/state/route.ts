@@ -1,3 +1,6 @@
+import { classroomRedisEnabled, classroomRedisCommand } from "@/lib/classroom/server/redis";
+import { requestClassroomRedisRefresh } from "@/lib/classroom/server/redis-sync";
+import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getClassroomCourseware,
@@ -22,6 +25,7 @@ async function getState(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (classroomRedisEnabled() && await classroomRedisCommand(["PING"]) !== "PONG") return NextResponse.json({ code: "presence_unavailable", retryable: true }, { status: 503, headers: { "Retry-After": "3" } });
   const { id: courseId } = await params;
   const shareAccess = request.nextUrl.searchParams.get("shareAccess");
   const resolved = await resolveClassroomRequestAccess(
@@ -125,6 +129,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     return response;
   }
   catch (error) {
+    if (classroomRedisEnabled()) after(() => requestClassroomRedisRefresh(id));
     const response = databaseUnavailableResponse(error, { route: "classroom/state", sessionId: id, operation: "poll", durationMs: Math.round(performance.now() - startedAt) });
     if (response) return response;
     throw error;

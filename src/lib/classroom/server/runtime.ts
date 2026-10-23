@@ -4,12 +4,13 @@ import { classroomSignalingUserId } from "@/lib/classroom/signaling/identity";
 import "server-only";
 import { refreshCoursewareConversions } from "@/lib/courseware-conversion";
 import { classroomActionRequiresRevision } from "@/lib/classroom/action-request";
+import { classroomStudentStageLimit, validStageStudentLimit } from "@/lib/classroom/stage-settings";
 import { enqueueClassroomEvent } from "./integration-events";
 import { classroomMemberPresence } from "@/lib/classroom/session-lifecycle";
 import { CLASSROOM_ONLINE_WINDOW_MS, CLASSROOM_RECONNECT_WINDOW_MS, classroomConnectionPresence } from "@/lib/classroom/presence";
 import { classroomSharedRead } from "./shared-cache";
 import { readRedisClassroomPresence, overlayRedisClassroomPresence, type RedisConnectionLease } from "./redis-presence";
-import { synchronizeClassroomRedis } from "./redis-sync";
+import { refreshClassroomRedisControl } from "./redis-sync";
 
 import { randomInt } from "node:crypto";
 import type { Prisma } from "@prisma/client";
@@ -184,7 +185,7 @@ export async function startScheduledClassroomIfDue(
       sessionId, userId: readyTeacher.userId, leftAt: null,
       lastSeenAt: { gte: new Date(now.getTime() - ONLINE_WINDOW_MS) },
     }, select: { id: true } });
-    if (member?.role !== "teacher" || !connection) return false;
+    if ((member?.role !== "teacher" && member?.role !== "assistant") || !connection) return false;
     const claimedLesson = await tx.courseSession.updateMany({
       where: { id: sessionId, status: { in: [CourseStatus.SCHEDULED, CourseStatus.LIVE] }, startTime: { lte: now }, endTime: { gt: now } },
       data: { status: CourseStatus.LIVE, endedAt: null },
@@ -233,11 +234,9 @@ export async function touchClassroomMember(
       course?.course.autoStudentOnStage,
     );
   const teachingRole = role === "teacher" || role === "assistant";
-  const assistantStartsOnStage =
-    role === "assistant" && mode.mode !== "largeClass";
   const studentStartsOnStage =
     role === "student" && mode.defaultStudentOnStage;
-  const teachingStartsOnStage = role === "teacher" || assistantStartsOnStage;
+  const teachingStartsOnStage = teachingRole;
   const upsertInput = (startsOnStage: boolean, restoreStage = false, restoreMedia = false) => ({
     where: { sessionId_userId: { sessionId, userId: session.userId } },
     create: {
@@ -297,13 +296,15 @@ export async function touchClassroomMember(
   // Serialize admissions so simultaneous returns cannot overbook the stage.
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId"=${sessionId} FOR UPDATE`;
+    const settings = await tx.classroomRuntime.findUniqueOrThrow({ where: { sessionId }, select: { stageStudentLimit: true } });
     const existing = await tx.classroomMemberState.findUnique({
       where: { sessionId_userId: { sessionId, userId: session.userId } },
       select: { id: true, stageState: true },
     });
+    const studentLimit = classroomStudentStageLimit(mode, settings);
     const eligible = !existing || (joining && ["left", "waiting"].includes(existing.stageState));
-    const occupiedSeats = eligible ? await countReservedStudentSeats(tx, sessionId, redisPresence) : 0;
-    const admit = eligible && occupiedSeats < mode.maxStageStudents;
+    const occupiedSeats = eligible && studentLimit !== null ? await countReservedStudentSeats(tx, sessionId, redisPresence) : 0;
+    const admit = eligible && (studentLimit === null || occupiedSeats < studentLimit);
     return tx.classroomMemberState.upsert(upsertInput(admit, Boolean(existing) && admit, existing?.stageState === "waiting"));
   });
 }
@@ -370,7 +371,7 @@ function publicMember(
 }
 
 /** Count both reconnecting seats and admissions awaiting their new connection lease. */
-async function countReservedStudentSeats(tx: Prisma.TransactionClient, sessionId: string, leases: RedisConnectionLease[] | null) {
+export async function countReservedStudentSeats(tx: Prisma.TransactionClient, sessionId: string, leases: RedisConnectionLease[] | null) {
   const cutoff = new Date(Date.now() - CLASSROOM_RECONNECT_WINDOW_MS);
   const activeUsers = [...new Set((leases || []).filter(lease => lease.leftAt === null && lease.lastSeenAt >= cutoff.getTime()).map(lease => lease.userId))];
   const [row] = await tx.$queryRaw<Array<{ count: bigint }>>`
@@ -401,7 +402,7 @@ export async function getClassroomRuntimeSnapshot(
   sessionId = courseId,
   options: { ensure?: boolean; coalesce?: boolean } = {},
 ): Promise<ClassroomRuntimeSnapshot> {
-  if (!options.coalesce) await synchronizeClassroomRedis(sessionId, true);
+  if (!options.coalesce) await refreshClassroomRedisControl(sessionId);
   const snapshot = options.coalesce
     ? await classroomSharedRead(sessionId, "runtime", () => loadClassroomRuntimeSnapshot(courseId, sessionId, options))
     : await loadClassroomRuntimeSnapshot(courseId, sessionId, options);
@@ -419,6 +420,7 @@ async function loadClassroomRuntimeSnapshot(
   const runtime = await prisma.classroomRuntime.findUniqueOrThrow({
       where: { sessionId },
       include: {
+        session: { select: { startTime: true, endTime: true } },
         members: {
           orderBy: [
             { role: "asc" },
@@ -457,6 +459,8 @@ async function loadClassroomRuntimeSnapshot(
   );
   return {
     presenceObservedAt: new Date(now).toISOString(),
+    scheduledStartAt: runtime.session.startTime.toISOString(),
+    scheduledEndAt: runtime.session.endTime.toISOString(),
     assistantPermissions: runtime.assistantPermissions as Record<string, boolean>,
     revision: runtime.revision,
     status:
@@ -471,6 +475,8 @@ async function loadClassroomRuntimeSnapshot(
     graceEndsAt: runtime.graceEndsAt?.toISOString() ?? null,
     stageMode: normalizeStageMode(runtime.stageMode),
     stageLocked: runtime.stageLocked,
+    stageStudentLimit: runtime.stageStudentLimit,
+    stageInviteBypassLimit: runtime.stageInviteBypassLimit,
     spotlightUserId: runtime.spotlightUserId,
     activeCoursewareId: runtime.activeCoursewareId,
     chatEnabled: runtime.chatEnabled,
@@ -624,9 +630,10 @@ export async function getClassroomCourseware(
     studentCanView: item.studentCanView,
     studentCanDownload: item.studentCanDownload,
     whiteboardEnabled: item.whiteboardEnabled,
+    previewUrl: `/api/sessions/${encodeURIComponent(sessionId)}/classroom/courseware/${encodeURIComponent(item.id)}/file?mode=preview`,
     downloadUrl:
       teachingRole || item.studentCanDownload
-        ? `/api/courses/${courseId}/courseware/${item.id}/download?sessionId=${encodeURIComponent(sessionId)}`
+        ? `/api/sessions/${encodeURIComponent(sessionId)}/classroom/courseware/${encodeURIComponent(item.id)}/file`
         : null,
   }));
 }
@@ -646,8 +653,8 @@ function requireTeachingRole(role: ClassroomRole) {
 }
 
 function requireLeadTeacher(role: ClassroomRole) {
-  if (role !== "teacher") {
-    throw new ClassroomActionError("只有主讲老师可以执行此操作", 403);
+  if (role !== "teacher" && role !== "assistant") {
+    throw new ClassroomActionError("只有主讲老师或助教可以执行此操作", 403);
   }
 }
 
@@ -710,11 +717,6 @@ export async function applyClassroomAction(input: {
     const runtime = await tx.classroomRuntime.findUniqueOrThrow({
       where: { sessionId },
     });
-    if (role === "assistant" && !["raiseHand", "lowerHand", "acceptStage", "declineStage", "acceptScreenShare", "declineScreenShare", "startScreenShare", "releaseScreenShare", "submitBuzz"].includes(action.type)) {
-      if ((runtime.assistantPermissions as Record<string, boolean>)[session.userId] === false) {
-        throw new ClassroomActionError("主讲老师尚未授予管理权限", 403);
-      }
-    }
     const command = { sessionId, actorId: session.userId, clientId: input.clientId, role, commandId: input.commandId, action };
     if (await readClassroomCommand(tx, command)) { input.onReplay?.(); return; }
     if (
@@ -752,6 +754,16 @@ export async function applyClassroomAction(input: {
     };
 
     switch (action.type) {
+      case "setStageSettings": {
+        requireTeachingRole(role);
+        if ((action.studentLimit !== null && !validStageStudentLimit(action.studentLimit)) || typeof action.inviteBypassLimit !== "boolean") {
+          throw new ClassroomActionError("学生上台人数须为默认规则或 1–100 的整数，邀请超限设置须为布尔值", 400);
+        }
+        await tx.classroomRuntime.update({ where: { id: runtime.id }, data: {
+          stageStudentLimit: action.studentLimit, stageInviteBypassLimit: action.inviteBypassLimit,
+        } });
+        break;
+      }
       case "setClassStartMode": {
         requireLeadTeacher(role);
         if (action.mode !== "manual" && action.mode !== "scheduled") throw new ClassroomActionError("开课方式无效");
@@ -775,16 +787,8 @@ export async function applyClassroomAction(input: {
         break;
       }
       case "setAssistantPermission": {
-        requireLeadTeacher(role);
-        const target = await tx.classroomMemberState.findUnique({ where: { sessionId_userId: { sessionId, userId: action.targetUserId } } });
-        if (target?.role !== "assistant" || typeof action.allowed !== "boolean") throw new ClassroomActionError("无效助教权限", 400);
-        await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { assistantPermissions: { ...(runtime.assistantPermissions as Record<string, boolean>), [action.targetUserId]: action.allowed } } });
-        if (!action.allowed && currentComposition.screenShares?.main?.userId === action.targetUserId) {
-          const screenShares = { ...currentComposition.screenShares };
-          delete screenShares.main;
-          await writeComposition({ ...currentComposition, screenShares });
-        }
-        break;
+        requireTeachingRole(role);
+        throw new ClassroomActionError("助教与主讲具有相同课堂权限，请通过课次教学团队管理角色", 400);
       }
       case "startClass": {
         requireLeadTeacher(role);
@@ -849,11 +853,13 @@ export async function applyClassroomAction(input: {
         const member = await tx.classroomMemberState.findUniqueOrThrow({
           where: actorWhere,
         });
+        if (member.onStage && member.stageState === "accepted") break;
         if (member.stageState !== "invited") {
           throw new ClassroomActionError("上台邀请已失效", 409);
         }
         const stageCount = await countReservedStudentSeats(tx, sessionId, redisPresence);
-        if (stageCount >= mode.maxStageStudents) {
+        const studentLimit = classroomStudentStageLimit(mode, runtime);
+        if (!runtime.stageInviteBypassLimit && studentLimit !== null && stageCount >= studentLimit) {
           throw new ClassroomActionError("学生席位已满", 409);
         }
         await tx.classroomMemberState.update({
@@ -877,8 +883,17 @@ export async function applyClassroomAction(input: {
           data: { stageState: "declined", onStage: false },
         });
         break;
-      case "inviteStage":
+      case "inviteStage": {
         requireTeachingRole(role);
+        const target = await tx.classroomMemberState.findUnique({
+          where: { sessionId_userId: { sessionId, userId: action.targetUserId } },
+        });
+        if (!target || target.role !== "student") throw new ClassroomActionError("只能邀请当前课堂的学生上台", 409);
+        if (target.onStage) break;
+        const studentLimit = classroomStudentStageLimit(mode, runtime);
+        if (!runtime.stageInviteBypassLimit && studentLimit !== null && await countReservedStudentSeats(tx, sessionId, redisPresence) >= studentLimit) {
+          throw new ClassroomActionError("学生席位已满，请先调整上台人数或开启邀请超限", 409);
+        }
         await tx.classroomMemberState.update({
           where: {
             sessionId_userId: {
@@ -889,6 +904,7 @@ export async function applyClassroomAction(input: {
           data: { stageState: "invited" },
         });
         break;
+      }
       case "removeStage":
         requireTeachingRole(role);
         await tx.classroomMemberState.update({
@@ -941,13 +957,13 @@ export async function applyClassroomAction(input: {
         } else {
           const member = await tx.classroomMemberState.findUnique({ where: actorWhere });
           if (!canShareClassroomScreen({ role, member, studentSharingSupported: mode.studentCanShareWhenOnStage,
-            assistantManagementAllowed: (runtime.assistantPermissions as Record<string, boolean>)[session.userId] !== false })) {
+            assistantManagementAllowed: true })) {
             throw new ClassroomActionError("老师尚未授予屏幕共享权限", 403);
           }
         }
         const previous = currentComposition.screenShares?.[scope];
         if (previous && !ownsScreenShare(previous, session.userId, input.clientId) &&
-          !(role === "teacher" && scope === "main")) {
+          !((role === "teacher" || role === "assistant") && scope === "main")) {
           throw new ClassroomActionError("已有成员正在共享屏幕，请先停止当前共享", 409);
         }
         if (previous && previous.userId !== session.userId && scope === "main") {
@@ -1027,7 +1043,8 @@ export async function applyClassroomAction(input: {
         }
         if (!member.onStage) {
           const stageCount = await countReservedStudentSeats(tx, sessionId, redisPresence);
-          if (stageCount >= mode.maxStageStudents) {
+          const studentLimit = classroomStudentStageLimit(mode, runtime);
+          if (!runtime.stageInviteBypassLimit && studentLimit !== null && stageCount >= studentLimit) {
             throw new ClassroomActionError("学生席位已满，暂时无法共享屏幕", 409);
           }
         }
@@ -1086,7 +1103,7 @@ export async function applyClassroomAction(input: {
       case "stopScreenShare": {
         requireTeachingRole(role);
         const target = await tx.classroomMemberState.findUnique({ where: { sessionId_userId: { sessionId, userId: action.targetUserId } } });
-        if (target?.role === "teacher" && role !== "teacher") throw new ClassroomActionError("只有主持人可以停止主持人的共享", 403);
+
         await tx.classroomMemberState.update({
           where: {
             sessionId_userId: {
@@ -1490,7 +1507,7 @@ export async function applyClassroomAction(input: {
                 typeof userId === "string" && Boolean(userId.trim()),
             ),
           ),
-        ).slice(0, mode.maxStageStudents + 1);
+        );
         if (targetUserIds.length === 0) {
           throw new ClassroomActionError("请选择要奖励的学生");
         }

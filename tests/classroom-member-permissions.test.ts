@@ -36,7 +36,7 @@ test("permission messages authenticate the actual RTM publisher and reject stale
   assert.equal(applyClassroomMemberPermissionUpdate(runtime, { ...patch, actorId: "student" }, "student:tab"), null);
   assert.ok(applyClassroomMemberPermissionUpdate(runtime, { ...patch, actorId: "assistant" }, "assistant:tab"));
   assert.ok(applyClassroomMemberPermissionUpdate({ ...runtime, assistantPermissions: {} }, { ...patch, actorId: "assistant" }, "assistant:tab"), "assistants can moderate by default");
-  assert.equal(applyClassroomMemberPermissionUpdate({ ...runtime, assistantPermissions: { assistant: false } }, { ...patch, actorId: "assistant" }, "assistant:tab"), null);
+  assert.ok(applyClassroomMemberPermissionUpdate({ ...runtime, assistantPermissions: { assistant: false } }, { ...patch, actorId: "assistant" }, "assistant:tab"));
   assert.equal(applyClassroomMemberPermissionUpdate({ ...runtime, status: "ended" }, patch, "teacher:tab"), null);
   for (const malformed of [{ revision: 10 }, { revision: Infinity }, { microphoneAllowed: "false" }, { cameraAllowed: "false" }, { scope: "anyone" }, { scope: "member", targetUserId: undefined }]) {
     assert.equal(applyClassroomMemberPermissionUpdate(runtime, { ...patch, ...malformed } as ClassroomMemberPermissionUpdate, "teacher:tab"), null);

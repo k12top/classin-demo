@@ -23,7 +23,7 @@ test("frequent caption revisions do not reject independent mute and interpretati
 });
 test("shared layout writes retain revision protection and do not blindly replay a conflict", async () => {
   let requests = 0;
-  const action: ClassroomAction = { type: "resetComposition" };
+  const action: ClassroomAction = { type: "arrangeVideoGallery" };
   assert.equal(classroomActionRequiresRevision(action), true);
   const result = await requestClassroomAction("/actions", { action, clientId: "device-test", expectedRevision: 7 }, async (_, init) => {
     requests++;

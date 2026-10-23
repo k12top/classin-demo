@@ -16,6 +16,8 @@ function fixture(){
  let tail=Promise.resolve();const prisma={$queryRaw:async()=>[{sessionId:"session"}],classroomRuntime:{findMany:async()=>[{sessionId:"session"}]},$transaction:<T>(fn:(arg:typeof tx)=>Promise<T>)=>{const r=tail.then(()=>fn(tx));tail=r.then(()=>undefined,()=>undefined);return r;}};
  const api=loadModule<typeof import("../src/lib/classroom/server/empty-room")>("src/lib/classroom/server/empty-room.ts",{
   "server-only":{},"@prisma/client":{Prisma:{empty:{}}},"../presence":{CLASSROOM_RECONNECT_WINDOW_MS:120_000},"@/lib/db":{prisma},"@/lib/course-status":{CourseStatus:{LIVE:"live",FINISHED:"finished"}},"../empty-room-policy":{...policy,classroomEmptyGraceMs:()=>180_000},"./integration-events":{enqueueClassroomEvent:async()=>{events++;}},
+  "./redis":{classroomRedisEnabled:()=>false,classroomRedisCommand:async()=>undefined},
+  "./redis-presence":{claimRedisEmptyClassroom:async()=>false,releaseRedisEmptyClassroom:async()=>undefined},
  });
  return {api,now,runtime,session,prime:()=>api.closeEmptyClassrooms(undefined,new Date(now.getTime()-180_000)),set connections(value:Connection[]){connections=value;},get connections(){return connections;},get events(){return events;}};
 }

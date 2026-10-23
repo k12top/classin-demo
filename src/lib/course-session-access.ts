@@ -118,6 +118,7 @@ export async function resolveCourseSessionAccess(
     userIdAliases?: readonly string[];
     shareAccessToken?: string | null;
     referenceType?: CourseSessionReferenceType;
+    skipCache?: boolean;
   } = {},
 ): Promise<CourseSessionAccessResult> {
   // Share-token authorization is intentionally never cached: revocation must
@@ -125,7 +126,7 @@ export async function resolveCourseSessionAccess(
   // calls make several requests in quick succession (state, heartbeat and
   // whiteboard), so reusing the verified access result avoids reloading the
   // full lesson roster for each one.
-  const cacheKey = options.shareAccessToken?.trim()
+  const cacheKey = options.skipCache || options.shareAccessToken?.trim()
     ? null
     : accessCacheKey(referenceId, userId, options.userIdAliases, options.referenceType);
   const cached = cacheKey ? accessCache.get(cacheKey) : undefined;

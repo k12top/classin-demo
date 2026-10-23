@@ -41,7 +41,7 @@ test("requests require the actual teacher or authorized assistant RTM publisher"
   assert.equal(apply({ ...invitation, actorId: "student" }, "student:tab"), null);
   const assistant = { ...invitation, actorId: "assistant" };
   assert.ok(apply(assistant, "assistant:tab"));
-  assert.equal(apply(assistant, "assistant:tab", { ...runtime, assistantPermissions: { assistant: false } }), null);
+  assert.ok(apply(assistant, "assistant:tab", { ...runtime, assistantPermissions: { assistant: false } }));
   assert.ok(applyClassroomScreenShareRequest(runtime, invitation, undefined, true, now));
 });
 

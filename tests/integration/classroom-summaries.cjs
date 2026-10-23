@@ -18,7 +18,7 @@ async function main() {
     "@/lib/classroom/server/transcription-orchestrator": "export const stopClassroomTranscription=async()=>{if(globalThis.summaryCleanupGate)await globalThis.summaryCleanupGate};export const syncClassroomTranscription=async()=>{};export const reconcileActiveClassroomTranscriptions=async()=>{};",
   };
   globalThis.summaryAfter = [];
-  await esbuild.build({ stdin: { contents: `export{prisma}from'@/lib/db';export{GET,POST}from'./src/app/api/sessions/[sessionId]/summary/route';export{POST as lifecycle}from'./src/app/api/courses/[id]/sessions/[sessionId]/lifecycle/route';export{generateCourseSessionSummary,reconcileCourseSessionSummaries}from'@/lib/course-session-summary';export{queueCourseSessionSummary,processCourseSessionSummaryGeneration}from'@/lib/course-session-summary-generation';export{summaryCaptions,exampleAIReport}from'./tests/fixtures/course-summary';export{NextRequest}from'next/server';`, resolveDir: root }, outfile: output, bundle: true, format: "cjs", platform: "node", packages: "external", tsconfig: path.join(root, "tsconfig.json"), plugins: [{ name: "isolated-access", setup(build) {
+  await esbuild.build({ stdin: { contents: `export{prisma}from'@/lib/db';export{GET,POST}from'./src/app/api/sessions/[sessionId]/summary/route';export{POST as lifecycle}from'./src/app/api/courses/[id]/sessions/[sessionId]/lifecycle/route';export{generateCourseSessionSummary,reconcileCourseSessionSummaries}from'@/lib/course-session-summary';export{queueCourseSessionSummary,processCourseSessionSummaryGeneration}from'@/lib/course-session-summary-generation';export{summaryCaptions,exampleAIReport,modelReportFor}from'./tests/fixtures/course-summary';export{NextRequest}from'next/server';`, resolveDir: root }, outfile: output, bundle: true, format: "cjs", platform: "node", packages: "external", tsconfig: path.join(root, "tsconfig.json"), plugins: [{ name: "isolated-access", setup(build) {
     build.onResolve({ filter: /.*/ }, args => args.path in stubs ? { path: args.path, namespace: "fixture" } : undefined);
     build.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ contents: stubs[args.path], loader: "js" }));
   } }] });
@@ -30,7 +30,9 @@ async function main() {
     const input = JSON.parse(body), name = input.text.format.name.replace("course_summary_", ""); calls += 1;
     if (pause && name === "editor") { pause.reached(); await pause.wait; }
     if (failure) { res.writeHead(503); res.end("temporary"); return; }
-    const result = name === "editor" ? api.exampleAIReport : name === "themes" ? { themes: api.exampleAIReport.themes, questions: api.exampleAIReport.questions } : { [fields[name]]: api.exampleAIReport[fields[name]] };
+    assert.ok(!body.includes('"captionIds"') && !body.includes('"speakerId"'), "no database reference fields reach any model request");
+    const report = api.modelReportFor(api.exampleAIReport, JSON.parse(input.input).transcript);
+    const result = name === "editor" ? report : name === "themes" ? { themes: report.themes, questions: report.questions } : { [fields[name]]: report[fields[name]] };
     res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ output_text: JSON.stringify(result) }));
   });
   await new Promise(resolve => provider.listen(0, "127.0.0.1", resolve));

@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
     publisher: true,
     allowScreenShare: canShareClassroomScreen({ role: resolved.access.role, member,
       studentSharingSupported: mode.studentCanShareWhenOnStage,
-      assistantManagementAllowed: (lesson.classroomRuntime?.assistantPermissions as Record<string, boolean> | undefined)?.[resolved.session.userId] !== false }),
+      assistantManagementAllowed: true }),
   });
   return NextResponse.json({ credential });
 }

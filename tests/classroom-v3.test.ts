@@ -90,22 +90,8 @@ assert.equal(teacher.canManageStage, true);
 assert.equal(teacher.canManageInterpretation, true);
 
 const assistant = classroomCapabilities("assistant", undefined, true);
-const unprivilegedAssistant = classroomCapabilities("assistant", undefined, false);
-assert.equal(classroomCapabilities("assistant").canManageMembers, true);
-assert.equal(classroomCapabilities("assistant").canManageStage, true);
-assert.equal(unprivilegedAssistant.canManageMembers, false);
-assert.equal(unprivilegedAssistant.canManageWhiteboard, false);
-assert.equal(unprivilegedAssistant.canStartClass, false);
-assert.equal(unprivilegedAssistant.canShareScreen, false);
-assert.equal(assistant.canStartClass, false);
-assert.equal(assistant.canEndClass, false);
-assert.equal(assistant.canControlRecording, false);
-assert.equal(assistant.canManageStage, true);
-assert.equal(assistant.canManageMembers, true);
-assert.equal(assistant.canManageChat, true);
-assert.equal(assistant.canManageWhiteboard, true);
-assert.equal(assistant.canShareScreen, true);
-assert.equal(assistant.canManageInterpretation, false);
+assert.deepEqual(assistant, teacher);
+assert.deepEqual(classroomCapabilities("assistant", undefined, false), teacher);
 
 const student = classroomCapabilities("student");
 assert.deepEqual(student, {
@@ -122,7 +108,7 @@ assert.deepEqual(student, {
   canRunEngagement: false,
   canParticipateInEngagement: true,
 });
-assert.equal(classroomStageSeatLimit, 6);
+assert.equal(classroomStageSeatLimit, 30);
 
 assert.equal(classroomModeFromRoomType(0), "oneToOne");
 assert.equal(classroomModeFromRoomType(4), "smallClass");

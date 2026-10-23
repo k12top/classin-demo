@@ -120,7 +120,7 @@ export async function getClassroomSpaces(input: {
 }): Promise<ClassroomSpaceSnapshot[]> {
   const sessionId = input.sessionId || input.courseId;
   const where =
-    input.role === "teacher"
+    (input.role === "teacher" || input.role === "assistant")
       ? { sessionId }
       : {
           sessionId,
@@ -143,7 +143,7 @@ export async function ensureClassroomSpaceAssignment(input: {
   role: ClassroomRole;
 }) {
   const sessionId = input.sessionId || input.courseId;
-  if (input.role === "teacher") return null;
+  if (input.role === "teacher" || input.role === "assistant") return null;
   const existing = await prisma.classroomSpaceMember.findFirst({
     where: { sessionId, userId: input.userId, active: true },
     select: { spaceId: true },
@@ -190,12 +190,12 @@ export async function ensureClassroomSpaceAssignment(input: {
         userId: input.userId,
         displayName: input.displayName,
         avatar: input.avatar,
-        role: input.role === "assistant" ? "assistant" : "student",
+        role: "student",
       },
       update: {
         displayName: input.displayName,
         avatar: input.avatar,
-        role: input.role === "assistant" ? "assistant" : "student",
+        role: "student",
         active: true,
         assignedAt: new Date(),
         leftAt: null,
@@ -238,7 +238,7 @@ export async function createClassroomBreakouts(input: {
   capacity?: number | null;
 }): Promise<{ spaces: ClassroomSpaceSnapshot[]; revision: number }> {
   const sessionId = input.sessionId || input.courseId;
-  if (input.actorRole !== "teacher") {
+  if (input.actorRole !== "teacher" && input.actorRole !== "assistant") {
     throw new ClassroomSpaceError("只有主讲老师可以创建分组教室", 403);
   }
   if (!Number.isInteger(input.count) || input.count < 1 || input.count > 20) {
@@ -334,7 +334,7 @@ export async function autoAssignClassroomSpaces(input: {
   actorId: string;
 }) {
   const sessionId = input.sessionId || input.courseId;
-  if (input.actorRole !== "teacher") {
+  if (input.actorRole !== "teacher" && input.actorRole !== "assistant") {
     throw new ClassroomSpaceError("只有主讲老师可以自动分配成员", 403);
   }
   await assertLargeClass(input.courseId, sessionId);
@@ -414,7 +414,7 @@ export async function assignClassroomSpaceMember(input: {
   role: "assistant" | "student";
 }) {
   const sessionId = input.sessionId || input.courseId;
-  if (input.actorRole !== "teacher") {
+  if (input.actorRole !== "teacher" && input.actorRole !== "assistant") {
     throw new ClassroomSpaceError("只有主讲老师可以调整分组", 403);
   }
   await assertLargeClass(input.courseId, sessionId);
@@ -486,12 +486,6 @@ export async function updateClassroomSpace(input: {
 }) {
   const sessionId = input.sessionId || input.courseId;
   await assertLargeClass(input.courseId, sessionId);
-  if (input.actorRole === "assistant" && input.screenShareAllowed === true) {
-    const runtime = await prisma.classroomRuntime.findUnique({ where: { sessionId }, select: { assistantPermissions: true } });
-    if (!runtime || (runtime.assistantPermissions as Record<string, boolean> | undefined)?.[input.actorId] === false) {
-      throw new ClassroomSpaceError("主讲老师尚未授予共享授权的管理权限", 403);
-    }
-  }
   const assistantManagingOwnRoom =
     input.actorRole === "assistant" &&
     input.action === "permissions" &&
@@ -508,7 +502,7 @@ export async function updateClassroomSpace(input: {
         select: { id: true },
       }),
     );
-  if (input.actorRole !== "teacher" && !assistantManagingOwnRoom) {
+  if (input.actorRole !== "teacher" && input.actorRole !== "assistant" && !assistantManagingOwnRoom) {
     throw new ClassroomSpaceError("你无权调整该分组教室", 403);
   }
   if (input.action === "open" || input.action === "close") {
@@ -575,7 +569,7 @@ export async function deleteClassroomBreakouts(input: {
   actorRole: ClassroomRole;
 }) {
   const sessionId = input.sessionId || input.courseId;
-  if (input.actorRole !== "teacher") {
+  if (input.actorRole !== "teacher" && input.actorRole !== "assistant") {
     throw new ClassroomSpaceError("只有主讲老师可以重置分组教室", 403);
   }
   const open = await prisma.classroomSpace.count({
@@ -613,7 +607,7 @@ export async function getClassroomSpaceCredentialAccess(input: {
     throw new ClassroomSpaceError("分组教室尚未开放", 409);
   }
   const membership = space.members[0] ?? null;
-  if (input.role !== "teacher" && !membership) {
+  if (input.role !== "teacher" && input.role !== "assistant" && !membership) {
     throw new ClassroomSpaceError("你尚未被分配到该教室", 403);
   }
   return {
@@ -621,7 +615,7 @@ export async function getClassroomSpaceCredentialAccess(input: {
     name: space.name,
     channelName: space.channelName,
     membership,
-    publisher: input.role !== "teacher" && Boolean(membership),
+    publisher: input.role !== "teacher" && input.role !== "assistant" && Boolean(membership),
     allowScreenShare:
       Boolean(membership?.screenShareAllowed),
   };

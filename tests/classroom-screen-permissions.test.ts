@@ -16,12 +16,12 @@ test("being on stage does not grant screen sharing, and assistant management def
   assert.equal(canShareClassroomScreen({ ...accepted, member: { ...accepted.member, onStage: false } }), false);
   assert.equal(canShareClassroomScreen({ ...input, role: "assistant" }), true);
   assert.equal(canShareClassroomScreen({ ...input, role: "assistant", assistantManagementAllowed: true }), true);
-  assert.equal(canShareClassroomScreen({ ...input, role: "assistant", assistantManagementAllowed: false }), false);
+  assert.equal(canShareClassroomScreen({ ...input, role: "assistant", assistantManagementAllowed: false }), true);
   assert.equal(canShareClassroomScreen({ ...input, role: "teacher" }), true);
 });
 
 test("the authorized publisher wins while a replaced RTC track is still present", () => {
-  const main: ClassroomMediaSnapshot = { connectionState: "connected", local: { cameraOn: false, microphoneOn: false, screenSharing: false },
+  const main: ClassroomMediaSnapshot = { connectionState: "connected", local: { cameraOn: false, microphoneOn: false, screenSharing: false, },
     network: { uplinkQuality: 1, downlinkQuality: 1, latencyMs: null, packetLossPercent: null }, focusedParticipantId: null,
     participants: ["1000000001", "1000000002"].map(id => ({ id, displayName: id, kind: "screen", isLocal: false, hasVideo: true, hasAudio: false })) };
   const room = { ...main, participants: [] };

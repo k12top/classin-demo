@@ -8,8 +8,8 @@ import { isMicrophonePermissionAction } from "./member-permissions";
 
 export function classroomActionRequiresRevision(action: ClassroomAction) {
   return [
-    "placeBoardItem", "removeBoardItem", "bringBoardItemToFront",
-    "resetComposition", "arrangeVideoGallery", "reorderSeats", "swapSeats",
+    "placeBoardItem", "bringBoardItemToFront",
+    "arrangeVideoGallery", "reorderSeats", "swapSeats",
   ].includes(action.type);
 }
 
@@ -18,9 +18,9 @@ export function classroomActionCanRetry(action: ClassroomAction) {
   return [
     "setMediaAllowed", "muteAllMicrophones", "unmuteAllMicrophones",
     "setMemberMuted", "muteAll", "setWhiteboardWritable",
-    "setAssistantPermission", "setChatEnabled", "setRecordingStartMode", "setClassStartMode", "startScheduledClass",
+    "setAssistantPermission", "setStageSettings", "setChatEnabled", "setRecordingStartMode", "setClassStartMode", "startScheduledClass",
     "setInterpretation", "deauthorizeAll", "releaseScreenShare",
-    "raiseHand", "lowerHand",
+    "raiseHand", "lowerHand", "removeBoardItem", "resetComposition",
   ].includes(action.type);
 }
 

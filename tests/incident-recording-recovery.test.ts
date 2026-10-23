@@ -128,7 +128,7 @@ for (const path of ["src/app/api/sessions/[sessionId]/recordings/[recordingId]/p
     "@/lib/session": { getSessionFromRequest: async () => ({ userId: "owner" }) },
     "@/lib/courseware-access": { resolveCoursewareAccess: async () => ({ allowed: true }), canAccessCourseware: async () => true },
     "@/lib/db": { prisma: { classroomRecording: { findFirst: async () => ({ courseId: "course", playbackObjectKey: objectKey, playbackFormat: "mp4", files: [], providerState: {} }) } } },
-    "@/lib/classroom/recording-playback": { recordingPlaybackAssets: () => [{ objectKey, format: "mp4" }] },
+    "@/lib/classroom/recording-playback": { recordingReplayAssets: () => [{ objectKey, format: "mp4" }] },
     "@/lib/aliyun-oss": { getCoursewareOssClient: () => ({ signatureUrl: (key: string, options: { response: Record<string, string> }) => {
       assert.equal(key, objectKey);
       assert.equal(options.response["content-type"], undefined);

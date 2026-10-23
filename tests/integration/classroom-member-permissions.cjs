@@ -15,7 +15,7 @@ async function main() {
     "server-only": "",
     "next/server": "export const after=()=>{};export const NextResponse=Response;",
     "@/lib/classroom/server/request-access": "export const resolveClassroomRequestAccess=async()=>globalThis.permissionActor.allowed===false?{ok:false,status:401,error:'Unauthorized'}:{ok:true,session:{userId:globalThis.permissionActor.userId},access:globalThis.permissionActor};",
-    "@/lib/classroom/server/runtime": "export class ClassroomActionError extends Error{constructor(message,status){super(message);this.status=status}};export class ClassroomRevisionConflictError extends Error{};export const applyClassroomAction=async()=>{globalThis.permissionHeavyCalls=(globalThis.permissionHeavyCalls||0)+1;return {revision:999};};export const getClassroomRuntimeSnapshot=async()=>{throw new Error('Moderation queried the full roster')};export const getClassroomEngagementSnapshot=async()=>{globalThis.permissionHeavyCalls=(globalThis.permissionHeavyCalls||0)+1;return {};};",
+    "@/lib/classroom/server/runtime": "export class ClassroomActionError extends Error{constructor(message,status){super(message);this.status=status}};export class ClassroomRevisionConflictError extends Error{};export const applyClassroomAction=async()=>{globalThis.permissionHeavyCalls=(globalThis.permissionHeavyCalls||0)+1;return {revision:999};};export const countReservedStudentSeats=async()=>0;export const getClassroomRuntimeSnapshot=async()=>{globalThis.permissionHeavyCalls=(globalThis.permissionHeavyCalls||0)+1;return {revision:999}};export const getClassroomEngagementSnapshot=async()=>{globalThis.permissionHeavyCalls=(globalThis.permissionHeavyCalls||0)+1;return {};};",
     "@/lib/classroom/server/integration-events": "export const deliverClassroomEvents=async()=>{};",
     "@/lib/classroom/server/transcription-orchestrator": "export const ensureClassroomTranscriptionForLiveSession=async()=>{};export const syncClassroomTranscription=async()=>{};",
     "@/lib/classroom/server/recording-orchestrator": "export const requestRecordingStop=async()=>{};export const processRecordingStop=async()=>{};",
@@ -67,16 +67,16 @@ async function main() {
     assert.equal((await request({ type: "setMediaAllowed", targetUserId: "student", microphoneAllowed: "false", cameraAllowed: true })).status, 400);
     console.log("PASS single-member moderation changes only its target and rejects missing or malformed targets");
 
-    for (const [userId, role] of [["student", "student"], ["assistant", "assistant"]]) {
-      globalThis.permissionActor.userId = userId; globalThis.permissionActor.role = role;
-      assert.equal((await request({ type: "unmuteAllMicrophones" })).status, 403);
-    }
-    await db.classroomRuntime.update({ where: { id: runtime.id }, data: { assistantPermissions: { assistant: true } } });
+    globalThis.permissionActor.userId = "student"; globalThis.permissionActor.role = "student";
+    assert.equal((await request({ type: "unmuteAllMicrophones" })).status, 403);
+    globalThis.permissionActor.userId = "assistant"; globalThis.permissionActor.role = "assistant";
+    assert.equal((await request({ type: "unmuteAllMicrophones" })).status, 200);
+    await db.classroomRuntime.update({ where: { id: runtime.id }, data: { assistantPermissions: { assistant: false } } });
     assert.equal((await request({ type: "unmuteAllMicrophones" })).status, 200);
     globalThis.permissionActor.allowed = false;
     assert.equal((await request({ type: "muteAllMicrophones" })).status, 401);
     globalThis.permissionActor = { courseId: course.id, sessionId: lesson.id, userId: "teacher", role: "teacher" };
-    console.log("PASS authenticated teacher or explicitly authorized assistant required for every moderation request");
+    console.log("PASS assigned assistant has full classroom permission while student and anonymous requests are denied");
 
     const revision = (await db.classroomRuntime.findUnique({ where: { id: runtime.id } })).revision;
     const concurrent = await Promise.all([request({ type: "muteAllMicrophones" }), request({ type: "unmuteAllMicrophones" }), request({ type: "muteAllMicrophones" })]);
