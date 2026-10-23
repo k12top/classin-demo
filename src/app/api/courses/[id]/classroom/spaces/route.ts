@@ -49,7 +49,7 @@ async function resolveRequest(
     ) return resolved;
     const roster = await getEffectiveSessionRoster(lesson.id);
     const member = roster && rosterContainsUser(roster, [session.userId, session.name]);
-    if (member?.kind !== "teacher" || member.member.role !== "teacher") {
+    if (member?.kind !== "teacher" || (member.member.role !== "teacher" && member.member.role !== "assistant")) {
       return resolved;
     }
     return {

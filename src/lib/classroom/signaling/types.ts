@@ -62,6 +62,8 @@ export type ClassroomMemberPermissionUpdate = {
   targetUserId?: string;
   microphoneAllowed: boolean;
   cameraAllowed?: boolean;
+  onStage?: boolean;
+  stageState?: "accepted";
 };
 
 export type ClassroomDeviceState = "on" | "off" | "pending" | "interrupted" | "failed" | "unknown";

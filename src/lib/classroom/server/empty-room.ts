@@ -1,4 +1,6 @@
 import "server-only";
+import { classroomRedisEnabled, classroomRedisCommand } from "./redis";
+import { claimRedisEmptyClassroom, releaseRedisEmptyClassroom } from "./redis-presence";
 import { Prisma } from "@prisma/client";
 import { CLASSROOM_RECONNECT_WINDOW_MS } from "../presence";
 import { prisma } from "@/lib/db";
@@ -6,11 +8,12 @@ import { CourseStatus } from "@/lib/course-status";
 import { classroomEmptyGraceMs, classroomEmptySince } from "../empty-room-policy";
 import { enqueueClassroomEvent } from "./integration-events";
 
-/** All decisions use persisted human connections, serialized against join/heartbeat/end.
- * No browser timer or in-memory countdown. Recorder session auth never registers these rows. */
+/** A healthy Redis absence fence precedes the durable human-connection recheck.
+ * PG-only mode serializes against join/heartbeat/end. Recorder auth never registers these rows. */
 export async function closeEmptyClassrooms(courseIds?: string[], now = new Date()) {
   const grace = classroomEmptyGraceMs();
   if (!grace) return 0;
+  if (classroomRedisEnabled() && await classroomRedisCommand(["PING"]) !== "PONG") return 0;
   const candidates = await prisma.$queryRaw<Array<{ sessionId: string }>>`
     SELECT r."sessionId" FROM "ClassroomRuntime" r
     WHERE r."status" = 'live' AND r."startedAt" IS NOT NULL
@@ -25,7 +28,10 @@ export async function closeEmptyClassrooms(courseIds?: string[], now = new Date(
     ORDER BY r."updatedAt" ASC LIMIT 50`;
   let closed = 0;
   for (const { sessionId } of candidates) {
-    const result = await prisma.$transaction(async tx => {
+    const fence = crypto.randomUUID();
+    if (classroomRedisEnabled() && !await claimRedisEmptyClassroom(sessionId, fence, grace)) continue;
+    let result = false;
+    try { result = await prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
       const runtime = await tx.classroomRuntime.findUnique({ where: { sessionId } });
       if (runtime?.status !== "live" || !runtime.startedAt) return false;
@@ -51,7 +57,8 @@ export async function closeEmptyClassrooms(courseIds?: string[], now = new Date(
       await tx.classroomRuntime.update({ where: { sessionId }, data: { status: "ended", revision: { increment: 1 } } });
       await enqueueClassroomEvent(tx, sessionId, "classroom.ended", "empty_room");
       return true;
-    }, { timeout: 10_000 });
+    }, { maxWait: 1_000, timeout: 8_000 });
+    } finally { if (classroomRedisEnabled()) await releaseRedisEmptyClassroom(sessionId, fence, result); }
     if (result) closed++;
   }
   return closed;

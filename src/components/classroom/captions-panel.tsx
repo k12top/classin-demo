@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { AlertCircle, Captions, Check, ChevronDown, ChevronUp, Headphones, Loader2, Settings2 } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
 import { CaptionSelect } from "@/components/classroom/caption-select";
+import { CaptionAppearanceControls } from "./caption-appearance-controls";
 import { captionLanguageSelectOptions, classroomLanguageLabel } from "@/lib/classroom/languages";
 import { supportedCaptionTranslationCodes } from "@/lib/classroom/translation-capabilities";
 import { captionTranslation } from "@/lib/classroom/caption-display";
@@ -46,6 +47,10 @@ export function CaptionsPanel({
   preferredLanguage,
   onApplySettings,
   onRecoverTranslation,
+  backgroundMode = "solid",
+  backgroundColor = "#202124",
+  onBackgroundModeChange,
+  onBackgroundColorChange,
 }: {
   runtime: ClassroomRuntimeSnapshot;
   captions: ClassroomCaptionSnapshot[];
@@ -60,6 +65,10 @@ export function CaptionsPanel({
   onRetryPreference: () => void;
   onApplySettings: (settings: CaptionSettings) => Promise<boolean>;
   onRecoverTranslation?: (captionId: string) => Promise<boolean>;
+  backgroundMode?: "transparent" | "text" | "solid";
+  backgroundColor?: string;
+  onBackgroundModeChange?: (mode: "transparent" | "text" | "solid") => void;
+  onBackgroundColorChange?: (color: string) => void;
 }) {
   const { t, locale } = useTranslation();
   const recoveryLock = useRef(false);
@@ -277,6 +286,19 @@ export function CaptionsPanel({
               </section>
             ) : null}
 
+            <fieldset className="classroom-v3-caption-settings classroom-v3-caption-local-settings">
+              <legend>{t("classroomUpdates.captionAppearance")}</legend>
+              {onBackgroundModeChange && <label><span>{t("classroom.v3.captionBackground")}</span>
+                <select value={backgroundMode} onChange={event => onBackgroundModeChange(event.target.value as typeof backgroundMode)}>
+                  <option value="text">{t("classroom.v3.captionBackgroundText")}</option>
+                  <option value="transparent">{t("classroom.v3.captionBackgroundTransparent")}</option>
+                  <option value="solid">{t("classroom.v3.captionBackgroundSolid")}</option>
+                </select>
+              </label>}
+              {onBackgroundColorChange && backgroundMode !== "transparent" && <label><span>{t("classroom.v3.captionBackgroundColor")}</span><input type="color" value={backgroundColor} onChange={event => onBackgroundColorChange(event.target.value)} /></label>}
+              <CaptionAppearanceControls embedded />
+              <p>{t("classroomUpdates.localAppearanceHint")}</p>
+            </fieldset>
             {settingsOpen && preferenceFailure}
             {applyFailed && !preferenceError && <p className="classroom-v3-caption-preference-error" role="alert">{t("classroom.v3.interpretationSaveFailed")}</p>}
             <footer className="classroom-v3-caption-settings-footer">

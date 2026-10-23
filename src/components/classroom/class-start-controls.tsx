@@ -43,7 +43,7 @@ export function ClassStartReminder({ role, status, mode, startTime, endTime, now
   const minutes = classStartLateness(startTime, now);
   if ((role !== "teacher" && role !== "assistant") || status !== "waiting" || minutes === null ||
     (endTime && now >= Date.parse(endTime))) return null;
-  const automatic = mode === "scheduled", teacher = role === "teacher";
+  const automatic = mode === "scheduled", teacher = role === "teacher" || role === "assistant";
   return <aside className={styles.reminder} aria-label={t("classroom.v3.classStartDue")}>
     <div className={styles.heading}><Clock3 aria-hidden="true" /><strong role="status">
       {t(minutes ? "classroom.v3.classStartLate" : "classroom.v3.classStartDue", { minutes })}

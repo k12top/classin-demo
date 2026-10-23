@@ -5,16 +5,20 @@ import type {
 import type { ClassroomModePolicy } from "@/lib/classroom/mode";
 import { getFinishedDelayMinutes } from "@/lib/course-status";
 
-export const classroomStageSeatLimit = 6;
+export function isClassroomTeachingRole(role: string | undefined): boolean {
+  return role === "teacher" || role === "assistant";
+}
+
+export const classroomStageSeatLimit = 30;
 
 export function classroomCapabilities(
   role: ClassroomRole,
   mode?: ClassroomModePolicy,
-  // Assistants manage the classroom by default; an explicit revocation still applies.
-  managementAllowed = true,
+  // The assistant role itself grants the same classroom management capabilities.
+  _managementAllowed = true,
 ): ClassroomCapabilities {
-  const teacher = role === "teacher";
-  const teachingRole = teacher || (role === "assistant" && managementAllowed);
+  const teacher = isClassroomTeachingRole(role);
+  const teachingRole = teacher;
   const interactive = mode?.mode !== "publicLive";
   return {
     canStartClass: teacher,

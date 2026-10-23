@@ -1,6 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm run build:deploy",
+  "git": {
+    "deploymentEnabled": {
+      "feature/classroom-live-reliability": false
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/promote-course-status",

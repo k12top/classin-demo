@@ -82,7 +82,7 @@ async function postCaption(
   const resolvedCourseId = recorderLesson?.courseId || resolved!.access.courseId;
   const resolvedSessionId = recorderLesson?.id || resolved!.access.sessionId;
   if (body?.action === "recoverTranslation") {
-    if (recorder || !resolved?.ok || resolved.access.role !== "teacher") return NextResponse.json({ error: "Only teachers can recover translations" }, { status: 403 });
+    if (recorder || !resolved?.ok || (resolved.access.role !== "teacher" && resolved.access.role !== "assistant")) return NextResponse.json({ error: "Only teachers can recover translations" }, { status: 403 });
     if (typeof body.captionId !== "string" || !body.captionId.trim() || body.captionId.length > 240) return NextResponse.json({ error: "Invalid caption" }, { status: 400 });
     try { return NextResponse.json(await recoverClassroomCaptionTranslation(resolvedCourseId, resolvedSessionId, body.captionId)); }
     catch { return NextResponse.json({ error: "Translation recovery did not complete; original text is available" }, { status: 409 }); }

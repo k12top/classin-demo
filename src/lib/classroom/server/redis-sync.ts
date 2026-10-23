@@ -5,9 +5,17 @@ import { classroomPgFallback, classroomRedisCommand, classroomRedisEnabled, clas
 import type { RedisClassroomControl, RedisConnectionLease } from "./redis-presence";
 
 const PUBLISH = `
-local prior=redis.call('GET',KEYS[1])
-if prior and cjson.decode(prior).version > ARGV[1] then return 0 end
 local control=cjson.decode(ARGV[2])
+local prior=redis.call('GET',KEYS[1])
+if prior then
+ local old=cjson.decode(prior)
+ if old.version > ARGV[1] then return 0 end
+ if old.closing and tonumber(old.closingUntil or 0)>tonumber(control.verifiedUntil)-90000 and control.status~='ended' then return 0 end
+ control.versions=control.versions or {}
+ for topic,version in pairs(old.versions or {}) do
+  if tonumber(version)>tonumber(control.versions[topic] or '0') then control.versions[topic]=version end
+ end
+end
 local connections=cjson.decode(ARGV[3])
 local known={}
 for _,incoming in ipairs(connections) do
@@ -25,10 +33,10 @@ end
 for _,id in ipairs(redis.call('HKEYS',KEYS[2])) do
  if not known[id] then
   local removed=cjson.decode(redis.call('HGET',KEYS[2],id))
-  if removed.leftAt == cjson.null then removed.leftAt=control.verifiedUntil-60000;redis.call('HSET',KEYS[2],id,cjson.encode(removed)) end
+  if removed.leftAt == cjson.null then removed.leftAt=control.verifiedUntil-90000;redis.call('HSET',KEYS[2],id,cjson.encode(removed)) end
  end
 end
-redis.call('SET',KEYS[1],ARGV[2],'EX',ARGV[4]);redis.call('EXPIRE',KEYS[2],ARGV[4])
+redis.call('SET',KEYS[1],cjson.encode(control),'EX',ARGV[4]);redis.call('EXPIRE',KEYS[2],ARGV[4])
 return 1`;
 const pendingSyncs = new Map<string, Promise<boolean>>();
 export function synchronizeClassroomRedis(sessionId: string, fresh = false): Promise<boolean> {
@@ -40,9 +48,10 @@ export function synchronizeClassroomRedis(sessionId: string, fresh = false): Pro
     let version: string | undefined;
     try {
       const rows = await classroomPgFallback(`redis-control:${sessionId}`, () => prisma.$queryRaw<Array<{
-        version: string; courseId: string | null; status: string | null; connections: RedisConnectionLease[];
+        version: string; courseId: string | null; status: string | null; connections: RedisConnectionLease[]; versions: Record<string,string>;
       }>>`
         SELECT LPAD(s."version"::text,20,'0') AS version, r."courseId",
+          COALESCE((SELECT jsonb_object_agg(v."topic",v."version"::text) FROM "ClassroomCacheVersion" v WHERE v."sessionId"=s."sessionId"),'{}'::jsonb) AS versions,
           CASE WHEN lesson."status" IN ('finished','cancelled') THEN 'ended' ELSE r."status" END AS status,
           COALESCE((SELECT jsonb_agg(jsonb_build_object('id',c."id",'userId',c."userId",'role',COALESCE(m."role",'student'),
             'rtcUid',c."rtcUid",'screenUid',c."screenUid",'lastSeenAt',FLOOR(EXTRACT(EPOCH FROM c."lastSeenAt")*1000),
@@ -57,12 +66,12 @@ export function synchronizeClassroomRedis(sessionId: string, fresh = false): Pro
       if (!source) return false;
       version = source.version;
       const control: RedisClassroomControl = { courseId: source.courseId || sessionId, status: source.status || "ended", version,
-        verifiedUntil: Date.now() + 60_000 };
+        versions: source.versions, verifiedUntil: Date.now() + 90_000 };
       const published = await classroomRedisCommand(["EVAL", PUBLISH, "2", classroomRedisKey(sessionId, "control"),
         classroomRedisKey(sessionId, "connections"), version, JSON.stringify(control), JSON.stringify(source.connections), "21600"]);
-      if (published === undefined) throw new Error("redis_unavailable");
+      if (published !== 1) return false;
       // Only acknowledge this exact version. A newer PG commit must stay queued.
-      await prisma.$executeRaw`UPDATE "ClassroomRedisSync" SET "processedAt"=NOW(),"attempts"=0,"lastError"=NULL
+      await prisma.$executeRaw`UPDATE "ClassroomRedisSync" SET "controlRefreshedAt"=NOW(),"processedAt"=NOW(),"attempts"=0,"lastError"=NULL
         WHERE "sessionId"=${sessionId} AND LPAD("version"::text,20,'0')=${version}`;
       return true;
     } catch {
@@ -80,7 +89,22 @@ export function synchronizeClassroomRedis(sessionId: string, fresh = false): Pro
 }
 const ACK = `for _,item in ipairs(cjson.decode(ARGV[1])) do
 local current=redis.call('HGET',KEYS[1],item.id)
-if current and tonumber(current) <= item.seen then redis.call('HDEL',KEYS[1],item.id) end end return 1`;
+if current and tonumber(current)<=item.seen then
+ redis.call('HDEL',KEYS[1],item.id);redis.call('ZREM',KEYS[2],item.id)
+elseif current then
+ redis.call('ZADD',KEYS[2],ARGV[2],item.id)
+else redis.call('ZREM',KEYS[2],item.id) end end return 1`;
+const DIRTY_BATCH = `
+-- Backward-compatible seeding for leases written by the previous application version.
+if redis.call('ZCARD',KEYS[2])==0 then
+ for _,id in ipairs(redis.call('HKEYS',KEYS[1])) do redis.call('ZADD',KEYS[2],'NX',0,id) end
+end
+local ids=redis.call('ZRANGE',KEYS[2],0,499);local result={}
+for _,id in ipairs(ids) do
+ local seen=redis.call('HGET',KEYS[1],id)
+ if seen then table.insert(result,id);table.insert(result,seen) else redis.call('ZREM',KEYS[2],id) end
+end
+return result`;
 const RELEASE = `if redis.call('GET',KEYS[1]) == ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0`;
 /** Redis contains retryable latest-value checkpoints; enter/leave and business data commit to PG first. */
 export async function flushClassroomRedisPresence(sessionId: string): Promise<boolean> {
@@ -89,11 +113,12 @@ export async function flushClassroomRedisPresence(sessionId: string): Promise<bo
   const token = randomUUID();
   if (await classroomRedisCommand(["SET", lockKey, token, "NX", "PX", "10000"]) !== "OK") return false;
   try {
-    const dirty = await classroomRedisCommand(["HGETALL", classroomRedisKey(sessionId, "dirty-presence")]);
+    const dirty = await classroomRedisCommand(["EVAL",DIRTY_BATCH,"2",classroomRedisKey(sessionId,"dirty-presence"),classroomRedisKey(sessionId,"dirty-order")]);
     if (!Array.isArray(dirty)) return false;
     const entries: Array<{ id: string; seen: number }> = [];
     for (let i=0; i<dirty.length; i+=2) entries.push({ id: String(dirty[i]), seen: Number(dirty[i+1]) });
     if (!entries.length) return true;
+    entries.splice(500);
     const acknowledged = await classroomPgFallback(`presence-checkpoint:${sessionId}`, () => prisma.$queryRaw<Array<{ id: string }>>`
       WITH incoming AS (SELECT * FROM jsonb_to_recordset(${JSON.stringify(entries)}::jsonb) AS x(id text,seen bigint)),
       eligible AS (
@@ -116,7 +141,8 @@ export async function flushClassroomRedisPresence(sessionId: string): Promise<bo
         WHERE c."id"=i.id AND c."sessionId"=${sessionId} AND c."leftAt" IS NULL AND r."status"<>'ended'
       )
     `);
-    const ack = await classroomRedisCommand(["EVAL", ACK, "1", classroomRedisKey(sessionId, "dirty-presence"), JSON.stringify(entries.filter(entry => acknowledged.some(row => row.id === entry.id)))]);
+    const ackIds = new Set(acknowledged.map(row => row.id));
+    const ack = await classroomRedisCommand(["EVAL", ACK, "2", classroomRedisKey(sessionId, "dirty-presence"), classroomRedisKey(sessionId,"dirty-order"), JSON.stringify(entries.filter(entry => ackIds.has(entry.id))), String(Date.now())]);
     return ack !== undefined;
   } catch {
     console.warn("[classroom:redis-sync]", { event: "presence-checkpoint-pending", sessionId });
@@ -135,9 +161,75 @@ export async function drainClassroomRedisSync(limit = 20) {
     JOIN "ClassroomRedisSync" s ON s."sessionId"=r."sessionId"
     WHERE r."status"<>'ended' AND EXISTS (SELECT 1 FROM "ClassroomConnection" c WHERE c."sessionId"=r."sessionId"
       AND c."leftAt" IS NULL AND c."lastSeenAt">NOW()-INTERVAL '10 minutes')
-    ORDER BY s."processedAt" ASC NULLS FIRST LIMIT 100`;
+    ORDER BY s."controlRefreshedAt" ASC NULLS FIRST LIMIT 100`;
   for (const item of active) await flushClassroomRedisPresence(item.sessionId);
   // Successful control refresh moves a room to the end of the next cron batch.
-  for (const item of active) await synchronizeClassroomRedis(item.sessionId);
+  for (const item of active) await refreshClassroomRedisControl(item.sessionId);
   return { synchronized, pending: pending.length - synchronized };
+}
+
+const CONTROL_ONLY = `
+local control=cjson.decode(ARGV[2])
+local previous=redis.call('GET',KEYS[1])
+if previous then
+ local old=cjson.decode(previous)
+ if old.version > ARGV[1] then return 0 end
+ if old.closing and tonumber(old.closingUntil or 0)>tonumber(ARGV[3]) and control.status~='ended' then return 0 end
+ control.versions=control.versions or {}
+ for topic,version in pairs(old.versions or {}) do
+  if tonumber(version)>tonumber(control.versions[topic] or '0') then control.versions[topic]=version end
+ end
+end
+redis.call('SET',KEYS[1],cjson.encode(control),'EX',21600);return 1`;
+/** One small control read per room, not one complete roster per heartbeat. */
+export async function refreshClassroomRedisControl(sessionId: string): Promise<boolean> {
+  if (!classroomRedisEnabled() || classroomRedisDiagnostics().circuitOpen) return false;
+  try {
+    const rows = await classroomPgFallback(`redis-control-only:${sessionId}`, () => prisma.$queryRaw<Array<{
+      courseId: string; status: string; version: string; versions: Record<string, string>;
+    }>>`SELECT r."courseId",CASE WHEN l."status" IN ('finished','cancelled') THEN 'ended' ELSE r."status" END AS status,
+      LPAD(s."version"::text,20,'0') AS version,
+      COALESCE((SELECT jsonb_object_agg(v."topic",v."version"::text) FROM "ClassroomCacheVersion" v WHERE v."sessionId"=s."sessionId"),'{}'::jsonb) AS versions
+      FROM "ClassroomRedisSync" s JOIN "ClassroomRuntime" r ON r."sessionId"=s."sessionId" JOIN "CourseSession" l ON l."id"=s."sessionId"
+      WHERE s."sessionId"=${sessionId}`);
+    if (!rows[0]) return false;
+    const control: RedisClassroomControl = { ...rows[0], verifiedUntil: Date.now() + 90_000 };
+    const published = await classroomRedisCommand(["EVAL", CONTROL_ONLY, "1", classroomRedisKey(sessionId,"control"), control.version, JSON.stringify(control), String(Date.now())]);
+    if (published !== 1) return false;
+    await prisma.$executeRaw`UPDATE "ClassroomRedisSync" SET "controlRefreshedAt"=NOW() WHERE "sessionId"=${sessionId}`;
+    return true;
+  } catch { return false; }
+}
+/** Distributed recovery election; Redis outage never turns into per-student PG work. */
+export async function requestClassroomRedisRefresh(sessionId: string): Promise<boolean> {
+  const key=classroomRedisKey(sessionId,"recovery-lock"),token=randomUUID();
+  if (await classroomRedisCommand(["SET",key,token,"NX","PX","10000"])!=="OK") return false;
+  // Retain the cooldown even after completion: queued callbacks from the same outage must not rebuild again.
+  return synchronizeClassroomRedis(sessionId);
+}
+
+const REGISTER_ONE = `
+local raw=redis.call('GET',KEYS[1]);if raw and cjson.decode(raw).version>ARGV[1] then return 0 end
+local incoming=cjson.decode(ARGV[2]);local previous=redis.call('HGET',KEYS[2],incoming.id)
+if previous then local p=cjson.decode(previous)
+ if p.leftAt==cjson.null and incoming.leftAt==cjson.null then incoming.lastSeenAt=math.max(incoming.lastSeenAt,p.lastSeenAt) end
+end
+redis.call('HSET',KEYS[2],incoming.id,cjson.encode(incoming));redis.call('EXPIRE',KEYS[2],21600);return 1`;
+/** Admission writes only its own committed connection, never the entire classroom. */
+export async function registerClassroomRedisConnection(sessionId: string, id: string) {
+  if (!classroomRedisEnabled() || classroomRedisDiagnostics().circuitOpen) return false;
+  try {
+    await refreshClassroomRedisControl(sessionId);
+    const rows = await prisma.$queryRaw<Array<{ version: string; lease: RedisConnectionLease }>>`
+      SELECT LPAD(s."version"::text,20,'0') AS version,
+        jsonb_build_object('id',c."id",'userId',c."userId",'role',COALESCE(m."role",'student'),
+          'rtcUid',c."rtcUid",'screenUid',c."screenUid",'lastSeenAt',FLOOR(EXTRACT(EPOCH FROM c."lastSeenAt")*1000),
+          'registeredAt',FLOOR(EXTRACT(EPOCH FROM c."lastSeenAt")*1000),
+          'leftAt',CASE WHEN c."leftAt" IS NULL THEN NULL ELSE FLOOR(EXTRACT(EPOCH FROM c."leftAt")*1000) END) AS lease
+      FROM "ClassroomConnection" c JOIN "ClassroomRedisSync" s ON s."sessionId"=c."sessionId"
+      LEFT JOIN "ClassroomMemberState" m ON m."sessionId"=c."sessionId" AND m."userId"=c."userId"
+      WHERE c."sessionId"=${sessionId} AND c."id"=${id}`;
+    if (!rows[0]) return false;
+    return await classroomRedisCommand(["EVAL",REGISTER_ONE,"2",classroomRedisKey(sessionId,"control"),classroomRedisKey(sessionId,"connections"),rows[0].version,JSON.stringify(rows[0].lease)])===1;
+  } catch { return false; } // Durable admission already committed; cache recovery can retry independently.
 }

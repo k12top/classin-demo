@@ -19,3 +19,14 @@ test("disconnected, unknown, screen and auxiliary publishers cannot assert membe
   for (const kind of ["screen", "auxiliary-camera"]) assert.deepEqual(reconcileClassroomRtcPresence(members, media("connected", kind)), members);
   assert.deepEqual(reconcileClassroomRtcPresence([{ ...members[0], rtcUids: [] }], media("connected")), [{ ...members[0], rtcUids: [] }]);
 });
+
+
+test("presence service uncertainty preserves last-known presence without granting stage or media rights", () => {
+  const cached = [{ ...members[0], online: true, connectionStatus: "online" as const, lastSeenAt: new Date(0).toISOString(), reconnectUntil: new Date(120000).toISOString() }];
+  const noRtc = { connectionState: "connected", participants: [] } as unknown as ClassroomMediaSnapshot;
+  const unknown = reconcileClassroomRtcPresence(cached, noRtc, 600000, undefined, true);
+  assert.equal(unknown, cached);
+  assert.equal(unknown[0].cameraAllowed, false);
+  assert.equal(unknown[0].onStage, false);
+  assert.equal(reconcileClassroomRtcPresence(cached, noRtc, 600000)[0].connectionStatus, "offline");
+});

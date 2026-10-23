@@ -1,3 +1,5 @@
+import { classroomMessageAccess } from "@/lib/classroom/server/message-access";
+import { classroomRedisEnabled, classroomRedisCommand } from "@/lib/classroom/server/redis";
 import { canManageClassroom } from "@/lib/classroom/server/management";
 import { NextRequest, NextResponse } from "next/server";
 import type { ClassroomMessageSnapshot } from "@/lib/classroom/types";
@@ -81,35 +83,7 @@ async function getMessages(
     );
   }
   const messages = await prisma.classroomMessage.findMany({
-    where: {
-      sessionId: resolved.access.sessionId,
-      OR: [
-        { scope: "classroom" },
-        ...(resolved.access.role !== "student" ? [{ scope: "staff" }] : []),
-        {
-          scope: "direct",
-          OR: [
-            { senderId: resolved.session.userId },
-            { recipientId: resolved.session.userId },
-          ],
-        },
-        {
-          scope: "room",
-          ...(resolved.access.role === "teacher"
-            ? {}
-            : {
-                space: {
-                  members: {
-                    some: {
-                      userId: resolved.session.userId,
-                      active: true,
-                    },
-                  },
-                },
-              }),
-        },
-      ],
-    },
+    where: classroomMessageAccess(resolved.access.sessionId, resolved.session.userId, resolved.access.role),
     orderBy: { createdAt: "desc" },
     take: 100,
   });
@@ -198,7 +172,7 @@ async function postMessage(
   if (chatMuted === null) {
     chatMuted = (await touchClassroomMember(resolved.access.courseId, resolved.session, resolved.access.role, undefined, sessionId)).chatMuted;
   }
-  const teachingRole = resolved.access.role === "teacher" || resolved.access.role === "assistant";
+  const teachingRole = (resolved.access.role === "teacher" || resolved.access.role === "assistant");
   if (!teachingRole && (!runtime.chatEnabled || chatMuted)) {
     return NextResponse.json({ error: runtime.chatEnabled ? "你已被禁言" : "课堂聊天已关闭" }, { status: 403 });
   }
@@ -216,7 +190,7 @@ async function postMessage(
       where: {
         id: spaceId,
         sessionId,
-        ...(resolved.access.role === "teacher"
+        ...((resolved.access.role === "teacher" || resolved.access.role === "assistant")
           ? {}
           : {
               members: {
@@ -274,6 +248,7 @@ async function postMessage(
 }
 
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  if (classroomRedisEnabled() && await classroomRedisCommand(["PING"]) !== "PONG") return NextResponse.json({ code: "presence_unavailable", retryable: true }, { status: 503, headers: { "Retry-After": "3" } });
   const startedAt = performance.now();
   const { id } = await context.params;
   try { return await getMessages(request, context); }

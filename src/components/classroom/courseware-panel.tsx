@@ -1,5 +1,7 @@
 "use client";
 
+import Image from "next/image";
+import * as Dialog from "@radix-ui/react-dialog";
 import { useRef, useState } from "react";
 import { BookOpen, Check, Download, Eye, EyeOff, FileText, Loader2, Presentation, RefreshCw, X } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
@@ -8,7 +10,8 @@ import type { ClassroomCoursewareSnapshot } from "@/lib/classroom/types";
 export type CoursewareUpdate = Partial<Pick<ClassroomCoursewareSnapshot, "studentCanView" | "studentCanDownload" | "whiteboardEnabled">>;
 export type CoursewareInsertion = { status: "inserting" | "inserted" | "failed"; error?: string };
 
-export function CoursewarePanel({ items, canManage, busy, insertion, boardAvailable, onOpen, onUpdate }: {
+export function CoursewarePanel({ items, canManage, busy, insertion, boardAvailable, onOpen, onUpdate, shareAccess }: {
+  shareAccess?: string | null;
   items: ClassroomCoursewareSnapshot[];
   canManage: boolean;
   busy: string | null;
@@ -18,6 +21,25 @@ export function CoursewarePanel({ items, canManage, busy, insertion, boardAvaila
   onUpdate: (id: string, update: CoursewareUpdate) => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const [preview, setPreview] = useState<ClassroomCoursewareSnapshot | null>(null);
+  const [previewError, setPreviewError] = useState(false);
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const fileUrl = (url: string) => url + (shareAccess ? `${url.includes("?") ? "&" : "?"}shareAccess=${encodeURIComponent(shareAccess)}` : "");
+  const showPreview = (item: ClassroomCoursewareSnapshot) => { setPreview(item); setPreviewError(false); };
+  async function download(item: ClassroomCoursewareSnapshot) {
+    if (!item.downloadUrl || downloading) return;
+    setDownloading(item.id);
+    try {
+      const response = await fetch(fileUrl(item.downloadUrl), { signal: AbortSignal.timeout(60_000) });
+      if (!response.ok) throw new Error(t("classroomUpdates.downloadFailed"));
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob), anchor = document.createElement("a");
+      anchor.href = url; anchor.download = item.name; document.body.append(anchor); anchor.click(); anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      if (/MicroMessenger/i.test(navigator.userAgent) && /^(png|jpe?g|webp|gif)$/i.test(item.ext)) showPreview(item);
+    } catch { setNotices(old => ({ ...old, [item.id]: { error: true, text: t("classroomUpdates.downloadFailed") } })); }
+    finally { setDownloading(null); }
+  }
   const locks = useRef(new Set<string>());
   const [pending, setPending] = useState<Record<string, CoursewareUpdate>>({});
   const [notices, setNotices] = useState<Record<string, { error: boolean; text: string; action?: "open" }>>({});
@@ -65,8 +87,11 @@ export function CoursewarePanel({ items, canManage, busy, insertion, boardAvaila
         const status = board?.status === "inserted" ? t("classroom.v3.coursewareAdded") : board?.status === "inserting" ? t("classroom.v3.coursewareOpening") : board?.status === "failed" ? board.error || t("classroom.v3.addToWhiteboardFailed") : ready ? t("classroom.v3.coursewareReady") : failed ? item.conversionError || t("classroom.v3.conversionFailed") : converting ? t("classroom.v3.coursewareConverting") : "";
         return <article key={item.id} data-courseware-id={item.id}>
           <span className="classroom-v3-file-icon"><FileText /><small>{item.ext.toUpperCase()}</small></span>
-          <div className="classroom-v3-file-copy"><strong>{item.name}</strong><small>{(item.size / 1024 / 1024).toFixed(1)} MB</small>{status && <p className={`classroom-v3-courseware-status${failed || board?.status === "failed" ? " is-error" : ""}`} role={failed || board?.status === "failed" ? "alert" : "status"}>{status}</p>}</div>
-          <div className="classroom-v3-file-actions">{item.downloadUrl && <a href={item.downloadUrl} title={t("classroom.v3.downloadCourseware")}><Download /></a>}</div>
+          <div className="classroom-v3-file-copy"><button type="button" className="classroom-v3-file-preview-link" disabled={!item.previewUrl} onClick={() => showPreview(item)}><strong>{item.name}</strong></button><small>{(item.size / 1024 / 1024).toFixed(1)} MB</small>{status && <p className={`classroom-v3-courseware-status${failed || board?.status === "failed" ? " is-error" : ""}`} role={failed || board?.status === "failed" ? "alert" : "status"}>{status}</p>}</div>
+          <div className="classroom-v3-file-actions">
+            {item.previewUrl && <button type="button" title={t("classroomUpdates.preview")} aria-label={t("classroomUpdates.preview")} onClick={() => showPreview(item)}><Eye /></button>}
+            {item.downloadUrl && <button type="button" title={t("classroom.v3.downloadCourseware")} aria-label={t("classroom.v3.downloadCourseware")} disabled={Boolean(downloading)} onClick={() => void download(item)}>{downloading === item.id ? <Loader2 className="animate-spin" /> : <Download />}</button>}
+          </div>
           {canManage && <div className="classroom-v3-file-permissions">
             {(["studentCanView", "studentCanDownload"] as const).map(field => {
               const enabled = update?.[field] ?? item[field];
@@ -84,5 +109,19 @@ export function CoursewarePanel({ items, canManage, busy, insertion, boardAvaila
         </article>;
       })}
     </div>
+    <Dialog.Root open={Boolean(preview)} onOpenChange={open => { if (!open) setPreview(null); }}>
+    {preview && <Dialog.Portal><Dialog.Overlay className="classroom-v3-file-preview-backdrop" />
+      <Dialog.Content className="classroom-v3-file-preview" aria-describedby={undefined}>
+        <header><Dialog.Title>{preview.name}</Dialog.Title><Dialog.Close aria-label={t("classroomUpdates.closePreview")}><X /></Dialog.Close></header>
+        <div className="classroom-v3-file-preview-content">
+          {previewError || !preview.previewUrl ? <p role="alert">{t("classroomUpdates.downloadFailed")}</p>
+            : /^(png|jpe?g|webp|gif)$/i.test(preview.ext) ? <Image unoptimized width={1200} height={900} src={fileUrl(preview.previewUrl)} alt={preview.name} referrerPolicy="no-referrer" onError={() => setPreviewError(true)} />
+            : preview.ext.toLowerCase() === "pdf" ? <iframe title={preview.name} src={fileUrl(preview.previewUrl)} referrerPolicy="no-referrer" />
+            : <p>{t("classroomUpdates.previewUnavailable")}</p>}
+        </div>
+        <footer><span>{/^(png|jpe?g|webp|gif)$/i.test(preview.ext) ? t("classroomUpdates.saveImageHint") : t("classroomUpdates.previewUnavailable")}</span>{preview.downloadUrl && <button type="button" disabled={Boolean(downloading)} onClick={() => void download(preview)}><Download />{t(downloading ? "classroomUpdates.downloadPreparing" : "classroomUpdates.download")}</button>}</footer>
+      </Dialog.Content>
+    </Dialog.Portal>}
+    </Dialog.Root>
   </div>;
 }

@@ -262,6 +262,7 @@ export type ClassroomCoursewareSnapshot = {
   studentCanDownload: boolean;
   whiteboardEnabled: boolean;
   downloadUrl: string | null;
+  previewUrl?: string;
 };
 
 export type ClassroomSpaceSnapshot = {
@@ -325,6 +326,9 @@ export type ClassroomEngagementSnapshot = {
 
 export type ClassroomRuntimeSnapshot = {
   presenceObservedAt?: string;
+  presenceUncertain?: boolean;
+  scheduledStartAt?: string;
+  scheduledEndAt?: string;
   assistantPermissions?: Record<string, boolean>;
   revision: number;
   status: "waiting" | "live" | "ended";
@@ -335,6 +339,8 @@ export type ClassroomRuntimeSnapshot = {
   graceEndsAt: string | null;
   stageMode: ClassroomStageMode;
   stageLocked: boolean;
+  stageStudentLimit?: number | null;
+  stageInviteBypassLimit?: boolean;
   spotlightUserId: string | null;
   activeCoursewareId: string | null;
   chatEnabled: boolean;
@@ -431,6 +437,7 @@ export function credentialCanPublish(
 
 export type ClassroomAction =
   | { type: "heartbeat" }
+  | { type: "setStageSettings"; studentLimit: number | null; inviteBypassLimit: boolean }
   | { type: "setAssistantPermission"; targetUserId: string; allowed: boolean }
   | { type: "startClass" }
   | { type: "startScheduledClass" }

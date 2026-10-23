@@ -113,6 +113,7 @@ export async function POST(request: NextRequest) {
     const access = recorder
       ? null
       : await resolveCourseSessionAccess(referenceId, session!.userId, {
+          skipCache: true,
           referenceType: suppliedSessionId ? "session" : "course",
           shareAccessToken: shareAccess || undefined,
           userIdAliases: [session!.name],
@@ -202,7 +203,7 @@ export async function POST(request: NextRequest) {
     // Leaving a teaching tab never stops the cloud recorder. If the provider
     // did stop unexpectedly while the teacher was away, rejoining the live
     // session provides an immediate recovery path in addition to cron.
-    if (!recorder && role === "teacher" && runtimeSnapshot.status === "live") {
+    if (!recorder && (role === "teacher" || role === "assistant") && runtimeSnapshot.status === "live") {
       after(() =>
         recoverInterruptedRecordingForSession(courseId, sessionId).catch(
           (error) => {
@@ -230,14 +231,14 @@ export async function POST(request: NextRequest) {
         !recorder &&
         runtimeSnapshot.status !== "ended" &&
         (role === "teacher" ||
-          (role === "assistant" && modePolicy.mode !== "largeClass") ||
+          role === "assistant" ||
           (role === "student" && member?.onStage && member.stageState === "accepted")),
       allowScreenShare:
         !recorder &&
         runtimeSnapshot.status !== "ended" &&
         canShareClassroomScreen({ role, member,
           studentSharingSupported: modePolicy.studentCanShareWhenOnStage,
-          assistantManagementAllowed: runtimeSnapshot.assistantPermissions?.[userId] !== false }),
+          assistantManagementAllowed: true }),
     });
 
     if (!recorder && role === "student") {
@@ -292,7 +293,7 @@ export async function POST(request: NextRequest) {
             },
             {
               scope: "room",
-              ...(role === "teacher"
+              ...((role === "teacher" || role === "assistant")
                 ? {}
                 : {
                     space: {
@@ -381,7 +382,7 @@ export async function POST(request: NextRequest) {
               canParticipateInEngagement: false,
             }
           : {
-              ...classroomCapabilities(role, modePolicy, role !== "assistant" || runtimeSnapshot.assistantPermissions?.[userId] !== false),
+              ...classroomCapabilities(role, modePolicy, role !== "assistant" || true),
               ...(role === "student" && {
                 canShareScreen: Boolean(
                   modePolicy.studentCanShareWhenOnStage &&

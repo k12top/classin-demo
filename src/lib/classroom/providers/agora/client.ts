@@ -1,5 +1,8 @@
 "use client";
 
+import { screenVideoPlan } from "@/lib/classroom/screen-video-plan";
+
+
 import AgoraRTC, {
   type IAgoraRTCClient,
   type IAgoraRTCRemoteUser,
@@ -320,12 +323,8 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       Number(b.id === this.snapshot.focusedParticipantId) - Number(a.id === this.snapshot.focusedParticipantId) ||
       b.area - a.area || a.id.localeCompare(b.id));
     const plan = new Map<string, 0 | 1>();
-    // Agora bills the sum of received pixels. A 1080p screen uses the entire
-    // Full HD allowance; adding even a thumbnail can enter the 2K tier.
-    if (visible.some(({ id }) => this.isScreen(id))) {
-      plan.set(visible[0].id, 0);
-      return plan;
-    }
+    const sharingPlan = screenVideoPlan(visible, id => this.isScreen(id));
+    if (sharingPlan) return sharingPlan;
     const low = classroomMediaProfile.camera.low;
     const high = classroomMediaProfile.camera.high;
     const lowPixels = low.width * low.height;

@@ -8,6 +8,7 @@ export function reconcileClassroomRtcPresence(
   media: ClassroomMediaSnapshot,
   now = Date.now(),
   roomMedia?: ClassroomMediaSnapshot,
+  presenceUncertain = false,
 ): ClassroomMemberSnapshot[] {
   const connected = new Set([media, roomMedia].flatMap((snapshot) => snapshot?.connectionState === "connected" ? snapshot.participants : [])
     .filter((participant) => participant.kind === "camera")
@@ -16,6 +17,7 @@ export function reconcileClassroomRtcPresence(
     if (connected.has(member.userId)) {
       return member.online && member.connectionStatus !== "reconnecting" ? member : { ...member, online: true, ...(member.connectionStatus && { connectionStatus: "online" as const }) };
     }
+    if (presenceUncertain) return member;
     // Older payloads have no deadlines; retain their existing behavior.
     if (!member.connectionStatus || !member.lastSeenAt) return member;
     const seenAt = Date.parse(member.lastSeenAt);

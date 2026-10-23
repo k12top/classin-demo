@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { activeCaptionIndex, captionPosition } from "../src/lib/classroom/playback-captions";
+import { activeCaptionIndex, captionPosition, captionSeekPosition } from "../src/lib/classroom/playback-captions";
 
 const recordings = [
   { id: "first", startedAt: "2026-09-27T10:00:00.000Z", stoppedAt: "2026-09-27T10:05:00.000Z" },
@@ -23,4 +23,17 @@ test("active caption follows media time within the selected segment", () => {
   assert.equal(activeCaptionIndex(captions, recordings[0], 20), -1);
   assert.equal(activeCaptionIndex(captions, recordings[0], 125), 1);
   assert.equal(activeCaptionIndex(captions, recordings[1], 90), 2);
+});
+
+test("utterance seeking includes three seconds of context within its recording", () => {
+  for (const [timestamp, expected] of [
+    ["2026-09-27T10:00:42.000Z", { recordingId: "first", seconds: 39 }],
+    ["2026-09-27T10:10:01.500Z", { recordingId: "second", seconds: 0 }],
+    ["2026-09-27T10:10:00.000Z", { recordingId: "second", seconds: 0 }],
+  ] as const) {
+    const position = captionPosition(timestamp, recordings)!;
+    const original = { ...position };
+    assert.deepEqual(captionSeekPosition(position), expected);
+    assert.deepEqual(position, original, "display timestamps and synchronization retain the actual time");
+  }
 });

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { loadModule } from "./helpers/load-module";
+import * as playback from "../src/lib/classroom/recording-playback";
 import * as stopState from "../src/lib/classroom/recording-stop-state";
 function fixture({allowed=true,teaching=false,attention=false,requested=true}={}){
  let queued=0;
@@ -9,7 +10,7 @@ function fixture({allowed=true,teaching=false,attention=false,requested=true}={}
  const api=loadModule<typeof import("../src/app/api/sessions/[sessionId]/recordings/route")>("src/app/api/sessions/[sessionId]/recordings/route.ts",{
  "next/server":{after:()=>{queued++;},NextResponse:{json:(body:unknown,init:ResponseInit)=>Response.json(body,init)}},
  "@/app/api/courses/[id]/recording/route":{},"@/lib/courseware-access":{resolveCoursewareAccess:async()=>({allowed,teaching})},"@/lib/db":{prisma:{courseSession:{findUnique:async()=>({courseId:"course"})},classroomRecording:{findMany:async()=>[row]}}},"@/lib/session":{getSessionFromRequest:async()=>({userId:"student"})},
- "@/lib/classroom/server/recording-orchestrator":{},"@/lib/classroom/recording-playback":{recordingPlaybackAssets:()=>[{objectKey:row.playbackObjectKey,format:"hls"}]},"@/lib/classroom/recording-reconciliation":{recordingNeedsReconciliation:()=>true},"@/lib/classroom/recording-asset-discovery":{recordingAssetDiscoveryDue:()=>false,recordingAssetDiscoveryPollMs:()=>null},"@/lib/classroom/server/recording-asset-discovery":{},"@/lib/classroom/recording-stop-state":stopState,
+ "@/lib/classroom/server/recording-orchestrator":{},"@/lib/classroom/recording-playback":playback,"@/lib/classroom/recording-reconciliation":{recordingNeedsReconciliation:()=>true},"@/lib/classroom/recording-asset-discovery":{recordingAssetDiscoveryDue:()=>false,recordingAssetDiscoveryPollMs:()=>null},"@/lib/classroom/server/recording-asset-discovery":{},"@/lib/classroom/recording-stop-state":stopState,
  });
  return {get:()=>api.GET(new Request("https://example.test") as never,{params:Promise.resolve({sessionId:"session"})}),get queued(){return queued;}};
 }

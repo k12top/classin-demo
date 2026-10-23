@@ -1,0 +1,11 @@
+.settings .limit { display: flex; gap: 8px; margin-top: 8px; }
+.settings .limit > :is(input, button) { height: 44px; min-height: 44px; }
+.settings > form, .settings > label { grid-column: 1 / -1; }
+.settings form > select { width: 100%; margin: 8px 0; }
+.limit input { min-width: 0; width: 100%; border: 1px solid currentColor; border-radius: 8px; padding: 8px 12px; font: inherit; color: inherit; background: transparent; }
+.limit button { min-height: 44px; padding: 8px 16px; border: 1px solid currentColor; border-radius: 8px; white-space: nowrap; color: inherit; background: transparent; cursor: pointer; }
+.limit button:disabled { opacity: .5; cursor: default; }
+.limit :is(input, button):focus-visible { outline: 2px solid var(--classroom-iris, #a99ff9); outline-offset: 3px; }
+fieldset.settings > label.toggle { display: flex; align-items: center; justify-content: flex-start; gap: 10px; min-height: 44px; margin-top: 12px; }
+.toggle input { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--classroom-iris, #a99ff9); }
+@media (max-width: 600px) { .limit input { font-size: 16px; } }

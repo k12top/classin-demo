@@ -22,7 +22,7 @@ for (const route of routes) {
         resolveCoursewareAccess: async () => ({ allowed }), canAccessCourseware: async () => allowed,
       },
       "@/lib/db": { prisma: { classroomRecording: { findFirst: async () => ({
-        courseId: "course", playbackObjectKey: objectKey, playbackFormat: "mp4", files: [], providerState: {},
+        courseId: "course", status: "completed", stopRequestedAt: null, playbackObjectKey: objectKey, playbackFormat: "mp4", files: [], providerState: {},
       }) } } },
       "@/lib/classroom/recording-playback": playback,
       "@/lib/aliyun-oss": { getCoursewareOssClient: () => ({ signatureUrl: (key: string, options: { expires: number; response: Record<string, string> }) => {
@@ -63,7 +63,7 @@ test("URL resolution cannot select another recording's MP4 or mistake HLS for MP
     "@/lib/session": { getSessionFromRequest: async () => ({ userId: "student" }) },
     "@/lib/courseware-access": { resolveCoursewareAccess: async () => ({ allowed: true }) },
     "@/lib/db": { prisma: { classroomRecording: { findFirst: async () => ({
-      courseId: "course", playbackObjectKey: format === "mp4" ? objectKey : "recordings/lesson/attempt/index.m3u8",
+      courseId: "course", status: "completed", stopRequestedAt: null, playbackObjectKey: format === "mp4" ? objectKey : "recordings/lesson/attempt/index.m3u8",
       playbackFormat: format, files: [], providerState: {},
     }) } } },
     "@/lib/classroom/recording-playback": playback,

@@ -31,7 +31,7 @@ import { useTranslation } from "@/lib/i18n/context";
 import { isHlsPlaybackUrl, isMp4PlaybackUrl } from "@/lib/playback-url";
 import { captionTranslation, type CaptionDisplayMode } from "@/lib/classroom/caption-display";
 import { classroomLanguageLabel } from "@/lib/classroom/languages";
-import { activeCaptionIndex, captionPosition } from "@/lib/classroom/playback-captions";
+import { activeCaptionIndex, captionPosition, captionSeekPosition } from "@/lib/classroom/playback-captions";
 import type { CourseSessionSummaryDocument, SummaryEvidence } from "@/lib/course-session-summary-document";
 import { LessonSummaryReport } from "@/components/course-sessions/lesson-summary-report";
 import { summaryGenerationActive, watchCourseSessionSummary } from "@/lib/course-session-summary-watch";
@@ -141,6 +141,7 @@ export default function CoursePlaybackPage({
   const embedded = embed === "1" || embed === "true";
   const router = useRouter();
   const { user, loading: authLoading, logout } = useAuth();
+  const authenticatedUserId = user?.userId;
   const { locale, t } = useTranslation();
   const [course, setCourse] = useState<PlaybackCourse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -152,6 +153,7 @@ export default function CoursePlaybackPage({
   const [recordingsLoading, setRecordingsLoading] = useState(false);
   const [recordingsError, setRecordingsError] = useState("");
   const [recordingsRevision, setRecordingsRevision] = useState(0);
+  const recordingsLoadedSessionRef = useRef("");
   const [summary, setSummary] = useState<LessonSummary | null>(null);
   const [lessonCaptions, setLessonCaptions] = useState<LessonCaption[]>([]);
   const [nextCaptionCursor, setNextCaptionCursor] = useState<string | null>(null);
@@ -217,6 +219,7 @@ export default function CoursePlaybackPage({
       notFinished: t("playback.notFinished"),
       noUrl: t("playback.noUrl"),
       loadFailed: t("playback.loadFailed"),
+      forbidden: t("playback.compatibility.forbidden"),
       browserHint: t("playback.browserHint"),
       teacher: t("playback.teacher"),
       retry: t("playback.retry"),
@@ -285,7 +288,7 @@ export default function CoursePlaybackPage({
       }
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.course) {
-        setError(copy.loadFailed);
+        setError(res.status === 403 ? copy.forbidden : copy.loadFailed);
         return;
       }
       setCourse(data.course);
@@ -294,7 +297,7 @@ export default function CoursePlaybackPage({
     } finally {
       setLoading(false);
     }
-  }, [copy.loadFailed, id]);
+  }, [copy.forbidden, copy.loadFailed, id]);
 
   const fetchSessions = useCallback(async () => {
     setSessionsLoading(true);
@@ -308,7 +311,7 @@ export default function CoursePlaybackPage({
         sessions?: PlaybackSession[];
         error?: string;
       };
-      if (!response.ok) throw new Error(payload.error || copy.loadFailed);
+      if (!response.ok) throw new Error(response.status === 403 ? copy.forbidden : payload.error || copy.loadFailed);
       const nextSessions = payload.sessions || [];
       setSessions(nextSessions);
       const requestedId = new URLSearchParams(window.location.search).get("sessionId") || "";
@@ -324,11 +327,11 @@ export default function CoursePlaybackPage({
     } finally {
       setSessionsLoading(false);
     }
-  }, [copy.loadFailed, id]);
+  }, [copy.forbidden, copy.loadFailed, id]);
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user) {
+    if (!authenticatedUserId) {
       redirectToSsoLogin();
       return;
     }
@@ -336,7 +339,7 @@ export default function CoursePlaybackPage({
       void fetchCourse();
       void fetchSessions();
     });
-  }, [authLoading, fetchCourse, fetchSessions, user]);
+  }, [authLoading, fetchCourse, fetchSessions, authenticatedUserId]);
 
   useEffect(() => {
     if (!selectedSessionId) {
@@ -344,16 +347,22 @@ export default function CoursePlaybackPage({
       return;
     }
     const controller = new AbortController();
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const initialLoad = recordingsLoadedSessionRef.current !== selectedSessionId;
     queueMicrotask(() => {
       if (!controller.signal.aborted) {
-        setRecordingsLoading(true);
+        // Background reconciliation must never unmount an active video.
+        if (initialLoad) {
+          setRecordingsLoading(true);
+          setRecordings([]);
+        }
         setRecordingsError("");
       }
     });
     void fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}/recordings`, {
       credentials: "same-origin",
       cache: "no-store",
-      signal: controller.signal,
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]),
     })
       .then(async (response) => {
         const payload = (await response.json().catch(() => ({}))) as {
@@ -361,9 +370,11 @@ export default function CoursePlaybackPage({
           refreshAfterMs?: number | null;
           error?: string;
         };
-        if (!response.ok) throw new Error(payload.error || copy.loadFailed);
+        if (!response.ok) throw new Error(response.status === 403 ? copy.forbidden : payload.error || copy.loadFailed);
         if (!controller.signal.aborted) {
-          setRecordings(payload.recordings || []);
+          recordingsLoadedSessionRef.current = selectedSessionId;
+          const nextRecordings = payload.recordings || [];
+          setRecordings(current => JSON.stringify(current) === JSON.stringify(nextRecordings) ? current : nextRecordings);
           setSelectedRecordingId((current) => {
             if (payload.recordings?.some((recording) => recording.id === current)) return current;
             const query = new URLSearchParams(window.location.search);
@@ -371,11 +382,11 @@ export default function CoursePlaybackPage({
             return payload.recordings?.find((recording) => recording.id === requestedId)?.id || "";
           });
           if (payload.refreshAfterMs) {
-            window.setTimeout(() => {
+            refreshTimer = setTimeout(() => {
               if (!controller.signal.aborted) {
                 setRecordingsRevision((value) => value + 1);
               }
-            }, payload.refreshAfterMs);
+            }, Math.max(5_000, Math.min(60_000, payload.refreshAfterMs)));
           }
         }
       })
@@ -386,8 +397,8 @@ export default function CoursePlaybackPage({
       .finally(() => {
         if (!controller.signal.aborted) setRecordingsLoading(false);
       });
-    return () => controller.abort();
-  }, [copy.loadFailed, recordingsRevision, selectedSessionId]);
+    return () => { controller.abort(); clearTimeout(refreshTimer); };
+  }, [copy.forbidden, copy.loadFailed, recordingsRevision, selectedSessionId]);
 
   const fetchSummary = useCallback(async () => {
     const requestId = ++summaryRequestIdRef.current;
@@ -556,7 +567,7 @@ export default function CoursePlaybackPage({
   const canPlayHls = course?.status === "finished" && isHlsPlaybackUrl(recordUrl);
   const selectedSession = sessions.find((session) => session.id === selectedSessionId) || null;
   const playableRecordings = recordings.filter(
-    (recording) => ["completed", "processing", "stopping"].includes(recording.status) && Boolean(recording.playbackUrl),
+    (recording) => Boolean(recording.playbackUrl),
   );
   const canPlaySessionRecording = playableRecordings.length > 0;
   const recordingIsProcessing = recordings.some((recording) =>
@@ -613,7 +624,7 @@ export default function CoursePlaybackPage({
     if (!position) return;
     setSelectedRecordingId(position.recordingId);
     setContinuePlaybackId("");
-    setSeekRequest({ ...position, captionId: caption.id });
+    setSeekRequest({ ...captionSeekPosition(position), captionId: caption.id });
   };
   const playNextRecording = () => {
     const index = playableRecordings.findIndex((recording) => recording.id === selectedRecording?.id);
@@ -747,7 +758,11 @@ export default function CoursePlaybackPage({
         </div>}
         <Card className="overflow-hidden rounded-[22px] border border-border/70 bg-card shadow-[0_24px_70px_rgba(21,23,28,0.08)]">
           <CardContent className="p-0">
-            {selectedSessionId && recordingsError ? (
+            {selectedSessionId && recordingsError && canPlayInApp && <div role="status" className="flex items-center justify-between gap-3 border-b border-border p-3 text-sm text-muted-foreground">
+              <span>{locale.startsWith("zh") ? "录像状态更新暂时失败，当前视频可继续播放。" : "Recording status could not be refreshed. Your video can keep playing."}</span>
+              <Button type="button" variant="outline" size="sm" onClick={() => setRecordingsRevision(value => value + 1)}>{copy.retry}</Button>
+            </div>}
+            {selectedSessionId && recordingsError && !canPlayInApp ? (
               <div className="flex min-h-[220px] flex-col items-center justify-center gap-3 p-8 text-center text-sm text-destructive" role="alert">
                 <span>{recordingsError}</span>
                 <Button type="button" variant="outline" size="sm" onClick={() => setRecordingsRevision((value) => value + 1)}>
@@ -837,7 +852,10 @@ export default function CoursePlaybackPage({
                     </p>
                   )}
                 </div>
-                {loading && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
+                <Button type="button" variant="outline" size="sm" onClick={() => {
+                  if (selectedSessionId) setRecordingsRevision(value => value + 1);
+                  else { void fetchCourse(); void fetchSessions(); }
+                }}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />{copy.retry}</Button>
               </div>
             )}
           </CardContent>
@@ -920,6 +938,7 @@ function LessonSummaryPanel({
   onPublish: () => void;
   onUnpublish: () => void;
 }) {
+  const { locale } = useTranslation();
   return (
     <div>
     {presentation === "summary" && <Card className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
@@ -1011,7 +1030,7 @@ function LessonSummaryPanel({
           <span>{copy.title === "课后总结" ? "翻译语言" : "Translation language"}</span>
           <select className="min-h-11 min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5" value={captionLanguage} onChange={event => onCaptionLanguageChange(event.target.value)}>
             <option value={NO_CAPTION_TRANSLATION}>{copy.title === "课后总结" ? "无，不翻译" : "None, no translation"}</option>
-            {captionLanguages.map(language => <option key={language} value={language}>{classroomLanguageLabel(language)}</option>)}
+            {captionLanguages.map(language => <option key={language} value={language}>{classroomLanguageLabel(language, locale)}</option>)}
           </select>
         </label>}
       </div>
@@ -1106,7 +1125,7 @@ function SummaryDocument({
 
   return (
     <div className="px-5 py-6 sm:px-8 sm:py-8">
-      {generation?.method === "transcript-extract" && (
+      {generation?.method === "transcript-extract" && busy !== "generate" && (
         <p role="status" className="mb-4 rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
           {zh ? generation.reason === "unavailable" ? "AI 总结暂时不可用，当前显示字幕摘录，可重新生成。" : "AI 总结未启用，当前显示字幕摘录。" : generation.reason === "unavailable" ? "AI summary is unavailable. Showing transcript extracts; you can regenerate." : "AI summary is disabled. Showing transcript extracts."}
         </p>
@@ -1604,6 +1623,7 @@ function CaptionSettings({
   onAppearanceChange: (appearance: CaptionAppearance) => void;
   chinese: boolean;
 }) {
+  const { locale } = useTranslation();
   const modes: Array<[CaptionDisplayMode, string, string]> = [
     ["off", "关闭", "Off"], ["original", "只显示原文", "Original only"],
     ["translated", "只显示译文", "Translation only"], ["bilingual", "原文与译文", "Both languages"],
@@ -1620,7 +1640,7 @@ function CaptionSettings({
       <label className="grid gap-1"><span className="font-semibold">{chinese ? "翻译语言" : "Translation language"}</span>
         <select value={language} disabled={!languages.length} onChange={(event) => onLanguageChange(event.target.value)} className="h-9 rounded-lg border border-border bg-background px-2 text-sm">
           <option value={NO_CAPTION_TRANSLATION}>{chinese ? "无，不翻译" : "None, no translation"}</option>
-          {languages.length ? languages.map((item) => <option key={item} value={item}>{item}</option>) : <option value="">{chinese ? "暂无译文" : "No translation available"}</option>}
+          {languages.length ? languages.map((item) => <option key={item} value={item}>{classroomLanguageLabel(item, locale)}</option>) : <option value="">{chinese ? "暂无译文" : "No translation available"}</option>}
         </select>
       </label>
       <label className="grid gap-1"><span className="font-semibold">{chinese ? "字幕背景" : "Caption background"}</span>

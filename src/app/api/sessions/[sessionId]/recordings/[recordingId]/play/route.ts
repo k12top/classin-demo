@@ -8,7 +8,7 @@ import {
 import { resolveCoursewareAccess } from "@/lib/courseware-access";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
-import { recordingPlaybackAssets } from "@/lib/classroom/recording-playback";
+import { recordingReplayAssets } from "@/lib/classroom/recording-playback";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -86,8 +86,6 @@ export async function GET(request: NextRequest, context: Context) {
     where: {
       id: recordingId,
       sessionId,
-      status: "completed",
-      playbackObjectKey: { not: null },
     },
     select: {
       courseId: true,
@@ -95,9 +93,12 @@ export async function GET(request: NextRequest, context: Context) {
       playbackFormat: true,
       files: true,
       providerState: true,
+      status: true,
+      stopRequestedAt: true,
+      stoppedAt: true,
     },
   });
-  if (!recording?.playbackObjectKey) {
+  if (!recording) {
     return NextResponse.json(
       { error: "Recording is not ready" },
       { status: 404 },
@@ -113,25 +114,17 @@ export async function GET(request: NextRequest, context: Context) {
   }
 
   try {
-    const state = recording.providerState;
-    const prefix = state && typeof state === "object" && !Array.isArray(state) &&
-      Array.isArray(state.fileNamePrefix)
-      ? state.fileNamePrefix.filter((part): part is string => typeof part === "string")
-      : [];
-    const assets = recordingPlaybackAssets(
-      recording.files, prefix, recording.playbackObjectKey, recording.playbackFormat,
-    );
+    const assets = recordingReplayAssets(recording);
+    if (!assets.length) return NextResponse.json({ error: "Recording is not ready" }, { status: 404 });
     const requestedAsset = request.nextUrl.searchParams.get("asset");
-    const legacyHlsAsset = requestedAsset && recording.playbackFormat === "hls" &&
+    const legacyHlsAsset = requestedAsset && recording.playbackObjectKey && recording.playbackFormat === "hls" &&
       !assets.some((asset) => asset.objectKey === requestedAsset) &&
       resolveRecordingAsset(recording.playbackObjectKey, requestedAsset)
       ? requestedAsset : null;
     const selected = requestedAsset
       ? assets.find((asset) => asset.objectKey === requestedAsset) ||
-        (legacyHlsAsset ? { objectKey: recording.playbackObjectKey, format: "hls" as const } : null)
-      : recording.playbackFormat === "hls" || recording.playbackFormat === "mp4"
-        ? { objectKey: recording.playbackObjectKey, format: recording.playbackFormat }
-        : null;
+        (legacyHlsAsset && recording.playbackObjectKey ? { objectKey: recording.playbackObjectKey, format: "hls" as const } : null)
+      : assets[0];
     if (!selected) {
       return NextResponse.json({ error: "Invalid recording asset" }, { status: 400 });
     }

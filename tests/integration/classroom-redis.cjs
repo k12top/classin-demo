@@ -4,7 +4,6 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const esbuild = require('esbuild');
 const { Pool } = require('pg');
-const { execFileSync } = require('node:child_process');
 const root = path.resolve(__dirname, '../..');
 for (const [key, prefix] of [['DATABASE_URL','/classroom_recovery_'],['CLASSROOM_REDIS_URL','']]) {
   const url = new URL(process.env[key] || 'http://invalid');
@@ -96,24 +95,25 @@ async function main() {
 
     let unblock,started;const startedPromise=new Promise(r=>started=r),gate=new Promise(r=>unblock=r);
     const late=api.classroomSharedRead(sid,'race',async()=>{started();await gate;return 'old';});await startedPromise;
-    await db.classroomRuntime.update({where:{sessionId:sid},data:{revision:{increment:1}}});await api.synchronizeClassroomRedis(sid,true);unblock();assert.equal(await late,'old');
+    await db.classroomRuntime.update({where:{sessionId:sid},data:{chatEnabled:false,revision:{increment:1}}});await api.synchronizeClassroomRedis(sid,true);unblock();assert.equal(await late,'old');
     assert.equal(await other.classroomSharedRead(sid,'race',async()=>'new'),'new');
     pass('a cache fill finishing after a PG mutation cannot publish under the new revision');
 
     const v=(await db.classroomRedisSync.findUnique({where:{sessionId:sid}})).version;
-    await assert.rejects(db.$transaction(async tx=>{await tx.classroomRuntime.update({where:{sessionId:sid},data:{revision:{increment:1}}});throw new Error('rollback');}));
+    await assert.rejects(db.$transaction(async tx=>{await tx.classroomRuntime.update({where:{sessionId:sid},data:{chatEnabled:true,revision:{increment:1}}});throw new Error('rollback');}));
     assert.equal((await db.classroomRedisSync.findUnique({where:{sessionId:sid}})).version,v);
     pass('rolled back PG business changes do not enter the Redis synchronization outbox');
 
     let sourceRead,releaseSource,firstSource=true;const sourceReadPromise=new Promise(r=>sourceRead=r),sourceGate=new Promise(r=>releaseSource=r);
     db.$queryRaw=async (...args)=>{const rows=await originalRaw.apply(db,args);if(firstSource){firstSource=false;sourceRead();await sourceGate;}return rows;};
     const oldSync=api.synchronizeClassroomRedis(sid);await sourceReadPromise;
-    await db.classroomRuntime.update({where:{sessionId:sid},data:{revision:{increment:1}}});const newSync=api.synchronizeClassroomRedis(sid,true);
+    await db.classroomRuntime.update({where:{sessionId:sid},data:{stageLocked:true,revision:{increment:1}}});const newSync=api.synchronizeClassroomRedis(sid,true);
     releaseSource();await Promise.all([oldSync,newSync]);db.$queryRaw=originalRaw;
     const newest=await db.classroomRedisSync.findUnique({where:{sessionId:sid}});assert.ok(newest.processedAt);
     assert.equal(JSON.parse(await cmd(['GET',key('control')])).version,newest.version.toString().padStart(20,'0'));
     pass('post-commit synchronization does not reuse a pre-commit source or acknowledge a newer queued revision');
 
+    await db.classroomRuntime.update({where:{sessionId:sid},data:{stageStudentLimit:6}});
     for(let i=2;i<=6;i++){await api.touchClassroomMember(course.id,{...student,userId:`student-${i}`,name:`student-${i}`},'student',undefined,sid);await api.touchClassroomConnection(sid,`student-${i}`,`redis-client-${i}`,true);}
     await db.classroomConnection.updateMany({where:{sessionId:sid,leftAt:null},data:{lastSeenAt:new Date(Date.now()-121000)}});
     await db.classroomMemberState.updateMany({where:{sessionId:sid},data:{lastSeenAt:new Date(Date.now()-121000)}});
@@ -146,28 +146,30 @@ async function main() {
     assert.equal((await api.heartbeat(request(),ctx)).status,409);await db.classroomRuntime.update({where:{sessionId:sid},data:{status:'live'}});await api.synchronizeClassroomRedis(sid,true);
     pass('explicit leave and classroom end reject delayed heartbeats; closed checkpoints are discarded');
 
-    let goodUrl=process.env.CLASSROOM_REDIS_URL;
-    execFileSync(process.env.DOCKER_BIN,['stop',process.env.REDIS_CONTAINER],{stdio:'ignore'});
-    await db.classroomRuntime.update({where:{sessionId:sid},data:{revision:{increment:1}}});assert.equal(await api.synchronizeClassroomRedis(sid,true),false);
+    const goodUrl=process.env.CLASSROOM_REDIS_URL;
+    await cmd(['CLIENT','PAUSE','1500','ALL']);
+    await db.classroomRuntime.update({where:{sessionId:sid},data:{chatEnabled:true,revision:{increment:1}}});assert.equal(await api.synchronizeClassroomRedis(sid,true),false);
     const pending=await db.classroomRedisSync.findUnique({where:{sessionId:sid}});assert.equal(pending.processedAt,null);
-    const fallback=await api.heartbeat(request(),ctx);assert.equal(fallback.status,200);assert.ok(globalThis.redisAccessReads>0);
-    assert.deepEqual(await api.classroomSharedRead(sid,'redis-down',async()=>['pg-roster']),['pg-roster']);
-    await assert.rejects(api.classroomSharedRead(sid,'both-down',async()=>{throw Object.assign(new Error('PG down'),{code:'P1001'});}),{code:'P1001'});
+    globalThis.redisAccessReads=0;
+    const fallback=await api.heartbeat(request(),ctx);assert.equal(fallback.status,503);assert.equal(globalThis.redisAccessReads,0);
+    let cacheFallback=false;
+    await assert.rejects(api.classroomSharedRead(sid,'redis-down',async()=>{cacheFallback=true;return ['pg-roster'];}),{code:'P2024'});
+    assert.equal(cacheFallback,false);
     assert.equal(api.classroomRedisDiagnostics().circuitOpen,true);
-    pass('real Redis outage degrades to PG; pending business synchronization and PG read errors are preserved');
+    pass('real Redis outage returns retryable errors without per-student PG reads; business synchronization remains pending');
 
-    execFileSync(process.env.DOCKER_BIN,['start',process.env.REDIS_CONTAINER],{stdio:'ignore'});
-    const restartedUrl=new URL(goodUrl);restartedUrl.port=execFileSync(process.env.DOCKER_BIN,['port',process.env.REDIS_CONTAINER,'6379/tcp'],{encoding:'utf8'}).trim().split(':').at(-1);
-    goodUrl=restartedUrl.toString();process.env.CLASSROOM_REDIS_URL=goodUrl;await api.closeClassroomRedis();
+    await sleep(1600);await api.closeClassroomRedis();
     for(let i=0;i<20;i++){if(await cmd(['PING'])==='PONG')break;await api.closeClassroomRedis();await sleep(100);}
     await db.classroomRedisSync.update({where:{sessionId:sid},data:{nextAttemptAt:new Date(0)}});
     await api.drainClassroomRedisSync();assert.ok((await db.classroomRedisSync.findUnique({where:{sessionId:sid}})).processedAt);
     assert.equal((await api.heartbeat(request(),ctx)).status,200);
-    pass('cron retries committed PG synchronization and rebuilds leases after Redis restart');
+    pass('cron retries committed PG synchronization and rebuilds leases after Redis recovers');
 
     const control=JSON.parse(await cmd(['GET',key('control')]));control.verifiedUntil=Date.now()-1;await cmd(['SET',key('control'),JSON.stringify(control),'EX','60']);
-    globalThis.redisAccessReads=0;assert.equal((await api.heartbeat(request(),ctx)).status,200);assert.equal(globalThis.redisAccessReads,1);
-    pass('expired Redis control requires PG validation before accepting further heartbeats');
+    globalThis.redisAccessReads=0;assert.equal((await api.heartbeat(request(),ctx)).status,503);assert.equal(globalThis.redisAccessReads,0);
+    await Promise.all(globalThis.redisBackground.splice(0).map(callback=>callback()));
+    assert.equal((await api.heartbeat(request(),ctx)).status,200);
+    pass('expired Redis control queues elected room recovery before accepting further heartbeats');
 
     await api.closeClassroomRedis();process.env.CLASSROOM_REDIS_URL='';process.env.REDIS_URL='';assert.equal(api.classroomRedisEnabled(),false);
     const plain=await api.touchClassroomConnection(sid,'student','redis-client');assert.equal(plain.refreshed,true);assert.equal(await api.classroomSharedRead(sid,'disabled',async()=>'PG'),'PG');process.env.CLASSROOM_REDIS_URL=goodUrl;

@@ -9,7 +9,7 @@ function fixture() {
   let serial = Promise.resolve();
   const db = {
     courseSession: { findFirst: async () => ({ status: "scheduled", endTime: null }) },
-    classroomRuntime: { findUnique: async () => ({ id: "runtime", status: "waiting", graceEndsAt: null }) },
+    classroomRuntime: { findUniqueOrThrow: async () => ({stageStudentLimit:null}), findUnique: async () => ({ id: "runtime", status: "waiting", graceEndsAt: null }) },
     classroomMemberState: {
       findUnique: async ({ where }: { where: { sessionId_userId: { userId: string } } }) => rows.get(where.sessionId_userId.userId) || null,
       upsert: async ({ where, create, update }: { where: { sessionId_userId: { userId: string } }; create: Record<string, unknown>; update: Record<string, unknown> }) => {
@@ -26,7 +26,7 @@ function fixture() {
     },
   };
   const api = loadModule<Api>("src/lib/classroom/server/runtime.ts", {
-    "server-only": {}, "@/lib/db": { prisma: db },
+    "server-only": {}, "./command-receipt": {}, "@/lib/db": { prisma: db },
     "@/lib/courseware-conversion": {}, "./integration-events": {}, "./shared-cache": {},
     "./redis-presence": { readRedisClassroomPresence: async () => null }, "./redis-sync": {}, "./caption-demand": {},
   });

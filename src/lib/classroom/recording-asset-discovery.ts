@@ -10,11 +10,13 @@ type RecordingAssetState = {
   files?: unknown;
   lastProviderCheckAt: Date | null;
   stoppedAt: Date | null;
+  stopRequestedAt?: Date | null;
 };
 
 function missingMp4(recording: RecordingAssetState): boolean {
-  return recording.status === "completed" && recording.playbackFormat === "hls" &&
-    Boolean(recording.playbackObjectKey) &&
+  // Finding durable media must not depend on a successful provider-exit query.
+  return (recording.status === "completed" || Boolean(recording.stopRequestedAt &&
+    ["processing", "stopping", "failed"].includes(recording.status))) &&
     !recordingPlaybackAssets(recording.files, [], recording.playbackObjectKey, recording.playbackFormat)
       .some((asset) => asset.format === "mp4");
 }

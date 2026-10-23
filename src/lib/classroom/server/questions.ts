@@ -63,28 +63,9 @@ export async function getClassroomQuestions(input: {
   role: ClassroomRole;
 }) {
   const sessionId = input.sessionId || input.courseId;
-  const spaces =
-    input.role === "teacher"
-      ? []
-      : await assignedSpaceIds(sessionId, input.viewerId);
-  const where =
-    input.role === "teacher"
-      ? { sessionId }
-      : input.role === "assistant"
-        ? {
-            sessionId,
-            OR: [
-              { spaceId: { in: spaces } },
-              { status: { in: ["promoted", "answered"] } },
-            ],
-          }
-        : {
-            sessionId,
-            OR: [
-              { askerId: input.viewerId },
-              { status: { in: ["promoted", "answered"] } },
-            ],
-          };
+  const where = (input.role === "teacher" || input.role === "assistant")
+    ? { sessionId }
+    : { sessionId, OR: [{ askerId: input.viewerId }, { status: { in: ["promoted", "answered"] } }] };
   const questions = await prisma.classroomQuestion.findMany({
     where,
     include: { space: { select: { name: true } } },
@@ -104,7 +85,7 @@ export async function createClassroomQuestion(input: {
   requestedSpaceId?: string | null;
 }) {
   const sessionId = input.sessionId || input.courseId;
-  if (input.role === "teacher") {
+  if ((input.role === "teacher" || input.role === "assistant")) {
     throw new ClassroomQuestionError("主讲老师无需提交课堂提问", 409);
   }
   const content = input.content.trim();

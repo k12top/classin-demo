@@ -76,6 +76,35 @@ test("active recordings and existing MP4 catalogs never list potentially partial
   assert.equal(policy.recordingAssetDiscoveryDue(row), false);
 });
 
+test("exhausted stop verification can recover stored files without rearming or completing the recorder", async () => {
+  const row = { ...base(), status: "processing", stopRequestedAt: new Date(), stoppedAt: null,
+    playbackObjectKey: null, playbackFormat: null, files: [],
+    providerState: { fileNamePrefix: ["recordings", "lesson", "attempt"], stopControl: { version: 1, attention: "Exit remains unknown", queryAttempts: 24 } },
+  };
+  const control = row.providerState.stopControl;
+  const api = service(row as unknown as ReturnType<typeof base>, async ({ prefix: actual }) => {
+    assert.equal(actual, prefix);
+    return { objects: [{ name: `${prefix}clip.mp4`, size: 1024 }, { name: `${prefix}index.m3u8`, size: 100 }] };
+  });
+  assert.equal(await api.discoverRecordingPlaybackAssets(row.id), true);
+  assert.equal(row.status, "processing");
+  assert.equal(row.stoppedAt, null);
+  assert.equal(row.providerState.stopControl, control);
+  assert.deepEqual(playback.recordingReplayAssets(row), [{ objectKey: `${prefix}clip.mp4`, format: "mp4" }]);
+  assert.equal(policy.recordingAssetDiscoveryDue(row), false);
+});
+
+test("legacy missing file context uses only the exact session and attempt storage prefix", async () => {
+  const row = { ...base(), provider: "agora", status: "processing", stopRequestedAt: new Date(),
+    playbackObjectKey: null, playbackFormat: null, files: [], providerState: {} };
+  const api = service(row as unknown as ReturnType<typeof base>, async ({ prefix: actual }) => {
+    assert.equal(actual, `${(process.env.AGORA_RECORDING_PREFIX || "recordings").trim().replace(/^\/+|\/+$/g, "")}/lesson/attempt/`);
+    return { objects: [{ name: `${actual}clip.mp4`, size: 1024 }] };
+  });
+  assert.equal(await api.discoverRecordingPlaybackAssets(row.id), true);
+  assert.equal(row.status, "processing");
+});
+
 test("concurrent playback readers claim one storage lookup and HLS-only records stop polling", async () => {
   const row = base();
   let lists = 0;

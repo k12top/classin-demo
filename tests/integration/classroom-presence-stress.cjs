@@ -75,7 +75,8 @@ async function main() {
     await api.touchClassroomConnection(lesson.id, student.userId, "stress-client", true);
     console.log("PASS multiple tabs retain online presence and pagehide retains a reconnecting seat");
 
-    // All six students reserve their seats through a brief heartbeat outage.
+    // A deliberately fixed six-seat classroom retains seats through a brief outage.
+    await db.classroomRuntime.update({ where: { sessionId: lesson.id }, data: { stageStudentLimit: 6 } });
     for (let i = 2; i <= 6; i++) {
       const peer = { ...student, userId: `student-${i}`, name: `student-${i}` };
       await api.touchClassroomMember(course.id, peer, "student", undefined, lesson.id);
@@ -87,6 +88,8 @@ async function main() {
     const waiting = await api.touchClassroomMember(course.id, { ...student, userId: "seventh", name: "seventh" }, "student", undefined, lesson.id);
     assert.equal(waiting.onStage, false, "reconnecting seats must not be reassigned");
     await db.classroomConnection.updateMany({ where: { sessionId: lesson.id, leftAt: null }, data: { lastSeenAt: expiredAt } });
+    // Simulate time passing for admission reservations as well as connection leases.
+    await db.classroomMemberState.updateMany({ where: { sessionId: lesson.id, role: "student" }, data: { lastSeenAt: expiredAt } });
     const replacement = await api.touchClassroomMember(course.id, { ...student, userId: "replacement", name: "replacement" }, "student", undefined, lesson.id);
     assert.equal(replacement.onStage, true, "expired seats are released for new students");
     console.log("PASS six reconnecting seats remain reserved until the two-minute deadline");

@@ -10,7 +10,8 @@ export type ClassroomModePolicy = {
   rtcScenario: "communication" | "liveBroadcasting";
   layout: "paired" | "seminar" | "lecture" | "broadcast";
   maxParticipants: number | null;
-  maxStageStudents: number;
+  /** null follows the number of students entering the classroom. */
+  maxStageStudents: number | null;
   showLiveRail: boolean;
   showMemberRoster: boolean;
   showHandRaise: boolean;
@@ -49,7 +50,7 @@ const POLICIES: Record<ClassroomMode, ClassroomModePolicy> = {
     rtcScenario: "communication",
     layout: "seminar",
     maxParticipants: 16,
-    maxStageStudents: 6,
+    maxStageStudents: null,
     showLiveRail: true,
     showMemberRoster: true,
     showHandRaise: true,
@@ -66,7 +67,7 @@ const POLICIES: Record<ClassroomMode, ClassroomModePolicy> = {
     rtcScenario: "liveBroadcasting",
     layout: "lecture",
     maxParticipants: 500,
-    maxStageStudents: 6,
+    maxStageStudents: 30,
     showLiveRail: true,
     showMemberRoster: true,
     showHandRaise: true,
@@ -83,7 +84,7 @@ const POLICIES: Record<ClassroomMode, ClassroomModePolicy> = {
     rtcScenario: "liveBroadcasting",
     layout: "broadcast",
     maxParticipants: null,
-    maxStageStudents: 1,
+    maxStageStudents: 30,
     showLiveRail: false,
     showMemberRoster: false,
     showHandRaise: false,

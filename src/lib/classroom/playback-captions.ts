@@ -9,6 +9,11 @@ export type CaptionPosition = {
   seconds: number;
 };
 
+/** Replay an utterance with enough lead-in to hear the preceding context. */
+export function captionSeekPosition(position: CaptionPosition): CaptionPosition {
+  return { ...position, seconds: Math.max(0, position.seconds - 3) };
+}
+
 /** A caption timestamp is wall-clock time, not a media currentTime. */
 export function captionPosition(
   occurredAt: string,

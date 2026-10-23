@@ -122,7 +122,7 @@ async function run() {
     await check("accepted student renewal preserves publishing authorization", async () => {
       await db.classroomMemberState.update({ where: { id: member.id }, data: { onStage: true, stageState: "accepted", cameraAllowed: false } });
       const body = await (await api.renew(request({ sessionId: lesson.id, clientId }))).json();
-      assert.equal(body.credential.publisher, true);
+      assert.equal(body.credential.publisher, true); assert.equal(body.credential.allowAuxiliaryCamera, false);
     });
     await check("concurrent bootstrap retries create exactly one active attendance entry", async () => {
       const entry = { courseId: course.id, sessionId: lesson.id, userId, displayName: "Student", avatar: "", clientId };

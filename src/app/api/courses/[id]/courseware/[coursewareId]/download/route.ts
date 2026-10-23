@@ -1,8 +1,7 @@
+import { coursewareFileResponse } from "@/lib/courseware-file-response";
 import { NextRequest, NextResponse } from "next/server";
 import {
   CoursewareStorageConfigurationError,
-  getCoursewareObjectKey,
-  getCoursewareOssClient,
 } from "@/lib/aliyun-oss";
 import {
   isCoursewareAvailableInSession,
@@ -61,17 +60,8 @@ export async function GET(
     return NextResponse.json({ error: "该课件未开放下载" }, { status: 403 });
   }
 
-  const objectKey = getCoursewareObjectKey(courseware.url);
-  if (!objectKey) return NextResponse.redirect(courseware.url);
-
   try {
-    const downloadUrl = getCoursewareOssClient().signatureUrl(objectKey, {
-      expires: 10 * 60,
-      response: {
-        "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(courseware.name)}`,
-      },
-    });
-    return NextResponse.redirect(downloadUrl);
+    return await coursewareFileResponse(courseware);
   } catch (error) {
     console.error("Failed to create OSS courseware download URL:", error);
     if (error instanceof CoursewareStorageConfigurationError) {

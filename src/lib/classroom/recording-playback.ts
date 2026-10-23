@@ -3,6 +3,29 @@ export type RecordingPlaybackAsset = {
   format: "mp4" | "hls";
 };
 
+export type RecordingReplayState = {
+  status: string;
+  stopRequestedAt?: Date | null;
+  stoppedAt?: Date | null;
+  playbackObjectKey: string | null;
+  playbackFormat: string | null;
+  files?: unknown;
+  providerState?: unknown;
+};
+
+/** Replay availability is independent of whether the recorder's exit was confirmed. */
+export function recordingReplayAssets(recording: RecordingReplayState): RecordingPlaybackAsset[] {
+  if (recording.status !== "completed" && !(
+    ["stopping", "processing", "failed"].includes(recording.status) &&
+    (recording.stopRequestedAt || recording.stoppedAt)
+  )) return [];
+  const state = recording.providerState;
+  const prefix = state && typeof state === "object" && !Array.isArray(state) &&
+    "fileNamePrefix" in state && Array.isArray(state.fileNamePrefix)
+    ? state.fileNamePrefix.filter((part): part is string => typeof part === "string") : [];
+  return recordingPlaybackAssets(recording.files, prefix, recording.playbackObjectKey, recording.playbackFormat);
+}
+
 /** Prefer complete MP4 clips; an HLS playlist already contains its media chunks. */
 export function recordingPlaybackAssets(
   files: unknown,

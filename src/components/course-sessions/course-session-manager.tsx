@@ -36,6 +36,7 @@ import {
   teacherSchedulePeekStyles,
 } from "@/components/scheduling/teacher-schedule-peek";
 import styles from "./course-session-manager.module.css";
+import { ClassTimingControls } from "@/components/classroom/class-timing-controls";
 
 type Teacher = {
   teacherId: string;
@@ -919,6 +920,7 @@ export function CourseSessionManager({
                       {lifecycleBusy === session.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
                     </button>
                   ) : null}
+                  {canManageLifecycle && isLive && <ClassTimingControls courseId={courseId} sessionId={session.id} ended={false} onExtended={() => { void loadSessions(); router.refresh(); }} />}
                   {canManageLifecycle && effectiveStatus === "finished" ? (
                     <button
                       type="button"

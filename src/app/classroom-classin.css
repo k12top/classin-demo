@@ -1634,3 +1634,63 @@ html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-workspace[data-pa
 html.light .classroom-v3-device-dialog fieldset.classroom-v3-start-policy p {
   color: #526176;
 }
+
+.classroom-v3-caption-bounds .classroom-v3-caption-overlay p { font-size: var(--caption-font-size, 18px); color: var(--caption-text-color, #fff); }
+.classroom-v3-caption-bounds .classroom-v3-caption-overlay p.is-translation { font-size: calc(var(--caption-font-size, 18px) * .88); color: var(--caption-text-color, #fff); }
+.classroom-v3-caption-overlay[data-background="text"] .classroom-v3-caption-speaker,
+.classroom-v3-caption-overlay[data-background="solid"] { background: color-mix(in srgb, var(--caption-overlay-background, #202124) var(--caption-opacity, 75%), transparent); backdrop-filter: none; }
+.classroom-caption-access { display: flex; flex-wrap: wrap; gap: 6px; }
+.classroom-caption-access button { padding: 6px 10px; border: 1px solid var(--classroom-border, #cbd5e1); border-radius: 6px; background: var(--classroom-surface, #fff); color: var(--classroom-text, #334155); font-size: 12px; }
+.classroom-caption-access button[aria-pressed="true"] { border-color: #6554d9; color: #6554d9; }
+.classroom-caption-appearance { display: grid; gap: 12px; margin: 14px 0; padding: 12px; border: 1px solid #94a3b8; border-radius: 8px; }
+.classroom-caption-appearance label { display: grid; gap: 8px; }
+.classroom-caption-appearance label > span { display: flex; justify-content: space-between; gap: 12px; }
+.classroom-caption-appearance input[type="range"] { width: 100%; accent-color: #6554d9; }
+.classroom-caption-appearance p { font-size: 12px; line-height: 1.6; }
+
+/* Touch-safe subtitle dragging and locally scoped presentation settings. */
+.classroom-v3-caption-text { display: inline-block; -webkit-user-select: none; }
+.classroom-v3-caption-drag { pointer-events: auto; touch-action: none; cursor: grab; min-width: 44px; min-height: 24px; display: grid; place-items: center; color: var(--caption-text-color, #fff); background: transparent; border: 0; padding: 0; opacity: .8; }
+.classroom-v3-caption-drag:active { cursor: grabbing; }
+.classroom-v3-caption-drag svg { width: 24px; height: 20px; }
+@media (pointer: coarse) { .classroom-v3-caption-drag { min-height: 44px; } }
+.classroom-v3-caption-local-settings { margin-top: 16px; }
+.classroom-v3-caption-settings-link { display: flex; gap: 8px; align-items: center; min-height: 44px; padding: 12px; color: inherit; background: var(--classroom-panel-raised); border: 1px solid var(--classroom-line); border-radius: 12px; }
+
+.classroom-v3-class-controls { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 40px; padding: 6px 10px; border: 1px solid var(--classroom-line, #cbd5e1); border-radius: 10px; background: var(--classroom-panel, #fff); color: var(--classroom-ink, #233247); }
+.classroom-v3-class-controls svg { width: 18px; height: 18px; }
+.classroom-v3-class-controls-menu { z-index: 140; max-width: min(320px, calc(100vw - 24px)); color: var(--classroom-ink, #233247); background: var(--classroom-panel, #fff); }
+.classroom-v3-class-controls-menu [role=menuitem] { min-height: 44px; }
+.classroom-v3-class-controls-menu p { padding: 10px; font-size: 14px; }
+.classroom-v3-file-actions { display: flex; gap: 4px; }
+.classroom-v3-file-actions button { display: grid; place-items: center; min-width: 44px; min-height: 44px; border-radius: 8px; }
+.classroom-v3-file-actions svg { width: 20px; height: 20px; }
+.classroom-v3-file-preview-link { text-align: start; overflow-wrap: anywhere; }
+.classroom-v3-file-preview-backdrop { position: fixed; inset: 0; z-index: 150; background: rgb(0 0 0 / 55%); }
+.classroom-v3-file-preview { position: fixed; inset: 5vh 5vw; z-index: 151; display: flex; flex-direction: column; background: var(--classroom-panel, #fff); color: var(--classroom-ink, #233247); border-radius: 16px; overflow: hidden; }
+.classroom-v3-file-preview header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--classroom-line, #cbd5e1); }
+.classroom-v3-file-preview header h2 { min-width: 0; flex: 1; overflow-wrap: anywhere; font-weight: 600; }
+.classroom-v3-file-preview button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 44px; }
+.classroom-v3-file-preview svg { width: 20px; height: 20px; }
+.classroom-v3-file-preview-content { flex: 1; min-height: 0; overflow: auto; display: grid; place-items: center; padding: 12px; }
+.classroom-v3-file-preview-content img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.classroom-v3-file-preview-content iframe { width: 100%; height: 100%; border: 0; }
+.classroom-v3-file-preview footer { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 16px; border-top: 1px solid var(--classroom-line, #cbd5e1); font-size: 14px; }
+.classroom-v3-file-preview footer button { flex-shrink: 0; }
+.classroom-v3-chat-translation-controls { display: grid; gap: 8px; margin-bottom: 12px; padding-block: 10px; border-block: 1px solid var(--classroom-line, #cbd5e1); }
+.classroom-v3-chat-translation-controls > label { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.classroom-v3-chat-translation-controls input { width: 18px; height: 18px; accent-color: var(--classroom-iris, #6755d4); }
+.classroom-v3-message-translation { padding: 8px 12px; margin-top: 6px; background: var(--classroom-panel-raised, #f1f5f9); border-radius: 10px; overflow-wrap: anywhere; }
+.classroom-v3-message-translation small { font-size: 12px; color: var(--classroom-muted, #526178); }
+.classroom-v3-message-translation p { margin-top: 4px; }
+.classroom-v3-message-translation button { min-height: 44px; text-align: start; }
+@media(max-width:640px) {
+ .classroom-v3-top-actions .classroom-v3-class-controls > span { display: none; }
+ .classroom-v3-file-preview { inset: 8px; }
+ .classroom-v3-file-preview footer { flex-wrap: wrap; }
+}
+
+.classroom-v3-caption-drag { color: #fff; background: rgb(30 41 59 / 75%); border-radius: 8px; flex-shrink: 0; }
+.classroom-v3-caption-local-settings .classroom-caption-appearance { border: 0; margin: 0; padding: 0; }
+html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-top-actions > .classroom-v3-class-controls { width: auto; min-width: 44px; flex: 0 0 auto; white-space: nowrap; }
+@media(max-width:640px) { .classroom-v3-caption-local-settings select { font-size: 16px; } }

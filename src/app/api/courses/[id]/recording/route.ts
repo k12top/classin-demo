@@ -40,7 +40,7 @@ async function teacherCourse(request: NextRequest, courseId: string) {
   if (!access.ok) {
     return { error: access.reason, status: access.httpStatus } as const;
   }
-  if (access.role !== "teacher") {
+  if (access.role !== "teacher" && access.role !== "assistant") {
     return { error: "Forbidden", status: 403 } as const;
   }
   const lesson = await prisma.courseSession.findUnique({
