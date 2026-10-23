@@ -83,3 +83,25 @@ test("explicit start cannot hide an unknown old provider task behind a successfu
   await assert.rejects(f.start(), /Verify the previous provider startup outcome/);
   assert.equal(f.rows.length, 1);
 });
+
+test("an expired runtime snapshot cannot end a lesson extended before the deadline lock", async () => {
+  const source = "src/lib/classroom/server/runtime.ts";
+  const stubs = Object.fromEntries([...readFileSync(source, "utf8").matchAll(/from "([^"\n]+)"/g)].map(match => [match[1], {}]));
+  const expired = { id: "room", courseId: "course", sessionId: "lesson", status: "live", graceEndsAt: new Date(0) };
+  const extended = { ...expired, graceEndsAt: new Date(Date.now() + 3_600_000) };
+  let ended = 0, stopped = 0;
+  const tx = { $queryRaw: async () => [],
+    courseSession: { findUniqueOrThrow: async () => ({ endTime: extended.graceEndsAt, status: "live" }), update: async () => { ended++; } },
+    classroomRuntime: { findUniqueOrThrow: async () => extended, update: async () => { ended++; } },
+    classroomRecording: { updateMany: async () => { stopped++; } } };
+  const api = loadModule<typeof import("../src/lib/classroom/server/runtime")>(source, {
+    ...stubs, "server-only": {}, "@/lib/db": { prisma: {
+      courseSession: { findFirst: async () => ({ id: "lesson", status: "live", endTime: expired.graceEndsAt }) },
+      classroomRuntime: { findUnique: async () => expired }, $transaction: (fn: any) => fn(tx),
+    } }, "@/lib/course-status": { CourseStatus: { FINISHED: "finished", CANCELLED: "cancelled" } },
+    "@/lib/classroom/policy": { classroomGraceEndAt: (date: Date) => date },
+  });
+  assert.equal((await api.ensureClassroomRuntime("course", "lesson")).graceEndsAt, extended.graceEndsAt);
+  assert.equal(ended, 0);
+  assert.equal(stopped, 0);
+});
