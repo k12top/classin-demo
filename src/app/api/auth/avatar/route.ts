@@ -8,6 +8,7 @@ import {
 } from "@/lib/session";
 import { upsertUserProfileAvatar } from "@/lib/user-profile";
 import { CoursewareStorageConfigurationError } from "@/lib/aliyun-oss";
+import { presetAvatarSource } from "@/lib/user-avatar";
 import { MAX_AVATAR_SIZE, validateAvatarFile } from "@/lib/avatar-upload";
 import { matchesAvatarContentType, storeAvatar } from "@/lib/avatar-storage";
 
@@ -65,7 +66,7 @@ export async function PUT(request: NextRequest) {
     } else {
       // Preserve existing clients that update or clear their avatar using JSON.
       const body = await request.json();
-      const normalized = normalizeAvatarUrl(body?.avatar);
+      const normalized = body?.preset !== undefined ? presetAvatarSource(body.preset) : normalizeAvatarUrl(body?.avatar);
       if (normalized === null) {
         return NextResponse.json({ error: "Invalid avatar URL" }, { status: 400 });
       }

@@ -1,7 +1,8 @@
 import "server-only";
 
 import { Prisma, type ClassroomRecording } from "@prisma/client";
-import { classroomMediaProfile } from "@/lib/classroom/config";
+import { automaticRecordingNeeded, recordingIsFromPreviousCycle, recordingRotationDue } from "@/lib/classroom/recording-cycle";
+import { classroomRuntimeDefaults, classroomMediaProfile } from "@/lib/classroom/config";
 import { shouldRecoverRecording } from "@/lib/classroom/recording-continuity";
 import { appendRecordingProviderState } from "@/lib/classroom/recording-provider-state";
 import { getRecordingProvider } from "@/lib/classroom/server/provider-factory";
@@ -149,16 +150,19 @@ export async function requestRecordingStart(
   courseId: string,
   sessionId = courseId,
 ) {
-  const lesson = await prisma.courseSession.findFirst({
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT "id" FROM "CourseSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+  const lesson = await tx.courseSession.findFirst({
     where: { id: sessionId, courseId },
     include: {
       recordings: { orderBy: { createdAt: "desc" }, take: 1 },
     },
   });
   if (!lesson) throw new Error("Course session not found");
-  const runtime = await prisma.classroomRuntime.findUnique({
+  const runtime = await tx.classroomRuntime.findUnique({
     where: { sessionId: lesson.id },
-    select: { status: true, recordingStartMode: true },
+    select: { status: true, recordingStartMode: true, startedAt: true },
   });
   if (runtime?.recordingStartMode === "disabled") throw new Error("Recording is disabled for this classroom");
   if (runtime?.status !== "live") {
@@ -172,24 +176,29 @@ export async function requestRecordingStart(
     throw new Error("Recording cannot start after a lesson has ended");
   }
   const latest = lesson.recordings[0];
+  // Serialize starts with end/reopen/extend and all other starts. Never orphan an older task.
+  const blocker = await tx.classroomRecording.findFirst({ where: { sessionId: lesson.id,
+    OR: [{ status: { in: ACTIVE_RECORDING_STATUSES } }, { failureStage: "start-unknown" }] }, orderBy: { createdAt: "desc" } });
+  if (blocker && !recordingStopControl(blocker.providerState)?.confirmedAt) return blocker;
+  const previousCycle = latest && recordingIsFromPreviousCycle(latest, runtime.startedAt);
   if (latest?.failureStage === "start-unknown") throw new Error("Verify the previous provider startup outcome before starting another recording");
   if (latest && ACTIVE_RECORDING_STATUSES.includes(latest.status) && !recordingStopControl(latest.providerState)?.confirmedAt) return latest;
 
   const provider = getRecordingProvider(lesson.recordingProvider);
   provider.validateConfiguration();
 
-  const previousRetries = shouldRecoverRecording(latest, MAX_PROVIDER_RETRIES)
+  const previousRetries = !previousCycle && shouldRecoverRecording(latest, MAX_PROVIDER_RETRIES)
     ? latest.retryCount
     : 0;
   if (
-    latest?.status === "failed" &&
+    !previousCycle && latest?.status === "failed" &&
     latest.failureStage !== "stop" &&
     latest.retryCount >= MAX_PROVIDER_RETRIES
   ) {
     throw new Error("Cloud recording start retry limit reached");
   }
 
-  return prisma.classroomRecording.create({
+  return tx.classroomRecording.create({
     data: {
       courseId: lesson.courseId,
       sessionId: lesson.id,
@@ -201,12 +210,13 @@ export async function requestRecordingStart(
       fallbackFrom: isRecorderPageConfigured() ? null : "web",
       retryCount: previousRetries,
       startRetryCount:
-        latest?.failureStage === "start" ? latest.startRetryCount : 0,
+        !previousCycle && latest?.failureStage === "start" ? latest.startRetryCount : 0,
       errorMessage: null,
       failureStage: null,
       providerState: { startDispatch: "not_dispatched" },
     },
   });
+  }, { maxWait: 1500, timeout: 8000 });
 }
 
 export async function processRecordingStart(recordingId: string) {
@@ -612,6 +622,7 @@ export async function retryFailedLiveRecordings(deadline = Date.now() + 180_000)
     select: {
       courseId: true,
       sessionId: true,
+      startedAt: true,
       session: {
         select: {
           recordingProvider: true,
@@ -626,11 +637,26 @@ export async function retryFailedLiveRecordings(deadline = Date.now() + 180_000)
   let started = 0;
   for (const runtime of runtimes) {
     if (Date.now() >= deadline) break;
-    const latest = runtime.session.recordings[0];
+    let latest = runtime.session.recordings[0];
+    const provider = getRecordingProvider(runtime.session.recordingProvider);
+    if (!provider.isConfigured()) continue;
+    const maxHours = Math.min(classroomRuntimeDefaults.recordingMaxDurationHours,
+      Math.max(1, Number.parseInt(process.env.AGORA_PAGE_RECORDING_MAX_HOURS || "", 10) || classroomRuntimeDefaults.recordingMaxDurationHours));
+    if (latest && recordingRotationDue(latest, maxHours)) {
+      // Persist rotation intent before stopping so a terminated worker can resume it.
+      await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT "id" FROM "ClassroomRecording" WHERE "id" = ${latest!.id} FOR UPDATE`;
+        const current = await tx.classroomRecording.findUnique({ where: { id: latest!.id } });
+        if (current && recordingRotationDue(current, maxHours)) await tx.classroomRecording.update({ where: { id: current.id }, data: {
+          providerState: inputJson({ ...providerStateRecord(current.providerState), continuityReason: "duration_rollover" }),
+        } });
+      });
+      latest = await prisma.classroomRecording.findUniqueOrThrow({ where: { id: latest.id } });
+      await stopRecordingAttempt(latest);
+      latest = await prisma.classroomRecording.findUniqueOrThrow({ where: { id: latest.id } });
+    }
     if (
-      !getRecordingProvider(runtime.session.recordingProvider).isConfigured() ||
-      !latest ||
-      !shouldRecoverRecording(latest, MAX_PROVIDER_RETRIES)
+      !automaticRecordingNeeded(latest, runtime.startedAt, MAX_PROVIDER_RETRIES)
     ) {
       continue;
     }
@@ -664,7 +690,7 @@ export async function recoverInterruptedRecordingForSession(
   const [runtime, lesson] = await Promise.all([
     prisma.classroomRuntime.findFirst({
       where: { courseId, sessionId },
-      select: { status: true, recordingStartMode: true },
+      select: { status: true, recordingStartMode: true, startedAt: true },
     }),
     prisma.courseSession.findFirst({
       where: { id: sessionId, courseId },
@@ -677,10 +703,9 @@ export async function recoverInterruptedRecordingForSession(
   if (
     runtime?.status !== "live" ||
     runtime.recordingStartMode === "disabled" ||
-    !latest ||
     !lesson ||
     !getRecordingProvider(lesson.recordingProvider).isConfigured() ||
-    !shouldRecoverRecording(latest, MAX_PROVIDER_RETRIES)
+    !automaticRecordingNeeded(latest, runtime.startedAt, MAX_PROVIDER_RETRIES)
   ) {
     return null;
   }

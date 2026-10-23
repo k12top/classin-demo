@@ -6,6 +6,8 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
+import { StudentManager } from "@/components/portal/student-manager";
+import { paginateScheduleGroups } from "@/lib/schedule-pagination";
 import { AvatarSettings } from "@/components/avatar-settings";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -14,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, Calendar as CalendarIcon, CheckCircle2, Users, LogOut, PlayCircle, Search, Trash2, UserPlus, Info, Globe, Key, Loader2, User, BookOpen, RefreshCw, Sparkles, Layers3, Video } from "lucide-react";
+import { ArrowRight, Calendar as CalendarIcon, CheckCircle2, Users, LogOut, PlayCircle, Trash2, UserPlus, Info, Globe, Key, Loader2, User, BookOpen, RefreshCw, Sparkles, Layers3, Video } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom } from "@/lib/course-status";
 import { defaultAutoStudentOnStage } from "@/lib/classroom/mode";
@@ -105,13 +107,6 @@ interface TeacherUser {
   role?: string;
 }
 
-interface GroupNode {
-  id: string;
-  name: string;
-  members: { userId: string; userName?: string; userAvatar?: string }[];
-  children?: GroupNode[];
-}
-
 const ROOM_TYPE_KEYS: Record<number, string> = {
   0: "common.roomType1v1",
   4: "common.roomTypeSmall",
@@ -140,21 +135,8 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     const today = new Date();
     return new Date(today.getFullYear(), today.getMonth(), 1);
   });
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [todayKey, setTodayKey] = useState(() => scheduleDateKey(new Date()));
-
-  useEffect(() => {
-    const updateToday = () => setTodayKey(scheduleDateKey(new Date()));
-    const timer = window.setInterval(updateToday, 30_000);
-    window.addEventListener("focus", updateToday);
-    document.addEventListener("visibilitychange", updateToday);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", updateToday);
-      document.removeEventListener("visibilitychange", updateToday);
-    };
-  }, []);
-
+  const [selectedDate, setSelectedDate] = useState<Date | null>(() => new Date());
+  const [schedulePage, setSchedulePage] = useState(0);
   useEffect(() => {
     const requestedPage = new URLSearchParams(window.location.search).get("view");
     if (
@@ -168,7 +150,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   }, []);
   const [enteringCourseId, setEnteringCourseId] = useState<string | null>(null);
   const { t, locale } = useTranslation();
-  const { notify, confirmAction } = usePortalFeedback();
+  const { notify } = usePortalFeedback();
 
   // Create course dialog state
   const [createOpen, setCreateOpen] = useState(false);
@@ -210,16 +192,6 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     setCreatePrimaryTeacherId(currentTeacher.teacherId);
     setCreateTeacherError("");
   }, [currentTeacher]);
-
-  // Student management state
-  const [myGroups, setMyGroups] = useState<GroupNode[]>([]);
-  const [newGroupName, setNewGroupName] = useState("");
-  const [groupBusy, setGroupBusy] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<{ id: string; name: string; displayName: string; email: string }[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState("");
-  const [memberTargetGroupId, setMemberTargetGroupId] = useState("");
 
   const roomTypes = useMemo(() => [
     { value: 0, label: t("common.roomType1v1"), desc: t("teacherDashboard.roomDesc1v1"), icon: User },
@@ -274,26 +246,8 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     };
   }, [createDuration, createKind, createStartTime]);
 
-  const fetchMyGroups = useCallback(async () => {
-    const res = await fetch("/api/groups", { credentials: "same-origin" });
-    if (res.ok) {
-      const data = await res.json();
-      setMyGroups(data.groups ?? []);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activePage === "students") {
-      queueMicrotask(() => {
-        void fetchMyGroups();
-      });
-    }
-  }, [activePage, fetchMyGroups]);
-
   const scheduleEntries = useMemo(() => buildCourseSchedule(courses), [courses]);
-  const monthDays = useMemo(() => new Map(
-    [...monthSchedule(scheduleEntries, visibleMonth)].filter(([dayKey]) => dayKey >= todayKey),
-  ), [scheduleEntries, visibleMonth, todayKey]);
+  const monthDays = useMemo(() => monthSchedule(scheduleEntries, visibleMonth), [scheduleEntries, visibleMonth]);
   const dayCounts = useMemo(() => new Map([...monthDays].map(([key, lessons]) => [key, lessons.length])), [monthDays]);
   const selectedGroups = useMemo(() => {
     if (!selectedDate) return [...monthDays];
@@ -302,6 +256,8 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     return lessons ? [[key, lessons] as const] : [];
   }, [monthDays, selectedDate]);
   const selectedCount = selectedGroups.reduce((count, [, lessons]) => count + lessons.length, 0);
+
+  const schedulePagination = paginateScheduleGroups(selectedGroups, schedulePage, 5);
 
   const coursesMissingStartTime = useMemo(
     () =>
@@ -312,11 +268,13 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   );
 
   const shiftCalendarMonth = (delta: number) => {
+    setSchedulePage(0);
     setVisibleMonth((month) => new Date(month.getFullYear(), month.getMonth() + delta, 1));
     setSelectedDate(null);
   };
 
   const showToday = () => {
+    setSchedulePage(0);
     const today = new Date();
     setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
     setSelectedDate(new Date(today.getFullYear(), today.getMonth(), today.getDate()));
@@ -590,125 +548,6 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     }
   };
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
-    setSearching(true);
-    setSearchError("");
-    try {
-      const res = await fetch(`/api/users/search?q=${encodeURIComponent(searchQuery)}`, { credentials: "same-origin" });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setSearchResults(data.users ?? []);
-        if (!data.users?.length) setSearchError(t("teacherDashboard.searchUserNotFound"));
-      } else {
-        setSearchResults([]);
-        setSearchError(data.hint || data.error || t("common.failed"));
-      }
-    } catch {
-      setSearchResults([]);
-      setSearchError(t("common.failed"));
-    } finally {
-      setSearching(false);
-    }
-  };
-
-  const handleCreateGroup = async () => {
-    const name = newGroupName.trim();
-    if (!name) return;
-    setGroupBusy(true);
-    try {
-      const res = await fetch("/api/groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "create", name }),
-      });
-      if (res.ok) {
-        setNewGroupName("");
-        await fetchMyGroups();
-      }
-    } finally {
-      setGroupBusy(false);
-    }
-  };
-
-  const handleDeleteGroup = async (groupId: string) => {
-    if (
-      !(await confirmAction({
-        description: t("teacherDashboard.deleteGroupConfirm"),
-        tone: "danger",
-      }))
-    ) return;
-    setGroupBusy(true);
-    try {
-      const res = await fetch("/api/groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "delete", groupId }),
-      });
-      if (res.ok) await fetchMyGroups();
-    } finally {
-      setGroupBusy(false);
-    }
-  };
-
-  const handleAddUserToGroup = async (u: UserSearchResult) => {
-    if (!memberTargetGroupId) {
-      notify(t("teacherDashboard.selectTargetGroup"), "error");
-      return;
-    }
-    setGroupBusy(true);
-    try {
-      const res = await fetch("/api/groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "addMembers",
-          groupId: memberTargetGroupId,
-          members: [{ userId: u.id, userName: u.displayName || u.name, userAvatar: u.avatar || "" }],
-        }),
-      });
-      if (res.ok) await fetchMyGroups();
-    } finally {
-      setGroupBusy(false);
-    }
-  };
-
-  const handleRemoveMember = async (groupId: string, userId: string) => {
-    if (
-      !(await confirmAction({
-        description: t("teacherDashboard.removeMemberConfirm"),
-        tone: "danger",
-      }))
-    ) return;
-    setGroupBusy(true);
-    try {
-      const res = await fetch("/api/groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "removeMembers", groupId, userIds: [userId] }),
-      });
-      if (res.ok) await fetchMyGroups();
-    } finally {
-      setGroupBusy(false);
-    }
-  };
-
-  function countMembers(g: GroupNode): number {
-    let n = g.members?.length ?? 0;
-    for (const c of g.children ?? []) n += countMembers(c);
-    return n;
-  }
-
-  function flattenGroups(roots: GroupNode[], prefix = ""): { id: string; label: string }[] {
-    const rows: { id: string; label: string }[] = [];
-    for (const g of roots) {
-      const label = prefix ? `${prefix} / ${g.name}` : g.name;
-      rows.push({ id: g.id, label });
-      if (g.children?.length) rows.push(...flattenGroups(g.children, label));
-    }
-    return rows;
-  }
-
   return (
     <PortalShell
       role="teacher"
@@ -747,8 +586,8 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                   selectedDate={selectedDate}
                   dayCounts={dayCounts}
                   onMonthChange={shiftCalendarMonth}
-                  onSelectDate={setSelectedDate}
-                  onShowMonth={() => setSelectedDate(null)}
+                  onSelectDate={(date) => { setSelectedDate(date); setSchedulePage(0); }}
+                  onShowMonth={() => { setSelectedDate(null); setSchedulePage(0); }}
                   onToday={showToday}
                 />
               </div>
@@ -776,7 +615,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                   </Card>
                 ) : (
                   <div className={scheduleStyles.monthList}>
-                    {selectedGroups.map(([dayKey, lessons]) => (
+                    {schedulePagination.groups.map(([dayKey, lessons]) => (
                       <section key={dayKey} aria-labelledby={`schedule-${dayKey}`}>
                         <h4 id={`schedule-${dayKey}`} className={scheduleStyles.dateHeader}>
                           <span>{new Date(`${dayKey}T00:00:00`).toLocaleDateString(locale, { month: "long", day: "numeric", weekday: "long" })}</span>
@@ -968,6 +807,12 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                   </div>
                 )}
 
+                {schedulePagination.pages > 1 && <nav className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4" aria-label={t("portalUpdates.pagination")}>
+                  <Button variant="outline" className="min-h-11" disabled={schedulePagination.page === 0} onClick={() => setSchedulePage(schedulePagination.page - 1)}>{t("portalUpdates.previous")}</Button>
+                  <p className="text-sm tabular-nums text-muted-foreground" aria-live="polite">{t("portalUpdates.page", { page: schedulePagination.page + 1, pages: schedulePagination.pages })}</p>
+                  <Button variant="outline" className="min-h-11" disabled={schedulePagination.page === schedulePagination.pages - 1} onClick={() => setSchedulePage(schedulePagination.page + 1)}>{t("portalUpdates.next")}</Button>
+                </nav>}
+
                 {coursesMissingStartTime.length > 0 && (
                   <Card className="border border-orange-500/20 bg-orange-500/5 mt-8 rounded-2xl">
                     <CardHeader className="pb-2">
@@ -1011,152 +856,8 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         {/* ──── Student Management Page ──── */}
         {activePage === "students" && (
           <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <PortalSectionHeader
-              eyebrow={t("teacherDashboard.learningNetwork")}
-              title={t("teacherDashboard.studentManage")}
-              description={t("teacherDashboard.searchDesc")}
-              metric={{
-                value: myGroups.length,
-                label: t("teacherDashboard.studentGroupManage"),
-              }}
-            />
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Left: Search & Add */}
-              <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
-                <CardHeader>
-                  <CardTitle className="text-lg font-bold flex items-center gap-2"><Search className="h-5 w-5 text-primary" /> {t("teacherDashboard.searchUser")}</CardTitle>
-                  <CardDescription className="text-xs">{t("teacherDashboard.searchDesc")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder={t("teacherDashboard.searchPlaceholder")}
-                      value={searchQuery}
-                      className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                    />
-                    <Button 
-                      className="bg-primary hover:bg-primary/95 text-white rounded-xl font-medium shadow-sm active:scale-[0.98] transition-all shrink-0" 
-                      onClick={handleSearch} 
-                      disabled={searching || !searchQuery.trim()}
-                    >
-                      {searching ? t("teacherDashboard.searching") : t("teacherDashboard.btnSearch")}
-                    </Button>
-                  </div>
-
-                  {searchResults.length > 0 && (
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("teacherDashboard.addToGroupLabel")}</label>
-                      <Select value={memberTargetGroupId} onValueChange={setMemberTargetGroupId}>
-                        <SelectTrigger className="w-full bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl">
-                          <SelectValue placeholder={t("teacherDashboard.selectTargetGroup")} />
-                        </SelectTrigger>
-                        <SelectContent className="bg-popover border-border/85">
-                          {flattenGroups(myGroups).map((opt) => (
-                            <SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  {searchError && (
-                    <p className="text-xs text-red-500 bg-red-500/5 p-3 rounded-xl border border-red-500/20">
-                      {searchError}
-                    </p>
-                  )}
-
-                  {searchResults.length > 0 && (
-                    <div className="space-y-2 mt-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                      {searchResults.map((u) => (
-                        <div key={u.id} className="flex justify-between items-center p-3 rounded-xl bg-muted/30 border border-border/40 hover:border-primary/20 transition-all">
-                          <div className="flex flex-col">
-                            <span className="font-semibold text-sm">{u.displayName || u.name}</span>
-                            <span className="text-xs text-muted-foreground">{u.email}</span>
-                          </div>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            className="bg-primary/5 text-primary hover:bg-primary/10 rounded-lg text-xs"
-                            disabled={groupBusy || !memberTargetGroupId}
-                            onClick={() => handleAddUserToGroup(u)}
-                          >
-                            <UserPlus className="h-4 w-4 mr-1" /> {t("teacherDashboard.btnAddToGroup")}
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Right: Groups */}
-              <Card className="border border-border/60 bg-card rounded-2xl shadow-sm">
-                <CardHeader>
-                  <CardTitle className="text-lg font-bold flex items-center gap-2"><Users className="h-5 w-5 text-primary" /> {t("teacherDashboard.studentGroupManage")}</CardTitle>
-                  <CardDescription className="text-xs">{t("teacherDashboard.groupManageDesc")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder={t("teacherDashboard.newGroupPlaceholder")}
-                      value={newGroupName}
-                      className="bg-background border-border/80 hover:border-border focus-visible:ring-primary/50 text-sm rounded-xl"
-                      onChange={(e) => setNewGroupName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleCreateGroup()}
-                    />
-                    <Button 
-                      variant="secondary" 
-                      className="shrink-0 rounded-xl text-sm active:scale-[0.98] transition-all" 
-                      disabled={groupBusy || !newGroupName.trim()} 
-                      onClick={handleCreateGroup}
-                    >
-                      {t("teacherDashboard.btnCreate")}
-                    </Button>
-                  </div>
-
-                  {myGroups.length === 0 ? (
-                    <div className="p-8 text-center border border-dashed border-border/60 rounded-xl text-muted-foreground text-sm bg-muted/20">
-                      {t("teacherDashboard.groupEmpty")}
-                    </div>
-                  ) : (
-                    <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                      {myGroups.map((g) => (
-                        <div key={g.id} className="rounded-xl border border-border/60 overflow-hidden bg-muted/10">
-                          <div className="flex justify-between items-center p-3 bg-muted/40 border-b border-border/50">
-                            <div className="flex items-center gap-2">
-                              <strong className="text-sm font-semibold">{g.name}</strong>
-                              <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-primary/10 text-primary border-primary/10">{countMembers(g)} {t("teacherDashboard.memberCount")}</Badge>
-                            </div>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-500/10" disabled={groupBusy} onClick={() => handleDeleteGroup(g.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          <div className="p-2 bg-card">
-                            {(g.members?.length ?? 0) > 0 ? (
-                              <div className="space-y-1">
-                                {g.members.map((m) => (
-                                  <div key={m.userId} className="flex justify-between items-center p-2 rounded-lg hover:bg-muted transition-colors group">
-                                    <span className="text-sm text-foreground/80 font-medium">{m.userName || m.userId}</span>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-all" onClick={() => handleRemoveMember(g.id, m.userId)}>
-                                      <Trash2 className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-xs text-muted-foreground text-center py-4 italic">{t("teacherDashboard.groupMemberEmpty")}</p>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+            <div><h1 className="text-3xl font-bold">{t("teacherDashboard.studentManage")}</h1><p className="mt-2 text-sm text-muted-foreground">{t("portalUpdates.studentManageHint")}</p></div>
+            <StudentManager />
           </div>
         )}
 

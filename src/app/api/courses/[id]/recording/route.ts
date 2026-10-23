@@ -6,7 +6,7 @@ import {
 } from "@/lib/classroom/server/errors";
 import { getRecordingProvider } from "@/lib/classroom/server/provider-factory";
 import { canAutoStartRecordingAtStatus } from "@/lib/classroom/recording-start";
-import { shouldRecoverRecording } from "@/lib/classroom/recording-continuity";
+import { automaticRecordingNeeded } from "@/lib/classroom/recording-cycle";
 import {
   processRecordingStart,
   processRecordingStop,
@@ -220,17 +220,13 @@ export async function POST(
         where: { sessionId: lesson.id },
         select: { status: true, recordingStartMode: true, startedAt: true },
       });
-      const previousLessonRun = Boolean(
-        runtimeState?.startedAt && latest?.stoppedAt &&
-        latest.stoppedAt < runtimeState.startedAt,
-      );
       if (
         !runtimeState ||
         !canAutoStartRecordingAtStatus(
           runtimeState.recordingStartMode,
           runtimeState.status,
         ) ||
-        (latest && !previousLessonRun && !shouldRecoverRecording(latest, 3))
+        !automaticRecordingNeeded(latest, runtimeState.startedAt, 3)
       ) {
         return NextResponse.json({ recording: latest ? publicRecording(latest) : null });
       }

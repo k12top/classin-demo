@@ -6,6 +6,7 @@ import { enqueueClassroomEvent, deliverClassroomEvents } from "@/lib/classroom/s
 import { closeAllOpenAttendanceForLesson } from "@/lib/course-attendance";
 import {
   stopActiveRecordingsForCourse,
+  recoverInterruptedRecordingForSession,
 } from "@/lib/classroom/server/recording-orchestrator";
 import {
   stopClassroomTranscription,
@@ -119,7 +120,13 @@ async function handlePost(request: NextRequest, context: Context) {
       await synchronizeClassroomRedis(resolved.sessionId, true);
       after(() => syncCourseStatusFromSessions(resolved.courseId).then(() => undefined));
       after(() => deliverClassroomEvents());
-      if (body.action === "reopen") after(() => syncClassroomTranscription(resolved.courseId, { sessionId: resolved.sessionId }).then(() => undefined));
+      if (body.action === "reopen" || body.action === "extend") after(async () => {
+        const outcomes = await Promise.allSettled([
+          recoverInterruptedRecordingForSession(resolved.courseId, resolved.sessionId),
+          ...(body.action === "reopen" ? [syncClassroomTranscription(resolved.courseId, { sessionId: resolved.sessionId })] : []),
+        ]);
+        for (const outcome of outcomes) if (outcome.status === "rejected") console.error("[classroom:lifecycle] continuity pending cron recovery", { sessionId: resolved.sessionId, name: outcome.reason instanceof Error ? outcome.reason.name : "UnknownError" });
+      });
       return NextResponse.json({ timing });
     } catch (error) {
       if (error && typeof error === "object" && "status" in error && typeof error.status === "number") return NextResponse.json({ error: error instanceof Error ? error.message : "Operation failed" }, { status: error.status });

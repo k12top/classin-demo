@@ -1,4 +1,6 @@
 import { Prisma } from "@prisma/client";
+import { lockDueLessons } from "@/lib/classroom/server/lesson-deadline";
+import { syncCourseStatusFromSessions } from "@/lib/course-session-status";
 import { CourseStatus, getFinishedDelayMinutes } from "@/lib/course-status";
 import {
   closeAllOpenAttendanceForLesson,
@@ -59,12 +61,7 @@ export async function promoteCoursesIfDue(
     ? { courseId: { in: courseIds } }
     : {};
   const { sessionsToFinish, finishedSessions, liveSessions } = await prisma.$transaction(async (tx) => {
-    const sessionsToFinish = await tx.courseSession.findMany({
-      where: { ...sessionScope, status: { in: [CourseStatus.SCHEDULED, CourseStatus.LIVE, CourseStatus.AFTER_CLASS] }, endTime: { lte: threshold } },
-      select: { id: true, courseId: true, endTime: true, endedAt: true },
-    });
-    const ids = sessionsToFinish.map((lesson) => lesson.id);
-    if (ids.length) await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`;
+    const sessionsToFinish = await lockDueLessons(tx, sessionScope, threshold);
     // Update only the rows read in this transaction, then persist their final
     // runtime state and events before committing.
     const finishedSessions = await tx.courseSession.updateMany({
@@ -82,6 +79,8 @@ export async function promoteCoursesIfDue(
     });
     return { sessionsToFinish, finishedSessions, liveSessions };
   }, { timeout: 30_000 });
+
+  for (const courseId of new Set(sessionsToFinish.map(lesson => lesson.courseId))) await syncCourseStatusFromSessions(courseId);
 
   // A manually ended/cancelled lesson may not be part of sessionsToFinish,
   // but it still needs stale attendance, runtime and recorder cleanup.
@@ -112,8 +111,17 @@ export async function promoteCoursesIfDue(
   }
 
   await prisma.$transaction(async (tx) => {
-    const terminal = await tx.classroomRuntime.findMany({
+    const candidates = await tx.classroomRuntime.findMany({
       where: { ...sessionScope, status: { not: "ended" }, session: { status: { in: [CourseStatus.AFTER_CLASS, CourseStatus.FINISHED, CourseStatus.CANCELLED] } } },
+      select: { sessionId: true, session: { select: { status: true, endedAt: true } } },
+    });
+    const ids = candidates.map(room => room.sessionId);
+    if (ids.length) {
+      await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`;
+      await tx.$queryRaw`SELECT "id" FROM "CourseSession" WHERE "id" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`;
+    }
+    const terminal = await tx.classroomRuntime.findMany({
+      where: { sessionId: { in: ids }, status: { not: "ended" }, session: { status: { in: [CourseStatus.AFTER_CLASS, CourseStatus.FINISHED, CourseStatus.CANCELLED] } } },
       select: { sessionId: true, session: { select: { status: true, endedAt: true } } },
     });
     await tx.classroomRuntime.updateMany({
@@ -153,6 +161,8 @@ export async function promoteCoursesIfDue(
   // Keep the legacy Course fields calibrated during the dual-read rollout.
   // New classroom access and scheduling always use CourseSession above.
   const finishWhere = {
+    // Session-based courses use the authoritative, locked deadlines above.
+    sessions: { none: {} },
     status: {
       in: [CourseStatus.SCHEDULED, CourseStatus.LIVE, CourseStatus.AFTER_CLASS],
     },
@@ -241,6 +251,7 @@ export async function promoteCoursesIfDue(
   const resultScheduledStart = await prisma.course.updateMany({
     where: {
       status: CourseStatus.SCHEDULED,
+      sessions: { none: {} },
       startTime: { not: null, lte: new Date() },
       ...(courseIds?.length ? { id: { in: courseIds } } : {}),
     },

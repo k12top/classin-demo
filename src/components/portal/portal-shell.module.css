@@ -682,3 +682,17 @@
   .headerPreferences > :first-child { width: 110px; }
   .mobileBrand strong { max-width: 24vw; }
 }
+
+.navItem { position: relative; min-width: 0; }
+.navTooltip { display: none; }
+.shell[data-sidebar-collapsed="true"] .sidebar .navTooltip {
+  position: absolute; inset-inline-start: calc(100% + 12px); top: 50%; z-index: 60;
+  display: flex; align-items: center; gap: 16px; transform: translateY(-50%);
+  padding: 10px 14px; border: 1px solid hsl(var(--border)); border-radius: 8px;
+  background: hsl(var(--popover)); color: hsl(var(--popover-foreground));
+  box-shadow: 0 4px 16px rgb(0 0 0 / .12); font-size: 13px; white-space: nowrap;
+  visibility: hidden; opacity: 0; pointer-events: none;
+}
+.navTooltip small { color: hsl(var(--muted-foreground)); }
+.shell[data-sidebar-collapsed="true"] .sidebar .navItem:hover .navTooltip,
+.shell[data-sidebar-collapsed="true"] .sidebar .navItem:focus-within .navTooltip { visibility: visible; opacity: 1; }

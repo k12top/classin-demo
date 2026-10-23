@@ -229,53 +229,28 @@ export default function CoursePlaybackPage({
     };
   }, [t]);
 
-  const summaryCopy = useMemo<SummaryCopy>(() => (
-    locale.startsWith("zh")
-      ? {
-          title: "课后总结",
-          draft: "待教师审核",
-          published: "已发布给学生",
-          generate: "生成课后总结",
-          regenerate: "重新生成",
-          save: "保存草稿",
-          publish: "发布给学生",
-          unpublish: "撤回发布",
-          overview: "课程概述",
-          keyPoints: "重点内容",
-          questions: "课堂问题",
-          actionItems: "课后行动项",
-          speakers: "发言记录",
-          noSummary: "课后总结将在教师审核后发布。",
-          noCaptions: "还没有可用于生成总结的最终字幕。",
-          stale: "字幕有更新，建议重新生成后再发布。",
-          edit: "编辑",
-          cancel: "取消",
-          saving: "正在保存…",
-          generatedFrom: "基于 {count} 条最终字幕生成",
-        }
-      : {
-          title: "Lesson summary",
-          draft: "Awaiting teacher review",
-          published: "Published to students",
-          generate: "Generate lesson summary",
-          regenerate: "Regenerate",
-          save: "Save draft",
-          publish: "Publish to students",
-          unpublish: "Unpublish",
-          overview: "Overview",
-          keyPoints: "Key points",
-          questions: "Questions raised",
-          actionItems: "Follow-up actions",
-          speakers: "Speaker record",
-          noSummary: "The lesson summary will appear after the teacher reviews it.",
-          noCaptions: "There are no final captions available for a summary yet.",
-          stale: "New captions are available. Regenerate before publishing.",
-          edit: "Edit",
-          cancel: "Cancel",
-          saving: "Saving…",
-          generatedFrom: "Generated from {count} final captions",
-        }
-  ), [locale]);
+  const summaryCopy = useMemo<SummaryCopy>(() => ({
+    title: t("replayExtras.summary_title"),
+    draft: t("replayExtras.summary_draft"),
+    published: t("replayExtras.summary_published"),
+    generate: t("replayExtras.summary_generate"),
+    regenerate: t("replayExtras.summary_regenerate"),
+    save: t("replayExtras.summary_save"),
+    publish: t("replayExtras.summary_publish"),
+    unpublish: t("replayExtras.summary_unpublish"),
+    overview: t("replayExtras.summary_overview"),
+    keyPoints: t("replayExtras.summary_keyPoints"),
+    questions: t("replayExtras.summary_questions"),
+    actionItems: t("replayExtras.summary_actionItems"),
+    speakers: t("replayExtras.summary_speakers"),
+    noSummary: t("replayExtras.summary_noSummary"),
+    noCaptions: t("replayExtras.summary_noCaptions"),
+    stale: t("replayExtras.summary_stale"),
+    edit: t("replayExtras.summary_edit"),
+    cancel: t("replayExtras.summary_cancel"),
+    saving: t("replayExtras.summary_saving"),
+    generatedFrom: t("replayExtras.summary_generatedFrom"),
+  }), [t]);
 
   const fetchCourse = useCallback(async () => {
     setLoading(true);
@@ -535,13 +510,13 @@ export default function CoursePlaybackPage({
         setSummary(current => current?.sessionId === selectedSessionId && (!payload.summary || current.updatedAt > payload.summary.updatedAt) ? current : payload.summary);
         setSummaryGeneration(payload.generation || null);
         setSummaryError(payload.generation?.status === "failed"
-          ? locale.startsWith("zh") ? "总结生成暂时失败，可重试；已有总结仍可查看。" : "Summary generation failed. You can retry; any existing summary is still available."
+          ? t("replayExtras.summaryFailed")
           : "");
       },
       onUnavailable: () => { if (currentRequest()) setSummaryError(copy.loadFailed); },
     });
     return () => controller.abort();
-  }, [copy.loadFailed, locale, selectedLessonEnded, selectedSessionId, summaryCanManage, summaryGenerating, summaryWatchRevision]);
+  }, [copy.loadFailed, locale, selectedLessonEnded, selectedSessionId, summaryCanManage, summaryGenerating, summaryWatchRevision, t]);
 
   const updateSummary = useCallback(async (
     action: "generate" | "save" | "publish" | "unpublish",
@@ -617,16 +592,15 @@ export default function CoursePlaybackPage({
   const selectedRecording = playableRecordings.find((recording) => recording.id === selectedRecordingId)
     || playableRecordings[0] || null;
   const captionCanSync = Boolean(selectedRecording?.startedAt && selectedRecording?.stoppedAt && lessonCaptions.length);
-  const zh = locale.startsWith("zh");
-  const captionStateLabel = summaryLoading ? (zh ? "正在加载字幕" : "Loading captions")
-    : !lessonCaptions.length ? (zh ? "本课暂无最终字幕" : "No final captions for this lesson")
+  const captionStateLabel = summaryLoading ? t("portalUpdates.captionsLoading")
+    : !lessonCaptions.length ? t("portalUpdates.captionsNone")
     : !selectedRecording?.startedAt || !selectedRecording?.stoppedAt
       ? selectedRecording?.status === "completed"
-        ? (zh ? "此录像片段尚无字幕对齐信息" : "Caption alignment unavailable for this segment")
-        : (zh ? "录像时间核验中，字幕暂无法对齐" : "Verifying recording times for caption alignment")
-      : captionMode === "off" ? (zh ? "视频字幕已关闭" : "Video captions off")
-        : captionMode === "bilingual" ? (zh ? "双语" : "Bilingual")
-          : captionMode === "original" ? (zh ? "原文" : "Original") : (zh ? "译文" : "Translation");
+        ? t("portalUpdates.captionsAlignmentMissing")
+        : t("portalUpdates.captionsVerifying")
+      : captionMode === "off" ? t("classroom.v3.captionsOff")
+        : captionMode === "bilingual" ? t("classroom.v3.bilingual")
+          : captionMode === "original" ? t("classroom.v3.originalOnly") : t("classroom.v3.translatedOnly");
   const activeCaption = lessonCaptions[activeCaptionIndex(lessonCaptions, selectedRecording, mediaTime)] || null;
   const captionLanguages = Array.from(new Set(
     lessonCaptions.flatMap((caption) => Object.keys(caption.translations || {})),
@@ -680,20 +654,14 @@ export default function CoursePlaybackPage({
       ? copy.notFinished
       : !canPlayInApp
         ? attentionRecording
-          ? attentionRecording.errorMessage || (locale.startsWith("zh") ? "录制停止状态需要教师核查。" : "Recorder exit requires teacher verification.")
+          ? attentionRecording.errorMessage || (t("replayExtras.verifyNeeded"))
           : recordingIsProcessing
-          ? locale.startsWith("zh")
-            ? "正在核验录制结束并准备回放，页面会自动刷新。"
-            : "Recorder exit is being verified and replay is being prepared. This page will refresh automatically."
+          ? t("replayExtras.verifying")
           : failedRecording
             ? recordings.every(recording => recording.status === "failed" && !recording.startedAt)
-              ? locale.startsWith("zh")
-                ? "录制端未能完成启动，本节课没有生成课堂录像。"
-                : "The recorder could not finish starting. No video was recorded for this lesson."
+              ? t("replayExtras.noRecorder")
               : failedRecording.errorMessage ||
-              (locale.startsWith("zh")
-                ? "课堂录像生成失败，请检查录像配置后重试。"
-                : "The lesson recording failed. Check the recording configuration and retry.")
+              t("replayExtras.failed")
             : copy.noUrl
         : "");
 
@@ -745,16 +713,16 @@ export default function CoursePlaybackPage({
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Lesson replay</p>
             <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">{course?.name || copy.title}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{locale.startsWith("zh") ? "从视频、发言到课后要点，在同一处回顾这堂课。" : "Review the video, conversation and lesson notes together."}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t("portalUpdates.replaySubtitle")}</p>
           </div>
           {course?.teacherName && <Badge variant="outline">{copy.teacher}: {course.teacherName}</Badge>}
         </div>
         <div className={`grid items-start gap-4 ${reviewableSessions.length > 1 ? "xl:grid-cols-[210px_minmax(0,1fr)_350px]" : "xl:grid-cols-[minmax(0,1fr)_370px]"}`}>
         {reviewableSessions.length > 1 && (
-          <nav aria-label={locale.startsWith("zh") ? "课次回放" : "Lesson replays"} className="hidden overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm xl:block">
+          <nav aria-label={t("replayExtras.lessonReplays")} className="hidden overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm xl:block">
             <div className="border-b border-border/60 px-4 py-4">
-              <h2 className="text-sm font-semibold">{locale.startsWith("zh") ? "课次回放" : "Lesson replays"}</h2>
-              <p className="mt-1 text-xs text-muted-foreground">{reviewableSessions.length} {locale.startsWith("zh") ? "堂课" : "lessons"}</p>
+              <h2 className="text-sm font-semibold">{t("replayExtras.lessonReplays")}</h2>
+              <p className="mt-1 text-xs text-muted-foreground">{t("replayExtras.lessonCount", { count: reviewableSessions.length })}</p>
             </div>
             {reviewableSessions.map((session, index) => (
               <button key={session.id} type="button" aria-current={session.id === selectedSessionId ? "page" : undefined}
@@ -770,7 +738,7 @@ export default function CoursePlaybackPage({
         <div className="min-w-0">
         {reviewableSessions.length > 1 && (
           <label className="mb-3 block xl:hidden">
-            <span className="sr-only">{locale.startsWith("zh") ? "选择课次" : "Select lesson"}</span>
+            <span className="sr-only">{t("replayExtras.selectLesson")}</span>
             <select className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm" value={selectedSessionId} onChange={(event) => selectSession(event.target.value)}>
               {reviewableSessions.map((session) => <option key={session.id} value={session.id}>{session.title || copy.title}</option>)}
             </select>
@@ -793,7 +761,7 @@ export default function CoursePlaybackPage({
         <Card className="overflow-hidden rounded-[22px] border border-border/70 bg-card shadow-[0_24px_70px_rgba(21,23,28,0.08)]">
           <CardContent className="p-0">
             {selectedSessionId && recordingsError && canPlayInApp && <div role="status" className="flex items-center justify-between gap-3 border-b border-border p-3 text-sm text-muted-foreground">
-              <span>{locale.startsWith("zh") ? "录像状态更新暂时失败，当前视频可继续播放。" : "Recording status could not be refreshed. Your video can keep playing."}</span>
+              <span>{t("replayExtras.statusRefreshFailed")}</span>
               <Button type="button" variant="outline" size="sm" onClick={() => setRecordingsRevision(value => value + 1)}>{copy.retry}</Button>
             </div>}
             {selectedSessionId && recordingsError && !canPlayInApp ? (
@@ -812,12 +780,11 @@ export default function CoursePlaybackPage({
             ) : canPlayInApp ? (
               <>
                 <PlaybackVideo
-                  title={selectedSession?.title || course?.name || (zh ? "课程回放" : "Lesson replay")}
+                  title={selectedSession?.title || course?.name || t("playback.title")}
                   onRecheck={isTeacher && attentionRecording ? () => void retryRecordingVerification() : undefined}
                   recheckBusy={verificationBusy}
                   courseId={id}
                   trackProgress={!isTeacher}
-                  locale={locale}
                   key={`${selectedSessionId}:${selectedRecording?.id || recordUrl}`}
                   src={selectedRecording?.playbackUrl || recordUrl}
                   isHls={selectedRecording ? selectedRecording.playbackFormat === "hls" : canPlayHls}
@@ -838,28 +805,28 @@ export default function CoursePlaybackPage({
                 />
                 <div className="flex flex-wrap items-center justify-between gap-3 bg-[#141a27] px-4 py-3 text-white">
                   <div className="flex items-center gap-2">
-                    <button type="button" disabled={!captionCanSync} aria-pressed={captionCanSync && captionMode !== "off"} aria-label={locale.startsWith("zh") ? "切换视频字幕" : "Toggle video captions"}
+                    <button type="button" disabled={!captionCanSync} aria-pressed={captionCanSync && captionMode !== "off"} aria-label={t("classroom.v3.captionsTitle")}
                       onClick={() => setCaptionMode((mode) => mode === "off" ? "bilingual" : "off")}
                       className={`rounded-md border px-2.5 py-1 text-xs font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40 ${!captionCanSync || captionMode === "off" ? "border-white/30 text-white/70" : "border-primary bg-primary text-primary-foreground"}`}>CC</button>
                     <button type="button" aria-expanded={captionSettingsOpen} aria-controls="playback-caption-settings"
-                      aria-label={locale.startsWith("zh") ? "字幕设置" : "Caption settings"}
+                      aria-label={t("classroom.v3.captionSettings")}
                       onClick={() => setCaptionSettingsOpen((open) => !open)}
                       className="rounded-md border border-white/30 p-1.5 text-white/80 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"><Settings2 className="h-4 w-4" /></button>
                     <span className="text-xs text-white/60">{captionStateLabel}</span>
                   </div>
-                  <span className="text-xs text-white/50">{locale.startsWith("zh") ? "点击时间线发言可定位视频" : "Select an utterance to seek the video"}</span>
+                  <span className="text-xs text-white/50">{t("replayExtras.timelineSeekHint")}</span>
                 </div>
                 {captionSettingsOpen && (
                   <CaptionSettings mode={captionMode} onModeChange={setCaptionMode}
                     language={effectiveCaptionLanguage} languages={captionLanguages} onLanguageChange={setCaptionLanguage}
-                    appearance={captionAppearance} onAppearanceChange={setCaptionAppearance} chinese={locale.startsWith("zh")} />
+                    appearance={captionAppearance} onAppearanceChange={setCaptionAppearance} />
                 )}
                 {playableRecordings.length > 1 && (
                   <div className="flex gap-2 overflow-x-auto border-t border-border/60 bg-card px-4 py-3">
                     {playableRecordings.map((recording) => <Button key={recording.id} type="button" size="sm"
                       variant={recording.id === selectedRecording?.id ? "default" : "outline"}
                       onClick={() => { setSelectedRecordingId(recording.id); setContinuePlaybackId(""); setSeekRequest(null); setMediaTime(0); }}>
-                      {locale.startsWith("zh") ? `片段 ${recording.segment}` : `Segment ${recording.segment}`}
+                      {t("replayExtras.segment", { segment: recording.segment })}
                     </Button>)}
                   </div>
                 )}
@@ -899,13 +866,13 @@ export default function CoursePlaybackPage({
             setLessonReviewTab(value);
             requestAnimationFrame(() => reviewContentRef.current?.scrollIntoView({ block: "start" }));
           }} className={`min-w-0 xl:contents ${embedded ? "scroll-mt-3" : "scroll-mt-[70px] min-[1025px]:scroll-mt-[80px]"}`}>
-            <TabsList aria-label={locale.startsWith("zh") ? "课后回顾" : "Lesson review"}
+            <TabsList aria-label={t("replayExtras.lessonReview")}
               className={`sticky z-20 mb-4 grid h-auto w-full grid-cols-2 rounded-xl bg-muted p-1 xl:hidden ${embedded ? "top-0" : "top-[58px] min-[1025px]:top-[68px]"}`}>
               <TabsTrigger value="summary" className="min-h-11 gap-2 rounded-lg">
-                <Sparkles className="h-4 w-4" aria-hidden="true" />{locale.startsWith("zh") ? "AI 总结" : "AI summary"}
+                <Sparkles className="h-4 w-4" aria-hidden="true" />{t("replayExtras.aiSummary")}
               </TabsTrigger>
               <TabsTrigger value="timeline" className="min-h-11 gap-2 rounded-lg">
-                <Clock3 className="h-4 w-4" aria-hidden="true" />{locale.startsWith("zh") ? "发言时间线" : "Timeline"}
+                <Clock3 className="h-4 w-4" aria-hidden="true" />{t("replayExtras.timeline")}
               </TabsTrigger>
             </TabsList>
             <TabsContent value="timeline" forceMount asChild className="mt-0 data-[state=inactive]:hidden xl:data-[state=inactive]:block">
@@ -971,7 +938,7 @@ function LessonSummaryPanel({
   onPublish: () => void;
   onUnpublish: () => void;
 }) {
-  const { locale } = useTranslation();
+  const { locale, t } = useTranslation();
   return (
     <div>
     {presentation === "summary" && <Card className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
@@ -982,7 +949,7 @@ function LessonSummaryPanel({
               <FileText className="h-4 w-4" aria-hidden="true" />
             </span>
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">{copy.title === "课后总结" ? "课后回顾" : "After the lesson"}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">{t("replayExtras.afterLesson")}</p>
               <h2 className="mt-0.5 text-lg font-semibold text-foreground">{copy.title}</h2>
               {summary ? (
                 <p className="mt-0.5 text-xs text-muted-foreground">
@@ -1005,7 +972,7 @@ function LessonSummaryPanel({
         </div>
 
         {error && <div className="px-6 py-4 text-sm text-destructive" role="alert">{error}</div>}
-        {busy === "generate" && <p className="flex items-center gap-2 px-6 py-4 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin" />{copy.title === "课后总结" ? "AI 总结正在生成，完成后会自动显示，无需刷新。" : "Generating the summary. It will appear automatically when ready."}</p>}
+        {busy === "generate" && <p className="flex items-center gap-2 px-6 py-4 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin" />{t("replayExtras.summaryGenerating")}</p>}
         {loading && !summary ? (
           <div className="flex min-h-44 items-center justify-center gap-2 px-6 py-10 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -1058,11 +1025,11 @@ function LessonSummaryPanel({
       <>
       <div className="border-b border-border/60 px-5 py-5">
         <h2 className="text-base font-semibold text-foreground">{copy.title === "课后总结" ? "发言时间线" : "Utterance timeline"}</h2>
-        <p className="mt-1 text-xs text-muted-foreground">{copy.title === "课后总结" ? "点击发言跳转到视频中的对应位置" : "Select an utterance to jump to the video"}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{t("replayExtras.seekCaption")}</p>
         {captionLanguages.length > 0 && <label className="mt-3 flex items-center gap-2 text-sm text-foreground">
-          <span>{copy.title === "课后总结" ? "翻译语言" : "Translation language"}</span>
+          <span>{t("replayExtras.translationLanguage")}</span>
           <select className="min-h-11 min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5" value={captionLanguage} onChange={event => onCaptionLanguageChange(event.target.value)}>
-            <option value={NO_CAPTION_TRANSLATION}>{copy.title === "课后总结" ? "无，不翻译" : "None, no translation"}</option>
+            <option value={NO_CAPTION_TRANSLATION}>{t("replayExtras.none")}</option>
             {captionLanguages.map(language => <option key={language} value={language}>{classroomLanguageLabel(language, locale)}</option>)}
           </select>
         </label>}
@@ -1084,7 +1051,7 @@ function LessonSummaryPanel({
                 return <li key={caption.id}>
                   <button type="button" disabled={!position} onClick={() => onSeekToCaption(caption)}
                     aria-current={caption.id === activeCaptionId ? "true" : undefined}
-                    title={!position ? (copy.title === "课后总结" ? "这条字幕缺少可定位的录像时间" : "No matching recording time for this caption") : undefined}
+                    title={!position ? (t("replayExtras.missingCaptionTime")) : undefined}
                     className={`grid w-full gap-1 rounded-xl border p-3 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-primary ${caption.id === activeCaptionId ? "border-primary bg-primary/10" : "border-border hover:bg-muted/50"} ${!position ? "cursor-not-allowed" : ""}`}>
                     <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <time dateTime={caption.occurredAt}>{timeLabel}</time>
@@ -1099,13 +1066,13 @@ function LessonSummaryPanel({
             {hasMoreCaptions && (
               <Button type="button" size="sm" variant="outline" className="mt-4" disabled={captionsLoadingMore} onClick={onLoadMoreCaptions}>
                 {captionsLoadingMore ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-                {copy.title === "课后总结" ? "加载更多字幕" : "Load more captions"}
+                {t("replayExtras.loadMoreCaptions")}
               </Button>
             )}
             </>
           ) : !loading ? (
             <p className="mt-3 text-sm text-muted-foreground">
-              {copy.title === "课后总结" ? "本课次暂无已保存的最终字幕。" : "No final captions have been saved for this lesson."}
+              {t("replayExtras.noCaptions")}
             </p>
           ) : null}
         </CardContent>
@@ -1140,7 +1107,8 @@ function SummaryDocument({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<LessonSummaryDocument>(summary.document);
   const disabled = Boolean(busy);
-  const zh = copy.title === "课后总结";
+  const { locale } = useTranslation();
+  const zh = locale.startsWith("zh");
   const generation = summary.document.generation;
   const updateList = (
     key: "keyPoints" | "questions" | "actionItems",
@@ -1274,7 +1242,7 @@ function SummaryTextarea({
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        rows={label.length > 6 ? 4 : 3}
+        rows={4}
         className="w-full resize-y rounded-xl border border-border bg-background px-3 py-2.5 text-sm leading-6 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
       />
     </label>
@@ -1316,7 +1284,6 @@ function PlaybackVideo({
   recheckBusy,
   courseId,
   trackProgress,
-  locale,
   src,
   isHls,
   sharePath,
@@ -1335,7 +1302,6 @@ function PlaybackVideo({
   recheckBusy?: boolean;
   courseId: string;
   trackProgress: boolean;
-  locale: string;
   src: string;
   isHls: boolean;
   sharePath: string;
@@ -1349,6 +1315,7 @@ function PlaybackVideo({
   captionMode: CaptionDisplayMode;
   captionAppearance: CaptionAppearance;
 }) {
+  const { t } = useTranslation();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const { issue, directUrl, retry } = usePlaybackMedia(videoRef, src, isHls);
   const [watchedSec, setWatchedSec] = useState(0);
@@ -1578,22 +1545,7 @@ function PlaybackVideo({
     };
   }, []);
 
-  const trackingText =
-    locale === "zh-CN"
-      ? trackingState === "teacher"
-        ? "教师预览不计入学生回放时长"
-        : trackingState === "recording"
-          ? "有效观看计时中 · 每 15 秒安全保存"
-          : trackingState === "error"
-            ? "统计暂时中断，继续播放时会自动重试"
-            : "播放后开始统计；暂停、拖动或切出页面时停止计时"
-      : trackingState === "teacher"
-        ? "Teacher preview is not counted as student watch time"
-        : trackingState === "recording"
-          ? "Counting verified watch time · saved every 15 seconds"
-          : trackingState === "error"
-            ? "Tracking paused; playback will retry automatically"
-            : "Tracking starts on play and pauses when you seek, pause, or leave this tab";
+  const trackingText = t(`replayExtras.${trackingState === "teacher" ? "watchTeacher" : trackingState === "recording" ? "watchRecording" : trackingState === "error" ? "watchError" : "watchIdle"}`);
 
   const showOriginal = captionMode === "original" || captionMode === "bilingual";
   const showTranslation = captionMode === "translated" || captionMode === "bilingual";
@@ -1623,7 +1575,7 @@ function PlaybackVideo({
           <p className="max-w-[90%] truncate text-sm font-semibold sm:text-lg">{title}</p>
           <p className="flex items-center gap-2 text-xs sm:text-sm">
             {!issue && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
-            {locale.startsWith("zh") ? issue ? "视频尚未加载，请打开播放帮助重试" : "正在准备回放，即将显示画面" : issue ? "Video unavailable. Open Playback help to retry." : "Preparing your replay…"}
+            {t(issue ? "portalUpdates.replayUnavailable" : "portalUpdates.replayPreparing")}
           </p>
         </div>}
         {captionMode !== "off" && hasVisibleText && (
@@ -1651,7 +1603,7 @@ function PlaybackVideo({
         </div>
         {trackProgress && (
           <div className="flex shrink-0 items-center gap-2 font-mono text-xs text-zinc-400">
-            <span>{locale === "zh-CN" ? "已记录" : "Recorded"}</span>
+            <span>{t("replayExtras.recorded")}</span>
             <span className="rounded-md bg-white/10 px-2 py-1 font-semibold text-white">
               {formatDuration(watchedSec)}
             </span>
@@ -1663,7 +1615,7 @@ function PlaybackVideo({
 }
 
 function CaptionSettings({
-  mode, onModeChange, language, languages, onLanguageChange, appearance, onAppearanceChange, chinese,
+  mode, onModeChange, language, languages, onLanguageChange, appearance, onAppearanceChange,
 }: {
   mode: CaptionDisplayMode;
   onModeChange: (mode: CaptionDisplayMode) => void;
@@ -1672,42 +1624,40 @@ function CaptionSettings({
   onLanguageChange: (language: string) => void;
   appearance: CaptionAppearance;
   onAppearanceChange: (appearance: CaptionAppearance) => void;
-  chinese: boolean;
 }) {
-  const { locale } = useTranslation();
-  const modes: Array<[CaptionDisplayMode, string, string]> = [
-    ["off", "关闭", "Off"], ["original", "只显示原文", "Original only"],
-    ["translated", "只显示译文", "Translation only"], ["bilingual", "原文与译文", "Both languages"],
+  const { locale, t } = useTranslation();
+  const modes: Array<[CaptionDisplayMode, string]> = [
+    ["off", "captionsOff"], ["original", "originalOnly"], ["translated", "translatedOnly"], ["bilingual", "bilingual"],
   ];
   return <div id="playback-caption-settings" className="grid gap-4 border-t border-border/60 bg-card p-4 sm:grid-cols-2">
     <fieldset className="space-y-2">
-      <legend className="text-xs font-semibold text-foreground">{chinese ? "视频字幕显示" : "Video captions"}</legend>
-      {modes.map(([value, zh, en]) => <label key={value} className="flex items-center gap-2 text-sm">
+      <legend className="text-xs font-semibold text-foreground">{t("replayExtras.videoCaptions")}</legend>
+      {modes.map(([value, label]) => <label key={value} className="flex items-center gap-2 text-sm">
         <input type="radio" name="playback-caption-mode" value={value} checked={mode === value} onChange={() => onModeChange(value)} className="accent-primary" />
-        {chinese ? zh : en}
+        {t(`classroom.v3.${label}`)}
       </label>)}
     </fieldset>
     <div className="grid gap-3 text-xs">
-      <label className="grid gap-1"><span className="font-semibold">{chinese ? "翻译语言" : "Translation language"}</span>
+      <label className="grid gap-1"><span className="font-semibold">{t("replayExtras.translationLanguage")}</span>
         <select value={language} disabled={!languages.length} onChange={(event) => onLanguageChange(event.target.value)} className="h-9 rounded-lg border border-border bg-background px-2 text-sm">
-          <option value={NO_CAPTION_TRANSLATION}>{chinese ? "无，不翻译" : "None, no translation"}</option>
-          {languages.length ? languages.map((item) => <option key={item} value={item}>{classroomLanguageLabel(item, locale)}</option>) : <option value="">{chinese ? "暂无译文" : "No translation available"}</option>}
+          <option value={NO_CAPTION_TRANSLATION}>{t("replayExtras.none")}</option>
+          {languages.length ? languages.map((item) => <option key={item} value={item}>{classroomLanguageLabel(item, locale)}</option>) : <option value="">{t("replayExtras.noTranslation")}</option>}
         </select>
       </label>
-      <label className="grid gap-1"><span className="font-semibold">{chinese ? "字幕背景" : "Caption background"}</span>
+      <label className="grid gap-1"><span className="font-semibold">{t("replayExtras.captionBackground")}</span>
         <select value={appearance.background} onChange={(event) => onAppearanceChange({ ...appearance, background: event.target.value as CaptionAppearance["background"] })} className="h-9 rounded-lg border border-border bg-background px-2 text-sm">
-          <option value="solid">{chinese ? "深色" : "Dark"}</option><option value="transparent">{chinese ? "透明" : "Transparent"}</option>
+          <option value="solid">{t("replayExtras.dark")}</option><option value="transparent">{t("replayExtras.transparent")}</option>
         </select>
       </label>
       <div className="grid grid-cols-2 gap-2">
-        <label className="grid gap-1"><span className="font-semibold">{chinese ? "字号" : "Size"}</span>
+        <label className="grid gap-1"><span className="font-semibold">{t("replayExtras.size")}</span>
           <select value={appearance.size} onChange={(event) => onAppearanceChange({ ...appearance, size: event.target.value as CaptionAppearance["size"] })} className="h-9 rounded-lg border border-border bg-background px-2 text-sm">
-            <option value="small">{chinese ? "小" : "Small"}</option><option value="medium">{chinese ? "标准" : "Medium"}</option><option value="large">{chinese ? "大" : "Large"}</option>
+            <option value="small">{t("replayExtras.small")}</option><option value="medium">{t("replayExtras.medium")}</option><option value="large">{t("replayExtras.large")}</option>
           </select>
         </label>
-        <label className="grid gap-1"><span className="font-semibold">{chinese ? "位置" : "Position"}</span>
+        <label className="grid gap-1"><span className="font-semibold">{t("replayExtras.position")}</span>
           <select value={appearance.position} onChange={(event) => onAppearanceChange({ ...appearance, position: event.target.value as CaptionAppearance["position"] })} className="h-9 rounded-lg border border-border bg-background px-2 text-sm">
-            <option value="bottom">{chinese ? "下方" : "Bottom"}</option><option value="top">{chinese ? "上方" : "Top"}</option>
+            <option value="bottom">{t("replayExtras.bottom")}</option><option value="top">{t("replayExtras.top")}</option>
           </select>
         </label>
       </div>

@@ -108,6 +108,9 @@ export async function ensureClassroomRuntime(
     (!ended || existing.status === "ended");
   const runtime = unchanged ? existing : await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT "id" FROM "CourseSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+    const currentLesson = await tx.courseSession.findUniqueOrThrow({ where: { id: sessionId } });
+    const ended = currentLesson.status === CourseStatus.FINISHED || currentLesson.status === CourseStatus.CANCELLED;
     const previous = await tx.classroomRuntime.findUnique({ where: { sessionId }, select: { status: true } });
     const runtime = await tx.classroomRuntime.upsert({
       where: { sessionId },
@@ -115,19 +118,19 @@ export async function ensureClassroomRuntime(
         courseId,
         sessionId,
         status: ended ? "ended" : "waiting",
-        graceEndsAt: classroomGraceEndAt(lesson.endTime),
+        graceEndsAt: classroomGraceEndAt(currentLesson.endTime),
         startedAt: null,
         targetLanguages: [],
       },
       update: {
-        graceEndsAt: classroomGraceEndAt(lesson.endTime),
+        graceEndsAt: classroomGraceEndAt(currentLesson.endTime),
         ...(ended ? { status: "ended" } : {}),
       },
     });
     if (ended) {
       await queueEndedRecordingStops(tx, sessionId);
     }
-    if (ended && previous && previous.status !== "ended") await enqueueClassroomEvent(tx, sessionId, "classroom.ended", lesson.status === CourseStatus.CANCELLED ? "cancelled" : "scheduled_end");
+    if (ended && previous && previous.status !== "ended") await enqueueClassroomEvent(tx, sessionId, "classroom.ended", currentLesson.status === CourseStatus.CANCELLED ? "cancelled" : "scheduled_end");
     return runtime;
   });
 
@@ -138,6 +141,12 @@ export async function ensureClassroomRuntime(
   ) {
     const updated = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT "id" FROM "CourseSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+      const currentLesson = await tx.courseSession.findUniqueOrThrow({ where: { id: sessionId } });
+      const currentRuntime = await tx.classroomRuntime.findUniqueOrThrow({ where: { sessionId } });
+      const currentDeadline = classroomGraceEndAt(currentLesson.endTime);
+      // An extension or a new cycle can win the lock while this read waits.
+      if (currentRuntime.status === "ended" || !currentDeadline || currentDeadline.getTime() > Date.now()) return currentRuntime;
       await tx.courseSession.update({ where: { id: sessionId }, data: { status: CourseStatus.FINISHED } });
       const endedRuntime = await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { status: "ended", revision: { increment: 1 } } });
       await queueEndedRecordingStops(tx, sessionId);

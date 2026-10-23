@@ -49,7 +49,7 @@ export function PlaybackCompatibility({ issue, directUrl, src, isHls, sharePath,
   onRecheck?: () => void;
   recheckBusy?: boolean;
 }) {
-  const { t, locale } = useTranslation();
+  const { t } = useTranslation();
   const [wechat, setWechat] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "manual">("idle");
@@ -76,15 +76,15 @@ export function PlaybackCompatibility({ issue, directUrl, src, isHls, sharePath,
   };
 
   return (
-    <div className="absolute right-3 top-3 z-20">
+    <div className="flex justify-end border-t border-border bg-card px-3 py-1.5">
       <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
         <DialogTrigger asChild>
-          <Button type="button" variant="outline" size="icon" className="h-11 w-11 border-white/20 bg-black/65 text-white hover:bg-black/85 hover:text-white" aria-label={t("playback.compatibility.title")} title={t("playback.compatibility.title")}>
-            <CircleHelp className="h-5 w-5" aria-hidden="true" />
+          <Button type="button" variant="ghost" className="min-h-11 gap-2 text-xs text-muted-foreground hover:text-foreground" aria-label={t("portalUpdates.playbackHelp")} title={t("portalUpdates.playbackHelp")}>
+            <CircleHelp className="h-4 w-4" aria-hidden="true" />{t("portalUpdates.playbackHelp")}
           </Button>
         </DialogTrigger>
         <DialogContent className="max-w-lg">
-        <DialogHeader><DialogTitle>{t("playback.compatibility.title")}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{t("portalUpdates.playbackHelp")}</DialogTitle></DialogHeader>
         {issue && <p role="alert" className="leading-relaxed text-destructive">{t(`playback.compatibility.${issue}`)}</p>}
         <DialogDescription className="max-w-prose text-sm leading-relaxed text-muted-foreground">
           {t(wechat ? "playback.compatibility.wechatHint" : "playback.compatibility.browserHint")}
@@ -103,7 +103,7 @@ export function PlaybackCompatibility({ issue, directUrl, src, isHls, sharePath,
           </Button>
           {onRecheck && <Button type="button" variant="outline" className="min-h-11" disabled={recheckBusy} onClick={onRecheck}>
             {recheckBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />}
-            {locale.startsWith("zh") ? "重新核验录制" : "Recheck recording"}
+            {t("portalUpdates.recheckRecording")}
           </Button>}
         </div>
         {!isHls && <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{t("playback.compatibility.externalHint")}</p>}

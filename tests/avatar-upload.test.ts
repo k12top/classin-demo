@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { NextRequest } from "next/server";
 import { MAX_AVATAR_SIZE, validateAvatarFile } from "../src/lib/avatar-upload";
+import { presetAvatarSource } from "../src/lib/user-avatar";
 import { loadModule } from "./helpers/load-module";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD3sAAAAASUVORK5CYII=", "base64");
@@ -45,6 +46,7 @@ function fixture(options: { authorized?: boolean; storageFailure?: boolean } = {
     },
     "@/lib/user-profile": { upsertUserProfileAvatar: async (value: Record<string, unknown>) => { profile = value; } },
     "@/lib/avatar-upload": { MAX_AVATAR_SIZE, validateAvatarFile },
+    "@/lib/user-avatar": { presetAvatarSource },
     "@/lib/avatar-storage": storage,
     "@/lib/aliyun-oss": { CoursewareStorageConfigurationError: StorageConfigurationError },
   }, { console: { error() {} } });
@@ -156,5 +158,20 @@ test("avatar reads cannot sign arbitrary objects in the private bucket", async (
     assert.equal((await f.imageRoute.GET(new NextRequest("http://localhost/api/avatars/invalid"), {
       params: Promise.resolve({ filename }),
     })).status, 404);
+  }
+});
+
+
+test("trusted avatar presets and initials persist without requiring OSS; unknown presets are rejected", async () => {
+  for (const preset of ["initials", "book", "waves", "../../arbitrary", "https://other.example/avatar.svg"]) {
+    const f = fixture();
+    const response = await f.route.PUT(new NextRequest("http://localhost/api/auth/avatar", {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ preset }),
+    }));
+    const expected = presetAvatarSource(preset);
+    assert.equal(response.status, expected === null ? 400 : 200);
+    assert.equal(f.uploads.length, 0);
+    if (expected !== null) { assert.equal((await response.json()).avatar, expected); assert.equal(f.profile()?.avatar, expected); }
+    else assert.equal(f.profile(), undefined);
   }
 });

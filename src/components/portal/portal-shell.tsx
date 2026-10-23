@@ -22,6 +22,7 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { SiteLogo } from "@/components/SiteLogo";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useTranslation } from "@/lib/i18n/context";
+import { avatarInitials } from "@/lib/user-avatar";
 import styles from "./portal-shell.module.css";
 
 export type PortalRole = "teacher" | "student";
@@ -96,9 +97,7 @@ export function PortalShell({
     setSidebarCollapsed(collapsed);
     try { localStorage.setItem("classroom.portal.sidebar.v1", collapsed ? "collapsed" : "expanded"); } catch { /* Keep the current choice in memory. */ }
   };
-  const sidebarLabel = locale.startsWith("zh")
-    ? sidebarCollapsed ? "展开导航" : "收起导航"
-    : sidebarCollapsed ? "Expand navigation" : "Collapse navigation";
+  const sidebarLabel = t(sidebarCollapsed ? "portalUpdates.expandNavigation" : "portalUpdates.collapseNavigation");
 
   useEffect(() => {
     // Schedule the first client-only clock update after hydration. Keeping the
@@ -184,15 +183,14 @@ export function PortalShell({
       {navItems.map((item) => {
         const Icon = item.icon;
         return (
+          <span key={item.id} className={styles.navItem}>
           <button
-            key={item.id}
             type="button"
             className={styles.navButton}
             data-active={activePage === item.id}
             onClick={() => onPageChange(item.id as PortalPage)}
             aria-current={activePage === item.id ? "page" : undefined}
             aria-label={item.label}
-            title={item.label}
           >
             <span className={styles.navIcon}>
               <Icon aria-hidden="true" />
@@ -200,6 +198,8 @@ export function PortalShell({
             <span className={styles.navText}>{item.label}</span>
             <span className={styles.navHint}>{item.hint}</span>
           </button>
+          <span className={styles.navTooltip} role="tooltip">{item.label}<small>{item.hint}</small></span>
+          </span>
         );
       })}
     </>
@@ -292,7 +292,7 @@ export function PortalShell({
                 <Avatar className="h-9 w-9 border border-border/70">
                   <AvatarImage src={user.avatar} />
                   <AvatarFallback className="bg-primary/10 text-xs font-bold text-primary">
-                    {displayName.slice(0, 1).toUpperCase()}
+                    {avatarInitials(displayName)}
                   </AvatarFallback>
                 </Avatar>
                 <span className={styles.accountPresence} />
@@ -303,7 +303,7 @@ export function PortalShell({
                     <Avatar className="h-11 w-11 border border-border/70">
                       <AvatarImage src={user.avatar} />
                       <AvatarFallback className="bg-primary/10 text-sm font-bold text-primary">
-                        {displayName.slice(0, 1).toUpperCase()}
+                        {avatarInitials(displayName)}
                       </AvatarFallback>
                     </Avatar>
                     <span>
