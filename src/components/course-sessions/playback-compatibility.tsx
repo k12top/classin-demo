@@ -76,10 +76,10 @@ export function PlaybackCompatibility({ issue, directUrl, src, isHls, sharePath,
   };
 
   return (
-    <div className="flex justify-end border-t border-border bg-card px-3 py-1.5">
+    <div className="flex shrink-0 justify-end">
       <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
         <DialogTrigger asChild>
-          <Button type="button" variant="ghost" className="min-h-11 gap-2 text-xs text-muted-foreground hover:text-foreground" aria-label={t("portalUpdates.playbackHelp")} title={t("portalUpdates.playbackHelp")}>
+          <Button type="button" variant="ghost" className="min-h-11 gap-2 text-xs text-white/80 hover:bg-white/10 hover:text-white" aria-label={t("portalUpdates.playbackHelp")} title={t("portalUpdates.playbackHelp")}>
             <CircleHelp className="h-4 w-4" aria-hidden="true" />{t("portalUpdates.playbackHelp")}
           </Button>
         </DialogTrigger>

@@ -33,7 +33,9 @@ export const portalUpdates = {
     "captionsLoading": "Loading captions",
     "captionsNone": "No final captions for this lesson",
     "captionsAlignmentMissing": "Caption alignment unavailable for this segment",
-    "captionsVerifying": "Verifying recording times for caption alignment"
+    "captionsVerifying": "Verifying recording times for caption alignment",
+    "username": "Username",
+    "userId": "User ID"
   },
   "zh-CN": {
     "expandNavigation": "展开导航",
@@ -68,7 +70,9 @@ export const portalUpdates = {
     "captionsLoading": "正在加载字幕",
     "captionsNone": "本课暂无最终字幕",
     "captionsAlignmentMissing": "此录像片段尚无字幕对齐信息",
-    "captionsVerifying": "录像时间核验中，字幕暂无法对齐"
+    "captionsVerifying": "录像时间核验中，字幕暂无法对齐",
+    "username": "用户名",
+    "userId": "用户 ID"
   },
   "zh-TW": {
     "expandNavigation": "展開導覽",
@@ -103,7 +107,9 @@ export const portalUpdates = {
     "captionsLoading": "正在載入字幕",
     "captionsNone": "本課暫無最終字幕",
     "captionsAlignmentMissing": "此錄影片段尚無字幕對齊資訊",
-    "captionsVerifying": "正在核驗錄影時間，字幕暫時無法對齊"
+    "captionsVerifying": "正在核驗錄影時間，字幕暫時無法對齊",
+    "username": "使用者名稱",
+    "userId": "使用者 ID"
   },
   "id": {
     "expandNavigation": "Perluas navigasi",
@@ -138,7 +144,9 @@ export const portalUpdates = {
     "captionsLoading": "Memuat teks",
     "captionsNone": "Belum ada teks final untuk pelajaran ini",
     "captionsAlignmentMissing": "Penyelarasan teks belum tersedia untuk segmen ini",
-    "captionsVerifying": "Memverifikasi waktu rekaman untuk menyelaraskan teks"
+    "captionsVerifying": "Memverifikasi waktu rekaman untuk menyelaraskan teks",
+    "username": "Nama pengguna",
+    "userId": "ID pengguna"
   },
   "ja": {
     "expandNavigation": "ナビゲーションを展開",
@@ -173,7 +181,9 @@ export const portalUpdates = {
     "captionsLoading": "字幕を読み込み中",
     "captionsNone": "この授業の確定字幕はありません",
     "captionsAlignmentMissing": "この区間の字幕同期情報はありません",
-    "captionsVerifying": "字幕同期のため録画時刻を確認中"
+    "captionsVerifying": "字幕同期のため録画時刻を確認中",
+    "username": "ユーザー名",
+    "userId": "ユーザーID"
   },
   "ko": {
     "expandNavigation": "탐색 펼치기",
@@ -208,7 +218,9 @@ export const portalUpdates = {
     "captionsLoading": "자막 불러오는 중",
     "captionsNone": "이 수업의 최종 자막이 없습니다",
     "captionsAlignmentMissing": "이 구간에는 자막 동기화 정보가 없습니다",
-    "captionsVerifying": "자막 동기화를 위해 녹화 시간 확인 중"
+    "captionsVerifying": "자막 동기화를 위해 녹화 시간 확인 중",
+    "username": "사용자 이름",
+    "userId": "사용자 ID"
   },
   "fr": {
     "expandNavigation": "Développer la navigation",
@@ -243,7 +255,9 @@ export const portalUpdates = {
     "captionsLoading": "Chargement des sous-titres",
     "captionsNone": "Aucun sous-titre définitif pour ce cours",
     "captionsAlignmentMissing": "Synchronisation des sous-titres indisponible pour cet extrait",
-    "captionsVerifying": "Vérification des horaires pour synchroniser les sous-titres"
+    "captionsVerifying": "Vérification des horaires pour synchroniser les sous-titres",
+    "username": "Identifiant",
+    "userId": "ID utilisateur"
   },
   "es": {
     "expandNavigation": "Expandir navegación",
@@ -278,7 +292,9 @@ export const portalUpdates = {
     "captionsLoading": "Cargando subtítulos",
     "captionsNone": "No hay subtítulos definitivos para esta clase",
     "captionsAlignmentMissing": "No hay sincronización de subtítulos para este segmento",
-    "captionsVerifying": "Verificando los tiempos para sincronizar los subtítulos"
+    "captionsVerifying": "Verificando los tiempos para sincronizar los subtítulos",
+    "username": "Nombre de usuario",
+    "userId": "ID de usuario"
   },
   "pt": {
     "expandNavigation": "Expandir navegação",
@@ -313,7 +329,9 @@ export const portalUpdates = {
     "captionsLoading": "Carregando legendas",
     "captionsNone": "Não há legendas finais para esta aula",
     "captionsAlignmentMissing": "Sincronização de legendas indisponível para este segmento",
-    "captionsVerifying": "Verificando os horários para sincronizar as legendas"
+    "captionsVerifying": "Verificando os horários para sincronizar as legendas",
+    "username": "Nome de usuário",
+    "userId": "ID do usuário"
   },
   "de": {
     "expandNavigation": "Navigation ausklappen",
@@ -348,7 +366,9 @@ export const portalUpdates = {
     "captionsLoading": "Untertitel werden geladen",
     "captionsNone": "Keine endgültigen Untertitel für diese Stunde",
     "captionsAlignmentMissing": "Keine Untertitelsynchronisierung für diesen Abschnitt",
-    "captionsVerifying": "Aufnahmezeiten zur Untertitelsynchronisierung werden geprüft"
+    "captionsVerifying": "Aufnahmezeiten zur Untertitelsynchronisierung werden geprüft",
+    "username": "Benutzername",
+    "userId": "Benutzer-ID"
   },
   "it": {
     "expandNavigation": "Espandi navigazione",
@@ -383,7 +403,9 @@ export const portalUpdates = {
     "captionsLoading": "Caricamento sottotitoli",
     "captionsNone": "Nessun sottotitolo definitivo per questa lezione",
     "captionsAlignmentMissing": "Sincronizzazione sottotitoli non disponibile per questo segmento",
-    "captionsVerifying": "Verifica degli orari per sincronizzare i sottotitoli"
+    "captionsVerifying": "Verifica degli orari per sincronizzare i sottotitoli",
+    "username": "Nome utente",
+    "userId": "ID utente"
   },
   "ru": {
     "expandNavigation": "Развернуть навигацию",
@@ -418,7 +440,9 @@ export const portalUpdates = {
     "captionsLoading": "Загрузка субтитров",
     "captionsNone": "Итоговых субтитров для урока нет",
     "captionsAlignmentMissing": "Для этого фрагмента нет данных синхронизации субтитров",
-    "captionsVerifying": "Проверка времени записи для синхронизации субтитров"
+    "captionsVerifying": "Проверка времени записи для синхронизации субтитров",
+    "username": "Логин",
+    "userId": "ID пользователя"
   },
   "vi": {
     "expandNavigation": "Mở rộng điều hướng",
@@ -453,7 +477,9 @@ export const portalUpdates = {
     "captionsLoading": "Đang tải phụ đề",
     "captionsNone": "Bài học này chưa có phụ đề cuối cùng",
     "captionsAlignmentMissing": "Chưa có thông tin đồng bộ phụ đề cho đoạn này",
-    "captionsVerifying": "Đang xác minh thời gian ghi để đồng bộ phụ đề"
+    "captionsVerifying": "Đang xác minh thời gian ghi để đồng bộ phụ đề",
+    "username": "Tên đăng nhập",
+    "userId": "ID người dùng"
   },
   "ms": {
     "expandNavigation": "Kembangkan navigasi",
@@ -488,7 +514,9 @@ export const portalUpdates = {
     "captionsLoading": "Memuatkan sari kata",
     "captionsNone": "Tiada sari kata akhir untuk pelajaran ini",
     "captionsAlignmentMissing": "Penyegerakan sari kata tidak tersedia untuk segmen ini",
-    "captionsVerifying": "Mengesahkan masa rakaman untuk menyegerakkan sari kata"
+    "captionsVerifying": "Mengesahkan masa rakaman untuk menyegerakkan sari kata",
+    "username": "Nama pengguna",
+    "userId": "ID pengguna"
   },
   "fil": {
     "expandNavigation": "Palawakin ang nabigasyon",
@@ -523,7 +551,9 @@ export const portalUpdates = {
     "captionsLoading": "Nilo-load ang mga subtitle",
     "captionsNone": "Walang pinal na subtitle para sa araling ito",
     "captionsAlignmentMissing": "Walang impormasyon sa pagtutugma ng subtitle para sa bahaging ito",
-    "captionsVerifying": "Sinusuri ang oras ng recording para sa mga subtitle"
+    "captionsVerifying": "Sinusuri ang oras ng recording para sa mga subtitle",
+    "username": "Username",
+    "userId": "ID ng user"
   },
   "ar": {
     "expandNavigation": "توسيع التنقل",
@@ -558,7 +588,9 @@ export const portalUpdates = {
     "captionsLoading": "جارٍ تحميل الترجمة",
     "captionsNone": "لا توجد ترجمة نهائية لهذا الدرس",
     "captionsAlignmentMissing": "لا تتوفر معلومات مزامنة الترجمة لهذا المقطع",
-    "captionsVerifying": "جارٍ التحقق من أوقات التسجيل لمزامنة الترجمة"
+    "captionsVerifying": "جارٍ التحقق من أوقات التسجيل لمزامنة الترجمة",
+    "username": "اسم المستخدم",
+    "userId": "معرّف المستخدم"
   },
   "hi": {
     "expandNavigation": "नेविगेशन फैलाएँ",
@@ -593,7 +625,9 @@ export const portalUpdates = {
     "captionsLoading": "उपशीर्षक लोड हो रहे हैं",
     "captionsNone": "इस पाठ के अंतिम उपशीर्षक नहीं हैं",
     "captionsAlignmentMissing": "इस खंड में उपशीर्षक समन्वय जानकारी नहीं है",
-    "captionsVerifying": "उपशीर्षक समन्वय के लिए रिकॉर्डिंग समय जाँचा जा रहा है"
+    "captionsVerifying": "उपशीर्षक समन्वय के लिए रिकॉर्डिंग समय जाँचा जा रहा है",
+    "username": "उपयोगकर्ता नाम",
+    "userId": "उपयोगकर्ता आईडी"
   },
   "sw": {
     "expandNavigation": "Panua urambazaji",
@@ -628,7 +662,9 @@ export const portalUpdates = {
     "captionsLoading": "Inapakia manukuu",
     "captionsNone": "Hakuna manukuu ya mwisho ya somo hili",
     "captionsAlignmentMissing": "Hakuna taarifa za ulinganishaji wa manukuu kwa sehemu hii",
-    "captionsVerifying": "Inathibitisha nyakati za rekodi ili kulinganisha manukuu"
+    "captionsVerifying": "Inathibitisha nyakati za rekodi ili kulinganisha manukuu",
+    "username": "Jina la mtumiaji",
+    "userId": "Kitambulisho cha mtumiaji"
   },
   "th": {
     "expandNavigation": "ขยายเมนู",
@@ -663,7 +699,9 @@ export const portalUpdates = {
     "captionsLoading": "กำลังโหลดคำบรรยาย",
     "captionsNone": "บทเรียนนี้ยังไม่มีคำบรรยายฉบับสมบูรณ์",
     "captionsAlignmentMissing": "ยังไม่มีข้อมูลซิงค์คำบรรยายสำหรับส่วนนี้",
-    "captionsVerifying": "กำลังตรวจสอบเวลาบันทึกเพื่อซิงค์คำบรรยาย"
+    "captionsVerifying": "กำลังตรวจสอบเวลาบันทึกเพื่อซิงค์คำบรรยาย",
+    "username": "ชื่อผู้ใช้",
+    "userId": "รหัสผู้ใช้"
   },
   "lo": {
     "expandNavigation": "ຂະຫຍາຍເມນູ",
@@ -698,7 +736,9 @@ export const portalUpdates = {
     "captionsLoading": "ກຳລັງໂຫຼດຄຳບັນຍາຍ",
     "captionsNone": "ບໍ່ມີຄຳບັນຍາຍສຸດທ້າຍຂອງບົດຮຽນນີ້",
     "captionsAlignmentMissing": "ບໍ່ມີຂໍ້ມູນຊິງຄຳບັນຍາຍຂອງຕອນນີ້",
-    "captionsVerifying": "ກຳລັງກວດເວລາບັນທຶກເພື່ອຊິງຄຳບັນຍາຍ"
+    "captionsVerifying": "ກຳລັງກວດເວລາບັນທຶກເພື່ອຊິງຄຳບັນຍາຍ",
+    "username": "ຊື່ຜູ້ໃຊ້",
+    "userId": "ລະຫັດຜູ້ໃຊ້"
   },
   "my": {
     "expandNavigation": "လမ်းညွှန်ကို ဖြန့်ပါ",
@@ -733,7 +773,9 @@ export const portalUpdates = {
     "captionsLoading": "စာတန်းများ တင်နေသည်",
     "captionsNone": "ဤသင်ခန်းစာအတွက် အပြီးသတ်စာတန်းမရှိသေးပါ",
     "captionsAlignmentMissing": "ဤအပိုင်းအတွက် စာတန်းချိန်ညှိမှုအချက်အလက် မရှိပါ",
-    "captionsVerifying": "စာတန်းချိန်ညှိရန် မှတ်တမ်းအချိန်များ စစ်နေသည်"
+    "captionsVerifying": "စာတန်းချိန်ညှိရန် မှတ်တမ်းအချိန်များ စစ်နေသည်",
+    "username": "အသုံးပြုသူအမည်",
+    "userId": "အသုံးပြုသူ ID"
   },
   "km": {
     "expandNavigation": "ពង្រីកម៉ឺនុយ",
@@ -768,7 +810,9 @@ export const portalUpdates = {
     "captionsLoading": "កំពុងផ្ទុកចំណងជើងរង",
     "captionsNone": "មិនទាន់មានចំណងជើងរងចុងក្រោយសម្រាប់មេរៀននេះ",
     "captionsAlignmentMissing": "មិនមានព័ត៌មានផ្គូផ្គងចំណងជើងរងសម្រាប់ផ្នែកនេះ",
-    "captionsVerifying": "កំពុងផ្ទៀងផ្ទាត់ពេលថតដើម្បីផ្គូផ្គងចំណងជើងរង"
+    "captionsVerifying": "កំពុងផ្ទៀងផ្ទាត់ពេលថតដើម្បីផ្គូផ្គងចំណងជើងរង",
+    "username": "ឈ្មោះអ្នកប្រើ",
+    "userId": "លេខសម្គាល់អ្នកប្រើ"
   },
   "ta": {
     "expandNavigation": "வழிசெலுத்தலை விரி",
@@ -803,6 +847,8 @@ export const portalUpdates = {
     "captionsLoading": "வசனங்கள் ஏற்றப்படுகின்றன",
     "captionsNone": "இந்தப் பாடத்திற்கான இறுதி வசனங்கள் இல்லை",
     "captionsAlignmentMissing": "இந்தப் பகுதிக்கு வசன ஒத்திசைவுத் தகவல் இல்லை",
-    "captionsVerifying": "வசன ஒத்திசைவுக்குப் பதிவு நேரங்கள் சரிபார்க்கப்படுகின்றன"
+    "captionsVerifying": "வசன ஒத்திசைவுக்குப் பதிவு நேரங்கள் சரிபார்க்கப்படுகின்றன",
+    "username": "பயனர்பெயர்",
+    "userId": "பயனர் அடையாளம்"
   }
 };

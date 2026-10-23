@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   Activity,
@@ -780,6 +780,19 @@ export default function CoursePlaybackPage({
             ) : canPlayInApp ? (
               <>
                 <PlaybackVideo
+                  controls={<div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-3 text-white">
+                  <div className="flex items-center gap-2">
+                    <button type="button" disabled={!captionCanSync} aria-pressed={captionCanSync && captionMode !== "off"} aria-label={t("classroom.v3.captionsTitle")}
+                      onClick={() => setCaptionMode((mode) => mode === "off" ? "bilingual" : "off")}
+                      className={`rounded-md border px-2.5 py-1 text-xs font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40 ${!captionCanSync || captionMode === "off" ? "border-white/30 text-white/70" : "border-primary bg-primary text-primary-foreground"}`}>CC</button>
+                    <button type="button" aria-expanded={captionSettingsOpen} aria-controls="playback-caption-settings"
+                      aria-label={t("classroom.v3.captionSettings")}
+                      onClick={() => setCaptionSettingsOpen((open) => !open)}
+                      className="rounded-md border border-white/30 p-1.5 text-white/80 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"><Settings2 className="h-4 w-4" /></button>
+                    <span className="text-xs text-white/60">{captionStateLabel}</span>
+                  </div>
+                  <span className="hidden text-xs text-white/50 lg:inline">{t("replayExtras.timelineSeekHint")}</span>
+                </div>}
                   title={selectedSession?.title || course?.name || t("playback.title")}
                   onRecheck={isTeacher && attentionRecording ? () => void retryRecordingVerification() : undefined}
                   recheckBusy={verificationBusy}
@@ -803,19 +816,6 @@ export default function CoursePlaybackPage({
                   captionMode={captionMode}
                   captionAppearance={captionAppearance}
                 />
-                <div className="flex flex-wrap items-center justify-between gap-3 bg-[#141a27] px-4 py-3 text-white">
-                  <div className="flex items-center gap-2">
-                    <button type="button" disabled={!captionCanSync} aria-pressed={captionCanSync && captionMode !== "off"} aria-label={t("classroom.v3.captionsTitle")}
-                      onClick={() => setCaptionMode((mode) => mode === "off" ? "bilingual" : "off")}
-                      className={`rounded-md border px-2.5 py-1 text-xs font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40 ${!captionCanSync || captionMode === "off" ? "border-white/30 text-white/70" : "border-primary bg-primary text-primary-foreground"}`}>CC</button>
-                    <button type="button" aria-expanded={captionSettingsOpen} aria-controls="playback-caption-settings"
-                      aria-label={t("classroom.v3.captionSettings")}
-                      onClick={() => setCaptionSettingsOpen((open) => !open)}
-                      className="rounded-md border border-white/30 p-1.5 text-white/80 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"><Settings2 className="h-4 w-4" /></button>
-                    <span className="text-xs text-white/60">{captionStateLabel}</span>
-                  </div>
-                  <span className="text-xs text-white/50">{t("replayExtras.timelineSeekHint")}</span>
-                </div>
                 {captionSettingsOpen && (
                   <CaptionSettings mode={captionMode} onModeChange={setCaptionMode}
                     language={effectiveCaptionLanguage} languages={captionLanguages} onLanguageChange={setCaptionLanguage}
@@ -1279,6 +1279,7 @@ function formatDuration(totalSeconds: number): string {
 }
 
 function PlaybackVideo({
+  controls,
   title,
   onRecheck,
   recheckBusy,
@@ -1297,6 +1298,7 @@ function PlaybackVideo({
   captionMode,
   captionAppearance,
 }: {
+  controls: ReactNode;
   title: string;
   onRecheck?: () => void;
   recheckBusy?: boolean;
@@ -1587,9 +1589,12 @@ function PlaybackVideo({
           </div>
         )}
       </div>
+      <div className="flex flex-wrap items-center gap-3 bg-[#141a27] px-4 py-2 text-white">
+        {controls}
       <PlaybackCompatibility issue={issue} directUrl={directUrl} src={src} isHls={isHls}
         sharePath={sharePath} onRetry={retry} onExternalPlay={() => videoRef.current?.pause()}
         onRecheck={onRecheck} recheckBusy={recheckBusy} />
+      </div>
       {trackProgress && <div className="flex flex-col gap-2 border-t border-white/10 bg-zinc-950 px-4 py-3 text-zinc-300 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-2 text-xs">
           {trackingState === "recording" ? (

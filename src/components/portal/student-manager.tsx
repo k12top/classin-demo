@@ -23,7 +23,7 @@ function flatten(groups: Group[], prefix = ""): Group[] {
 const PAGE_SIZE = 8;
 
 export function StudentManager() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const { notify, confirmAction } = usePortalFeedback();
   const [groups, setGroups] = useState<Group[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -128,14 +128,14 @@ export function StudentManager() {
           : error ? <div role="alert" className="space-y-3 py-8"><p>{t("common.failed")}</p><Button variant="outline" onClick={() => void load()}>{t("playback.retry")}</Button></div>
           : selected ? <>
           <header className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0"><h2 className="break-words text-lg font-semibold">{selected.name}</h2><p className="mt-1 text-sm text-muted-foreground">{t("teacherDashboard.studentsCount", { count: selected.members.length })}</p></div>
+            <div className="min-w-0"><h2 className="break-words text-lg font-semibold">{selected.name}</h2><p className="mt-1 text-sm text-muted-foreground">{t("common.roleStudent")}: {new Intl.NumberFormat(locale).format(selected.members.length)}</p></div>
             <div className="flex gap-2"><Button variant="outline" className="min-h-11" disabled={busy} onClick={() => setAddOpen(true)}><UserPlus className="me-2 h-4 w-4"/>{t("portalUpdates.addStudents")}</Button><Button variant="ghost" size="icon" className="h-11 w-11 text-destructive" disabled={busy} aria-label={t("portalUpdates.deleteGroup")} onClick={() => void deleteGroup()}><Trash2 className="h-4 w-4"/></Button></div>
           </header>
           <Input className="my-4" value={memberQuery} onChange={event => { setMemberQuery(event.target.value); setPage(0); }} placeholder={t("portalUpdates.searchMembers")} aria-label={t("portalUpdates.searchMembers")}/>
           <ul className="divide-y divide-border" aria-busy={busy}>
             {visibleMembers.map(member => <li key={member.userId} className="flex min-h-20 items-center gap-3 py-3">
               <Avatar className="h-10 w-10"><AvatarImage src={member.userAvatar} alt=""/><AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{avatarInitials(member.userName || member.username || member.userId)}</AvatarFallback></Avatar>
-              <div className="min-w-0 flex-1"><p className="break-words text-sm font-semibold">{member.userName || member.username || member.userId}</p><p className="break-all text-xs text-muted-foreground">{t(member.username ? "settingsPanel.fieldUsername" : "settingsPanel.fieldUserId")}: {member.username || member.userId}</p></div>
+              <div className="min-w-0 flex-1"><p className="break-words text-sm font-semibold">{member.userName || member.username || member.userId}</p><p className="break-all text-xs text-muted-foreground">{t(member.username ? "portalUpdates.username" : "portalUpdates.userId")}: {member.username || member.userId}</p></div>
               <Button type="button" variant="ghost" className="min-h-11 shrink-0 text-xs text-destructive" disabled={busy} onClick={() => void remove(member)}>{t("portalUpdates.removeMember")}</Button>
             </li>)}
           </ul>
@@ -156,7 +156,7 @@ export function StudentManager() {
             const enrolled = selected?.members.some(member => casdoorUserIdsMatch(member.userId, student.id) || Boolean(student.casdoorUuid && casdoorUserIdsMatch(member.userId, student.casdoorUuid)));
             return <div key={student.id} className="flex items-center gap-3 border-b border-border py-3 last:border-0">
               <Avatar><AvatarImage src={student.avatar} alt=""/><AvatarFallback className="text-xs">{avatarInitials(student.displayName || student.name)}</AvatarFallback></Avatar>
-              <div className="min-w-0 flex-1"><p className="break-words text-sm font-semibold">{student.displayName || student.name}</p><p className="break-all text-xs text-muted-foreground">{t("settingsPanel.fieldUsername")}: {student.name}</p>{student.email && <p className="break-all text-xs text-muted-foreground">{student.email}</p>}</div>
+              <div className="min-w-0 flex-1"><p className="break-words text-sm font-semibold">{student.displayName || student.name}</p><p className="break-all text-xs text-muted-foreground">{t("portalUpdates.username")}: {student.name}</p>{student.email && <p className="break-all text-xs text-muted-foreground">{student.email}</p>}</div>
               <Button variant="outline" className="min-h-11 shrink-0 text-xs" disabled={busy || enrolled || !selected} onClick={() => selected && void mutate({ action: "addMembers", groupId: selected.id, members: [{ userId: student.id, userName: student.displayName || student.name, userAvatar: student.avatar || "" }] })}>{enrolled && <Check className="me-1 h-4 w-4"/>}{t(enrolled ? "portalUpdates.alreadyMember" : "teacherDashboard.btnAddToGroup")}</Button>
             </div>;
           })}
