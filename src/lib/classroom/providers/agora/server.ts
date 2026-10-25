@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import { RtcRole, RtcTokenBuilder } from "agora-token";
 import { classroomRuntimeDefaults } from "@/lib/classroom/config";
 import { buildScreenShareUserId } from "@/lib/classroom/screen-share";
@@ -269,7 +270,7 @@ async function agoraRecordingRequest(
       payload,
     );
   }
-  return payload;
+  return { ...payload, restHttpStatus: response.status };
 }
 
 function recordingStopIsUncertain(error: unknown): boolean {
@@ -376,8 +377,9 @@ async function recordingFilesFromStorage(
   if (prefix === "/") return [];
 
   const client = getAliyunOssClient();
-  const files: Array<{ fileName: string; isPlayable: true }> = [];
+  const files: Array<{ fileName: string; isPlayable: true; size: number; etag: string; lastModified: string }> = [];
   let marker: string | undefined;
+  let pages = 0;
   do {
     const result = await client.list(
       {
@@ -392,11 +394,15 @@ async function recordingFilesFromStorage(
         object.name.toLowerCase().endsWith(".mp4") ||
         object.name.toLowerCase().endsWith(".m3u8")
       ) {
-        files.push({ fileName: object.name, isPlayable: true });
+        if (object.size > 0) files.push({ fileName: object.name, isPlayable: true, size: object.size,
+          etag: object.etag || "", lastModified: object.lastModified || "" });
       }
     }
+    if (result.nextMarker && (result.nextMarker === marker || ++pages >= 20)) {
+      throw new Error("Recording asset listing exceeded its page limit");
+    }
     marker = result.nextMarker;
-  } while (marker && files.length < 100);
+  } while (marker);
 
   return files;
 }
@@ -729,6 +735,12 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
     let files = providerFiles;
     let playback = selectAgoraRecordingPlayback(files, prefixSegments);
     const postStop = Boolean(input.providerState?.lastStop);
+    // Only the authenticated response for the persisted SID is absence evidence.
+    // Transport errors and arbitrary HTTP errors must never masquerade as exit.
+    const taskMatches = (!payload.sid || payload.sid === input.providerSessionId) &&
+      (!payload.resourceId || payload.resourceId === input.resourceId);
+    const queryNotFound = response?.status === 404 && payload.code === 404 && !queryError && taskMatches;
+    let storageFingerprint: string | undefined;
 
     // Agora can release the query resource before its final file list reaches
     // the application. The files are already durable in OSS at that point, so
@@ -736,7 +748,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
     // lesson in `processing` forever when NCS delivery is delayed or missing.
     const status = payload.serverResponse?.status;
     const active = status === 4 || status === 5;
-    if (shouldRecoverRecordingFromStorage({
+    if (postStop || shouldRecoverRecordingFromStorage({
       active: active || Boolean(queryError) || Boolean(response && !response.ok && !recordingResourceExpired(payload)),
       postStop,
       providerExpired: recordingResourceExpired(payload),
@@ -744,6 +756,9 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
     })) {
       try {
         const storageFiles = await recordingFilesFromStorage(prefixSegments);
+        if (storageFiles.length) storageFingerprint = createHash("sha256")
+          .update(JSON.stringify([...storageFiles].sort((a, b) => String((a as { fileName: string }).fileName).localeCompare(String((b as { fileName: string }).fileName)))))
+          .digest("hex");
         const storagePlayback = selectAgoraRecordingPlayback(
           storageFiles,
           prefixSegments,
@@ -760,7 +775,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
     if (queryError && !playback.objectKey) {
       throw queryError;
     }
-    if (response && !response.ok && !playback.objectKey) {
+    if (response && !response.ok && !playback.objectKey && !queryNotFound) {
       throw new ClassroomProviderRequestError(
         payload.reason || "Agora recording query failed",
         response.status,
@@ -773,7 +788,8 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
       files,
       playbackObjectKey: playback.objectKey,
       playbackFormat: playback.format,
-      providerState: { ...payload, queryVerified: Boolean(response?.ok && !queryError) },
+      providerState: { ...payload, queryVerified: Boolean(response?.ok && !queryError && taskMatches && (!payload.code || payload.code === 0)),
+        queryHttpStatus: response?.status ?? null, queryNotFound, storageFingerprint },
     };
   }
 
@@ -791,9 +807,9 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
           cname: input.channelName,
           uid: input.recorderUserId,
           clientRequest: {
-            // Match the proven meeting service behavior: return promptly and
-            // discover the final media through query/OSS reconciliation.
-            async_stop: true,
+            // This runs in the durable background worker, outside the UI/DB
+            // transaction. A synchronous response can prove upload completion.
+            async_stop: false,
           },
         },
         config,
@@ -808,12 +824,13 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
       }
       throw error;
     }
-    if (stopped.code === 62 || stopped.code === 65) {
+    if (typeof stopped.code === "number" && stopped.code !== 0) {
       throw new ClassroomRecordingStopUncertainError(
         `Cloud recording stop returned code ${stopped.code}; finalization will be reconciled`,
         stopped,
       );
     }
+    const stopState = { ...stopped, stopVerified: stopped.restHttpStatus === 200, stopSynchronous: true };
     const files = responseFiles(stopped);
     const prefixSegments = Array.isArray(
       input.providerState?.fileNamePrefix,
@@ -836,7 +853,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
             playbackObjectKey: storagePlayback.objectKey,
             playbackFormat: storagePlayback.format,
             files: storageFiles,
-            providerState: stopped,
+            providerState: stopState,
           };
         }
       } catch (error) {
@@ -849,7 +866,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
       playbackObjectKey: playback.objectKey,
       playbackFormat: playback.format,
       files,
-      providerState: stopped,
+      providerState: stopState,
     };
   }
 }

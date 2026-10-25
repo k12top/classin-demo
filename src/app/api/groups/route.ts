@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { assertCourseOwner } from "@/lib/course-teacher";
 import { getSessionFromRequest } from "@/lib/session";
+import { searchCasdoorUsers } from "@/lib/casdoor-server";
+import { enrichGroupIdentities } from "@/lib/group-member-identity";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -45,9 +47,11 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
-    const rootGroups = groups.filter(
+    const directory = groups.some(group => group.members.some(member => /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(member.userId.split("/").pop() || "")))
+      ? await searchCasdoorUsers("", { studentsOnly: false, limit: Number.MAX_SAFE_INTEGER }) : [];
+    const rootGroups = enrichGroupIdentities(groups.filter(
       (g: { parentId: string | null }) => !g.parentId
-    );
+    ), directory);
     return NextResponse.json(
       { groups: rootGroups },
       {

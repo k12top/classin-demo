@@ -37,7 +37,7 @@ export async function POST(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: courseId } = await params;
-  if (!(await assertCanUploadCourseware(session, courseId))) {
+  if (!(await assertCanUploadCourseware(session, courseId, new URL(request.url).searchParams.get("sessionId")?.trim() || null))) {
     return NextResponse.json({ code: COURSEWARE_UPLOAD_FORBIDDEN, error: "Only assigned course teachers can upload courseware" }, { status: 403 });
   }
 

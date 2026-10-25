@@ -14,12 +14,14 @@ function fixture(identity: { userId: string; name: string; role: string } | null
       calls.queried.push(where.id);
       return where.id === "course" ? course : null;
     } },
+    courseSession: { findFirst: async ({ where }: { where: { id: string; courseId: string } }) => where.id === "lesson" && where.courseId === "course" ? { id: "lesson" } : null },
     courseware: { create: async ({ data }: { data: Record<string, unknown> }) => { calls.created++; return { ...data, id: "file" }; } },
   };
-  const policy = loadModule<Policy>("src/lib/courseware-upload-access.ts", { "@/lib/db": { prisma } });
+  const policy = loadModule<Policy>("src/lib/courseware-upload-access.ts", { "@/lib/db": { prisma }, "@/lib/course-session-roster": { getEffectiveSessionRoster: async () => ({ teachers: [{ userId: "lesson-helper" }] }) } });
   class StorageError extends Error { missingVariables = ["ALIYUN_OSS_BUCKET"]; }
   let storageFailure = false;
   const stubs = {
+    "@/lib/classroom/server/redis-sync": { refreshClassroomRedisControl: async () => true },
     "next/server": { NextResponse: Response },
     "@/lib/session": { getSessionFromRequest: async () => identity },
     "@/lib/courseware-upload-access": policy,
@@ -39,9 +41,9 @@ function fixture(identity: { userId: string; name: string; role: string } | null
   };
   const upload = loadModule<UploadRoute>("src/app/api/courses/[id]/courseware/upload-url/route.ts", stubs);
   const create = loadModule<CreateRoute>("src/app/api/courses/[id]/courseware/route.ts", stubs);
-  const call = (kind: "upload" | "create", courseId = "course", patch = {}) => {
+  const call = (kind: "upload" | "create", courseId = "course", patch = {}, sessionId?: string) => {
     const body = kind === "upload" ? { filename: "lesson.pptx", contentType: "application/octet-stream", size: 100, ...patch } : { name: "Lesson", ext: "pptx", objectKey: `${courseId}/lesson.pptx`, size: 100, ...patch };
-    return (kind === "upload" ? upload : create).POST(new Request("https://test/courseware", { method: "POST", body: JSON.stringify(body) }) as never, { params: Promise.resolve({ id: courseId }) });
+    return (kind === "upload" ? upload : create).POST(new Request(`https://test/courseware${sessionId ? `?sessionId=${sessionId}` : ""}`, { method: "POST", body: JSON.stringify(body) }) as never, { params: Promise.resolve({ id: courseId }) });
   };
   return { call, calls, policy, failStorage: () => { storageFailure = true; } };
 }
@@ -110,3 +112,22 @@ test("upload feedback preserves storage errors and create rejects a cross-course
   assert.equal((await other.call("create", "course", { objectKey: "other-course/private.pptx" })).status, 400);
   assert.equal(other.calls.head + other.calls.created, 0);
 });
+
+for (const kind of ["upload", "create"] as const) {
+  test(`${kind}: lesson assistant uploads are bound to the authorized lesson`, async () => {
+    const f = fixture({ userId: "uuid-helper", name: "lesson-helper", role: "teacher" });
+    const response = await f.call(kind, "course", {}, "lesson");
+    assert.equal(response.status, kind === "upload" ? 200 : 201);
+    if (kind === "create") {
+      const { courseware } = await response.json();
+      assert.equal(courseware.sessionId, "lesson");
+      assert.equal(courseware.studentCanView, true);
+      assert.equal(courseware.studentCanDownload, true);
+    }
+  });
+  test(`${kind}: unknown or foreign lesson is rejected before OSS`, async () => {
+    const f = fixture({ userId: "uuid-helper", name: "lesson-helper", role: "teacher" });
+    assert.equal((await f.call(kind, "course", {}, "other-lesson")).status, 403);
+    assert.equal(f.calls.signed + f.calls.head + f.calls.created, 0);
+  });
+}

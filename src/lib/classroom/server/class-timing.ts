@@ -42,7 +42,13 @@ export async function changeClassroomTiming(input: { sessionId: string; courseId
           OR: [{ status: { in: ["starting", "recording", "stopping", "processing"] } }, { status: "failed", failureStage: "start-unknown" }] },
         data: { status: "stopping", stopRequestedAt: now },
       });
-      if (state.recordingStartMode !== "disabled" && getRecordingProvider(lesson.recordingProvider).isConfigured()) {
+      const previousAttempt = await tx.classroomRecording.findFirst({ where: {
+        sessionId: lesson.id, createdAt: { lt: now },
+        OR: [{ status: { in: ["starting", "recording", "stopping", "processing"] } }, { failureStage: "start-unknown" }],
+      } });
+      // Preserve production's unconfirmed-provider fence. Recovery after the
+      // old stop acknowledgement will create the new-cycle task when needed.
+      if (!previousAttempt && state.recordingStartMode !== "disabled" && getRecordingProvider(lesson.recordingProvider).isConfigured()) {
         recordingId = (await requestRecordingStart(lesson.courseId, lesson.id, tx)).id;
       }
       // Old heartbeats and stage grants cannot silently resume in the new class cycle.

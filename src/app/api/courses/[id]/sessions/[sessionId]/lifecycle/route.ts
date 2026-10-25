@@ -7,6 +7,7 @@ import { closeAllOpenAttendanceForLesson } from "@/lib/course-attendance";
 import {
   processRecordingStart,
   stopActiveRecordingsForCourse,
+  recoverInterruptedRecordingForSession,
 } from "@/lib/classroom/server/recording-orchestrator";
 import {
   stopClassroomTranscription,
@@ -119,16 +120,19 @@ async function handlePost(request: NextRequest, context: Context) {
       clearCourseSessionAccessCache();
       await synchronizeClassroomRedis(resolved.sessionId, true);
       after(() => deliverClassroomEvents());
-      if (body.action === "reopen") after(async () => {
-        const results = await Promise.allSettled([
-          // Exclude every task created in the new cycle from delayed cleanup.
-          stopActiveRecordingsForCourse(resolved.courseId, resolved.sessionId, new Date(Date.parse(timing.startTime) - 1)),
-          ...(timing.recordingId ? [processRecordingStart(timing.recordingId)] : []),
-          syncClassroomTranscription(resolved.courseId, { sessionId: resolved.sessionId }),
+      if (body.action === "reopen" || body.action === "extend") after(async () => {
+        const outcomes = await Promise.allSettled([
+          (async () => {
+            if (body.action === "reopen") {
+              // Finish the previous provider attempt before starting its successor.
+              await stopActiveRecordingsForCourse(resolved.courseId, resolved.sessionId, new Date(Date.parse(timing.startTime) - 1));
+              if (timing.recordingId) await processRecordingStart(timing.recordingId);
+            }
+            await recoverInterruptedRecordingForSession(resolved.courseId, resolved.sessionId);
+          })(),
+          ...(body.action === "reopen" ? [syncClassroomTranscription(resolved.courseId, { sessionId: resolved.sessionId })] : []),
         ]);
-        for (const result of results) if (result.status === "rejected") console.error("[classroom:lifecycle] reopen provider recovery pending reconciliation", {
-          sessionId: resolved.sessionId, error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-        });
+        for (const outcome of outcomes) if (outcome.status === "rejected") console.error("[classroom:lifecycle] continuity pending cron recovery", { sessionId: resolved.sessionId, name: outcome.reason instanceof Error ? outcome.reason.name : "UnknownError" });
       });
       return NextResponse.json({ timing });
     } catch (error) {

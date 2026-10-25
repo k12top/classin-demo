@@ -6,8 +6,9 @@ import {
   isCoursewareObjectKey,
   toCoursewareStorageUrl,
 } from "@/lib/aliyun-oss";
-import { resolveCoursewareAccess } from "@/lib/courseware-access";
+import { getCoursewareLessons, resolveCoursewareAccess } from "@/lib/courseware-access";
 import { assertCanUploadCourseware, COURSEWARE_UPLOAD_FORBIDDEN } from "@/lib/courseware-upload-access";
+import { refreshClassroomRedisControl } from "@/lib/classroom/server/redis-sync";
 import { refreshCoursewareConversions } from "@/lib/courseware-conversion";
 import type { Prisma } from "@prisma/client";
 
@@ -23,7 +24,7 @@ export async function GET(
   }
 
   const { id: courseId } = await params;
-  const requestedSessionId = request.nextUrl.searchParams.get("sessionId")?.trim() || null;
+  const requestedSessionId = new URL(request.url).searchParams.get("sessionId")?.trim() || null;
 
   try {
     const access = await resolveCoursewareAccess(
@@ -35,6 +36,12 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     const teaching = access.teaching;
+    const lessons = requestedSessionId || teaching ? [] : access.lessons ?? await getCoursewareLessons(session, courseId);
+    const uploadSessions = lessons.filter(lesson => lesson.teaching);
+
+    const teachingFileIds = new Set<string>();
+    const teachingRules = new Map<string, { coursewareId: string; action: string }[]>();
+    let teachingFilters: Prisma.CoursewareWhereInput[] = [];
     let lessonFilter: Prisma.CoursewareWhereInput = { sessionId: null };
     if (requestedSessionId) {
       const lesson = await prisma.courseSession.findFirst({
@@ -62,10 +69,31 @@ export async function GET(
         ],
       };
     }
+    if (!requestedSessionId && !teaching) {
+      // The library is the union of exposed files, not the entire course's
+      // lesson-owned files. Explicit include/exclude rules stay authoritative.
+      const visibleLessons = lessons;
+      const filters = await Promise.all(visibleLessons.map(async lesson => {
+        const rules = await prisma.courseSessionCourseware.findMany({
+          where: { sessionId: lesson.id }, select: { coursewareId: true, action: true },
+        });
+        if (lesson.teaching) teachingRules.set(lesson.id, rules);
+        return { OR: [
+          { sessionId: null, id: { notIn: rules.filter(rule => rule.action === "exclude").map(rule => rule.coursewareId) } },
+          { sessionId: lesson.id },
+          { id: { in: rules.filter(rule => rule.action === "include").map(rule => rule.coursewareId) } },
+        ] };
+      }));
+      teachingFilters = filters.filter((_, index) => lessons.find(lesson => lesson.id === visibleLessons[index].id)?.teaching);
+      lessonFilter = teaching ? {} : filters.length ? { OR: filters } : { sessionId: null };
+    }
+    if (!requestedSessionId && teaching) lessonFilter = {};
     const itemWhere: Prisma.CoursewareWhereInput = {
       courseId,
-      ...lessonFilter,
-      ...(!teaching ? { studentCanView: true } : {}),
+      ...(teaching ? lessonFilter : { OR: [
+        { ...lessonFilter, studentCanView: true },
+        ...(teachingFilters.length ? [{ OR: teachingFilters }] : []),
+      ] }),
     };
 
     const items = await refreshCoursewareConversions(await prisma.courseware.findMany({
@@ -73,13 +101,23 @@ export async function GET(
       orderBy: { createdAt: "desc" },
     }));
 
+    if (!teaching && uploadSessions.length) {
+      for (const item of items) {
+        if (uploadSessions.some(lesson => {
+          if (item.sessionId === lesson.id) return true;
+          const rule = teachingRules.get(lesson.id)?.find(rule => rule.coursewareId === item.id);
+          return rule ? rule.action === "include" : item.sessionId === null;
+        })) teachingFileIds.add(item.id);
+      }
+    }
     return NextResponse.json(
       {
+        uploadSessions,
         courseware: items.map((item) => ({
           ...item,
           url: undefined,
           downloadUrl:
-            teaching || item.studentCanDownload
+            teaching || teachingFileIds.has(item.id) || item.studentCanDownload
               ? `/api/courses/${courseId}/courseware/${item.id}/download${
                   requestedSessionId
                     ? `?sessionId=${encodeURIComponent(requestedSessionId)}`
@@ -112,8 +150,9 @@ export async function POST(
   const { id: courseId } = await params;
 
   try {
+    const requestedSessionId = new URL(request.url).searchParams.get("sessionId")?.trim() || null;
     if (
-      !(await assertCanUploadCourseware(session, courseId))
+      !(await assertCanUploadCourseware(session, courseId, requestedSessionId))
     ) {
       return NextResponse.json({ code: COURSEWARE_UPLOAD_FORBIDDEN, error: "Only assigned course teachers can upload courseware" }, { status: 403 });
     }
@@ -143,6 +182,7 @@ export async function POST(
     const item = await prisma.courseware.create({
       data: {
         courseId,
+        sessionId: requestedSessionId,
         name: name.trim(),
         ext: cleanExt,
         size: size || 0,
@@ -154,6 +194,8 @@ export async function POST(
         whiteboardEnabled: false,
       },
     });
+
+    if (requestedSessionId) await refreshClassroomRedisControl(requestedSessionId);
 
     return NextResponse.json(
       {

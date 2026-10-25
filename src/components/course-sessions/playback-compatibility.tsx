@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { Copy, ExternalLink, RefreshCw } from "lucide-react";
+import { CircleHelp, Copy, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { useTranslation } from "@/lib/i18n/context";
 import { connectPlaybackMedia, type PlaybackIssue } from "@/lib/playback-media";
@@ -37,7 +38,7 @@ export function usePlaybackMedia(videoRef: RefObject<HTMLVideoElement | null>, s
   return { issue, directUrl, retry };
 }
 
-export function PlaybackCompatibility({ issue, directUrl, src, isHls, sharePath, onRetry, onExternalPlay }: {
+export function PlaybackCompatibility({ issue, directUrl, src, isHls, sharePath, onRetry, onExternalPlay, onRecheck, recheckBusy }: {
   issue: PlaybackIssue | null;
   directUrl: string | null;
   src: string;
@@ -45,6 +46,8 @@ export function PlaybackCompatibility({ issue, directUrl, src, isHls, sharePath,
   sharePath: string;
   onRetry: () => void;
   onExternalPlay: () => void;
+  onRecheck?: () => void;
+  recheckBusy?: boolean;
 }) {
   const { t } = useTranslation();
   const [wechat, setWechat] = useState(false);
@@ -55,7 +58,6 @@ export function PlaybackCompatibility({ issue, directUrl, src, isHls, sharePath,
     queueMicrotask(() => {
       const inWechat = /MicroMessenger/i.test(navigator.userAgent);
       setWechat(inWechat);
-      if (inWechat) setHelpOpen(true);
     });
   }, []);
   useEffect(() => {
@@ -74,39 +76,48 @@ export function PlaybackCompatibility({ issue, directUrl, src, isHls, sharePath,
   };
 
   return (
-    <div className="border-t border-white/10 bg-zinc-950 px-4 py-3 text-sm text-zinc-200">
-      {issue && <p role="alert" className="mb-3 leading-relaxed">{t(`playback.compatibility.${issue}`)}</p>}
-      <details open={helpOpen} onToggle={(event) => setHelpOpen(event.currentTarget.open)}>
-        <summary className="min-h-11 cursor-pointer rounded-sm py-3 font-medium focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">
-          {t("playback.compatibility.title")}
-        </summary>
-        <p className="mt-2 max-w-prose leading-relaxed text-zinc-300">
+    <div className="flex shrink-0 justify-end">
+      <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
+        <DialogTrigger asChild>
+          <Button type="button" variant="ghost" className="min-h-11 gap-2 text-xs text-white/80 hover:bg-white/10 hover:text-white" aria-label={t("portalUpdates.playbackHelp")} title={t("portalUpdates.playbackHelp")}>
+            <CircleHelp className="h-4 w-4" aria-hidden="true" />{t("portalUpdates.playbackHelp")}
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="max-w-lg">
+        <DialogHeader><DialogTitle>{t("portalUpdates.playbackHelp")}</DialogTitle></DialogHeader>
+        {issue && <p role="alert" className="leading-relaxed text-destructive">{t(`playback.compatibility.${issue}`)}</p>}
+        <DialogDescription className="max-w-prose text-sm leading-relaxed text-muted-foreground">
           {t(wechat ? "playback.compatibility.wechatHint" : "playback.compatibility.browserHint")}
-        </p>
+        </DialogDescription>
         <div className="mt-3 flex flex-wrap gap-2">
-          <Button type="button" variant="outline" className="min-h-11 border-zinc-600 bg-transparent text-white hover:bg-zinc-800 hover:text-white" onClick={onRetry}>
+          <Button type="button" variant="outline" className="min-h-11" onClick={() => { onRetry(); setHelpOpen(false); }}>
             <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />{t("playback.compatibility.retry")}
           </Button>
-          {!isHls && <Button asChild variant="outline" className="min-h-11 border-zinc-600 bg-transparent text-white hover:bg-zinc-800 hover:text-white">
+          {!isHls && <Button asChild variant="outline" className="min-h-11">
             <a href={directUrl || src} target="_blank" rel="noopener noreferrer" onClick={onExternalPlay}>
               <ExternalLink className="mr-2 h-4 w-4" aria-hidden="true" />{t("playback.compatibility.openMp4")}
             </a>
           </Button>}
-          <Button type="button" variant="outline" className="min-h-11 border-zinc-600 bg-transparent text-white hover:bg-zinc-800 hover:text-white" onClick={() => void copyPage()}>
+          <Button type="button" variant="outline" className="min-h-11" onClick={() => void copyPage()}>
             <Copy className="mr-2 h-4 w-4" aria-hidden="true" />{t("playback.compatibility.copyPage")}
           </Button>
+          {onRecheck && <Button type="button" variant="outline" className="min-h-11" disabled={recheckBusy} onClick={onRecheck}>
+            {recheckBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />}
+            {t("portalUpdates.recheckRecording")}
+          </Button>}
         </div>
-        {!isHls && <p className="mt-2 text-sm leading-relaxed text-zinc-400">{t("playback.compatibility.externalHint")}</p>}
-        <div role="status" className="mt-2 text-sm leading-relaxed text-zinc-300">
+        {!isHls && <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{t("playback.compatibility.externalHint")}</p>}
+        <div role="status" className="mt-2 text-sm leading-relaxed text-muted-foreground">
           {copyState === "copied" && t("playback.compatibility.copied")}
           {copyState === "manual" && <>
             <label className="block">{t("playback.compatibility.manualCopy")}
               <input readOnly value={pageUrl} onFocus={(event) => event.currentTarget.select()}
-                className="mt-2 w-full min-w-0 rounded-md border border-zinc-600 bg-zinc-900 px-3 py-2 text-base text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white" />
+                className="mt-2 w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 text-base text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary" />
             </label>
           </>}
         </div>
-      </details>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

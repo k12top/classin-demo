@@ -25,6 +25,7 @@ export type CoursewareAccessScope = {
   teaching: boolean;
   scope: "course" | "session" | "none";
   sessionId: string | null;
+  lessons?: Awaited<ReturnType<typeof getCoursewareLessons>>;
 };
 
 /**
@@ -103,6 +104,16 @@ export async function resolveCoursewareAccess(
     }
   }
 
+  // Course detail accepts lesson-only members too. Keep the library entry
+  // aligned without granting them access to any other lesson's materials.
+  if (!requestedSessionId) {
+    const lessons = await getCoursewareLessons(session, courseId);
+    if (lessons.length) return {
+      allowed: true, canTeachCourse: false, teaching: false,
+      scope: "session", sessionId: null, lessons,
+    };
+  }
+
   return {
     allowed: false,
     canTeachCourse: false,
@@ -149,5 +160,21 @@ export async function canAccessCourseware(
   session: CoursewareIdentity,
   courseId: string,
 ): Promise<boolean> {
-  return (await resolveCoursewareAccess(session, courseId)).allowed;
+  const access = await resolveCoursewareAccess(session, courseId);
+  return access.allowed && access.scope === "course";
+}
+
+/** Authorized lessons only, including custom rosters and linked lesson groups. */
+export async function getCoursewareLessons(session: CoursewareIdentity, courseId: string) {
+  const lessons = await prisma.courseSession.findMany({
+    where: { courseId }, select: { id: true, title: true },
+    orderBy: [{ startTime: "asc" }, { position: "asc" }],
+  });
+  const candidates = identityCandidates(session);
+  const results = await Promise.all(lessons.map(async lesson => {
+    const roster = await getEffectiveSessionRoster(lesson.id);
+    const member = roster && rosterContainsUser(roster, candidates);
+    return member ? { ...lesson, teaching: member.kind === "teacher" } : null;
+  }));
+  return results.filter((lesson): lesson is NonNullable<typeof lesson> => lesson !== null);
 }

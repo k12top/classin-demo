@@ -1,3 +1,4 @@
+import { getEffectiveSessionRoster } from "@/lib/course-session-roster";
 import { prisma } from "@/lib/db";
 import type { SessionPayload } from "@/lib/session";
 
@@ -36,11 +37,19 @@ export function canUploadCoursewareForCourse(
   });
 }
 
-export async function assertCanUploadCourseware(session: UploadIdentity, courseId: string): Promise<boolean> {
+export async function assertCanUploadCourseware(session: UploadIdentity, courseId: string, sessionId?: string | null): Promise<boolean> {
   if (session.role !== "teacher") return false;
   const course = await prisma.course.findUnique({
     where: { id: courseId },
     select: { ownerId: true, teacherId: true, teachers: { select: { teacherId: true } } },
   });
-  return Boolean(course && canUploadCoursewareForCourse(session, course));
+  if (!course) return false;
+  if (!sessionId) return canUploadCoursewareForCourse(session, course);
+  const lesson = await prisma.courseSession.findFirst({ where: { id: sessionId, courseId }, select: { id: true } });
+  if (!lesson) return false;
+  if (canUploadCoursewareForCourse(session, course)) return true;
+  const roster = await getEffectiveSessionRoster(lesson.id);
+  return Boolean(roster && canUploadCoursewareForCourse(session, {
+    teacherId: "", teachers: roster.teachers.map(teacher => ({ teacherId: teacher.userId })),
+  }));
 }

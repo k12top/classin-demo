@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTranslation } from "@/lib/i18n/context";
 
-export function CoursewareUploader({ courseId, canUpload, onUploaded }: {
+export function CoursewareUploader({ courseId, sessionId, canUpload, onUploaded }: {
   courseId: string;
+  sessionId?: string;
   canUpload: boolean;
   onUploaded: () => void | Promise<void>;
 }) {
@@ -21,6 +22,7 @@ export function CoursewareUploader({ courseId, canUpload, onUploaded }: {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [uploaded, setUploaded] = useState(false);
+  const scopeQuery = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
   const forbidden = t("courseDetail.coursewareUploadForbidden");
 
   const submit = async (event: React.FormEvent) => {
@@ -35,7 +37,7 @@ export function CoursewareUploader({ courseId, canUpload, onUploaded }: {
     setError("");
     setUploaded(false);
     try {
-      const signed = await fetch(`/api/courses/${courseId}/courseware/upload-url`, {
+      const signed = await fetch(`/api/courses/${courseId}/courseware/upload-url${scopeQuery}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ filename: file.name, contentType: file.type || "application/octet-stream", size: file.size }),
       });
@@ -43,7 +45,7 @@ export function CoursewareUploader({ courseId, canUpload, onUploaded }: {
       if (!signed.ok) throw new Error(signed.status === 403 ? forbidden : upload.error || t("courseDetail.errCwAddFailed"));
       const stored = await fetch(upload.uploadUrl, { method: "PUT", headers: { "Content-Type": upload.contentType }, body: file });
       if (!stored.ok) throw new Error(t("courseDetail.coursewareOssUploadFailed"));
-      const created = await fetch(`/api/courses/${courseId}/courseware`, {
+      const created = await fetch(`/api/courses/${courseId}/courseware${scopeQuery}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim() || file.name, objectKey: upload.objectKey, ext, size: file.size }),
       });

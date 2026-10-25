@@ -109,6 +109,7 @@ export async function ensureClassroomRuntime(
     (!ended || existing.status === "ended");
   const runtime = unchanged ? existing : await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT "id" FROM "CourseSession" WHERE "id" = ${sessionId} FOR UPDATE`;
     const currentLesson = await tx.courseSession.findUniqueOrThrow({ where: { id: sessionId } });
     const ended = currentLesson.status === CourseStatus.FINISHED || currentLesson.status === CourseStatus.CANCELLED;
     const previous = await tx.classroomRuntime.findUnique({ where: { sessionId }, select: { status: true } });
@@ -141,13 +142,14 @@ export async function ensureClassroomRuntime(
   ) {
     const updated = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT "id" FROM "CourseSession" WHERE "id" = ${sessionId} FOR UPDATE`;
       const current = await tx.classroomRuntime.findUniqueOrThrow({ where: { sessionId } });
       const currentLesson = await tx.courseSession.findUniqueOrThrow({ where: { id: sessionId } });
       const graceEndsAt = classroomGraceEndAt(currentLesson.endTime);
       // An extension/reopen may have committed since the initial read. Do
       // not close a fresh cycle using its predecessor's cached deadline.
-      if (current.status === "ended") return current;
-      if (currentLesson.status !== CourseStatus.FINISHED && currentLesson.status !== CourseStatus.CANCELLED && graceEndsAt && graceEndsAt.getTime() > Date.now()) {
+      if (current.status === "ended" || !graceEndsAt) return current;
+      if (currentLesson.status !== CourseStatus.FINISHED && currentLesson.status !== CourseStatus.CANCELLED && (!graceEndsAt || graceEndsAt.getTime() > Date.now())) {
         return current.graceEndsAt?.getTime() === graceEndsAt.getTime() ? current
           : tx.classroomRuntime.update({ where: { id: current.id }, data: { graceEndsAt } });
       }

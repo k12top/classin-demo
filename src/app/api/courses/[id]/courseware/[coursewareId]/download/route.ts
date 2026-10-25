@@ -4,6 +4,7 @@ import {
   CoursewareStorageConfigurationError,
 } from "@/lib/aliyun-oss";
 import {
+  getCoursewareLessons,
   isCoursewareAvailableInSession,
   resolveCoursewareAccess,
 } from "@/lib/courseware-access";
@@ -50,11 +51,17 @@ export async function GET(
   ) {
     return NextResponse.json({ error: "该课件未开放给此课次" }, { status: 403 });
   }
-  if (!requestedSessionId && courseware.sessionId && !access.teaching) {
-    return NextResponse.json({ error: "该课件仅对指定课次开放" }, { status: 403 });
+  let teachingFile = access.teaching;
+  if (!requestedSessionId && !access.teaching) {
+    const lessons = await getCoursewareLessons(session, courseId);
+    const exposed = await Promise.all(lessons.map(lesson => isCoursewareAvailableInSession(courseware, lesson.id)));
+    teachingFile = lessons.some((lesson, index) => lesson.teaching && exposed[index]);
+    if ((lessons.length || courseware.sessionId || access.scope === "session") && !exposed.some(Boolean)) {
+      return NextResponse.json({ code: "COURSEWARE_FORBIDDEN", error: "Courseware is not available in your lessons" }, { status: 403 });
+    }
   }
   if (
-    !access.teaching &&
+    !teachingFile &&
     (!courseware.studentCanView || !courseware.studentCanDownload)
   ) {
     return NextResponse.json({ error: "该课件未开放下载" }, { status: 403 });

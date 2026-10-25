@@ -1,0 +1,22 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Disposable PG and isolated provider. */
+const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),esbuild=require('esbuild');
+const root=path.resolve(__dirname,'../..'),url=new URL(process.env.DATABASE_URL||'http://invalid');
+assert.ok(url.hostname==='127.0.0.1'&&url.port==='55438'&&url.pathname.startsWith('/classroom_recovery_release_'),'dedicated loopback release DB required');
+(async()=>{
+ const output=path.join(root,'node_modules/.cache/recording-admission.cjs');
+ const stubs={'server-only':'','@/lib/classroom/server/provider-factory':'export const getRecordingProvider=()=>({name:"fixture",isConfigured:()=>true,validateConfiguration(){}});export const getClassroomServerProvider=()=>({});','@/lib/classroom/server/recorder-token':'export const isRecorderPageConfigured=()=>true;export const createRecorderPageUrl=async()=>"http://isolated.invalid";export const assertRecorderPageReachable=async()=>{};','@/lib/classroom/server/integration-events':'export const enqueueClassroomEvent=async()=>{};'};
+ await esbuild.build({stdin:{contents:"export {prisma} from '@/lib/db'; export {requestRecordingStart} from '@/lib/classroom/server/recording-orchestrator'; export {changeClassroomTiming} from '@/lib/classroom/server/class-timing';",resolveDir:root},outfile:output,bundle:true,platform:'node',format:'cjs',packages:'external',tsconfig:path.join(root,'tsconfig.json'),plugins:[{name:'isolated-provider',setup(b){b.onResolve({filter:/.*/},({path:id})=>{const key=id==='./provider-factory'?'@/lib/classroom/server/provider-factory':id;return key in stubs?{path:key,namespace:'stub'}:undefined});b.onLoad({filter:/.*/,namespace:'stub'},({path:id})=>({contents:stubs[id],loader:'js'}));}}]});
+ const api=require(output),db=api.prisma;const course=await db.course.create({data:{name:'Release recording admission',ownerId:'teacher',ownerName:'Teacher',teacherId:'teacher',teacherName:'Teacher'}});let position=0;
+ const lesson=async()=>{const x=await db.courseSession.create({data:{courseId:course.id,position:++position,roomUuid:crypto.randomUUID(),roomType:4,createdBy:'teacher',status:'live',startTime:new Date(Date.now()-3600000),endTime:new Date(Date.now()+3600000)}});await db.classroomRuntime.create({data:{courseId:course.id,sessionId:x.id,status:'live',startedAt:x.startTime,recordingStartMode:'manual'}});return x;};
+ try{
+  const concurrent=await lesson();const starts=await Promise.all(Array.from({length:6},()=>api.requestRecordingStart(course.id,concurrent.id)));
+  assert.equal(new Set(starts.map(x=>x.id)).size,1);assert.equal(await db.classroomRecording.count({where:{sessionId:concurrent.id}}),1);console.log('PASS concurrent starts serialize to one durable task');
+  const old=await lesson();await db.courseSession.update({where:{id:old.id},data:{status:'finished',endedAt:new Date()}});await db.classroomRuntime.update({where:{sessionId:old.id},data:{status:'ended'}});
+  const unknown=await db.classroomRecording.create({data:{courseId:course.id,sessionId:old.id,provider:'fixture',channelName:old.roomUuid,recorderUserId:'pending',status:'failed',failureStage:'start-unknown',createdAt:new Date(Date.now()-60000)}});
+  const timing=await api.changeClassroomTiming({sessionId:old.id,courseId:course.id,actorId:'teacher',role:'teacher',action:'reopen'});
+  assert.equal(timing.recordingId,undefined);assert.equal((await db.classroomRuntime.findUnique({where:{sessionId:old.id}})).status,'live');assert.ok((await db.classroomRecording.findUnique({where:{id:unknown.id}})).stopRequestedAt);console.log('PASS reopen persists old stop without failing or duplicating an unknown provider task');
+  await assert.rejects(api.requestRecordingStart(course.id,old.id),/previous provider startup/);assert.equal(await db.classroomRecording.count({where:{sessionId:old.id}}),1);console.log('PASS unconfirmed startup outcome fences new recorder admission');
+  await db.classroomRecording.update({where:{id:unknown.id},data:{status:'completed',failureStage:null}});
+  const fresh=await api.requestRecordingStart(course.id,old.id);assert.notEqual(fresh.id,unknown.id);assert.ok(fresh.createdAt>=new Date(timing.startTime));console.log('PASS confirmed old completion permits a distinct new-cycle task');
+ }finally{await db.course.delete({where:{id:course.id}});await db.$disconnect();}
+})().catch(error=>{console.error(error);process.exitCode=1});

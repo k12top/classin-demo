@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useId, useState, useEffect, useCallback } from "react";
+import { CoursewareUploader } from "@/components/courseware-uploader";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PlayCircle, Clock, User, BookOpen, FileText, Loader2, CalendarClock, CalendarCheck2, RefreshCw } from "lucide-react";
+import { PlayCircle, Clock, User, BookOpen, FileText, Loader2, CalendarClock, CalendarCheck2, RefreshCw, FolderLock } from "lucide-react";
 import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom } from "@/lib/course-status";
 import { useTranslation } from "@/lib/i18n/context";
@@ -48,7 +49,7 @@ interface CoursewareItem {
   name: string;
   ext: string;
   size?: number;
-  downloadUrl: string;
+  downloadUrl: string | null;
 }
 
 export default function StudentCourseDetail({ 
@@ -69,14 +70,23 @@ export default function StudentCourseDetail({
   const [courseware, setCourseware] = useState<CoursewareItem[]>([]);
   const [coursewareLoading, setCoursewareLoading] = useState(true);
   const [coursewareError, setCoursewareError] = useState("");
+  const [coursewareDenied, setCoursewareDenied] = useState(false);
+  const [uploadSessions, setUploadSessions] = useState<{ id: string; title: string }[]>([]);
+  const [uploadSessionId, setUploadSessionId] = useState("");
+  const uploadLessonId = useId();
 
   const fetchCourseware = useCallback(async () => {
     setCoursewareLoading(true);
     setCoursewareError("");
+    setCoursewareDenied(false);
     try {
       const res = await fetch(`/api/courses/${course.id}/courseware`);
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || t("common.failed"));
+      if (!res.ok) {
+        setCoursewareDenied(res.status === 403 || res.status === 401);
+        throw new Error(t(res.status === 403 || res.status === 401 ? "portalUpdates.materialDeniedDesc" : "portalUpdates.materialLoadFailed"));
+      }
+      setUploadSessions(data.uploadSessions ?? []);
       setCourseware(data.courseware ?? []);
     } catch (e) {
       console.error("Failed to fetch courseware:", e);
@@ -225,14 +235,27 @@ export default function StudentCourseDetail({
               <CardDescription className="text-xs">{t("courseDetail.noCoursewareDesc")}</CardDescription>
             </CardHeader>
             <CardContent>
+              {uploadSessions.length > 0 && <details className="mb-6 rounded-xl border border-border p-4">
+                <summary className="cursor-pointer py-2 font-medium">{t("courseDetail.uploadCourseware")}</summary>
+                <div className="mt-3 space-y-3">
+                  <label htmlFor={uploadLessonId} className="text-sm font-medium">{t("portalUpdates.materialUploadLesson")}</label>
+                  <select id={uploadLessonId} className="min-h-11 w-full rounded-lg border border-border bg-background px-3 text-sm"
+                    value={uploadSessionId || uploadSessions[0].id} onChange={event => setUploadSessionId(event.target.value)}>
+                    {uploadSessions.map(lesson => <option key={lesson.id} value={lesson.id}>{lesson.title}</option>)}
+                  </select>
+                  <CoursewareUploader key={uploadSessionId || uploadSessions[0].id} courseId={course.id} sessionId={uploadSessionId || uploadSessions[0].id} canUpload onUploaded={fetchCourseware} />
+                </div>
+              </details>}
               {coursewareLoading ? (
                 <div className="flex items-center justify-center py-12" role="status">
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
                   <span className="sr-only">{t("common.loading")}</span>
                 </div>
               ) : coursewareError ? (
-                <div className="text-center py-12 border border-dashed border-destructive/40 rounded-xl bg-destructive/5" role="alert">
-                  <p className="text-sm text-destructive mb-4">{coursewareError}</p>
+                <div className="flex flex-col items-center rounded-xl bg-muted/30 px-6 py-10 text-center" role="alert">
+                  <FolderLock className="mb-4 h-14 w-14 text-primary/70" aria-hidden="true" />
+                  <h3 className="text-base font-semibold">{t(coursewareDenied ? "portalUpdates.materialDeniedTitle" : "portalUpdates.materialLoadFailed")}</h3>
+                  <p className="mb-5 mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">{coursewareError}</p>
                   <Button variant="outline" size="sm" onClick={() => void fetchCourseware()}>
                     <RefreshCw className="h-4 w-4 mr-2" />
                     {t("classroom.v3.retry")}
@@ -265,12 +288,12 @@ export default function StudentCourseDetail({
 
                       <div className="flex items-center gap-3">
                         <Badge className="bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 text-[10px]">{t("courseDetail.ready")}</Badge>
-                        <a
+                        {item.downloadUrl && <a
                           href={item.downloadUrl}
                           className="bg-primary hover:bg-primary/95 text-white text-xs px-3.5 py-2 rounded-xl font-medium shadow-sm transition-all"
                         >
                           {t("courseDetail.downloadCourseware")}
-                        </a>
+                        </a>}
                       </div>
                     </div>
                   ))}

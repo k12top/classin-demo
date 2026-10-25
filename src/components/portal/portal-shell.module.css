@@ -204,6 +204,16 @@
   min-width: 0;
 }
 
+.pageHeading { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.sidebarToggle {
+  display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 auto;
+  border: 1px solid hsl(var(--border)); border-radius: 12px;
+  background: hsl(var(--card)); color: hsl(var(--foreground)); cursor: pointer;
+}
+.sidebarToggle svg { width: 19px; height: 19px; }
+.sidebarToggle:hover { background: hsl(var(--muted)); }
+.sidebarToggle:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 3px; }
+
 .pageIdentity small {
   display: block;
   color: var(--portal-iris);
@@ -500,46 +510,45 @@
   text-align: left;
 }
 
-@media (max-width: 1024px) {
-  .shell {
+.shell[data-sidebar-collapsed="true"] {
     --portal-sidebar: 76px;
   }
 
-  .sidebar {
+.shell[data-sidebar-collapsed="true"] .sidebar {
     align-items: center;
     padding-inline: 10px;
   }
 
-  .brand {
+.shell[data-sidebar-collapsed="true"] .brand {
     justify-content: center;
     padding-inline: 0;
   }
 
-  .brandCopy,
-  .navLabel,
-  .navText,
-  .navHint {
+.shell[data-sidebar-collapsed="true"] .sidebar .brandCopy,
+.shell[data-sidebar-collapsed="true"] .sidebar .navLabel,
+.shell[data-sidebar-collapsed="true"] .sidebar .navText,
+.shell[data-sidebar-collapsed="true"] .sidebar .navHint {
     display: none;
   }
 
-  .nav {
+.shell[data-sidebar-collapsed="true"] .sidebar .nav {
     width: 100%;
   }
 
-  .navButton {
+.shell[data-sidebar-collapsed="true"] .sidebar .navButton {
     min-height: 48px;
     grid-template-columns: 1fr;
     justify-items: center;
     padding: 0;
   }
 
-  .navIcon {
+.shell[data-sidebar-collapsed="true"] .sidebar .navIcon {
     background: transparent;
   }
 
-}
 
 @media (max-width: 720px) {
+  .pageHeading { display: none; }
   .shell {
     --portal-sidebar: 0px;
   }
@@ -673,3 +682,17 @@
   .headerPreferences > :first-child { width: 110px; }
   .mobileBrand strong { max-width: 24vw; }
 }
+
+.navItem { position: relative; min-width: 0; }
+.navTooltip { display: none; }
+.shell[data-sidebar-collapsed="true"] .sidebar .navTooltip {
+  position: absolute; inset-inline-start: calc(100% + 12px); top: 50%; z-index: 60;
+  display: flex; align-items: center; gap: 16px; transform: translateY(-50%);
+  padding: 10px 14px; border: 1px solid hsl(var(--border)); border-radius: 8px;
+  background: hsl(var(--popover)); color: hsl(var(--popover-foreground));
+  box-shadow: 0 4px 16px rgb(0 0 0 / .12); font-size: 13px; white-space: nowrap;
+  visibility: hidden; opacity: 0; pointer-events: none;
+}
+.navTooltip small { color: hsl(var(--muted-foreground)); }
+.shell[data-sidebar-collapsed="true"] .sidebar .navItem:hover .navTooltip,
+.shell[data-sidebar-collapsed="true"] .sidebar .navItem:focus-within .navTooltip { visibility: visible; opacity: 1; }

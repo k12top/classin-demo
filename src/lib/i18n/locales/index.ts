@@ -22,7 +22,9 @@ import { it } from "./it";
 import { ar } from "./ar";
 import { hi } from "./hi";
 
-export const locales = {
+import { portalUpdates } from "./portal-updates";
+
+const baseLocales = {
   "zh-CN": zhCN,
   "zh-TW": zhTW,
   "en": en,
@@ -47,6 +49,12 @@ export const locales = {
   "ar": ar,
   "hi": hi,
 };
+
+export const locales = Object.fromEntries(
+  Object.entries(baseLocales).map(([locale, dictionary]) => [locale, {
+    ...dictionary, portalUpdates: portalUpdates[locale as keyof typeof portalUpdates],
+  }]),
+) as { [K in keyof typeof baseLocales]: typeof baseLocales[K] & { portalUpdates: typeof portalUpdates.en } };
 
 export type SupportedLocale = keyof typeof locales;
 
