@@ -86,8 +86,9 @@ function accessCacheKey(
   userId: string,
   userIdAliases: readonly string[] | undefined,
   referenceType: CourseSessionReferenceType | undefined,
+  purpose: "classroom" | "activities" | undefined,
 ) {
-  return JSON.stringify([referenceId, userId, userIdAliases || [], referenceType || "auto"]);
+  return JSON.stringify([referenceId, userId, userIdAliases || [], referenceType || "auto", purpose || "classroom"]);
 }
 
 function cacheSuccessfulAccess(
@@ -119,6 +120,7 @@ export async function resolveCourseSessionAccess(
     shareAccessToken?: string | null;
     referenceType?: CourseSessionReferenceType;
     skipCache?: boolean;
+    purpose?: "classroom" | "activities";
   } = {},
 ): Promise<CourseSessionAccessResult> {
   // Share-token authorization is intentionally never cached: revocation must
@@ -128,7 +130,7 @@ export async function resolveCourseSessionAccess(
   // full lesson roster for each one.
   const cacheKey = options.skipCache || options.shareAccessToken?.trim()
     ? null
-    : accessCacheKey(referenceId, userId, options.userIdAliases, options.referenceType);
+    : accessCacheKey(referenceId, userId, options.userIdAliases, options.referenceType, options.purpose);
   const cached = cacheKey ? accessCache.get(cacheKey) : undefined;
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   if (cached) accessCache.delete(cacheKey!);
@@ -148,6 +150,7 @@ async function resolveCourseSessionAccessUncached(
     userIdAliases?: readonly string[];
     shareAccessToken?: string | null;
     referenceType?: CourseSessionReferenceType;
+    purpose?: "classroom" | "activities";
   },
 ): Promise<CourseSessionAccessResult> {
   const initial = await resolveCourseSessionReference(referenceId, options.referenceType);
@@ -158,7 +161,10 @@ async function resolveCourseSessionAccessUncached(
   if (!lesson) {
     return { ok: false, httpStatus: 404, code: "not_found", reason: "课次不存在" };
   }
-  if (!canEnterClassroom(lesson.status)) {
+  // Activity records outlive classroom admission. Roster/share authorization
+  // below still applies; activity services separately enforce live writes.
+  const classroomEntry = options.purpose !== "activities";
+  if (!canEnterClassroom(lesson.status) && (classroomEntry || lesson.status !== CourseStatus.FINISHED)) {
     return {
       ok: false,
       httpStatus: 403,
@@ -168,7 +174,7 @@ async function resolveCourseSessionAccessUncached(
     };
   }
   const earlyMinutes = getEarlyClassroomEntryMinutes();
-  if (isTooEarlyToEnterClassroom(lesson.startTime, new Date(), earlyMinutes)) {
+  if (classroomEntry && isTooEarlyToEnterClassroom(lesson.startTime, new Date(), earlyMinutes)) {
     return {
       ok: false,
       httpStatus: 403,

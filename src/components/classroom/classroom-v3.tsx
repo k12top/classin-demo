@@ -1,5 +1,6 @@
 "use client";
 import { imageMessageContent } from "@/lib/classroom/chat-image-message";
+import { useWhiteboardShortcuts } from "@/lib/classroom/whiteboard/use-shortcuts";
 import { BoardToolsMenu } from "./board-tools-menu";
 import { MinimalHeader } from "./minimal-header";
 import { ClassroomQuickSettings } from "./quick-settings";
@@ -18,6 +19,8 @@ import type { ClassroomDeviceAck, ClassroomSignalingEvent } from "@/lib/classroo
 import { CoursewarePanel, type CoursewareInsertion } from "@/components/classroom/courseware-panel";
 
 import { ClassroomMemberAvatar } from "@/components/classroom/member-avatar";
+import { ClassroomDeviceEntry } from "./device-entry";
+import { classroomDeviceId, classroomDeviceLabel, type ClassroomDeviceEntryMode } from "@/lib/classroom/device-admission";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useChatUnread } from "@/lib/classroom/use-chat-unread";
 import { CaptionsPanel } from "@/components/classroom/captions-panel";
@@ -67,7 +70,8 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ACTIVITY_REFRESH_EVENT } from "@/lib/classroom/activities";
+import { StudentActivityOverlay } from "./student-activity-overlay";
+import { ACTIVITY_OPEN_EVENT, ACTIVITY_REFRESH_EVENT } from "@/lib/classroom/activities";
 import { ActivityNotice, ActivityWorkspace, ActivityStagePresentation } from "@/components/classroom/activity-workspace";
 import { DesktopRecordingControl } from "@/components/classroom/desktop-recording-control";
 import { requestClassroomAction } from "@/lib/classroom/action-request";
@@ -88,6 +92,7 @@ import {
   Camera,
   Check,
   ChevronRight,
+  ChevronDown,
   Circle,
   CircleStop,
   Clock3,
@@ -223,7 +228,7 @@ import {
   mergeCaptionSnapshots,
 } from "@/lib/classroom/caption-display";
 
-type LoadingState = "loading" | "ready" | "error";
+type LoadingState = "loading" | "ready" | "error" | "device-choice" | "device-replaced";
 const CLASSROOM_BACKGROUND_IMAGE_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -1068,6 +1073,7 @@ function LiveRailSeat({
   onPlaceOnBoard,
   previewPlacesOnBoard,
   canReorder,
+  onAcknowledgeHand,
   canPlaceOnBoard = true,
 }: {
   member: ClassroomMemberSnapshot;
@@ -1091,6 +1097,7 @@ function LiveRailSeat({
   onPlaceOnBoard: (userId: string) => void;
   previewPlacesOnBoard: boolean;
   canReorder: boolean;
+  onAcknowledgeHand: () => void;
   canPlaceOnBoard?: boolean;
 }) {
   const { t } = useTranslation();
@@ -1134,16 +1141,13 @@ function LiveRailSeat({
       </span>
       {participant && <MicrophoneLevel provider={provider} participantId={participant.id} enabled={microphoneOn} />}
       <HandRaiseVideoBadge member={member} />
-      {!showControls && (
+      {!microphoneOn && (
         <span
           className="classroom-v3-seat-media-state"
           aria-label={t("classroom.v3.mediaState")}
         >
           <i className={microphoneOn ? "is-on" : "is-off"}>
             {microphoneOn ? <Mic /> : <MicOff />}
-          </i>
-          <i className={cameraOn ? "is-on" : "is-off"}>
-            {cameraOn ? <Video /> : <VideoOff />}
           </i>
         </span>
       )}
@@ -1233,6 +1237,7 @@ function LiveRailSeat({
         </span>
         {showControls && (
           <span className="classroom-v3-seat-controls">
+            {canManage && member.handRaisedAt && <button type="button" className="classroom-hand-ack" disabled={busy} title={t("classroomWorkspace.acknowledgeHand")} aria-label={`${member.displayName} · ${t("classroomWorkspace.acknowledgeHand")}`} onClick={onAcknowledgeHand}><Check /></button>}
             {canManage && canPlaceOnBoard && (
               <button
                 type="button"
@@ -1336,6 +1341,7 @@ function LiveRail({
   onReorder,
   onPlaceOnBoard,
   previewPlacesOnBoard,
+  onAction, onViewMembers,
   canPlaceOnBoard = true,
 }: {
   members: ClassroomMemberSnapshot[];
@@ -1362,6 +1368,8 @@ function LiveRail({
   onReorder: (seatOrder: string[]) => void;
   onPlaceOnBoard: (userId: string) => void;
   previewPlacesOnBoard: boolean;
+  onAction: (action: ClassroomAction) => Promise<boolean>;
+  onViewMembers: () => void;
   canPlaceOnBoard?: boolean;
 }) {
   const { t } = useTranslation();
@@ -1428,8 +1436,7 @@ function LiveRail({
         )}
       >
         <span className="classroom-v3-rail-toggle-summary" aria-hidden="true">
-          <i />
-          <span>{t("classroom.v3.stageSeats")}</span>
+          <span className="classroom-rail-mini-avatars">{seatedMembers.slice(0,3).map(member => <ClassroomMemberAvatar key={member.userId} avatar={member.avatar} name={member.displayName} />)}</span>
           <strong>{seatedMembers.length}</strong>
         </span>
         <ChevronRight />
@@ -1451,6 +1458,7 @@ function LiveRail({
             media={media}
             currentUserId={currentUserId}
             canManage={canManage}
+            onAcknowledgeHand={() => void onAction({ type: "acknowledgeHand", targetUserId: member.userId, handRaisedAt: member.handRaisedAt! })}
             canReward={canReward}
             busy={busy}
             onSpotlight={onSpotlight}
@@ -1467,14 +1475,7 @@ function LiveRail({
           />
         ))}
       </div>
-      <div className={queue.length ? "classroom-v3-hand-queue has-hands" : "classroom-v3-hand-queue"}>
-        <Hand />
-        <span>
-          {queue.length
-            ? t("classroom.v3.handsWaiting", { count: queue.length })
-            : t("classroom.v3.noHands")}
-        </span>
-      </div>
+      {canManage && queue.length > 0 && <div className="classroom-v3-hand-queue has-hands"><HandRaiseQueue members={members} busy={busy} onAction={onAction} onViewMembers={onViewMembers} /></div>}
     </section>
   );
 }
@@ -3202,8 +3203,7 @@ function DeviceSettings({
           >
             <header>
               <div>
-                <small>{t("classroom.v3.classroomSetupEyebrow")}</small>
-                <h2>{t("classroom.v3.deviceSettings")}</h2>
+                  <h2>{t("classroom.v3.deviceSettings")}</h2>
               </div>
               <button
                 type="button"
@@ -3288,8 +3288,11 @@ function DeviceSettings({
                     </select>
                   </label>
                 </div>
-                <AuxiliaryCameraSettings provider={provider} media={media} cameras={devices.cameras}
-                  primaryDeviceId={primaryDeviceId} allowed={canUseAuxiliaryCamera} onError={setError} />
+                <details className="classroom-device-extra" open={media.local.auxiliaryCameraOn || undefined}>
+                  <summary><Video /><span>{t("classroom.v3.auxiliaryCamera")}</span><ChevronDown /></summary>
+                  <AuxiliaryCameraSettings provider={provider} media={media} cameras={devices.cameras}
+                    primaryDeviceId={primaryDeviceId} allowed={canUseAuxiliaryCamera} onError={setError} />
+                </details>
                 <fieldset className="classroom-v3-background-options">
                   <legend>{t("classroom.v3.videoBackground")}</legend>
                   <button
@@ -3450,7 +3453,11 @@ export function ClassroomV3({
   const sessionRef = useRef<ClassroomSessionResponse | null>(null);
   const classEnded = sessionData?.runtime.status === "ended";
   const liveRequestsRef = useRef<AbortController | null>(null);
-  const [clientId] = useState(() => crypto.randomUUID());
+  const [clientId, setClientId] = useState(() => crypto.randomUUID());
+  const [deviceId] = useState(classroomDeviceId);
+  const deviceEntryModeRef = useRef<ClassroomDeviceEntryMode | undefined>(undefined);
+  const connectionReplacedRef = useRef(false);
+  const [otherDevices, setOtherDevices] = useState<string[]>([]);
   const mediaBusyRef = useRef(new Set<string>());
   const mediaPendingRef = useRef(new Map<string, number>());
   const [mediaBusy, setMediaBusy] = useState<string[]>([]);
@@ -3458,6 +3465,7 @@ export function ClassroomV3({
   const mobileControls = useSyncExternalStore(subscribeToViewport, readMobileControls, () => false);
   const [dockMoreOpen, setDockMoreOpen] = useState(false);
   const [stageExpanded, setStageExpanded] = useState(false);
+  const [assistantVisible, setAssistantVisible] = useState(true);
   const pendingRuntimeActionRef = useRef(false);
   const signalingReadyRef = useRef(false);
   const [signalingAttempt, setSignalingAttempt] = useState(0);
@@ -3545,6 +3553,7 @@ export function ClassroomV3({
   const [toolRailLevel, setToolRailLevel] =
     useState<"expanded" | "compact" | "collapsed">("expanded");
   const [toolRailActivity, setToolRailActivity] = useState(0);
+  const [activityCreateRequest, setActivityCreateRequest] = useState(0);
   const [hiddenBoardItemIds, setHiddenBoardItemIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -3876,12 +3885,32 @@ export function ClassroomV3({
   }, [emitHostEvent, loadingState, sessionData]);
 
   const stopEndedSession = useCallback((status: number, body: unknown) => {
+    if (status === 409 && body && typeof body === "object" && "code" in body && body.code === "classroom_connection_replaced") {
+      if (connectionReplacedRef.current) return true;
+      connectionReplacedRef.current = true;
+      liveRequestsRef.current?.abort();
+      messagesAbortRef.current?.abort();
+      refreshAbortRef.current?.abort();
+      void providerRef.current?.disconnect().catch(() => undefined);
+      void roomProviderRef.current?.disconnect().catch(() => undefined);
+      void signalingRef.current?.disconnect().catch(() => undefined);
+      setLoadingState("device-replaced");
+      return true;
+    }
     const current = sessionRef.current;
     if (!current || !isEndedClassroomResponse(status, body)) return false;
     updateSession({ runtime: { ...current.runtime, status: "ended" } });
     liveRequestsRef.current?.abort();
     return true;
   }, [updateSession]);
+
+  useEffect(() => {
+    if (isRecorder || !sessionData || loadingState !== "ready") return;
+    const own = sessionData.runtime.members.find(member => member.userId === sessionData.credential.userId);
+    if (own?.replacedRtcUids?.includes(sessionData.credential.rtcUid)) {
+      stopEndedSession(409, { code: "classroom_connection_replaced" });
+    }
+  }, [isRecorder, loadingState, sessionData, stopEndedSession]);
 
   const disconnectRoom = useCallback(async () => {
     roomRecoveryTaskRef.current = null;
@@ -4008,6 +4037,8 @@ export function ClassroomV3({
         request: (signal) => fetch("/api/classroom/session", {
           signal, method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ clientId,
+            deviceId, deviceLabel: classroomDeviceLabel(navigator.userAgent),
+            ...(deviceEntryModeRef.current && { deviceEntryMode: deviceEntryModeRef.current }),
             ...(requestedSessionId ? { sessionId: requestedSessionId } : { courseId: legacyCourseId }),
             ...(shareAccess && { shareAccess }), ...(isRecorder && { recorderToken }),
           }),
@@ -4033,6 +4064,7 @@ export function ClassroomV3({
       return payload;
     } catch (error) {
       if (controller.signal.aborted || error instanceof DOMException && error.name === "AbortError") throw error;
+      if (error instanceof ClassroomSessionRequestError && error.payload.code === "classroom_device_conflict") throw error;
       reportConnectionDiagnostic({ event: "session-failed", occurredAt: new Date().toISOString(), attempt: attempts + 1,
         durationMs: performance.now() - startedAt, ...(error instanceof ClassroomRecoveryError ? { status: error.status } : {}),
       });
@@ -4040,7 +4072,7 @@ export function ClassroomV3({
         ? error.payload.error || translateSession("classroom.v3.sessionCreateFailed")
         : translateSession("classroom.v3.databaseUnavailable"));
     }
-  }, [clientId, courseId, isRecorder, legacyCourseId, recorderToken, requestedSessionId, router, shareAccess, stopEndedSession, translateSession, reportConnectionDiagnostic]);
+  }, [clientId, deviceId, courseId, isRecorder, legacyCourseId, recorderToken, requestedSessionId, router, shareAccess, stopEndedSession, translateSession, reportConnectionDiagnostic]);
 
   const renewClassroomCredentials = useCallback(async () => {
     if (sessionRef.current?.runtime.status === "ended") return;
@@ -4126,6 +4158,7 @@ export function ClassroomV3({
         setErrorMessage("");
         const payload = await fetchInitialSession();
         if (cancelled) return;
+        teacherCameraAutostartedRef.current = payload.connection?.entryMode === "together";
         const canonicalPath = canonicalClassroomEntryPath(legacyEntrySearch, payload.course.sessionId);
         if (canonicalPath) {
           router.replace(canonicalPath);
@@ -4241,7 +4274,12 @@ export function ClassroomV3({
           }
         }
       } catch (error) {
-        if (cancelled) return;
+        if (cancelled || connectionReplacedRef.current) return;
+        if (error instanceof ClassroomSessionRequestError && error.payload.code === "classroom_device_conflict") {
+          setOtherDevices(error.payload.devices || []);
+          setLoadingState("device-choice");
+          return;
+        }
         console.error("[classroom:v3] launch failed", error);
         setErrorMessage(
           error instanceof Error
@@ -4649,7 +4687,7 @@ export function ClassroomV3({
 
   useEffect(() => {
     const signaling = sessionData?.signaling;
-    if (!signaling || isRecorder || classEnded) return;
+    if (!signaling || isRecorder || classEnded || loadingState !== "ready") return;
     let cancelled = false;
     const provider = createClassroomSignalingProvider();
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -4763,7 +4801,11 @@ export function ClassroomV3({
       signalingReadyRef.current = ready;
       if (ready) { clearTimeout(retryTimer); retryTimer = undefined; }
       else retrySignaling();
-      if (recovered) { void refreshState(); void refreshMessages(); }
+      if (recovered) {
+        void refreshState(); void refreshMessages();
+        const current = sessionRef.current;
+        if (current) void provider.publish({ courseId, topic: "runtime", revision: current.runtime.revision }).catch(() => undefined);
+      }
       else if (!ready && wasReady) void refreshState();
       });
     }).catch((error) => {
@@ -4786,6 +4828,7 @@ export function ClassroomV3({
     refreshMessages,
     refreshSection,
     sessionData?.signaling,
+    loadingState,
     signalingAttempt,
     renewClassroomCredentials,
     user?.userId,
@@ -5092,6 +5135,7 @@ export function ClassroomV3({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        clientId,
         sessionId: courseId,
         ...(shareAccess && { shareAccess }),
         ...(isRecorder && { recordingId, recorderToken }),
@@ -5135,6 +5179,7 @@ export function ClassroomV3({
     };
   }, [
     classEnded,
+    clientId,
     courseId,
     isRecorder,
     loadingState,
@@ -6088,6 +6133,7 @@ export function ClassroomV3({
         (now - new Date(sessionData.runtime.timerStartedAt).getTime()) / 1000
       : null;
   const canUseWhiteboard = Boolean(!isRecorder && (sessionData?.capabilities.canManageWhiteboard || currentMember?.whiteboardWritable));
+  useWhiteboardShortcuts(drawingController, whiteboardTool, setWhiteboardTool, Boolean(!classEnded && drawingSurfaceAvailable && canUseWhiteboard && sessionData?.whiteboard.writable), !screenParticipant);
   const canUseMedia = requiresRoomMedia
     ? controlsRoomMedia && Boolean(currentSpaceMember)
     : sessionData?.credential.role !== "student" || Boolean(currentMember?.onStage && currentMember.stageState === "accepted");
@@ -6300,6 +6346,12 @@ export function ClassroomV3({
     const parentCourseId = sessionData?.course.id || legacyCourseId;
     router.replace(parentCourseId ? `/courses/${encodeURIComponent(parentCourseId)}` : "/?view=courses");
   };
+  if (loadingState === "device-choice" || loadingState === "device-replaced") {
+    return <ClassroomDeviceEntry replaced={loadingState === "device-replaced"} devices={otherDevices}
+      onBack={backFromEntry}
+      onChoose={(mode) => { deviceEntryModeRef.current = mode; setLaunchAttempt(attempt => attempt + 1); }}
+      onRejoin={() => { connectionReplacedRef.current = false; deviceEntryModeRef.current = undefined; setClientId(crypto.randomUUID()); }} />;
+  }
   if (loadingState === "loading" && courseId) {
     return <ClassroomLoading key={launchAttempt} recorder={isRecorder}
       phase={!isRecorder && authLoading ? "identity" : entryPhase}
@@ -6320,37 +6372,39 @@ export function ClassroomV3({
       onBack={backFromEntry} />;
   }
 
-  const minimalActions: ClassroomHeaderMenuAction[] = [
-          { id: "settings", label: t("classroom.v3.deviceSettings"), icon: <Settings2 />, onSelect: () => setSettingsOpen(true) },
+  const openActivityTools = () => { setActivePanel("chat"); if (sessionData.credential.role === "student") window.dispatchEvent(new CustomEvent(ACTIVITY_OPEN_EVENT, { detail: { sessionId: courseId } })); else setActivityCreateRequest(value => value + 1); };
+  const minimalFunctionActions: ClassroomHeaderMenuAction[] = [
+          { id: "settings", compactOnly: true, label: t("classroom.v3.deviceSettings"), icon: <Settings2 />, onSelect: () => setSettingsOpen(true) },
           ...(!classEnded ? [
-            { id: "chat", label: t("classroom.v3.chat"), icon: <MessageCircle />, onSelect: () => setActivePanel("chat") },
-            { id: "captions", label: t("classroom.v3.captions"), icon: <Headphones />, onSelect: () => setActivePanel("captions") },
             { id: "courseware", label: t("classroom.v3.courseware"), icon: <BookOpen />, onSelect: () => setActivePanel("courseware") },
             { id: "interaction", label: t("classroomMinimal.interaction"), icon: <Zap />, children: [
-              { id: "activities", label: t("activities.title"), icon: <ClipboardList />, onSelect: () => setActivePanel("activities") },
+              { id: "activities", label: t("activities.title"), icon: <ClipboardList />, onSelect: openActivityTools },
               { id: "questions", label: t("classroom.v3.questions"), icon: <MessageCircle />, onSelect: () => setActivePanel("questions") },
               { id: "engagement", label: t("classroomMinimal.interaction"), icon: <Zap />, onSelect: () => setActivePanel("engagement") },
             ] },
-            { id: "board-tools", label: t("classroomMinimal.tools"), icon: <Pencil />, disabled: !canUseWhiteboard, onSelect: () => window.dispatchEvent(new Event("classroom-open-board-tools")) },
-            { id: "assistant", label: t("classroomMinimal.assistant"), icon: <Sparkles />, onSelect: () => window.dispatchEvent(new Event("classroom-open-assistant")) },
+            { id: "assistant", label: t(assistantVisible ? "classroomWorkspace.hideAssistant" : "classroomWorkspace.showAssistant"), icon: <Sparkles />, checked: assistantVisible, onSelect: () => setAssistantVisible(value => !value) },
           ] : []),
-          { id: "hand-queue", label: t("classroom.v3.handRaiseQueue"), icon: <Hand />, disabled: !sessionData.capabilities.canManageMembers, onSelect: () => setActivePanel("members") },
+          ...(sessionData.capabilities.canManageMembers ? [{ id: "hand-queue", label: t("classroom.v3.handRaiseQueue"), icon: <Hand />, onSelect: () => setActivePanel("members") }] : []),
           { id: "layout", label: t("classroomMinimal.layout"), icon: <LayoutGrid />, children: [
             { id: "focus", label: t("classroom.v3.focusLayout"), icon: <Presentation />, onSelect: () => setLayoutMode("focus") },
             { id: "grid", label: t("classroom.v3.gridLayout"), icon: <LayoutGrid />, onSelect: () => setLayoutMode("grid") },
             { id: "seats", label: t("classroom.v3.members"), icon: <Users />, onSelect: () => setLiveRailCollapsed(value => !value) },
-            { id: "fullscreen", label: t("classroom.v3.fullscreen"), icon: <Expand />, onSelect: toggleFullscreen },
           ] },
           ...(sessionData.capabilities.canControlRecording && !classEnded ? [{ id: "recording", label: t(["starting", "recording"].includes(recordingStatus || "") ? "classroom.v3.stopRecording" : "classroom.v3.startRecording"), icon: <CircleDot />, onSelect: onRecordingControl }] : []),
           ...(classEnded ? [{ id: "playback", label: t("studentDashboard.viewPlayback"), icon: <Play/>, onSelect: () => window.open(`/courses/${encodeURIComponent(sessionData.course.id)}/playback?sessionId=${encodeURIComponent(sessionData.course.sessionId)}`, "_blank", "noopener,noreferrer") }] : []),
-          { id: "recover", disabled: classEnded, label: t("classroom.v3.resetMedia"), icon: <RefreshCw />, onSelect: () => { void runMediaAction("recover", async provider => { await renewClassroomCredentials(); await provider.recoverMedia(true); }); } },
-          { id: "leave", label: t("classroom.v3.leave"), icon: <LogOut />, onSelect: leaveClassroom, disabled: isLeaving },
-          ...(sessionData.capabilities.canEndClass && !classEnded ? [{ id: "end", label: t("classroom.v3.endClass"), icon: <CircleStop />, danger: true, onSelect: () => setEndClassConfirming(true) }] : []),
         ];
+
+  const minimalOperationActions: ClassroomHeaderMenuAction[] = [
+    ...(isScreenShareAllowed && (screenShareSupported || controlMedia.local.screenSharing) ? [{ id: "share", compactOnly: true, label: t(controlMedia.local.screenSharing ? "classroomSharing.title" : "classroom.v3.screenShare"), icon: <MonitorUp />, disabled: Boolean(actionBusy), onSelect: () => { void toggleScreenShare(); } }] : []),
+    { id: "captions", compactOnly: true, label: t("classroom.v3.captions"), icon: <Headphones />, onSelect: () => setActivePanel(current => current === "captions" ? null : "captions") },
+    { id: "recover", label: t("classroom.v3.resetMedia"), icon: mediaBusy.includes("recover") ? <Loader2 className="animate-spin" /> : <RefreshCw />, disabled: classEnded || mediaBusy.includes("recover"), onSelect: () => { void runMediaAction("recover", async provider => { await renewClassroomCredentials(); await provider.recoverMedia(true); }); } },
+    { id: "leave", label: t("classroom.v3.leave"), icon: <LogOut />, onSelect: leaveClassroom, disabled: isLeaving, danger: true },
+  ];
 
   const liveRail = (!isRecorder && (sessionData.modePolicy.showLiveRail ||
         (classinLayout && sessionData.mode !== "publicLive")) && (
         <LiveRail
+          onAction={performAction} onViewMembers={() => setActivePanel("members")}
           members={classroomMembers}
           media={media}
           provider={mediaProvider}
@@ -6442,18 +6496,18 @@ export function ClassroomV3({
         course={sessionData.course} runtime={sessionData.runtime} now={now + presenceClockOffset}
         roleName={roleLabel(sessionData.credential.role, t)} memberCount={classroomMembers.filter(classroomMemberVisible).length}
         connectionState={media.connectionState} presenceHealthy={presenceHealthy && !sessionData.runtime.presenceUncertain}
-        recording={["starting", "recording"].includes(recordingStatus || "")} busy={Boolean(actionBusy)}
+        recording={["starting", "recording"].includes(recordingStatus || "")} recordingStatus={recordingStatus} canRecord={sessionData.capabilities.canControlRecording && !classEnded} onRecording={onRecordingControl} onFullscreen={toggleFullscreen} expanded={stageExpanded} busy={Boolean(actionBusy)}
         canStart={isClassroomTeachingRole(sessionData.credential.role) && sessionData.runtime.status === "waiting"}
         canEnd={sessionData.capabilities.canEndClass && sessionData.runtime.status === "live"}
         canExtend={sessionData.capabilities.canEndClass}
         onBack={leaveClassroom} onStart={() => void performAction({ type: "startClass" })}
         onEnd={() => setEndClassConfirming(true)} onRestarted={() => void refreshState()}
         onExtended={timing => { updateSession({ course: { ...sessionData.course, endTime: timing.endTime }, runtime: { ...sessionData.runtime, scheduledEndAt: timing.endTime, scheduledStartAt: timing.startTime, revision: timing.revision } }); publishInvalidation(timing.revision, "runtime"); void refreshState(); }}
-        onMembers={sessionData.capabilities.canManageMembers ? () => setActivePanel("members") : undefined} onFullscreen={toggleFullscreen}
+        onMembers={sessionData.capabilities.canManageMembers ? () => setActivePanel("members") : undefined}
         status={<StatusPill media={media} recording={recordingStatus} presenceHealthy={presenceHealthy && !sessionData.runtime.presenceUncertain} />}
         settings={<ClassroomQuickSettings provider={controlsRoomMedia && roomProvider ? roomProvider : mediaProvider} dark={theme !== "light"}
           onTheme={() => setClientTheme(theme === "light" ? "dark" : "light")} onCaptions={() => setActivePanel("captions")} onAdvanced={() => setSettingsOpen(true)} />}
-        actions={minimalActions}
+        actions={minimalFunctionActions}
         notices={<>{!settingsOpen && <ClassStartReminder role={sessionData.credential.role} status={sessionData.runtime.status} mode={sessionData.runtime.classStartMode} startTime={sessionData.course.startTime} endTime={sessionData.course.endTime} now={now + presenceClockOffset} busy={Boolean(actionBusy)} onStart={() => void performAction({ type: "startClass" })} onSettings={() => { setFocusClassStart(true); setSettingsOpen(true); }} />}</>}
       /> : (<>
       <header className="classroom-v3-topbar">
@@ -6544,7 +6598,7 @@ export function ClassroomV3({
             </span>
             {classinLayout && !classEnded && sessionData.modePolicy.showHandRaise && <div className="classroom-v3-hand-raise-header">
               {sessionData.credential.role === "student" && <HandRaiseButton raised={Boolean(currentMember?.handRaisedAt)}
-                busy={Boolean(actionBusy)} onToggle={() => void performAction({ type: currentMember?.handRaisedAt ? "lowerHand" : "raiseHand" })} />}
+                busy={actionBusy === "raiseHand" || actionBusy === "lowerHand"} onToggle={() => void performAction({ type: currentMember?.handRaisedAt ? "lowerHand" : "raiseHand" })} />}
               {sessionData.capabilities.canManageStage && <HandRaiseQueue members={classroomMembers}
                 busy={Boolean(actionBusy)} onAction={performAction} onViewMembers={() => setActivePanel("members")} />}
             </div>}
@@ -6739,8 +6793,9 @@ export function ClassroomV3({
 
       <section className="classroom-v3-workspace" data-panel-open={Boolean(activePanel)} data-conversation-open={conversationOpen}>
         {classinLayout && liveRail}
+        {!isRecorder && sessionData.credential.role === "student" && !classEnded && sessionData.mode !== "publicLive" && <StudentActivityOverlay sessionId={courseId} shareAccess={shareAccess} currentUserId={currentUserId} onChanged={revision => publishInvalidation(revision, "activities")} />}
         {!isRecorder && <ConversationResizer open={conversationOpen} />}
-        {!isRecorder && <ScreenShareMenu open={shareMenuOpen} sharing={controlMedia.local.screenSharing} supported={Boolean((controlsRoomMedia ? roomProvider : mediaProvider)?.supportsSharePortrait?.())} options={{ mode: controlMedia.local.screenShareMode ?? "portrait", corner: controlMedia.local.screenShareCorner ?? "br" }} busy={Boolean(actionBusy)} onClose={closeShareMenu} onStop={stopLocalSharing} onSelect={options => toggleScreenShare(options)} />}
+        {!isRecorder && <ScreenShareMenu open={shareMenuOpen} sharing={controlMedia.local.screenSharing} supported={Boolean((controlsRoomMedia ? roomProvider : mediaProvider)?.supportsSharePortrait?.())} options={{ ...controlMedia.local.screenShareOptions, mode: controlMedia.local.screenShareMode ?? "portrait", corner: controlMedia.local.screenShareCorner ?? "br" }} busy={Boolean(actionBusy)} onClose={closeShareMenu} onStop={stopLocalSharing} onOptionsChange={options => { const provider = controlsRoomMedia ? roomProvider : mediaProvider; void provider?.setScreenShareOptions?.(options).catch(error => setActionError(error instanceof Error ? error.message : t("classroom.v3.mediaActionFailed"))); }} onSelect={options => toggleScreenShare(options)} />}
         <motion.section
           layout
           className="classroom-v3-stage"
@@ -6761,7 +6816,7 @@ export function ClassroomV3({
               </span>
             </div>
             <div>
-              {!isRecorder && !classEnded && sessionData.mode !== "publicLive" && <ActivityNotice sessionId={courseId} shareAccess={shareAccess} onOpen={() => setActivePanel("activities")} />}
+              {!isRecorder && !classEnded && sessionData.mode !== "publicLive" && <ActivityNotice sessionId={courseId} shareAccess={shareAccess} onOpen={openActivityTools} />}
               {!isRecorder &&
                 !screenParticipant &&
                 !showWhiteboard &&
@@ -6823,7 +6878,7 @@ export function ClassroomV3({
               </button>
             </div>
           </header>
-          {!classEnded && sessionData.mode !== "publicLive" && <ActivityStagePresentation sessionId={courseId} shareAccess={shareAccess} recorderToken={isRecorder ? recorderToken : undefined} recordingId={isRecorder ? recordingId : undefined} />}
+          {isRecorder && !classEnded && sessionData.mode !== "publicLive" && <ActivityStagePresentation sessionId={courseId} shareAccess={shareAccess} recorderToken={isRecorder ? recorderToken : undefined} recordingId={isRecorder ? recordingId : undefined} />}
           {stageExpanded && <button className="classroom-v3-fullscreen-exit" type="button" onClick={toggleFullscreen} title={t("classroom.v3.fullscreen")}><X /></button>}
           <div className="classroom-v3-stage-content">
             <AnimatePresence mode="wait">
@@ -7181,7 +7236,7 @@ export function ClassroomV3({
             sessionId={sessionData.course.sessionId}
             teacher={classroomAssistantTeacher(sessionData.course, classroomMembers)}
             shareAccess={shareAccess}
-            minimal={classinLayout}
+            minimal={classinLayout} visible={assistantVisible} onClose={() => setAssistantVisible(false)}
           />}
           {recordingFallback === "web" && (
             <div className="classroom-v3-stage-warning">
@@ -7327,7 +7382,7 @@ export function ClassroomV3({
                     onDeleteMember={senderId=>deleteMessage("",senderId)}
                     onMuteMember={(targetUserId, muted)=>{void performAction({type:"setMemberMuted",targetUserId,muted})}}
                     busy={Boolean(actionBusy)}
-                    onActivityChanged={revision => publishInvalidation(revision, "activities")}
+                    createActivityRequest={activityCreateRequest} onActivityChanged={revision => publishInvalidation(revision, "activities")}
                     onMuteAll={(muted) => void performAction({ type: "muteAll", muted })}
                   />
                 </section>}
@@ -7571,7 +7626,7 @@ export function ClassroomV3({
                       provider.toggleCamera(),
                     )
                   }
-                  data-dock-action="camera" title={t("classroom.v3.camera")}
+                  data-dock-action="camera" aria-pressed={actualControlMedia.local.cameraOn} aria-label={t(controlMedia.local.cameraOn ? "classroom.v3.closeMyCamera" : "classroom.v3.openMyCamera")} title={t(controlMedia.local.cameraOn ? "classroom.v3.closeMyCamera" : "classroom.v3.openMyCamera")}
                 >
                   {controlMedia.local.cameraOn ? <Video /> : <VideoOff />}
                   <span>{t("classroom.v3.camera")}</span>
@@ -7580,7 +7635,7 @@ export function ClassroomV3({
             )}
             {sessionData.credential.role === "student" &&
               sessionData.modePolicy.showHandRaise && (
-              <HandRaiseButton raised={Boolean(currentMember?.handRaisedAt)} busy={Boolean(actionBusy)}
+              <HandRaiseButton raised={Boolean(currentMember?.handRaisedAt)} busy={actionBusy === "raiseHand" || actionBusy === "lowerHand"}
                 onToggle={() => void performAction({ type: currentMember?.handRaisedAt ? "lowerHand" : "raiseHand" })} />
             )}
             {sessionData.capabilities.canManageStage && sessionData.modePolicy.showHandRaise && <HandRaiseQueue
@@ -7606,7 +7661,7 @@ export function ClassroomV3({
                 </span>
               </button>
             )}
-            {classinLayout && canUseWhiteboard ? <BoardToolsMenu controller={screenParticipant ? screenAnnotationController : whiteboardController} tool={whiteboardTool} onTool={setWhiteboardTool} onOpen={() => { if (!screenParticipant && !whiteboardReady) openWhiteboard(); }} /> : (canUseWhiteboard && <button
+            {classinLayout && canUseWhiteboard ? <BoardToolsMenu screenAnnotation={Boolean(screenParticipant)} controller={screenParticipant ? screenAnnotationController : whiteboardController} tool={whiteboardTool} onTool={setWhiteboardTool} onOpen={() => { if (!screenParticipant && !whiteboardReady) openWhiteboard(); }} /> : (canUseWhiteboard && <button
               type="button"
               data-dock-action="whiteboard" title={t("classroomMinimal.tools")} className={`is-dock-secondary ${sessionData.runtime.stageMode === "whiteboard" ? "is-active" : ""}`}
               onClick={openWhiteboard}
@@ -7618,11 +7673,12 @@ export function ClassroomV3({
               <BookOpen />
               <span>{t("classroom.v3.courseware")}</span>
             </button>
-            <button type="button" data-dock-action="chat" title={t("classroom.v3.chat")} aria-label={t("classroom.v3.chat") + (unreadMessages ? ` (${unreadMessages})` : "")} className={activePanel === "chat" ? "is-active" : ""} onClick={() => setActivePanel("chat")}><MessageCircle />{unreadMessages > 0 && <i className="classroom-dock-unread" aria-hidden="true">{unreadMessages > 99 ? "99+" : unreadMessages}</i>}<span>{t("classroom.v3.chat")}{unreadMessages > 0 ? ` (${unreadMessages})` : ""}</span></button>
+            <button type="button" data-dock-action="chat" aria-pressed={activePanel === "chat"} title={t("classroom.v3.chat")} aria-label={t("classroom.v3.chat") + (unreadMessages ? ` (${unreadMessages})` : "")} className={activePanel === "chat" ? "is-active" : ""} onClick={() => setActivePanel(current => current === "chat" ? null : "chat")}><MessageCircle />{unreadMessages > 0 && <i className="classroom-dock-unread" aria-hidden="true">{unreadMessages > 99 ? "99+" : unreadMessages}</i>}<span>{t("classroom.v3.chat")}{unreadMessages > 0 ? ` (${unreadMessages})` : ""}</span></button>
             <button
               type="button"
-              className={`is-dock-secondary ${sessionData.runtime.interpretation.enabled ? "is-active" : ""}`}
-              onClick={() => setActivePanel("captions")}
+              className={`is-dock-secondary ${activePanel === "captions" ? "is-active" : ""}`}
+              aria-pressed={activePanel === "captions"}
+              onClick={() => setActivePanel(current => current === "captions" ? null : "captions")}
               data-dock-action="captions" title={t("classroom.v3.captions")}
             >
               <Headphones aria-hidden="true" />
@@ -7702,7 +7758,7 @@ export function ClassroomV3({
             )}
             <button type="button" data-dock-action="fullscreen" onClick={toggleFullscreen} title={t("classroom.v3.fullscreen")}><Expand /><span>{t("classroom.v3.fullscreen")}</span></button>
             <button type="button" title={t("classroom.v3.resetMedia")} className="is-dock-secondary" onClick={() => void runMediaAction("recover", async (provider) => { await renewClassroomCredentials(); await provider.recoverMedia(true); })}><RefreshCw /><span>{t("classroom.v3.resetMedia")}</span></button>
-            {classinLayout ? <ClassroomHeaderMenu actions={minimalActions} /> : (<button type="button" title={t("classroom.v3.more")} aria-label={t("classroom.v3.more")} className={`is-dock-more ${dockMoreOpen ? "is-active" : ""}`} aria-expanded={dockMoreOpen} onClick={() => setDockMoreOpen((value) => !value)}><MoreHorizontal /><span>{t("classroom.v3.more")}</span></button>)}
+            {classinLayout ? <ClassroomHeaderMenu actions={minimalOperationActions} variant="operations" /> : (<button type="button" title={t("classroom.v3.more")} aria-label={t("classroom.v3.more")} className={`is-dock-more ${dockMoreOpen ? "is-active" : ""}`} aria-expanded={dockMoreOpen} onClick={() => setDockMoreOpen((value) => !value)}><MoreHorizontal /><span>{t("classroom.v3.more")}</span></button>)}
             <span className="classroom-v3-dock-divider" />
             <button
               type="button"
@@ -7727,9 +7783,9 @@ export function ClassroomV3({
           !currentMember.onStage && (
             <motion.div
               className="classroom-v3-invite"
-              initial={{ opacity: 0, y: 28, scale: 0.97 }}
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 16, scale: 0.98 }}
+              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 8 }}
             >
               <span><UserRound /></span>
               <div>
@@ -7764,15 +7820,14 @@ export function ClassroomV3({
         {!isRecorder &&
           currentMember?.screenShareState === "requested" && (
             <motion.div
-              className="classroom-v3-invite is-screen-share"
-              initial={{ opacity: 0, y: 28, scale: 0.97 }}
+              className="classroom-v3-invite is-screen-share" role="status"
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 16, scale: 0.98 }}
+              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 8 }}
             >
               <span><MonitorUp /></span>
               <div>
-                <small>{t("classroom.v3.screenShareRequestEyebrow")}</small>
-                <strong>{t("classroom.v3.screenShareRequestTitle")}</strong>
+                <strong>{t("classroomWorkspace.shareInvitation")}</strong>
                 <p>{t(screenShareSupported ? "classroom.v3.screenShareRequestHint" : "classroom.v3.screenShareBrowserUnsupported")}</p>
               </div>
               <button
@@ -7801,16 +7856,15 @@ export function ClassroomV3({
           currentMember?.screenShareState === "accepted" &&
           !controlMedia.local.screenSharing && (
             <motion.div
-              className="classroom-v3-invite is-screen-share-ready"
-              initial={{ opacity: 0, y: 28, scale: 0.97 }}
+              className="classroom-v3-invite is-screen-share-ready" role="status"
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 16, scale: 0.98 }}
+              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 8 }}
             >
               <span><MonitorUp /></span>
               <div>
-                <small>{t("classroom.v3.screenShareRequestEyebrow")}</small>
-                <strong>{t("classroom.v3.screenShareReadyTitle")}</strong>
-                <p>{t("classroom.v3.screenShareReadyHint")}</p>
+                <strong>{t("classroomWorkspace.shareReady")}</strong>
+                <p>{t("classroomWorkspace.chooseShareSource")}</p>
               </div>
               <button
                 type="button"

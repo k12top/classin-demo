@@ -148,18 +148,30 @@ async function confirmRecordingStart(recordingId: string) {
 export async function requestRecordingStart(
   courseId: string,
   sessionId = courseId,
-) {
-  const lesson = await prisma.courseSession.findFirst({
+  transaction?: Prisma.TransactionClient,
+): Promise<ClassroomRecording> {
+  if (!transaction) {
+    return prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
+      return requestRecordingStart(courseId, sessionId, tx);
+    });
+  }
+  const runtime = await transaction.classroomRuntime.findUnique({
+    where: { sessionId },
+    select: { status: true, recordingStartMode: true, startedAt: true },
+  });
+  const lesson = await transaction.courseSession.findFirst({
     where: { id: sessionId, courseId },
     include: {
-      recordings: { orderBy: { createdAt: "desc" }, take: 1 },
+      // An ended recorder page cannot reconnect. A new classroom cycle must
+      // use a fresh task, even while the previous task is still finalizing.
+      recordings: {
+        ...(runtime?.startedAt && { where: { createdAt: { gte: runtime.startedAt } } }),
+        orderBy: { createdAt: "desc" }, take: 1,
+      },
     },
   });
   if (!lesson) throw new Error("Course session not found");
-  const runtime = await prisma.classroomRuntime.findUnique({
-    where: { sessionId: lesson.id },
-    select: { status: true, recordingStartMode: true },
-  });
   if (runtime?.recordingStartMode === "disabled") throw new Error("Recording is disabled for this classroom");
   if (runtime?.status !== "live") {
     throw new Error("Recording cannot start before class begins");
@@ -189,7 +201,7 @@ export async function requestRecordingStart(
     throw new Error("Cloud recording start retry limit reached");
   }
 
-  return prisma.classroomRecording.create({
+  return transaction.classroomRecording.create({
     data: {
       courseId: lesson.courseId,
       sessionId: lesson.id,

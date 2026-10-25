@@ -7,7 +7,7 @@ import {
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
 import { prisma } from "@/lib/db";
 import { CourseStatus } from "@/lib/course-status";
-import { normalizeClassroomClientId } from "@/lib/classroom/server/connections";
+import { classroomConnectionReplaced, normalizeClassroomClientId } from "@/lib/classroom/server/connections";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -38,6 +38,7 @@ export async function POST(
     );
   }
   try {
+    if (await classroomConnectionReplaced(resolved.access.sessionId, resolved.session.userId, normalizeClassroomClientId(body?.clientId))) return NextResponse.json({ code: "classroom_connection_replaced" }, { status: 409 });
     const course = await prisma.courseSession.findUnique({
       where: { id: resolved.access.sessionId },
       select: { classroomProvider: true, status: true, endedAt: true },

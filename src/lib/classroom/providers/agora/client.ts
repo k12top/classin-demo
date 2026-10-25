@@ -1,6 +1,6 @@
 "use client";
 
-import { createSharePortrait, screenShareProfile, supportsSharePortrait } from "@/lib/classroom/share-portrait";
+import { createSharePortrait, normalizeScreenShareOptions, screenShareProfile, supportsSharePortrait } from "@/lib/classroom/share-portrait";
 import type { ClassroomScreenShareOptions } from "@/lib/classroom/types";
 import { screenVideoPlan } from "@/lib/classroom/screen-video-plan";
 
@@ -182,7 +182,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     const cameraOn = (this.cameraPublished || (this.portraitCameraSuppressed && this.snapshot.local.screenSharing)) && this.snapshot.local.cameraOn && camera?.readyState !== "ended" && camera?.enabled && !camera?.muted && !this.cameraTrack?.muted;
     return {
       microphone: microphoneOn ? "on" as const : microphone?.readyState === "ended" || microphone?.muted ? "interrupted" as const : this.snapshot.local.microphoneStatus === "starting" ? "pending" as const : this.snapshot.local.microphoneStatus || "off" as const,
-      camera: cameraOn ? "on" as const : camera?.readyState === "ended" || camera?.muted ? "interrupted" as const : this.cameraTrack && !this.cameraPublished ? "pending" as const : "off" as const,
+      camera: cameraOn ? "on" as const : !this.snapshot.local.cameraOn ? "off" as const : camera?.readyState === "ended" || camera?.muted ? "interrupted" as const : this.cameraTrack && !this.cameraPublished ? "pending" as const : "off" as const,
     };
   }
 
@@ -265,7 +265,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
 
   private mediaStreamTrackFor(id: string): MediaStreamTrack | null {
     if (id === this.cameraId()) {
-      return this.cameraTrack?.getMediaStreamTrack() ?? null;
+      return this.snapshot.local.cameraOn ? this.cameraTrack?.getMediaStreamTrack() ?? null : null;
     }
     if (id === this.screenId()) {
       return this.screenTrack?.getMediaStreamTrack() ?? null;
@@ -917,6 +917,22 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     }
     const client = this.client;
     const rtcUid = String(this.credential.rtcUid);
+    const requestedOn = !this.snapshot.local.cameraOn;
+    // A mobile/background/device interruption can end an otherwise retained
+    // capture. Enabling an ended MediaStreamTrack cannot restart the camera.
+    if (this.cameraTrack?.getMediaStreamTrack().readyState === "ended") {
+      const expired = this.cameraTrack;
+      await client.unpublish(expired).catch(() => undefined);
+      if (this.client !== client || this.cameraTrack !== expired) throw new DOMException("Classroom camera changed", "AbortError");
+      await this.releaseVirtualBackgroundProcessor();
+      expired.close(); this.cameraTrack = null; this.cameraPublished = false;
+      if (!requestedOn) {
+        this.snapshot.local.cameraOn = false;
+        this.upsertParticipant(rtcUid, { hasVideo: false });
+        this.clearVideoTargets(rtcUid);
+        return false;
+      }
+    }
 
     if (!this.cameraTrack) {
       const high = classroomMediaProfile.camera.high;
@@ -1150,7 +1166,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         if (client.connectionState === "DISCONNECTED") this.cameraPublished = false;
         return;
       }
-      if (this.portraitCameraSuppressed && this.cameraPublished) {
+      if ((this.portraitCameraSuppressed || !this.snapshot.local.cameraOn) && this.cameraPublished) {
         await client.unpublish(track);
         if (this.client === client && this.cameraTrack === track) this.cameraPublished = false;
       } else if (!this.portraitCameraSuppressed && !this.cameraPublished && this.snapshot.local.cameraOn) {
@@ -1163,6 +1179,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   }
 
   setScreenShareOptions(options: ClassroomScreenShareOptions): Promise<void> {
+    options = normalizeScreenShareOptions(options);
     const version = this.screenStartVersion;
     const task = this.screenOptionsQueue.catch(() => undefined).then(async () => {
       if (version !== this.screenStartVersion || !this.snapshot.local.screenSharing || !this.screenClient || !this.screenCaptureTrack || !this.screenTrack) return;
@@ -1194,13 +1211,14 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
           if (changedMode) await client.unpublish(this.screenTrack);
           if (!active()) return;
           this.sharePortrait.setOptions(options);
-          await this.screenTrack.setEncoderConfiguration(screenShareProfile(options.mode));
+          if (changedMode) await this.screenTrack.setEncoderConfiguration(screenShareProfile(options.mode));
           if (!active()) return;
           if (changedMode) await client.publish(this.screenTrack);
         }
         if (!active()) return;
         this.snapshot.local.screenShareMode = options.mode;
         this.snapshot.local.screenShareCorner = options.corner ?? "br";
+        this.snapshot.local.screenShareOptions = { ...options };
         this.portraitCameraSuppressed = options.mode === "portrait";
         await this.syncCameraPublication();
         this.emit();
@@ -1217,6 +1235,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   }
 
   async startScreenShare(authorize?: () => Promise<void>, options: ClassroomScreenShareOptions = { mode: "screen" }): Promise<void> {
+    options = normalizeScreenShareOptions(options);
     if (options.mode === "portrait" && !this.supportsSharePortrait()) throw new Error("共享＋人像需要桌面 Chrome 或 Edge");
     if (!this.credential?.screenShare) {
       throw new Error("当前角色不能共享屏幕");
@@ -1301,6 +1320,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       this.snapshot.local.screenSharing = true;
       this.snapshot.local.screenShareMode = options.mode;
       this.snapshot.local.screenShareCorner = options.corner ?? "br";
+      this.snapshot.local.screenShareOptions = { ...options };
       this.upsertParticipant(String(this.credential.screenShare.rtcUid), {
         displayName: `${this.displayName} · 屏幕`,
         isLocal: true,
@@ -1334,6 +1354,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.snapshot.local.screenSharing = false;
     this.snapshot.local.screenShareMode = undefined;
     this.snapshot.local.screenShareCorner = undefined;
+    this.snapshot.local.screenShareOptions = undefined;
     this.portraitCameraSuppressed = false;
     composite?.dispose();
     if (capture && capture !== track) capture.close();

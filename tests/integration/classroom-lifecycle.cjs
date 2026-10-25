@@ -10,7 +10,7 @@ async function main() {
   const root = path.resolve(__dirname, "../..");
   const database = new URL(process.env.DATABASE_URL);
   assert.equal(database.hostname, "127.0.0.1");
-  assert.equal(database.pathname, "/classroom_lifecycle_test");
+  assert.ok(["/classroom_lifecycle_test", "/classroom_schedule_recovery_test"].includes(database.pathname));
   const received = [];
   let fail = false;
   const receiver = http.createServer(async (request, response) => {
@@ -34,8 +34,8 @@ async function main() {
     "server-only": "",
     "next/server": 'export class NextResponse extends Response { static json(body, init) { return new NextResponse(JSON.stringify(body), {...init, headers: {"Content-Type": "application/json"}}); } } export function after() {}',
     "@/lib/session": 'export async function getSessionFromRequest() { return {userId:"teacher", name:"teacher", displayName:"Teacher", role:"teacher"}; }',
-    "@/lib/classroom/server/recording-orchestrator": 'export async function stopActiveRecordingsForCourse() {} export async function stopRecordingAttempt() {} export async function retryFailedLiveRecordings() {} export async function reconcilePendingRecordings() {} export async function requestRecordingStart() {}',
-    "@/lib/classroom/server/transcription-orchestrator": 'export async function stopClassroomTranscription() {} export async function syncClassroomTranscription() {} export async function reconcileActiveClassroomTranscriptions() {}',
+    "@/lib/classroom/server/recording-orchestrator": 'export async function stopActiveRecordingsForCourse() {} export async function stopRecordingAttempt() {} export async function retryFailedLiveRecordings() {} export async function reconcilePendingRecordings() {} export async function requestRecordingStart(courseId, sessionId, tx = globalThis.lifecycleDb) { return tx.classroomRecording.create({data:{courseId,sessionId,provider:"fixture",channelName:"fixture-channel",recorderUserId:"fixture-bot",status:"starting"}}); } export async function processRecordingStart() {}',
+    "@/lib/classroom/server/transcription-orchestrator": 'export async function stopClassroomTranscription(_courseId, sessionId) { await globalThis.lifecycleDb.classroomRuntime.updateMany({where:{sessionId,status:"ended"},data:{transcriptionStatus:"stopped"}}); } export async function syncClassroomTranscription() {} export async function reconcileActiveClassroomTranscriptions() {}',
     "@/lib/course-session-summary": 'export async function generateCourseSessionSummary() {} export async function reconcileCourseSessionSummaries() {}',
     "@/lib/course-session-summary-generation": 'export async function queueCourseSessionSummary() {} export async function processCourseSessionSummaryGeneration() {}',
   };
@@ -49,6 +49,7 @@ async function main() {
   });
   const api = require(output);
   const db = api.prisma;
+  globalThis.lifecycleDb = db;
   const course = await db.course.create({ data: { name: "Integration course", ownerId: "teacher", ownerName: "Teacher", teacherId: "teacher", teacherName: "Teacher" } });
   let position = 0;
   const fixture = async (mode = "classStart") => {

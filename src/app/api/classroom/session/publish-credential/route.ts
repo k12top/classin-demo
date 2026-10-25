@@ -1,5 +1,5 @@
 import { canShareClassroomScreen } from "@/lib/classroom/screen-share-state";
-import { normalizeClassroomClientId } from "@/lib/classroom/server/connections";
+import { classroomConnectionReplaced, normalizeClassroomClientId } from "@/lib/classroom/server/connections";
 import { NextRequest, NextResponse } from "next/server";
 import { getClassroomServerProvider } from "@/lib/classroom/server/provider-factory";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
   }
 
   const sessionId = resolved.access.sessionId;
+  if (await classroomConnectionReplaced(sessionId, resolved.session.userId, normalizeClassroomClientId(body?.clientId))) return NextResponse.json({ code: "classroom_connection_replaced" }, { status: 409 });
   const [lesson, member] = await Promise.all([
     prisma.courseSession.findUnique({
       where: { id: sessionId },

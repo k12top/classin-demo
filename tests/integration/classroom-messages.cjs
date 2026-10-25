@@ -54,6 +54,21 @@ async function main() {
     assert.equal((await send(body, "unauthorized")).status, 401);
     console.log("PASS key conflicts, malformed keys and unauthorized sends are rejected; sender scope, intentional repetition and old clients work");
 
+    for (const text of ["字".repeat(1200), "😀".repeat(1200)]) {
+      const accepted = await send({ content: text, clientMessageId: crypto.randomUUID() });
+      assert.equal(accepted.status, 201);
+      assert.equal((await accepted.json()).message.content, text);
+      assert.equal((await send({ content: text + "尾", clientMessageId: crypto.randomUUID() })).status, 400);
+    }
+    const imageId = crypto.randomUUID();
+    await db.classroomChatImage.create({ data: { id: imageId, sessionId: lesson.id, uploaderId: "student", objectKey: `chat-test/${imageId}.webp`, sourceHash: "fixture", bytes: 10, width: 1, height: 1 } });
+    const imageCaption = "😀".repeat(1200);
+    const imageSend = await send({ imageId, content: imageCaption, clientMessageId: crypto.randomUUID() });
+    assert.equal(imageSend.status, 201);
+    assert.equal(JSON.parse((await imageSend.json()).message.content).caption, imageCaption);
+    assert.equal((await send({ imageId, content: imageCaption + "尾", clientMessageId: crypto.randomUUID() })).status, 400);
+    console.log("PASS 1200 Chinese/emoji characters persist for text and image captions; 1201 is rejected");
+
     await db.classroomMemberState.update({ where: { sessionId_userId: { sessionId: lesson.id, userId: "student" } }, data: { chatMuted: true } });
     assert.equal((await send(body)).status, 200, "confirm an earlier committed send even if the sender was subsequently muted");
     assert.equal((await send({ content: "Muted" })).status, 403);

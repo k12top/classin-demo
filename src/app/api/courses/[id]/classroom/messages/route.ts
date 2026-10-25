@@ -1,3 +1,4 @@
+import { CLASSROOM_CHAT_MAX_CHARACTERS, chatCharacterCount } from "@/lib/classroom/chat-content";
 import { imageMessageContent, isChatImageId } from "@/lib/classroom/chat-image-message";
 import { classroomMessageAccess } from "@/lib/classroom/server/message-access";
 import { classroomRedisEnabled, classroomRedisCommand } from "@/lib/classroom/server/redis";
@@ -111,9 +112,9 @@ async function postMessage(
   const imageId = isChatImageId(body?.imageId) ? body.imageId : null;
   if (body?.imageId !== undefined && !imageId) return NextResponse.json({ error: "图片标识无效" }, { status: 400 });
   const content = imageId ? imageMessageContent(imageId, caption) : caption;
-  if ((!caption && !imageId) || caption.length > 1000) {
+  if ((!caption && !imageId) || chatCharacterCount(caption) > CLASSROOM_CHAT_MAX_CHARACTERS) {
     return NextResponse.json(
-      { error: "消息长度应为 1–1000 个字符" },
+      { error: `消息长度应为 1–${CLASSROOM_CHAT_MAX_CHARACTERS} 个字符` },
       { status: 400 },
     );
   }

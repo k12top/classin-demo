@@ -90,3 +90,17 @@
   .widget:has(.panel) .dock { display: none; }
   .widget:has(.panel) .panel { height: 100%; }
 }
+
+/* The minimal launcher is an avatar, with the conversation available on demand. */
+.avatarFrame { position:relative;display:inline-flex;flex:none; }
+.minimal .widget { width:72px; }
+.minimal .widget:has(.panel) { width:min(360px,100%); }
+.minimal .dock { width:max-content;max-width:100%;padding:5px;border-radius:15px;position:relative; }
+.minimal .identity { padding:0;min-height:48px;flex:none; }
+.minimal .identity :global(.classroom-v3-avatar-picture) { width:48px;height:48px;border-radius:12px; }
+.aiBubble { position:absolute;right:-7px;top:-7px;min-width:25px;height:22px;display:grid;place-items:center;border:2px solid var(--assistant-surface);border-radius:8px 8px 8px 2px;background:var(--assistant-accent);color:#fff;font-size:10px;font-weight:700;line-height:1;pointer-events:none; }
+.widget .closeLauncher { position:absolute;right:-10px;bottom:-7px;width:24px;height:24px;min-width:24px;border-radius:50%;background:var(--assistant-surface);box-shadow:0 2px 8px #15203620;opacity:0;pointer-events:none; }
+.closeLauncher svg { width:13px;height:13px; }
+.minimal .dock:is(:hover,:focus-within) .closeLauncher { opacity:1;pointer-events:auto; }
+@media(hover:none){.widget .closeLauncher{opacity:1;pointer-events:auto}}
+@media(prefers-reduced-motion:no-preference){.closeLauncher{transition:opacity 120ms ease-out}}

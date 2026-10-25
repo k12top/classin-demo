@@ -139,6 +139,59 @@ async function run() {
       await api.recordClassroomAttendanceEntry(entry);
       assert.equal(await db.courseAttendance.count({ where: { sessionId: lesson.id, leftAt: null } }), 1);
     });
+    await check("a second device must choose before joining; together keeps one member and two leases", async () => {
+      const deviceUser = "device-user";
+      await db.classroomMemberState.create({ data: { runtimeId: runtime.id, courseId: course.id, sessionId: lesson.id, userId: deviceUser, displayName: "Device student", role: "student", presence: "online", onStage: true, stageState: "accepted", cameraAllowed: true, microphoneAllowed: true, whiteboardWritable: true } });
+      assert.equal((await api.touchClassroomConnection(lesson.id, deviceUser, "device-client-a", true, { deviceId: "browser-device-a", deviceLabel: "Mac · Chrome" })).entryMode, "primary");
+      await db.classroomConnection.updateMany({ where: { sessionId: lesson.id, userId: deviceUser }, data: { lastSeenAt: new Date(Date.now() - 600_000) } });
+      await assert.rejects(api.touchClassroomConnection(lesson.id, deviceUser, "device-client-b", true, { deviceId: "browser-device-b" }), error => error.name === "ClassroomDeviceConflictError");
+      assert.equal(await db.classroomConnection.count({ where: { sessionId: lesson.id, userId: deviceUser } }), 1);
+      assert.equal((await api.touchClassroomConnection(lesson.id, deviceUser, "device-client-b", true, { deviceId: "browser-device-b", mode: "together" })).entryMode, "together");
+      assert.equal(await db.classroomMemberState.count({ where: { sessionId: lesson.id, userId: deviceUser } }), 1);
+      assert.equal(await db.classroomConnection.count({ where: { sessionId: lesson.id, userId: deviceUser, leftAt: null } }), 2);
+      // An idempotent retry cannot close a peer admitted after its first response.
+      await api.touchClassroomConnection(lesson.id, deviceUser, "device-client-b", true, { deviceId: "browser-device-b", mode: "replace" });
+      assert.equal(await db.classroomConnection.count({ where: { sessionId: lesson.id, userId: deviceUser, leftAt: null } }), 2);
+    });
+    await check("refresh retains together mode, replaces only the old same-browser lease, and fences it", async () => {
+      const deviceUser = "device-user";
+      await api.leaveClassroomConnection(lesson.id, deviceUser, "device-client-b", false);
+      assert.equal((await api.touchClassroomConnection(lesson.id, deviceUser, "device-client-b2", true, { deviceId: "browser-device-b" })).entryMode, "together");
+      assert.equal(await db.classroomConnection.count({ where: { sessionId: lesson.id, userId: deviceUser, leftAt: null } }), 2);
+      await assert.rejects(api.touchClassroomConnection(lesson.id, deviceUser, "device-client-b", true, { deviceId: "browser-device-b" }), error => error.name === "ClassroomConnectionReplacedError");
+      assert.equal((await api.touchClassroomConnection(lesson.id, deviceUser, "device-client-b")).reason, "replaced");
+    });
+    await check("replacement releases old sharing and captions, fences credentials and actions, and survives late beacons", async () => {
+      const deviceUser = "device-user";
+      await db.classroomConnection.updateMany({ where: { sessionId: lesson.id, userId: deviceUser }, data: { captionLanguage: "en" } });
+      await db.classroomRuntime.update({ where: { id: runtime.id }, data: { composition: { screenShares: { main: { userId: deviceUser, clientId: "device-client-a", rtcUid: 123, claimId: "old-share" } } } } });
+      await api.touchClassroomConnection(lesson.id, deviceUser, "device-client-c", true, { deviceId: "browser-device-c", mode: "replace" });
+      const connections = await db.classroomConnection.findMany({ where: { sessionId: lesson.id, userId: deviceUser } });
+      assert.equal(connections.filter(row => !row.leftAt).length, 1);
+      assert.ok(connections.filter(row => row.id.endsWith(":device-client-a") || row.id.endsWith(":device-client-b2")).every(row => row.replacedAt && row.captionLanguage === null));
+      assert.deepEqual((await db.classroomRuntime.findUnique({ where: { id: runtime.id } })).composition.screenShares, {});
+      const prior = globalThis.connectionActor;
+      globalThis.connectionActor = { ...prior, userId: deviceUser };
+      try {
+        const renewed = await api.renew(request({ sessionId: lesson.id, clientId: "device-client-a" }));
+        assert.equal(renewed.status, 409); assert.equal((await renewed.json()).code, "classroom_connection_replaced");
+        const heartbeat = await api.heartbeat(request({ clientId: "device-client-a", presenceOnly: true, action: { type: "heartbeat" } }), { params: Promise.resolve({ id: lesson.id }) });
+        assert.equal(heartbeat.status, 409); assert.equal((await heartbeat.json()).code, "classroom_connection_replaced");
+        const action = await api.heartbeat(request({ clientId: "device-client-a", action: { type: "raiseHand" }, compactHandRaise: true }), { params: Promise.resolve({ id: lesson.id }) });
+        assert.equal(action.status, 409);
+      } finally { globalThis.connectionActor = prior; }
+      await api.leaveClassroomConnection(lesson.id, deviceUser, "device-client-a", true);
+      const member = await db.classroomMemberState.findUnique({ where: { sessionId_userId: { sessionId: lesson.id, userId: deviceUser } } });
+      assert.equal(member.onStage, true); assert.equal(member.cameraAllowed, true); assert.equal(member.whiteboardWritable, true);
+      await assert.rejects(api.touchClassroomConnection(lesson.id, deviceUser, "device-client-a2", true, { deviceId: "browser-device-a" }), error => error.name === "ClassroomDeviceConflictError");
+    });
+    await check("simultaneous first devices serialize admission instead of both silently joining", async () => {
+      const deviceUser = "device-race";
+      await db.classroomMemberState.create({ data: { runtimeId: runtime.id, courseId: course.id, sessionId: lesson.id, userId: deviceUser, displayName: "Race", role: "student" } });
+      const outcomes = await Promise.allSettled(["one", "two"].map(suffix => api.touchClassroomConnection(lesson.id, deviceUser, "race-client-" + suffix, true, { deviceId: "race-device-" + suffix })));
+      assert.equal(outcomes.filter(result => result.status === "fulfilled").length, 1);
+      assert.equal(outcomes.filter(result => result.status === "rejected" && result.reason.name === "ClassroomDeviceConflictError").length, 1);
+    });
     await check("ended lessons reject renewal and presence", async () => {
       await db.classroomRuntime.update({ where: { id: runtime.id }, data: { status: "ended" } });
       assert.equal((await api.renew(request({ sessionId: lesson.id, clientId }))).status, 409);

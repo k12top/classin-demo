@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { casdoorUserIdCandidates } from "@/lib/course-teacher";
 import { getFinishedDelayMinutes } from "@/lib/course-status";
@@ -85,8 +86,9 @@ export async function resolveCourseSessionReference(
 
 export async function getEffectiveSessionRoster(
   sessionId: string,
+  client: Pick<Prisma.TransactionClient, "courseSession"> = prisma,
 ): Promise<EffectiveSessionRoster | null> {
-  const session = await prisma.courseSession.findUnique({
+  const session = await client.courseSession.findUnique({
     where: { id: sessionId },
     include: {
       course: {

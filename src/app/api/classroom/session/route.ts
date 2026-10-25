@@ -1,4 +1,4 @@
-import { ClassroomConnectionEndedError } from "@/lib/classroom/server/errors";
+import { ClassroomConnectionEndedError, ClassroomConnectionReplacedError, ClassroomDeviceConflictError } from "@/lib/classroom/server/errors";
 import { canShareClassroomScreen } from "@/lib/classroom/screen-share-state";
 import { normalizeClassroomClientId, touchClassroomConnection } from "@/lib/classroom/server/connections";
 import { after, NextRequest, NextResponse } from "next/server";
@@ -83,6 +83,9 @@ export async function POST(request: NextRequest) {
       sessionId?: unknown;
       shareAccess?: unknown;
       recorderToken?: unknown;
+      deviceId?: unknown;
+      deviceLabel?: unknown;
+      deviceEntryMode?: unknown;
     };
     const suppliedCourseId =
       typeof body.courseId === "string" ? body.courseId.trim() : "";
@@ -98,6 +101,9 @@ export async function POST(request: NextRequest) {
       );
     }
     const clientId = normalizeClassroomClientId(body.clientId);
+    if (body.deviceEntryMode !== undefined && body.deviceEntryMode !== "together" && body.deviceEntryMode !== "replace") {
+      return NextResponse.json({ error: "Invalid device entry choice" }, { status: 400 });
+    }
     diagnostic.sessionId = referenceId;
     diagnostic.clientId = clientId;
     const recorderToken =
@@ -109,6 +115,7 @@ export async function POST(request: NextRequest) {
     if (!recorder && !session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    if (!recorder && !clientId) return NextResponse.json({ error: "Valid clientId is required" }, { status: 400 });
 
     const access = recorder
       ? null
@@ -195,7 +202,12 @@ export async function POST(request: NextRequest) {
         });
       }
     }
-    if (!recorder && clientId) await touchClassroomConnection(sessionId, userId, clientId, true);
+    // Resolve multi-device intent before issuing any RTC/RTM/whiteboard tokens.
+    const connection = !recorder && clientId ? await touchClassroomConnection(sessionId, userId, clientId, true, {
+      deviceId: normalizeClassroomClientId(body.deviceId),
+      deviceLabel: typeof body.deviceLabel === "string" ? body.deviceLabel.slice(0, 80) : undefined,
+      mode: body.deviceEntryMode,
+    }) : null;
     // A join needs a snapshot taken after its own write; only read-only polls coalesce.
     const runtimeSnapshot = await getClassroomRuntimeSnapshot(courseId, sessionId, { ensure: false });
     const engagementSnapshot = await getClassroomEngagementSnapshot(sessionId);
@@ -349,6 +361,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       {
+        connection: connection && "entryMode" in connection ? connection : null,
         mode: modePolicy.mode,
         modePolicy,
         credential,
@@ -425,6 +438,12 @@ export async function POST(request: NextRequest) {
       },
     );
   } catch (error) {
+    if (error instanceof ClassroomDeviceConflictError) return NextResponse.json({
+      code: "classroom_device_conflict", devices: error.devices,
+    }, { status: 409, headers: { "Cache-Control": "no-store" } });
+    if (error instanceof ClassroomConnectionReplacedError) return NextResponse.json({
+      code: "classroom_connection_replaced",
+    }, { status: 409, headers: { "Cache-Control": "no-store" } });
     if (error instanceof ClassroomConnectionEndedError) return NextResponse.json({ error: "课堂已经结束", code: "classroom_ended" }, { status: 409 });
     const unavailable = databaseUnavailableResponse(error, { route: "classroom/session", operation: "join", ...diagnostic, durationMs: Math.round(performance.now() - bootstrapStartedAt) });
     if (unavailable) return unavailable;

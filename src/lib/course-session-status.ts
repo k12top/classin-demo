@@ -1,9 +1,13 @@
 import { CourseStatus } from "@/lib/course-status";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { aggregateCourseSessionStatus } from "@/lib/course-session-status-logic";
 
-export async function syncCourseStatusFromSessions(courseId: string) {
-  const sessions = await prisma.courseSession.findMany({
+export async function syncCourseStatusFromSessions(
+  courseId: string,
+  client: Prisma.TransactionClient = prisma,
+) {
+  const sessions = await client.courseSession.findMany({
     where: { courseId },
     orderBy: [{ startTime: "asc" }, { position: "asc" }],
     select: {
@@ -30,7 +34,7 @@ export async function syncCourseStatusFromSessions(courseId: string) {
         lesson.endTime >= now,
     ) ||
     sessions.at(-1);
-  return prisma.course.update({
+  return client.course.update({
     where: { id: courseId },
     data: {
       status,

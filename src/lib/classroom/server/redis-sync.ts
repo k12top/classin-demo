@@ -56,7 +56,8 @@ export function synchronizeClassroomRedis(sessionId: string, fresh = false): Pro
           COALESCE((SELECT jsonb_agg(jsonb_build_object('id',c."id",'userId',c."userId",'role',COALESCE(m."role",'student'),
             'rtcUid',c."rtcUid",'screenUid',c."screenUid",'lastSeenAt',FLOOR(EXTRACT(EPOCH FROM c."lastSeenAt")*1000),
             'registeredAt',FLOOR(EXTRACT(EPOCH FROM c."lastSeenAt")*1000),
-            'leftAt',CASE WHEN c."leftAt" IS NULL THEN NULL ELSE FLOOR(EXTRACT(EPOCH FROM c."leftAt")*1000) END))
+            'leftAt',CASE WHEN c."leftAt" IS NULL THEN NULL ELSE FLOOR(EXTRACT(EPOCH FROM c."leftAt")*1000) END,
+            'replacedAt',CASE WHEN c."replacedAt" IS NULL THEN NULL ELSE FLOOR(EXTRACT(EPOCH FROM c."replacedAt")*1000) END))
             FROM "ClassroomConnection" c LEFT JOIN "ClassroomMemberState" m ON m."sessionId"=c."sessionId" AND m."userId"=c."userId"
             WHERE c."sessionId"=s."sessionId" AND (c."leftAt" IS NULL OR c."leftAt">NOW()-INTERVAL '10 minutes')), '[]'::jsonb) AS connections
         FROM "ClassroomRedisSync" s LEFT JOIN "ClassroomRuntime" r ON r."sessionId"=s."sessionId"

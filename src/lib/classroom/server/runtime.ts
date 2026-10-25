@@ -32,6 +32,7 @@ import {
   type ClassroomModePolicy,
 } from "@/lib/classroom/mode";
 import { CourseStatus } from "@/lib/course-status";
+import { syncCourseStatusFromSessions } from "@/lib/course-session-status";
 import {
   normalizeRecordingStartMode,
 } from "@/lib/classroom/recording-start";
@@ -108,6 +109,8 @@ export async function ensureClassroomRuntime(
     (!ended || existing.status === "ended");
   const runtime = unchanged ? existing : await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
+    const currentLesson = await tx.courseSession.findUniqueOrThrow({ where: { id: sessionId } });
+    const ended = currentLesson.status === CourseStatus.FINISHED || currentLesson.status === CourseStatus.CANCELLED;
     const previous = await tx.classroomRuntime.findUnique({ where: { sessionId }, select: { status: true } });
     const runtime = await tx.classroomRuntime.upsert({
       where: { sessionId },
@@ -115,19 +118,19 @@ export async function ensureClassroomRuntime(
         courseId,
         sessionId,
         status: ended ? "ended" : "waiting",
-        graceEndsAt: classroomGraceEndAt(lesson.endTime),
+        graceEndsAt: classroomGraceEndAt(currentLesson.endTime),
         startedAt: null,
         targetLanguages: [],
       },
       update: {
-        graceEndsAt: classroomGraceEndAt(lesson.endTime),
+        graceEndsAt: classroomGraceEndAt(currentLesson.endTime),
         ...(ended ? { status: "ended" } : {}),
       },
     });
     if (ended) {
       await queueEndedRecordingStops(tx, sessionId);
     }
-    if (ended && previous && previous.status !== "ended") await enqueueClassroomEvent(tx, sessionId, "classroom.ended", lesson.status === CourseStatus.CANCELLED ? "cancelled" : "scheduled_end");
+    if (ended && previous && previous.status !== "ended") await enqueueClassroomEvent(tx, sessionId, "classroom.ended", currentLesson.status === CourseStatus.CANCELLED ? "cancelled" : "scheduled_end");
     return runtime;
   });
 
@@ -138,10 +141,21 @@ export async function ensureClassroomRuntime(
   ) {
     const updated = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
-      await tx.courseSession.update({ where: { id: sessionId }, data: { status: CourseStatus.FINISHED } });
+      const current = await tx.classroomRuntime.findUniqueOrThrow({ where: { sessionId } });
+      const currentLesson = await tx.courseSession.findUniqueOrThrow({ where: { id: sessionId } });
+      const graceEndsAt = classroomGraceEndAt(currentLesson.endTime);
+      // An extension/reopen may have committed since the initial read. Do
+      // not close a fresh cycle using its predecessor's cached deadline.
+      if (current.status === "ended") return current;
+      if (currentLesson.status !== CourseStatus.FINISHED && currentLesson.status !== CourseStatus.CANCELLED && graceEndsAt && graceEndsAt.getTime() > Date.now()) {
+        return current.graceEndsAt?.getTime() === graceEndsAt.getTime() ? current
+          : tx.classroomRuntime.update({ where: { id: current.id }, data: { graceEndsAt } });
+      }
+      if (currentLesson.status !== CourseStatus.CANCELLED) await tx.courseSession.update({ where: { id: sessionId }, data: { status: CourseStatus.FINISHED } });
       const endedRuntime = await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { status: "ended", revision: { increment: 1 } } });
       await queueEndedRecordingStops(tx, sessionId);
-      await enqueueClassroomEvent(tx, sessionId, "classroom.ended", "scheduled_end");
+      await enqueueClassroomEvent(tx, sessionId, "classroom.ended", currentLesson.status === CourseStatus.CANCELLED ? "cancelled" : "scheduled_end");
+      await syncCourseStatusFromSessions(courseId, tx);
       return endedRuntime;
     });
     return updated;
@@ -515,6 +529,7 @@ async function loadClassroomRuntimeSnapshot(
       return { ...snapshot,
         ...classroomConnectionPresence({ lastSeenAt, online, mayReconnect: runtime.status !== "ended" && (memberConnections.length > 0 || pageHidden || (!knownUsers.has(member.userId) && member.presence === "online")) }, now),
         rtcUids: memberConnections.map((connection) => connection.rtcUid),
+        replacedRtcUids: allConnections.filter(connection => connection.replacedAt).map(connection => connection.rtcUid),
         signalingUserIds: [classroomSignalingUserId(member.userId), ...memberConnections
           .map(connection => classroomSignalingUserId(connection.id.slice(sessionId.length + 1)))],
         auxiliaryCameraUids: memberConnections.map((connection) => classroomAuxiliaryRtcUid(connection.rtcUid)),
@@ -847,6 +862,17 @@ export async function applyClassroomAction(input: {
           data: { handRaisedAt: null },
         });
         break;
+      case "acknowledgeHand": {
+        requireTeachingRole(role);
+        if (typeof action.handRaisedAt !== "string") throw new ClassroomActionError("举手信息无效", 400);
+        const raisedAt = new Date(action.handRaisedAt);
+        if (!action.targetUserId || !Number.isFinite(raisedAt.getTime())) throw new ClassroomActionError("举手信息无效", 400);
+        const target = await tx.classroomMemberState.findUnique({ where: { sessionId_userId: { sessionId, userId: action.targetUserId } }, select: { role: true } });
+        if (!target || target.role !== "student") throw new ClassroomActionError("只能回应当前课堂的学生", 409);
+        // A stale acknowledgement must never clear a newer request.
+        await tx.classroomMemberState.updateMany({ where: { sessionId, userId: action.targetUserId, handRaisedAt: raisedAt }, data: { handRaisedAt: null } });
+        break;
+      }
       case "acceptStage": {
         if (role !== "student") {
           throw new ClassroomActionError("只有学生需要接受上台邀请", 409);

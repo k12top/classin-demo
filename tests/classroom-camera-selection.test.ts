@@ -24,7 +24,7 @@ test("one account produces one main camera independent of SDK arrival order", ()
   assert.deepEqual(selectClassroomCameraParticipants(peers,members).map(p=>p.id),["101","aux"]);
   assert.deepEqual(selectClassroomCameraParticipants([...peers].reverse(),members).map(p=>p.id),["aux","101"]);
   assert.deepEqual(recorderCameraParticipants(peers,members,[],false).map(p=>p.id),["101"]);
-  assert.equal(selectClassroomCameraParticipants([camera("101",{hasVideo:false,isLocal:true}),camera("102")],members,"teacher")[0].id,"102");
+  assert.equal(selectClassroomCameraParticipants([camera("101",{hasVideo:false,isLocal:true}),camera("102")],members,"teacher")[0].id,"101");
   assert.equal(selectClassroomCameraParticipants([camera("101"),camera("102",{isLocal:true})],members,"teacher")[0].id,"102");
 });
 

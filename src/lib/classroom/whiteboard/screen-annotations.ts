@@ -55,6 +55,7 @@ export function createScreenAnnotationController(
     setStrokeWidth: (width) => operate(() => { view.setMemberState({ strokeWidth: width }); }),
     setEraserSize: (size) => operate(() => { view.setMemberState({ pencilEraserSize: size }); }),
     setTextSize: (size) => operate(() => { view.setMemberState({ textSize: size }); }),
+    deleteSelection: () => operate(() => { view.delete(); }),
     undo: () => operate(() => { view.undo(); }),
     redo: () => operate(() => { view.redo(); }),
     clear: () => operate(() => { view.cleanCurrentScene(); }),

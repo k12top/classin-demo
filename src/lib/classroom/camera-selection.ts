@@ -9,7 +9,9 @@ export function selectClassroomCameraParticipants(
   const hasIdentityRoster = members.some(member => member.rtcUids !== undefined);
   const cameras = new Map<string, ClassroomParticipant>();
   const owner = (participant: ClassroomParticipant) => classroomParticipantOwnerId(participant, members, currentUserId);
-  const score = (participant: ClassroomParticipant) => Number(participant.hasVideo) * 4 + Number(participant.isLocal) * 2 + Number(participant.hasAudio);
+  // The local camera is authoritative for this account, including its off state.
+  // A second device must never replace the preview after this device is muted.
+  const score = (participant: ClassroomParticipant) => Number(participant.hasVideo) * 4 + Number(participant.isLocal) * 16 + Number(participant.hasAudio);
   for (const participant of participants) {
     if (participant.kind !== "camera") continue;
     const userId = owner(participant);

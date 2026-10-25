@@ -12,6 +12,10 @@ type AgoraRtmClient = {
     event: string,
     listener: (event: Record<string, unknown>) => void,
   ): void;
+  removeEventListener?(
+    event: string,
+    listener: (event: Record<string, unknown>) => void,
+  ): void;
   login(options: { token: string }): Promise<unknown>;
   subscribe(channelName: string): Promise<unknown>;
   publish(
@@ -23,6 +27,19 @@ type AgoraRtmClient = {
   logout(): Promise<unknown>;
 };
 
+type RtmLease = {
+  client: AgoraRtmClient;
+  tail: Promise<void>;
+  owner?: AgoraRtmSignalingProvider;
+};
+// The SDK reserves app/user pairs for the lifetime of its constructor, even
+// after logout. Retain the public client across retries and Fast Refresh.
+// Keying by constructor also follows a genuinely reloaded SDK's lifetime.
+const rtmGlobal = globalThis as typeof globalThis & {
+  __classroomRtmClients?: WeakMap<object, Map<string, RtmLease>>;
+};
+const rtmClients = rtmGlobal.__classroomRtmClients ??= new WeakMap();
+
 export class AgoraRtmSignalingProvider
   implements ClassroomSignalingProvider
 {
@@ -31,6 +48,8 @@ export class AgoraRtmSignalingProvider
   private generation = 0;
   private ready = false;
   private onHealth?: (ready: boolean) => void;
+  private lease: RtmLease | null = null;
+  private removeListeners?: () => void;
 
   async connect(
     credential: ClassroomSignalingCredential,
@@ -45,7 +64,20 @@ export class AgoraRtmSignalingProvider
       appId: string,
       userId: string,
     ) => AgoraRtmClient;
-    const client = new RTM(credential.appId, credential.userId);
+    let clients = rtmClients.get(RTM);
+    if (!clients) { clients = new Map(); rtmClients.set(RTM, clients); }
+    const key = JSON.stringify([credential.appId, credential.userId]);
+    let lease = clients.get(key);
+    if (!lease) {
+      lease = { client: new RTM(credential.appId, credential.userId), tail: Promise.resolve() };
+      clients.set(key, lease);
+    }
+    // A replacement invalidates old callbacks immediately, then waits for the
+    // previous login/unsubscribe/logout work before logging in again.
+    if (lease.owner && lease.owner !== this) void lease.owner.disconnect();
+    lease.owner = this;
+    this.lease = lease;
+    const client = lease.client;
     this.onHealth = onHealth;
     const health = (ready: boolean) => {
       if (generation !== this.generation) return;
@@ -54,7 +86,7 @@ export class AgoraRtmSignalingProvider
     };
     let linkVersion = 0;
     let connectionAvailable = true;
-    client.addEventListener("linkState", event => {
+    const onLinkState = (event: Record<string, unknown>) => {
       if (generation !== this.generation || event.serviceType !== "MESSAGE") return;
       const version = ++linkVersion;
       connectionAvailable = event.currentState === "CONNECTED";
@@ -66,8 +98,8 @@ export class AgoraRtmSignalingProvider
       const unrestored = Array.isArray(event.unrestoredChannels) && event.unrestoredChannels.includes(credential.channelName);
       const restore = event.isResumed === true && !unrestored ? Promise.resolve() : client.subscribe(credential.channelName);
       void restore.then(() => { if (version === linkVersion) health(true); }, () => { if (version === linkVersion) health(false); });
-    });
-    client.addEventListener("message", (event) => {
+    };
+    const onMessage = (event: Record<string, unknown>) => {
       const raw = event.message;
       if (generation !== this.generation || typeof raw !== "string" || raw.length > 32_000) return;
       try {
@@ -85,24 +117,39 @@ export class AgoraRtmSignalingProvider
       } catch {
         // The channel may be shared with older clients. Ignore unknown payloads.
       }
-    });
+    };
     this.client = client;
     this.channelName = credential.channelName;
-    try {
-      await client.login({ token: credential.token });
-      if (generation !== this.generation) { await client.logout().catch(() => undefined); return; }
-      await client.subscribe(credential.channelName);
-      health(connectionAvailable);
-      if (generation !== this.generation) {
-        await client.unsubscribe(credential.channelName).catch(() => undefined);
+    const connection = lease.tail.catch(() => undefined).then(async () => {
+      if (generation !== this.generation) return;
+      // logout removes SDK listeners, so attach only after prior cleanup.
+      client.addEventListener("linkState", onLinkState);
+      client.addEventListener("message", onMessage);
+      this.removeListeners = () => {
+        client.removeEventListener?.("linkState", onLinkState);
+        client.removeEventListener?.("message", onMessage);
+      };
+      try {
+        await client.login({ token: credential.token });
+        if (generation !== this.generation) return;
+        await client.subscribe(credential.channelName);
+        health(connectionAvailable);
+      } catch (error) {
+        health(false);
+        if (generation === this.generation) {
+          this.removeListeners?.();
+          this.removeListeners = undefined;
+          this.client = null;
+          this.channelName = "";
+          this.lease = null;
+          if (lease.owner === this) lease.owner = undefined;
+        }
         await client.logout().catch(() => undefined);
+        throw error;
       }
-    } catch (error) {
-      health(false);
-      if (this.client === client) { this.client = null; this.channelName = ""; }
-      await client.logout().catch(() => undefined);
-      throw error;
-    }
+    });
+    lease.tail = connection.catch(() => undefined);
+    await connection;
   }
 
   async publish(event: ClassroomSignalingEvent): Promise<void> {
@@ -124,12 +171,20 @@ export class AgoraRtmSignalingProvider
     this.generation += 1;
     const client = this.client;
     const channelName = this.channelName;
+    const lease = this.lease;
     this.client = null;
     this.channelName = "";
+    this.lease = null;
+    this.removeListeners?.();
+    this.removeListeners = undefined;
     if (!client) return;
-    if (channelName) {
-      await client.unsubscribe(channelName).catch(() => undefined);
-    }
-    await client.logout().catch(() => undefined);
+    if (lease?.owner === this) lease.owner = undefined;
+    const cleanup = async () => {
+      if (channelName) await client.unsubscribe(channelName).catch(() => undefined);
+      await client.logout().catch(() => undefined);
+    };
+    const stopped = lease ? lease.tail.catch(() => undefined).then(cleanup) : cleanup();
+    if (lease) lease.tail = stopped;
+    await stopped;
   }
 }

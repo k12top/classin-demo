@@ -19,7 +19,7 @@ async function main(){
   '@/lib/classroom/server/request-access':`export const resolveClassroomRequestAccess=async()=>({ok:true,session:globalThis.feedbackActor,access:{courseId:globalThis.feedbackCourse,sessionId:globalThis.feedbackSession,role:globalThis.feedbackActor.classroomRole,roomUuid:'fixture-room'}});`,
   '@/lib/classroom/server/integration-events':'export const enqueueClassroomEvent=async()=>{};export const deliverClassroomEvents=async()=>{};',
   '@/lib/classroom/server/transcription-orchestrator':'export const ensureClassroomTranscriptionForLiveSession=async()=>{};export const syncClassroomTranscription=async()=>{};export const stopClassroomTranscription=async()=>{};',
-  '@/lib/classroom/server/recording-orchestrator':'export const requestRecordingStop=async()=>{};export const processRecordingStop=async()=>{};export const stopActiveRecordingsForCourse=async()=>{};',
+  '@/lib/classroom/server/recording-orchestrator':'export const requestRecordingStop=async()=>{};export const processRecordingStop=async()=>{};export const stopActiveRecordingsForCourse=async()=>{};export const requestRecordingStart=async()=>{};export const processRecordingStart=async()=>{};',
   '@/lib/classroom/server/provider-factory':`export const getClassroomServerProvider=()=>({issueCredential:input=>({publishAllowed:input.publisher,role:input.role,rtcUid:1,channelName:input.channelName,token:'fixture'})});export const getRecordingProvider=()=>({isConfigured:()=>false});`,
   '@/lib/aliyun-oss':`export const getCoursewareObjectKey=url=>url.startsWith('oss://')?url.slice(6):null;export const getCoursewareOssClient=()=>({signatureUrl:()=>globalThis.feedbackFileURL});export class CoursewareStorageConfigurationError extends Error{}`,
  };

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="darkreader-lock"><title>课堂互动题目 · 交互设计稿</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<main class="review-shell">
+  <header class="review-header"><div><h1>互动题目</h1><span>交互设计稿 · 示例数据</span></div><a href="../classroom-minimal-design-2026-10-25/index.html">返回课堂设计 <span data-icon="ArrowUpRight"></span></a></header>
+  <nav class="review-controls" aria-label="设计稿预览设置">
+    <div class="segmented" aria-label="角色"><button data-role="teacher" aria-pressed="true">老师</button><button data-role="student" aria-pressed="false">学生 · 许嘉宁 <i id="student-notice" hidden></i></button></div>
+    <div class="segmented devices"><button data-device="desktop" aria-label="桌面预览" aria-pressed="true" title="桌面预览"><span data-icon="Monitor"></span></button><button data-device="mobile" aria-label="手机预览" aria-pressed="false" title="手机预览"><span data-icon="Smartphone"></span></button></div>
+    <button class="review-link" id="demo-create"><span data-icon="Sparkles"></span>AI 出题</button><button class="review-link" id="demo-edit"><span data-icon="Pencil"></span>演示答案变更</button><button class="review-link" id="demo-nudge"><span data-icon="Bell"></span>演示催交</button>
+    <button class="icon-button reset" id="reset" title="重置示例" aria-label="重置示例"><span data-icon="RefreshCw"></span></button>
+  </nav>
+  <div class="preview-wrap"><section class="classroom" id="classroom" aria-label="课堂互动设计预览">
+    <header class="class-header"><button class="icon-button" title="返回课程" aria-label="返回课程" data-demo-toast="返回课程入口"><span data-icon="ArrowLeft"></span></button><button class="course-name" title="算法 · 链表与双指针">算法 · 链表与双指针 <span data-icon="ChevronDown"></span></button><span class="class-time">28:46</span><span class="live-dot" title="课堂连接正常"></span><button class="icon-button" title="课堂设置" aria-label="课堂设置" data-demo-toast="保持课堂设置入口"><span data-icon="MoreHorizontal"></span></button></header>
+    <div class="workspace"><section class="teaching" aria-label="授课画面">
+      <div class="seat-strip"><div class="seat"><span class="person teacher-person">W</span><span>Will</span><span class="speaker-dot"></span></div><div class="seat"><span class="person p1">涵</span><span>林子涵</span><span class="muted-icon" data-icon="Mic"></span></div><div class="seat"><span class="person p4">宁</span><span>许嘉宁</span><span class="muted-icon" data-icon="Video"></span></div><button class="icon-button" aria-label="查看 8 名学生" title="8 名学生" data-demo-toast="课堂成员 · 8 名学生"><span data-icon="Users"></span></button></div>
+      <div class="stage" id="stage"><div class="lesson-slide"><h2>为什么两个指针<br>会在环中相遇？</h2><p>每走一步，重新观察它们之间的距离。</p><div class="pointer-demo" aria-label="链表指针示意"><div class="pointer-label slow">slow</div><div class="pointer-label fast">fast</div><div class="node">1</div><span class="node-arrow">→</span><div class="node">2</div><span class="node-arrow">→</span><div class="node node-active">3</div><span class="node-arrow">→</span><div class="node">4</div></div><pre><code>slow = slow.next
+fast = fast.next.next</code></pre><footer><span>链表与双指针</span><span>08 / 16</span></footer></div><div class="stage-caption" id="stage-caption"></div></div>
+    </section>
+    <aside class="conversation" aria-label="课堂交流"><header class="conversation-header"><div role="tablist" aria-label="课堂交流"><button role="tab" aria-selected="true" id="chat-tab">聊天</button><button role="tab" aria-selected="false" id="caption-tab">同传</button></div><button class="icon-button" id="close-chat" title="收起聊天" aria-label="收起聊天"><span data-icon="PanelRightClose"></span></button></header><div class="chat-scroll" id="chat-scroll"><div class="chat-greeting"><span class="person teacher-person small">W</span><div><span class="sender">Will <time>14:28</time></span><p>先想一想，我们用一道题检查理解。</p></div></div><div id="activity-feed"></div></div><div id="creator"></div><form class="chat-composer" id="chat-composer"><button class="icon-button create-trigger" type="button" id="create-question" title="AI 出题" aria-label="AI 出题"><span data-icon="Sparkles"></span></button><input aria-label="课堂消息" placeholder="发消息…" id="chat-input"><button class="icon-button" title="发送消息" aria-label="发送消息"><span data-icon="ArrowUp"></span></button></form></aside>
+    </div>
+    <div class="floating-root" id="floating-root"></div><div id="roster-popover" class="roster-popover" hidden></div>
+    <div class="nudge" id="nudge" role="status" hidden></div><div class="toast" id="toast" role="status" hidden></div>
+    <nav class="dock" aria-label="课堂工具"><button class="icon-button" data-toggle-device title="麦克风" aria-label="麦克风" aria-pressed="false"><span data-icon="Mic"></span></button><button class="icon-button" data-toggle-device title="摄像头" aria-label="摄像头" aria-pressed="false"><span data-icon="Video"></span></button><button class="icon-button" title="共享画面" aria-label="共享画面" data-demo-toast="继续共享课件，题目可收起"><span data-icon="MonitorUp"></span></button><span class="dock-divider"></span><button class="icon-button" title="举手" aria-label="举手" data-toggle-device aria-pressed="false"><span data-icon="Hand"></span></button><button class="icon-button dock-question" id="reopen-question" title="打开互动题目" aria-label="打开互动题目"><span data-icon="FileText"></span><i hidden></i></button><button class="icon-button" id="dock-chat" title="聊天" aria-label="聊天" aria-pressed="true"><span data-icon="MessageCircle"></span></button><button class="icon-button" title="全屏课堂" aria-label="全屏课堂" id="fullscreen"><span data-icon="Maximize"></span></button></nav>
+    <div class="sr-only" id="announcer" aria-live="polite"></div>
+  </section></div>
+  <footer class="review-footer"><span id="review-hint">悬停头像组查看名单，点选学生即可在聊天内查看答案。</span><a href="interaction-notes.md">交互规则</a><span>AI、师生同步与催交均为本地交互演示</span></footer>
+</main>
+<script src="icons.js"></script><script src="app.js"></script>
+</body></html>

@@ -9,6 +9,7 @@ export async function resolveClassroomRequestAccess(
   request: NextRequest,
   courseId: string,
   shareAccess?: string | null,
+  options: { purpose?: "activities" } = {},
 ) {
   const session = await getSessionFromRequest(request);
   if (!session) {
@@ -19,9 +20,14 @@ export async function resolveClassroomRequestAccess(
       code: "unauthorized",
     };
   }
-  const access = await coalesceClassroomRead(JSON.stringify(["access", courseId, session.userId, session.name, shareAccess || ""]), () => resolveCourseSessionAccess(courseId, session.userId, {
+  const access = await coalesceClassroomRead(JSON.stringify(["access", courseId, session.userId, session.name, shareAccess || "", options.purpose || "classroom"]), () => resolveCourseSessionAccess(courseId, session.userId, {
     shareAccessToken: shareAccess || undefined,
     userIdAliases: [session.name],
+    ...(options.purpose === "activities" && {
+      purpose: "activities",
+      referenceType: "session",
+      skipCache: true,
+    }),
   }));
   if (!access.ok) {
     return {

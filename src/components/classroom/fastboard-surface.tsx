@@ -34,6 +34,8 @@ export type ClassroomWhiteboardTool =
   | "selector"
   | "clicker"
   | "pencil"
+  | "straight"
+  | "arrow"
   | "text"
   | "rectangle"
   | "ellipse"
@@ -46,6 +48,7 @@ export type ClassroomWhiteboardController = {
   setStrokeWidth(width: number): void;
   setEraserSize(size: 1 | 2 | 3 | 4): void;
   setTextSize(size: number): void;
+  deleteSelection?(): void;
   undo(): void;
   redo(): void;
   clear(): void;
@@ -315,6 +318,7 @@ export function FastboardSurface({
                 createdApp.setPencilEraserSize(size);
               },
               setTextSize: (size) => createdApp.setTextSize(size),
+              deleteSelection: () => createdApp.manager.mainView.delete(),
               undo: () => createdApp.undo(),
               redo: () => createdApp.redo(),
               clear: () => createdApp.cleanCurrentScene(),

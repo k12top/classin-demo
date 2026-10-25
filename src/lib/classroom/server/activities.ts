@@ -1,6 +1,8 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { Prisma, type ClassroomActivity, type ClassroomActivitySubmission } from "@prisma/client";
+import { getEffectiveSessionRoster } from "@/lib/course-session-roster";
+import { casdoorUserIdCandidates } from "@/lib/course-teacher";
 import { prisma } from "@/lib/db";
 import type { ClassroomRole } from "@/lib/classroom/types";
 import {
@@ -50,8 +52,27 @@ async function activityRead<T>(run: (tx: Tx) => Promise<T>): Promise<T> {
 }
 function response(row: ClassroomActivitySubmission, reveal: boolean): ActivityResponse {
   return { id: row.id, userId: row.userId, displayName: row.displayName, answers: row.answers as ActivityAnswers,
-    grading: reveal ? row.grading as ActivityGrade : null, feedback: reveal ? row.feedback : null, version: row.version, submittedAt: row.submittedAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
+    grading: reveal ? row.grading as ActivityGrade : null, feedback: reveal ? row.feedback : null, version: row.version, answerVersion: row.answerVersion,
+    answerHistory: row.answerHistory as ActivityResponse["answerHistory"], aiReview: reveal ? row.aiReview as ActivityResponse["aiReview"] : undefined,
+    submittedAt: row.submittedAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
 }
+async function enrolledStudents(tx: Tx, actor: ActivityActor) {
+  const [roster, overrides, members] = await Promise.all([
+    getEffectiveSessionRoster(actor.sessionId, tx),
+    tx.courseSessionStudent.findMany({ where: { sessionId: actor.sessionId } }),
+    tx.classroomMemberState.findMany({ where: { sessionId: actor.sessionId, role: "student" } }),
+  ]);
+  const key = (id: string) => casdoorUserIdCandidates(id).at(-1)?.toLowerCase() || id.toLowerCase();
+  const denied = new Set(overrides.filter(s => s.action === "exclude").map(s => key(s.studentId)));
+  const rows = new Map((roster?.students || []).map(s => [key(s.userId), { userId: s.userId, displayName: s.displayName, avatar: s.avatar, online: false }]));
+  for (const m of members) {
+    if (denied.has(key(m.userId))) continue;
+    // Joined share-link students can be temporary and absent from the scheduled roster.
+    rows.set(key(m.userId), { userId: m.userId, displayName: m.displayName || m.userId, avatar: m.avatar, online: m.presence === "online" && Date.now() - m.lastSeenAt.getTime() < 90000 });
+  }
+  return [...rows.values()];
+}
+
 function summary(row: ClassroomActivity & { _count: { submissions: number } }): ActivitySummary {
   return { id: row.id, title: row.title, kind: row.kind as ActivityKind, status: row.status as ActivityStatus,
     version: row.version, presented: row.presented, presentedQuestion: row.presentedQuestion, durationSec: row.durationSec, startedAt: row.startedAt?.toISOString() || null, deadlineAt: row.deadlineAt?.toISOString() || null,
@@ -119,14 +140,20 @@ export async function activityDetail(actor: ActivityActor, id: string, cursor?: 
         if (Array.isArray(selected)) for (const option of selected) if (option in statistics[q.id]) statistics[q.id][option]++;
       }
     }
+    const lastReminder = await tx.classroomActivityReminder.findFirst({ where: { activityId: id, ...(ctx.canManage ? {} : { recipients: { array_contains: [actor.userId] } }) }, orderBy: { createdAt: "desc" } });
+    const roster = ctx.canManage ? await enrolledStudents(tx, actor) : [];
+    const allResponses = ctx.canManage ? await tx.classroomActivitySubmission.findMany({ where: { activityId: id } }) : [];
+    const responseMap = new Map(allResponses.map(r => [r.userId, r]));
     return { ...summary(row), definition: publicDefinition(definition, reveal), ownResponse: own ? response(own, reveal) : null,
-      responses: rows.slice(0, 50).map(r => response(r, true)), responseCursor: rows.length > 50 ? rows[49].id : null, statistics };
+      responses: rows.slice(0, 50).map(r => response(r, true)), responseCursor: rows.length > 50 ? rows[49].id : null, statistics,
+      ...(ctx.canManage ? { roster: roster.map(m => ({ ...m, response: responseMap.has(m.userId) ? response(responseMap.get(m.userId)!, true) : null })), lastRemindedAt: lastReminder?.createdAt.toISOString() || null } : { reminder: !own && row.status === "active" && lastReminder ? { id: lastReminder.id, createdAt: lastReminder.createdAt.toISOString() } : null }) };
   });
 }
-export async function createActivity(actor: ActivityActor, value: unknown, requestId: string) {
+export async function createActivity(actor: ActivityActor, value: unknown, requestId: string, launch = false) {
   if (!/^[\w-]{8,100}$/.test(requestId)) throw new ActivityError("Invalid request ID");
   if (actor.role === "student") throw new ActivityError("Only authorized teachers can create activities", 403);
   const normalized = validateActivity(value);
+  const creationFingerprint = fingerprint(launch ? { ...normalized, launch: true } : normalized);
   const lesson = await prisma.courseSession.findFirst({ where: { id: actor.sessionId, courseId: actor.courseId } });
   if (!lesson) throw new ActivityError("Lesson not found", 404);
   if (actor.role === "assistant" && !(await prisma.classroomRuntime.findUnique({ where: { sessionId: actor.sessionId } }))) throw new ActivityError("Only authorized teachers can create activities", 403);
@@ -135,12 +162,14 @@ export async function createActivity(actor: ActivityActor, value: unknown, reque
     if (!ctx.canManage) throw new ActivityError("Only authorized teachers can create activities", 403);
     const previous = await tx.classroomActivity.findUnique({ where: { sessionId_requestId: { sessionId: actor.sessionId, requestId } } });
     if (previous) {
-      if (previous.createdBy !== actor.userId || (previous.creationFingerprint ?? fingerprint(validateActivity({ title: previous.title, kind: previous.kind, definition: previous.definition, durationSec: previous.durationSec }))) !== fingerprint(normalized)) throw new ActivityError("Request ID already used", 409);
+      if (previous.createdBy !== actor.userId || (previous.creationFingerprint ?? fingerprint(validateActivity({ title: previous.title, kind: previous.kind, definition: previous.definition, durationSec: previous.durationSec }))) !== creationFingerprint) throw new ActivityError("Request ID already used", 409);
       return { id: previous.id, revision: ctx.runtime.revision };
     }
     if (!ctx.canPrepare) throw new ActivityError("This lesson has ended. Open another lesson to prepare activities", 409);
+    if (launch && !ctx.live) throw new ActivityError("Start the lesson before publishing a draft", 409);
+    if (launch) await tx.classroomActivity.updateMany({ where: { sessionId: actor.sessionId, status: "active" }, data: { status: "closed", presented: false, closedAt: new Date(), version: { increment: 1 } } });
     const row = await tx.classroomActivity.create({ data: { runtimeId: ctx.runtime.id, sessionId: actor.sessionId, requestId, createdBy: actor.userId,
-      ...normalized, creationFingerprint: fingerprint(normalized), definition: json(normalized.definition) } });
+      ...normalized, creationFingerprint, definition: json(normalized.definition), ...(launch ? { status: "active", startedAt: new Date(), deadlineAt: normalized.durationSec ? new Date(Date.now() + normalized.durationSec * 1000) : null } : {}) } });
     return { id: row.id, revision: await bump(tx, actor.sessionId) };
   });
 }
@@ -163,14 +192,31 @@ export async function commandActivity(actor: ActivityActor, id: string, command:
       if (previous && expected < previous.version && answersMatch(previous.answers as ActivityAnswers, answers)) return { responseId: previous.id, response: response(previous, row.status === "published"), revision: ctx.runtime.revision };
       if (!ctx.live || row.status !== "active" || (row.deadlineAt && row.deadlineAt <= new Date())) throw new ActivityError("Activity is closed; your last saved answer is retained", 409);
       if (expected !== (previous?.version ?? 0)) throw new ActivityError("This answer has changed. Load the saved answer before submitting", 409);
+      if (previous && answersMatch(previous.answers as ActivityAnswers, answers)) return { responseId: previous.id, response: response(previous, false), revision: ctx.runtime.revision };
       const grading = gradeAnswers(row.kind as ActivityKind, definition, answers);
+      const aiReview = Object.fromEntries(definition.questions.filter(q => q.type === "essay" || q.type === "shortText").map(q => [q.id, { status: "pending" }]));
+      for (const questionId of Object.keys(aiReview)) grading[questionId] = null;
       const saved = await tx.classroomActivitySubmission.upsert({ where: { activityId_userId: { activityId: id, userId: actor.userId } },
-        create: { activityId: id, userId: actor.userId, displayName: actor.displayName, answers: json(answers), grading: json(grading) },
-        update: { version: { increment: 1 }, answers: json(answers), grading: json(grading), submittedAt: new Date() } });
+        create: { activityId: id, userId: actor.userId, displayName: actor.displayName, answers: json(answers), grading: json(grading), aiReview: json(aiReview) },
+        update: { version: { increment: 1 }, answerVersion: { increment: 1 }, answerHistory: json([...(previous?.answerHistory as unknown[] || []), ...(previous ? [{ answers: previous.answers, submittedAt: previous.submittedAt.toISOString() }] : [])]), answers: json(answers), grading: json(grading), aiReview: json(aiReview), submittedAt: new Date() } });
       return { responseId: saved.id, response: response(saved, false), revision: await bump(tx, actor.sessionId) };
     }
     if (!ctx.canManage) throw new ActivityError("Only authorized teachers can manage activities", 403);
-    if (action === "edit") {
+    if (action === "remind") {
+      if (!ctx.live || row.status !== "active") throw new ActivityError("Activity is closed; your last saved answer is retained", 409);
+      const requestId = command.requestId;
+      if (typeof requestId !== "string" || !/^[\w-]{8,100}$/.test(requestId)) throw new ActivityError("Invalid request ID");
+      const previous = await tx.classroomActivityReminder.findUnique({ where: { activityId_requestId: { activityId: id, requestId } } });
+      if (previous) return { id, reminderId: previous.id, reminded: (previous.recipients as string[]).length, revision: ctx.runtime.revision };
+      const last = await tx.classroomActivityReminder.findFirst({ where: { activityId: id }, orderBy: { createdAt: "desc" } });
+      if (last && Date.now() - last.createdAt.getTime() < 30000) throw new ActivityError("Please wait 30 seconds before reminding again", 429);
+      const submitted = await tx.classroomActivitySubmission.findMany({ where: { activityId: id }, select: { userId: true } });
+      const done = new Set(submitted.map(s => s.userId));
+      const recipients = (await enrolledStudents(tx, actor)).filter(s => !done.has(s.userId) && (!command.targetUserId || s.userId === command.targetUserId)).map(s => s.userId);
+      if (!recipients.length) return { id, reminded: 0, revision: ctx.runtime.revision };
+      const reminder = await tx.classroomActivityReminder.create({ data: { activityId: id, senderId: actor.userId, requestId, recipients: json(recipients) } });
+      return { id, reminded: recipients.length, reminderId: reminder.id, revision: await bump(tx, actor.sessionId) };
+    } else if (action === "edit") {
       if (row.status !== "draft" || !ctx.canPrepare) throw new ActivityError("Only drafts in unfinished lessons can be edited", 409);
       if (command.expectedVersion !== row.version) throw new ActivityError("This draft has changed. Refresh before saving", 409);
       const normalized = validateActivity(command.activity);
@@ -203,14 +249,16 @@ export async function commandActivity(actor: ActivityActor, id: string, command:
       if (typeof command.expectedVersion === "number" && command.expectedVersion < submission.version && unchanged) return { id, revision: ctx.runtime.revision };
       if (row.status !== "closed") throw new ActivityError("Close the activity before grading", 409);
       if (command.expectedVersion !== submission.version) throw new ActivityError("This grade has changed. Refresh before saving", 409);
-      await tx.classroomActivitySubmission.update({ where: { id: submission.id }, data: { version: { increment: 1 }, grading: json(grades), feedback: command.feedback.trim() } });
-    } else if (action === "publish") {
+      const feedback = command.feedback.trim();
+      const manualReview = Object.fromEntries(questions.map(q => [q.id, { status: "manual", score: grades[q.id], correct: grades[q.id] === q.points, ...(feedback ? { reason: feedback } : {}) }]));
+      await tx.classroomActivitySubmission.update({ where: { id: submission.id }, data: { version: { increment: 1 }, grading: json(grades), feedback: command.feedback.trim(), aiReview: json(manualReview) } });
+    } else if (action === "publish" || action === "release") {
       if (row.status === "published") return { id, revision: ctx.runtime.revision };
-      if (row.status !== "closed") throw new ActivityError("Close the activity before publishing results", 409);
+      if (row.status !== "closed" && !(action === "release" && row.status === "active" && ctx.live)) throw new ActivityError("Close the activity before publishing results", 409);
       const submissions = await tx.classroomActivitySubmission.findMany({ where: { activityId: id }, select: { grading: true } });
       if (submissions.some(s => (row.definition as ActivityDefinition).questions.some(q => { const g = (s.grading as ActivityGrade)[q.id]; return typeof g !== "number" || !Number.isFinite(g) || g < 0 || g > q.points; }))) throw new ActivityError("Grade all written answers before publishing results", 409);
       await tx.classroomActivity.updateMany({ where: { sessionId: actor.sessionId, presented: true }, data: { presented: false } });
-      await tx.classroomActivity.update({ where: { id }, data: { version: { increment: 1 }, presented: true, status: "published", publishedAt: new Date() } });
+      await tx.classroomActivity.update({ where: { id }, data: { version: { increment: 1 }, presented: true, status: "published", publishedAt: new Date(), ...(row.status === "active" ? { closedAt: new Date() } : {}) } });
     } else if (action === "present") {
       if (!ctx.live) throw new ActivityError("Start the lesson before presenting an activity", 409);
       if (!["active", "closed", "published"].includes(row.status)) throw new ActivityError("Only published activities can appear on stage", 409);

@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, GripVertical, Loader2, MessageCircle, Minimize2, Send, Square, RotateCcw, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, GripVertical, Loader2, MessageCircle, Minimize2, Send, Square, RotateCcw, Trash2, X } from "lucide-react";
+import { ClassroomIconButton } from "./icon-button";
 import { ClassroomMemberAvatar } from "@/components/classroom/member-avatar";
 import { useTranslation } from "@/lib/i18n/context";
 import { ASSISTANT_HISTORY_LIMIT, ASSISTANT_QUESTION_LIMIT, type ClassroomAssistantMessage } from "@/lib/classroom/assistant";
 import { useAssistantPosition } from "./use-assistant-position";
 import styles from "./teacher-assistant.module.css";
 
-export function TeacherAssistant({ sessionId, teacher, shareAccess, minimal = false }: {
-  sessionId: string; teacher: { name: string; avatar: string }; shareAccess: string; minimal?: boolean;
+export function TeacherAssistant({ sessionId, teacher, shareAccess, minimal = false, visible = true, onClose }: {
+  sessionId: string; teacher: { name: string; avatar: string }; shareAccess: string; minimal?: boolean; visible?: boolean; onClose?: () => void;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -86,7 +87,7 @@ export function TeacherAssistant({ sessionId, teacher, shareAccess, minimal = fa
   const preview = messages.at(-1)?.content || label("prompt");
 
   return (
-    <div ref={boundsRef} className={styles.bounds} data-minimal-assistant={minimal || undefined} hidden={minimal && !open}>
+    <div ref={boundsRef} className={`${styles.bounds} ${minimal ? styles.minimal : ""}`} data-minimal-assistant={minimal || undefined} hidden={minimal && !visible}>
     <section ref={widget} className={`${styles.widget} ${minimized ? styles.minimized : ""}`} aria-label={label("title")}
       style={positionStyle} data-dragging={dragging || undefined}
       onClickCapture={captureClick} onPointerDownCapture={capturePointerDown}>
@@ -128,16 +129,17 @@ export function TeacherAssistant({ sessionId, teacher, shareAccess, minimal = fa
         </section>
       )}
       <div className={styles.dock} onPointerDown={startDrag}>
-        <button ref={launcher} type="button" className={styles.identity} onClick={open ? collapse : expand} aria-expanded={open} aria-controls={panelId} aria-label={`${teacher.name} · ${label("title")}`}
-          data-assistant-move onKeyDown={moveWithKeys} title={label("move")}>
-          <ClassroomMemberAvatar avatar={teacher.avatar} name={teacher.name} />
-          {!minimized && <div><span className={styles.name}>{teacher.name}<span className={styles.badge}>AI</span></span><span className={styles.preview}>{preview}</span></div>}
-        </button>
-        {!minimized && <>
+        <ClassroomIconButton ref={launcher} type="button" className={styles.identity} onClick={open ? collapse : expand} aria-expanded={open} aria-controls={panelId} aria-label={`${teacher.name} · ${label("title")}`}
+          data-assistant-move onKeyDown={moveWithKeys} title={open ? label("collapse") : label("expand")}>
+          <span className={styles.avatarFrame}><ClassroomMemberAvatar avatar={teacher.avatar} name={teacher.name} />{minimal && <span className={styles.aiBubble}>AI</span>}</span>
+          {!minimized && !minimal && <div><span className={styles.name}>{teacher.name}<span className={styles.badge}>AI</span></span><span className={styles.preview}>{preview}</span></div>}
+        </ClassroomIconButton>
+        {minimal && onClose && <ClassroomIconButton type="button" className={styles.closeLauncher} aria-label={t("classroomWorkspace.hideAssistant")} title={t("classroomWorkspace.hideAssistant")} onClick={() => { collapse(); onClose(); }}><X /></ClassroomIconButton>}
+        {!minimized && !minimal && <>
           <button type="button" onClick={open ? collapse : expand} aria-expanded={open} aria-controls={panelId} aria-label={open ? label("collapse") : label("expand")} title={open ? label("collapse") : label("expand")}>{open ? <ChevronDown /> : <ChevronUp />}</button>
           <button type="button" onClick={() => { panelOpen.current = false; setOpen(false); setMinimized(true); requestAnimationFrame(() => launcher.current?.focus()); }} aria-label={label("minimize")} title={label("minimize")}><Minimize2 /></button>
         </>}
-        {minimized && <MessageCircle className={styles.miniBadge} aria-hidden="true" />}
+        {minimized && !minimal && <MessageCircle className={styles.miniBadge} aria-hidden="true" />}
       </div>
     </section>
     </div>

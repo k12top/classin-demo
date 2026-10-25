@@ -55,6 +55,8 @@ function fixture(touch = false) {
   const exports = {};
   const recovery = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/agora-credential-recovery.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: recovery, DOMException });
+  const portraitHelpers = {};
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/share-portrait.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: portraitHelpers });
   const profile = { width: 1280, height: 720, frameRate: 30, bitrateKbps: 1200 };
   vm.runInNewContext(source, { exports, console, DOMException, Error, ResizeObserver, window: { matchMedia: () => ({ matches: touch }) },
     require(name) {
@@ -62,6 +64,7 @@ function fixture(touch = false) {
       if (name === "agora-extension-virtual-background") return class {};
       if (name.endsWith("/share-portrait")) return {
         supportsSharePortrait: () => true,
+        normalizeScreenShareOptions: portraitHelpers.normalizeScreenShareOptions,
         screenShareProfile: mode => ({ width: mode === "portrait" ? 1920 : 1280, height: mode === "portrait" ? 1080 : 720, frameRate: 15, bitrateMin: 800, bitrateMax: 2600 }),
         createSharePortrait: async (_screen, camera, options) => { const source = makeTrack("composite-source"); const result = { track: source.mediaTrack, camera, options, disposed: false, setOptions(next) { this.options = next; }, dispose() { this.disposed = true; source.close(); } }; composites.push(result); return result; },
       };
@@ -683,6 +686,8 @@ test("portrait shares publish one FHD composite and restore the teacher camera o
 test("camera opened during a portrait share stays inside the composite; camera-off survives stop", async () => {
   const {provider,clients,composites}=fixture();await provider.connect(credential,"Teacher");
   await provider.startScreenShare(undefined,{mode:"portrait"});
+  assert.equal(composites[0].camera(),null,"sharing must not open the camera automatically");
+  assert.equal(provider.getSnapshot().local.cameraOn,false);
   await provider.toggleCamera();assert.equal(clients[0].published,undefined);assert.ok(composites[0].camera());
   await provider.toggleCamera();assert.equal(composites[0].camera(),null);
   await provider.stopScreenShare();assert.equal(clients[0].published,undefined);assert.equal(provider.getSnapshot().local.cameraOn,false);
@@ -738,4 +743,36 @@ test("three clicks during initial capture reuse capture and retain the latest on
  sdk.createMicrophoneAudioTrack=()=>{captures++;return new Promise(resolve=>{finish=resolve})};
  const a=provider.toggleMicrophone(),b=provider.toggleMicrophone(),c=provider.toggleMicrophone();finish(makeTrack('microphone'));await Promise.all([a,b,c]);
  assert.equal(captures,1);assert.equal(provider.getSnapshot().local.microphoneOn,true);await provider.disconnect();
+});
+
+ test("portrait appearance updates are bounded, survive snapshots and leave camera and capture state unchanged", async () => {
+  const {provider,clients,composites}=fixture(); await provider.connect({...credential,role:"student",publishAllowed:true},"Student");
+  await provider.startScreenShare(undefined,{mode:"portrait"});
+  await provider.setScreenShareOptions({mode:"portrait",portraitSize:900,portraitBorder:"double",portraitBorderColor:"indigo",corner:"tl"});
+  assert.equal(composites[0].options.portraitSize,240);
+  assert.equal(provider.getSnapshot().local.screenShareOptions.portraitBorder,"double");
+  await provider.setScreenShareOptions({mode:"portrait",portraitSize:10,portraitBorder:"none"});
+  assert.equal(composites[0].options.portraitSize,120);
+  assert.equal(provider.getSnapshot().local.cameraOn,false);
+  await provider.toggleCamera(); assert.ok(composites[0].camera());assert.equal(clients[0].published,undefined);
+  await provider.toggleCamera();assert.equal(composites[0].camera(),null);
+  await provider.stopScreenShare();assert.equal(provider.getSnapshot().local.screenShareOptions,undefined);
+  await provider.disconnect();
+});
+
+test("a disabled local camera cannot be rebound by target reuse or recovery", async () => {
+  const {provider,tracks,clients}=fixture();await provider.connect(credential,"Teacher");await provider.toggleCamera();
+  await provider.toggleCamera();assert.equal(clients[0].unpublished,tracks[0],"off must stop the independent camera publication");assert.equal(provider.getSnapshot().local.cameraOn,false);assert.equal(tracks[0].mediaTrack.enabled,false);
+  const surface=videoSurface(160,120);let cleared=0;surface.replaceChildren=()=>cleared++;
+  assert.doesNotThrow(()=>provider.attachVideo('1',surface));assert.ok(cleared>0);
+  await provider.recoverMedia(true);assert.equal(provider.getSnapshot().local.cameraOn,false);assert.equal(tracks[0].mediaTrack.enabled,false);
+  await provider.disconnect();
+});
+
+test("reopening an ended camera reacquires a live track, while closing an interrupted camera never recaptures", async () => {
+  const {provider,tracks}=fixture();await provider.connect(credential,"Teacher");await provider.toggleCamera();
+  await provider.toggleCamera();const expired=tracks[0];expired.mediaTrack.readyState='ended';
+  assert.equal(await provider.toggleCamera(),true);assert.equal(expired.closed,true);assert.equal(tracks.length,2);assert.equal(tracks[1].mediaTrack.readyState,'live');
+  tracks[1].mediaTrack.readyState='ended';assert.equal(await provider.toggleCamera(),false);assert.equal(tracks.length,2,'closing must not ask for camera access');
+  assert.equal(provider.getActualDeviceState().camera,'off');await provider.disconnect();
 });

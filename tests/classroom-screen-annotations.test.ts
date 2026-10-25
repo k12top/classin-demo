@@ -51,19 +51,24 @@ test("drawing, undo and clear target screen annotations without touching the tea
     undo: () => calls.push("undo"),
     redo: () => calls.push("redo"),
     cleanCurrentScene: () => calls.push("clear"),
+    delete: () => calls.push("delete"),
   } as unknown as View;
   const room = { isWritable: true, phase: "connected", exportScene: async (path: string) => { calls.push(path); return new Blob(); } } as unknown as Room;
   const controller = createScreenAnnotationController(room, view, { dataset: {} } as HTMLDivElement);
   controller.setTool("ellipse");
   assert.equal(memberState.currentApplianceName, "ellipse");
+  controller.setTool("straight");
+  assert.equal(memberState.currentApplianceName, "straight");
+  controller.setTool("arrow");
+  assert.equal(memberState.currentApplianceName, "arrow");
   controller.setTool("eraser");
   assert.equal(memberState.currentApplianceName, "pencilEraser");
   controller.setStrokeColor([49, 198, 155]);
-  controller.undo(); controller.redo(); controller.clear();
+  controller.undo(); controller.redo(); controller.clear(); controller.deleteSelection?.();
   await controller.exportBoard();
-  assert.deepEqual(calls, ["undo", "redo", "clear", view.focusScenePath]);
+  assert.deepEqual(calls, ["undo", "redo", "clear", "delete", view.focusScenePath]);
   assert.deepEqual(memberState.textColor, [49, 198, 155]);
   Object.assign(room, { phase: "disconnected" });
   controller.setTool("pencil"); controller.clear(); controller.undo();
-  assert.equal(calls.length, 4, "stale controls must not call a disconnected or released SDK view");
+  assert.equal(calls.length, 5, "stale controls must not call a disconnected or released SDK view");
 });

@@ -1,6 +1,6 @@
 import { classroomHeartbeatFailure } from "@/lib/classroom/heartbeat-outcome";
 import { ClassroomCommandConflict, validClassroomCommandId } from "@/lib/classroom/server/command-receipt";
-import { normalizeClassroomClientId, touchClassroomConnection } from "@/lib/classroom/server/connections";
+import { classroomConnectionReplaced, normalizeClassroomClientId, touchClassroomConnection } from "@/lib/classroom/server/connections";
 import { requestClassroomScreenShare } from "@/lib/classroom/server/screen-share-request";
 import { after, NextRequest, NextResponse } from "next/server";
 import { classroomRedisEnabled } from "@/lib/classroom/server/redis";
@@ -42,6 +42,7 @@ const ACTION_TYPES = new Set<ClassroomAction["type"]>([
   "setRecordingStartMode",
   "raiseHand",
   "lowerHand",
+  "acknowledgeHand",
   "inviteStage",
   "acceptStage",
   "declineStage",
@@ -124,6 +125,7 @@ export async function POST(
       scheduleRedisHeartbeatWork(courseId, cached);
       if (cached.status === "ended") return NextResponse.json({ code: "classroom_ended", error: "课堂已结束" }, { status: 409 });
       if (cached.reason === "busy") return NextResponse.json({ code: "heartbeat_busy", refreshed: false, retryable: true }, { status: 503, headers: { "Retry-After": "2" } });
+      if (cached.reason === "replaced") return NextResponse.json({ code: "classroom_connection_replaced", refreshed: false }, { status: 409 });
       if (!cached.refreshed) return NextResponse.json({ code: "classroom_connection_closed", refreshed: false }, { status: 409 });
       return NextResponse.json({ ok: true, status: cached.status, refreshed: true });
     }
@@ -156,6 +158,7 @@ export async function POST(
     const resolvedCourseId = resolved.access.courseId;
     const sessionId = resolved.access.sessionId;
     const clientId = normalizeClassroomClientId(body.clientId);
+    if (await classroomConnectionReplaced(sessionId, resolved.session.userId, clientId)) return NextResponse.json({ code: "classroom_connection_replaced" }, { status: 409 });
     if (body.compactHandRaise === true && (body.action.type === "raiseHand" || body.action.type === "lowerHand")) {
       const handRaise = await setClassroomHandRaised({
         courseId: resolvedCourseId, sessionId, actorId: resolved.session.userId,

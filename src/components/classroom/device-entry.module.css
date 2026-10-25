@@ -1,0 +1,24 @@
+.page { min-height:100dvh;display:grid;place-items:center;padding:24px;background:#f5f5f7;color:#20242b;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; }
+.content { width:min(100%,400px); }
+.symbol { width:28px;height:28px;color:#6254cf;margin-bottom:20px;stroke-width:1.6; }
+.content h1 { font-size:20px;line-height:1.5;font-weight:600;margin:0; }
+.content>p { margin:10px 0 24px;color:#626b79;font-size:13px; }
+.devices { display:flex;align-items:center;gap:8px;margin:-8px 0 20px;color:#626b79;font-size:12px;overflow-wrap:anywhere; }
+.devices svg { width:16px;height:16px;flex:none; }
+.choices { display:grid;gap:10px; }
+.choices button { display:flex;align-items:center;gap:14px;min-height:80px;width:100%;padding:16px;background:#fff;border:1px solid #e3e5eb;border-radius:12px;text-align:start;transition:background 150ms,border-color 150ms; }
+.choices button>svg { width:21px;height:21px;flex:none;color:#6254cf;stroke-width:1.6; }
+.choices span { display:grid;gap:3px; }
+.choices strong { font-size:14px;font-weight:600; }
+.choices small { font-size:12px;color:#626b79; }
+.choices button:hover { border-color:#aaa1eb;background:#faf9ff; }
+.content button:focus-visible { outline:2px solid #6254cf;outline-offset:4px; }
+.back { display:flex;align-items:center;gap:7px;padding:0;min-height:44px;margin-top:20px;color:#626b79;font-size:13px;background:transparent;border:0; }
+.back svg { width:16px;height:16px; }
+.rejoin { padding:10px 18px;border:0;border-radius:8px;background:#6254cf;color:white;font-size:13px; }
+@media(max-width:480px) { .page { padding:24px; }.content h1 { font-size:18px; } }
+@media(prefers-reduced-motion:reduce) { .choices button { transition:none; } }
+:global(html.dark) .page { background:#111318;color:#f0f1f4; }
+:global(html.dark) .content>p,:global(html.dark) .devices,:global(html.dark) .choices small,:global(html.dark) .back { color:#b0b7c5; }
+:global(html.dark) .choices button { background:#20242b;border-color:#3c414d; }
+:global(html.dark) .choices button:hover { background:#292537;border-color:#9486ee; }

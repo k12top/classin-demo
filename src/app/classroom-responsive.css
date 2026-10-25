@@ -488,3 +488,143 @@ html[lang] .classroom-v3-shell[data-responsive-workspace] .is-sharing .classroom
  html[lang] .classroom-v3-shell[data-responsive-workspace] .is-sharing .classroom-v3-rail-fallback :is(img,span){width:18px;height:18px;font-size:10px}
 }
 html.light .classroom-v3-shell[data-responsive-workspace] [data-activity-workspace] { --activity-on-accent:#fff; }
+
+/* Frequent actions stay in the dock; the header menu owns classroom features. */
+html[lang] .classroom-v3-shell.is-classin-layout[data-responsive-workspace] .classroom-v3-dock>button[data-dock-action="fullscreen"] { display:inline-flex!important; }
+@media(min-width:761px){.classroom-dock-menu [role^="menuitem"].classroom-header-menu-compact{display:none!important}}
+@media(max-width:760px){.classroom-dock-menu [role^="menuitem"].classroom-header-menu-compact{display:flex!important}}
+
+/* Approved composer: tools above, unframed text, a separate count/send row. */
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-chat-form {
+ display:flex;flex-direction:column;align-items:stretch;gap:0;margin:0;padding:6px 0 0;border:0;border-top:1px solid var(--conversation-line);background:transparent;
+}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-chat-compose-tools { min-height:36px;gap:4px;margin-left:-5px; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-chat-compose-tools button { width:34px!important;height:34px!important;min-height:34px;padding:0;border:0;border-radius:8px; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-chat-form textarea {
+ display:block;flex:none;width:100%;min-width:0;min-height:76px;max-height:144px;overflow:auto;resize:none;margin:0;padding:8px 0;border:0;border-radius:0;box-shadow:none;outline:none;background:transparent;color:var(--classroom-frost);font:13px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;caret-color:var(--classroom-iris);scrollbar-width:thin;
+}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-chat-form textarea:focus-visible { outline:2px solid var(--classroom-iris);outline-offset:3px;border-radius:4px; }
+.classroom-chat-compose-footer { display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:40px;padding:4px 0 0; }
+.classroom-chat-compose-meta { display:flex;align-items:center;gap:8px;min-width:0;color:var(--classroom-mist);font-size:11px;font-variant-numeric:tabular-nums; }
+.classroom-chat-compose-meta :is(span,small) { font-size:11px;line-height:1.6; }
+.classroom-chat-compose-meta .is-full,.classroom-chat-compose-meta small[id] { color:var(--classroom-iris); }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-chat-compose-footer .classroom-chat-send-button {
+ display:flex;align-items:center;justify-content:center;flex:none;align-self:auto;width:38px;height:36px;min-height:36px;min-width:38px;padding:8px;border:0;border-radius:8px;background:#4f46e5;color:#fff;
+}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-chat-compose-footer .classroom-chat-send-button:disabled { opacity:.35;cursor:default; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-chat-compose-footer .classroom-chat-send-button:hover:not(:disabled) { background:#4338ca; }
+.classroom-chat-compose-footer .classroom-chat-send-button svg { height:17px;width:17px; }
+.classroom-chat-compose-attachment { display:flex;align-items:center;gap:9px;padding:8px 0 4px;min-width:0; }
+.classroom-chat-compose-attachment>img { width:82px;height:44px;object-fit:cover;border-radius:6px;flex:none; }
+.classroom-chat-compose-attachment>span { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--classroom-frost);font-size:11px; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-chat-compose-attachment>button { margin-left:auto;flex:none;align-self:center;width:28px;height:28px;min-width:28px;min-height:28px;padding:4px;border:0;border-radius:8px;background:none;color:var(--classroom-mist); }
+@media(max-width:760px){
+ html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-chat-form textarea{min-height:68px;max-height:120px;font-size:16px}
+ html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-chat-compose-tools{min-height:34px}
+ html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-chat-compose-footer .classroom-chat-send-button{width:40px;min-width:40px}
+}
+/* Chat cards already expose answer/reopen state; avoid duplicate floats over the composer. */
+.classroom-v3-workspace[data-conversation-open="true"]:has(#conversation-chat:not([hidden])) :is([data-activity-reopen],[data-activity-capsule]) { display:none!important; }
+.classroom-share-menu { max-height:min(540px,calc(100dvh - 112px));overflow-y:auto; }
+.classroom-share-appearance { display:flex;flex-direction:column;gap:10px;padding:10px; }
+.classroom-share-appearance label { display:flex;align-items:center;gap:10px;font-size:12px;color:var(--classroom-frost); }
+.classroom-share-appearance label>span { min-width:52px; }
+.classroom-share-appearance input[type="range"] { min-width:0;flex:1;accent-color:var(--classroom-iris); }
+.classroom-share-appearance output { width:34px;text-align:right;font-size:11px;font-variant-numeric:tabular-nums; }
+.classroom-share-appearance select { min-width:0;flex:1;padding:6px 8px;border:1px solid var(--conversation-line);border-radius:6px;color:var(--classroom-frost);background:var(--classroom-panel); }
+.classroom-share-border-colors { display:flex;align-items:center;justify-content:flex-end;gap:10px; }
+.classroom-share-border-colors button { width:28px;height:28px;min-width:28px;min-height:28px;border:2px solid var(--classroom-panel);border-radius:50%;box-shadow:0 0 0 1px var(--conversation-line); }
+.classroom-share-border-colors button[aria-pressed="true"] { outline:2px solid var(--classroom-iris);outline-offset:2px; }
+
+/* Drawing controls keep the approved compact icon language. */
+.classroom-board-tools-menu { max-height:calc(100dvh - 110px);overflow:auto; }
+.classroom-board-tools-header { display:flex;align-items:center;justify-content:space-between;padding-left:5px;font-size:13px;font-weight:600; }
+.classroom-board-tools-grid { display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;padding-block:5px; }
+.classroom-board-tools-grid>button { width:100%; }
+.classroom-board-tools-top { justify-content:space-between;border-top:1px solid var(--conversation-line);padding-top:6px; }
+.classroom-board-eraser-sizes { display:flex;justify-content:space-between;gap:8px;padding:10px 5px; }
+.classroom-board-eraser-sizes i { display:block;border:1.5px solid currentColor;border-radius:50%; }
+.classroom-board-tools-menu button:focus-visible { outline:2px solid var(--classroom-iris);outline-offset:2px; }
+
+/* Annotated classroom feedback — preserve the approved minimal hierarchy. */
+html[lang] .classroom-v3-shell .classroom-conversation-content[hidden] { display:none!important; }
+.classroom-menu-check { margin-inline-start:auto; }
+.classroom-header-record.is-recording { color:var(--classroom-coral)!important; }
+.classroom-header-record.is-recording svg { fill:color-mix(in srgb,var(--classroom-coral) 16%,transparent); }
+.classroom-clock-menu .classroom-v3-class-controls { display:flex;width:100%;min-height:44px;align-items:center;gap:10px;padding:8px 10px; }
+@media(max-width:760px){.classroom-header-expand{display:none!important}}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seats { justify-content:flex-start; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat:not(.is-sharing) .classroom-v3-avatar-picture { background:transparent;border:0;box-shadow:none; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat:not(.is-sharing) .classroom-v3-avatar-fallback { background:transparent;border:0;box-shadow:none;border-radius:0; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat .classroom-v3-rail-media { background:#20242b; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat.is-sharing { background:var(--conversation-tint); }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-stage-layer.is-screen-share .classroom-v3-media-caption { display:none; }
+html[lang] .classroom-v3-shell[data-responsive-workspace].is-rail-collapsed .classroom-v3-workspace { grid-template-rows:32px minmax(0,1fr)!important; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-live-rail[data-collapsed="true"] { margin:0;min-height:32px;height:32px;background:transparent; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-rail-toggle { position:absolute;inset:2px auto auto 16px;display:flex;gap:8px;width:auto;min-width:0;height:28px;min-height:28px;padding:2px 7px;border:0;border-radius:8px;background:var(--classroom-panel);box-shadow:none;color:var(--classroom-mist); }
+.classroom-rail-mini-avatars { display:inline-flex;align-items:center;padding-inline-end:3px; }
+.classroom-rail-mini-avatars .classroom-v3-avatar-picture { width:20px;height:20px;min-width:20px;border:2px solid var(--classroom-panel);border-radius:50%;margin-inline-end:-5px;font-size:9px; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-rail-toggle-summary strong { color:var(--classroom-mist);background:none;font-size:11px; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-live-rail .classroom-v3-hand-queue { position:absolute;inset:8px 46px auto auto;display:flex;width:auto;min-width:0;height:32px;padding:0;background:none; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-hand-queue .classroom-v3-hand-raise-menu { display:block; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-hand-queue .classroom-v3-hand-raise-button { width:36px;min-width:36px;height:32px;padding:5px;border-radius:8px; }
+.classroom-v3-hand-queue .classroom-v3-hand-raise-button>span { display:none; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-hand-raise-button[aria-busy="true"] { opacity:1!important; }
+.classroom-v3-video-hand-raised svg { transform-origin:bottom center;animation:classroom-hand-wave 550ms ease-in-out 4; }
+.classroom-v3-hand-count { font-variant-numeric:tabular-nums; }
+.classroom-v3-hand-queue.has-hands>.classroom-v3-hand-raise-menu>button svg { animation:classroom-hand-wave 550ms ease-in-out 4; }
+@keyframes classroom-hand-wave { 0%,100%{transform:rotate(0)}25%{transform:rotate(-17deg)}75%{transform:rotate(17deg)} }
+.classroom-v3-device-dialog { width:min(720px,calc(100vw - 24px));max-height:calc(100dvh - 32px);overflow:hidden;display:flex;flex-direction:column; }
+.classroom-v3-device-dialog .classroom-v3-device-body { display:flex;flex-direction:column;gap:20px;overflow-y:auto;min-height:0; }
+.classroom-v3-device-dialog .classroom-v3-device-column { display:flex;flex-direction:column;gap:16px;min-width:0;width:100%; }
+.classroom-v3-device-dialog .classroom-v3-device-column>fieldset { width:100%;min-width:0; }
+.classroom-v3-device-dialog .classroom-v3-device-column select { width:100%;max-width:100%; }
+.classroom-v3-device-dialog .classroom-v3-device-column>fieldset.classroom-v3-caption-settings { grid-template-columns:minmax(0,1fr); }
+.classroom-v3-device-dialog .classroom-v3-caption-settings-link { display:flex;align-items:center;gap:8px;width:100%;min-height:44px;padding:8px 12px;text-align:start;font-size:13px;border-radius:8px;background:var(--classroom-panel-raised); }
+.classroom-v3-device-dialog>header,.classroom-v3-device-dialog>footer,.classroom-v3-device-dialog>.classroom-v3-appearance { flex-shrink:0; }
+.classroom-v3-device-dialog>header small { display:none; }
+.classroom-v3-device-dialog>header h2 { font-size:16px; }
+.classroom-v3-invite:is(.is-screen-share,.is-screen-share-ready) { position:fixed;z-index:145;top:176px;bottom:auto;left:50%;right:auto;transform:translateX(-50%);width:min(440px,calc(100vw - 24px));display:flex;align-items:center;gap:10px;padding:12px;color:var(--classroom-frost);background:var(--classroom-panel);border:1px solid var(--conversation-line);border-radius:12px;box-shadow:0 8px 28px #15203620; }
+.classroom-v3-invite:is(.is-screen-share,.is-screen-share-ready)>span { display:grid;place-items:center;flex:0 0 36px;width:36px;height:36px;border-radius:10px;background:var(--conversation-tint);color:var(--classroom-iris); }
+.classroom-v3-invite:is(.is-screen-share,.is-screen-share-ready)>div { flex:1;min-width:0; }
+.classroom-v3-invite:is(.is-screen-share,.is-screen-share-ready) strong { display:block;color:var(--classroom-frost);font-size:13px;line-height:1.5; }
+.classroom-v3-invite:is(.is-screen-share,.is-screen-share-ready) p { display:block;margin:3px 0 0;font-size:11px;color:var(--classroom-mist);line-height:1.5; }
+.classroom-v3-invite:is(.is-screen-share,.is-screen-share-ready)>button { flex:none;width:auto;min-height:36px;padding:6px 10px;border-radius:8px;font-size:12px;color:var(--classroom-mist);background:transparent; }
+.classroom-v3-invite:is(.is-screen-share,.is-screen-share-ready)>button.is-accept { color:#fff;background:var(--classroom-iris); }
+.is-rail-collapsed .classroom-v3-invite:is(.is-screen-share,.is-screen-share-ready) { top:104px; }
+.classroom-chat-compose-attachment { position:relative;width:96px;max-width:100%;padding:0;margin:6px 0; }
+.classroom-chat-compose-attachment>img { width:96px;height:64px;object-fit:cover;border-radius:8px; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-chat-compose-attachment>button { position:absolute;right:3px;top:3px;margin:0;width:24px;height:24px;min-width:24px;min-height:24px;padding:4px;background:var(--classroom-panel);color:var(--classroom-frost);border-radius:6px;opacity:0;pointer-events:none; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-chat-compose-attachment:is(:hover,:focus-within)>button { opacity:1;pointer-events:auto; }
+@media(hover:none){html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-chat-compose-attachment>button{opacity:1;pointer-events:auto}}
+@media(max-width:760px){.classroom-v3-invite:is(.is-screen-share,.is-screen-share-ready){top:146px;flex-wrap:wrap}.classroom-v3-invite:is(.is-screen-share,.is-screen-share-ready)>div{flex-basis:calc(100% - 52px)}.classroom-v3-invite:is(.is-screen-share,.is-screen-share-ready)>button:first-of-type{margin-inline-start:auto}.classroom-v3-device-dialog .classroom-v3-device-body{padding:16px}.classroom-v3-device-dialog .classroom-v3-device-fields{grid-template-columns:minmax(0,1fr)}}
+@media(prefers-reduced-motion:reduce){.classroom-v3-video-hand-raised svg,.classroom-v3-hand-queue.has-hands>.classroom-v3-hand-raise-menu>button svg{animation:none}}
+
+.classroom-v3-invite:is(.is-screen-share,.is-screen-share-ready) { translate:-50% 0;transform:none; }
+html[lang] .classroom-v3-shell[data-responsive-workspace]>.classroom-v3-hand-raise-popover { position:fixed;z-index:150;top:148px;right:16px;left:auto;bottom:auto;width:min(340px,calc(100vw - 24px));max-height:calc(100dvh - 240px);overflow:auto;color:var(--classroom-frost);background:var(--classroom-panel);border:1px solid var(--conversation-line);border-radius:12px;box-shadow:0 8px 28px #15203620; }
+html[lang] .classroom-v3-shell[data-responsive-workspace]>.classroom-v3-hand-raise-popover button { min-width:36px;min-height:36px; }
+html[lang] .classroom-v3-shell[data-responsive-workspace]>.classroom-v3-hand-raise-popover li>button:first-of-type { width:36px;padding:6px; }
+@media(max-width:760px){html[lang] .classroom-v3-shell[data-responsive-workspace]>.classroom-v3-hand-raise-popover{top:140px;right:12px}}
+html[lang] .classroom-v3-shell.is-classin-layout[data-responsive-workspace] .classroom-v3-seats>:is(:first-child,:last-child) { margin-inline:0; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-rail-media .classroom-v3-media-fallback>span { width:auto;height:auto;border:0;border-radius:0;box-shadow:none;background:transparent;color:#a8b0bf;font-size:30px;font-weight:400; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat>footer { inset:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:4px;border-radius:10px;background:#171b2280; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat-controls { display:flex;justify-content:center;flex-wrap:wrap;gap:4px; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat-controls>button { width:28px;height:28px;min-width:28px;min-height:28px; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat:is(:hover,:focus-within,.is-touch-active) .classroom-v3-seat-media-state { opacity:0; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-rail-toggle { transform:none;translate:none; }
+html[lang] .classroom-v3-modal-backdrop>section.classroom-v3-device-dialog { width:min(720px,calc(100vw - 24px));height:auto;max-height:min(860px,calc(100dvh - 32px));border-radius:14px; }
+.classroom-v3-device-dialog .classroom-v3-device-body { gap:16px;padding:20px 24px; }
+.classroom-v3-device-dialog .classroom-device-extra { border-bottom:1px solid var(--conversation-line);padding-bottom:8px; }
+.classroom-v3-device-dialog .classroom-device-extra>summary { display:flex;align-items:center;gap:8px;cursor:pointer;min-height:36px;font-size:13px;list-style:none; }
+.classroom-device-extra>summary::-webkit-details-marker { display:none; }
+.classroom-device-extra>summary>span { flex:1; }
+.classroom-device-extra>summary svg { width:16px;height:16px;color:var(--classroom-mist); }
+.classroom-device-extra[open]>summary>svg:last-child { transform:rotate(180deg); }
+.classroom-device-extra>.classroom-v3-auxiliary-settings { margin-top:12px; }
+.classroom-v3-invite:is(.is-screen-share,.is-screen-share-ready)>button:first-of-type { display:inline-flex;align-items:center;justify-content:center; }
+@media(max-width:639px),(max-width:1024px) and (orientation:portrait){
+ html[lang] .classroom-v3-shell.is-classin-layout[data-responsive-workspace]:not(.is-recorder) .classroom-v3-workspace[data-conversation-open="true"] { display:grid;grid-template-columns:minmax(0,1fr); }
+ html[lang] .classroom-v3-shell.is-classin-layout[data-responsive-workspace]:not(.is-recorder) .classroom-v3-workspace[data-conversation-open="true"]>.classroom-v3-drawer[data-panel] { position:fixed;inset:auto 8px calc(82px + var(--classroom-keyboard-inset,0px));grid-column:auto;grid-row:auto;width:calc(100% - 16px);height:min(54dvh,calc(100dvh - 168px - var(--classroom-keyboard-inset,0px)));max-height:none;border:1px solid var(--conversation-line);border-radius:14px;box-shadow:0 8px 28px #15203620; }
+ html[lang] .classroom-v3-shell[data-responsive-workspace]:not(.is-recorder):has(.classroom-v3-workspace[data-conversation-open="true"]) .classroom-v3-dock-wrap { right:0!important;bottom:12px; }
+ .classroom-v3-device-dialog .classroom-v3-device-body { padding:16px; }
+}

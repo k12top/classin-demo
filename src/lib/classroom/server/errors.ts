@@ -40,3 +40,11 @@ export class ClassroomRecordingStopUncertainError extends Error {
 export class ClassroomConnectionEndedError extends Error {
   constructor() { super("Classroom has ended"); this.name = "ClassroomConnectionEndedError"; }
 }
+
+export class ClassroomDeviceConflictError extends Error {
+  constructor(readonly devices: string[]) { super("Account is already in this classroom"); this.name = "ClassroomDeviceConflictError"; }
+}
+
+export class ClassroomConnectionReplacedError extends Error {
+  constructor() { super("This classroom connection was replaced"); this.name = "ClassroomConnectionReplacedError"; }
+}

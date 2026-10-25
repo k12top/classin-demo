@@ -5,7 +5,7 @@ import { classroomRedisCommand, classroomRedisKey, classroomRedisEnabled } from 
 
 export type RedisClassroomControl = { courseId: string; status: string; version: string; verifiedUntil: number; versions?: Record<string, string> };
 export type RedisConnectionLease = { id: string; userId: string; role: string; rtcUid: number; screenUid: number;
-  lastSeenAt: number; leftAt: number | null; registeredAt: number };
+  lastSeenAt: number; leftAt: number | null; registeredAt: number; replacedAt?: number | null };
 export type RedisHeartbeat = { status: string; refreshed: boolean; reason: string; courseId: string; role: string; syncDue: boolean };
 const TTL = "21600";
 const HEARTBEAT = `
@@ -20,6 +20,7 @@ local lease = cjson.decode(value)
 local result = {status=control.status,courseId=control.courseId,role=lease.role,refreshed=false,reason='left',syncDue=false}
 if control.closing and tonumber(control.closingUntil or 0)>tonumber(ARGV[2]) then result.reason='busy'; return cjson.encode(result) end
 if control.status == 'ended' then result.reason='ended'; return cjson.encode(result) end
+if lease.replacedAt and lease.replacedAt ~= cjson.null then result.reason='replaced'; return cjson.encode(result) end
 if lease.leftAt ~= cjson.null then return cjson.encode(result) end
 lease.lastSeenAt = math.max(lease.lastSeenAt, tonumber(ARGV[2]))
 redis.call('HSET', KEYS[2], ARGV[1], cjson.encode(lease))

@@ -5,6 +5,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { enqueueClassroomEvent, deliverClassroomEvents } from "@/lib/classroom/server/integration-events";
 import { closeAllOpenAttendanceForLesson } from "@/lib/course-attendance";
 import {
+  processRecordingStart,
   stopActiveRecordingsForCourse,
 } from "@/lib/classroom/server/recording-orchestrator";
 import {
@@ -117,9 +118,18 @@ async function handlePost(request: NextRequest, context: Context) {
         role: resolved.classroomRole, action: body.action, commandId: typeof body.commandId === "string" ? body.commandId : undefined, minutes: typeof body.minutes === "number" ? body.minutes : undefined });
       clearCourseSessionAccessCache();
       await synchronizeClassroomRedis(resolved.sessionId, true);
-      after(() => syncCourseStatusFromSessions(resolved.courseId).then(() => undefined));
       after(() => deliverClassroomEvents());
-      if (body.action === "reopen") after(() => syncClassroomTranscription(resolved.courseId, { sessionId: resolved.sessionId }).then(() => undefined));
+      if (body.action === "reopen") after(async () => {
+        const results = await Promise.allSettled([
+          // Exclude every task created in the new cycle from delayed cleanup.
+          stopActiveRecordingsForCourse(resolved.courseId, resolved.sessionId, new Date(Date.parse(timing.startTime) - 1)),
+          ...(timing.recordingId ? [processRecordingStart(timing.recordingId)] : []),
+          syncClassroomTranscription(resolved.courseId, { sessionId: resolved.sessionId }),
+        ]);
+        for (const result of results) if (result.status === "rejected") console.error("[classroom:lifecycle] reopen provider recovery pending reconciliation", {
+          sessionId: resolved.sessionId, error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+      });
       return NextResponse.json({ timing });
     } catch (error) {
       if (error && typeof error === "object" && "status" in error && typeof error.status === "number") return NextResponse.json({ error: error instanceof Error ? error.message : "Operation failed" }, { status: error.status });

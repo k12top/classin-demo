@@ -1,0 +1,34 @@
+{
+  "mode": "Operate",
+  "scope": "课堂互动题目独立交互设计稿；不修改业务页面、数据库、AI 或实时消息服务",
+  "incumbent": "../classroom-minimal-design-2026-10-25/index.html",
+  "approved_comp": null,
+  "world": "既有浅灰课堂、白色聊天侧栏、靛蓝操作、系统中文字体。局部功能扩展，不重做全局视觉系统。",
+  "first_viewport": "老师在聊天内看到一道正在作答的题、选项分布、已答和待答重叠头像、催交；课件保留主要空间。",
+  "signature_interaction": "点选重叠头像里的学生，具体答案直接展开在原聊天卡片；学生提交后浮层缩为已作答胶囊，修改会产生教师可见更新。",
+  "requirements": [
+    "学生题目可拖动、可关闭，从聊天和底部图标重开；关闭不等于提交；保留未提交草稿",
+    "学生提交自动收起为已作答，允许修改；老师可看到修改次数、最新答案、上次答案，不重复统计人数",
+    "老师聊天内看已答/未答圆形重叠头像；桌面hover或点击固定名单；手机点击名单；选择学生查看具体回答",
+    "老师可对未作答群体或个人催交；30秒冷却；学生收到有限铃铛动画和提示，不强制弹开题目",
+    "AI从老师要求生成题目，老师直接编辑预览并发布；不是润色；手动出题和失败保留要求可用",
+    "桌面可移动浮层，手机使用紧凑浮层并保留关闭入口；所有关键操作支持键盘且减弱动态偏好生效"
+  ],
+  "evidence_boundary": "所有头像、答题、AI生成、师生状态和催交均为本地示例；角色切换共享本地状态，不代表真实服务联调。",
+  "quality_bar": "复用既有极简课堂；信息按需展开；无跳转管理页；没有悬空关键操作；桌面和390px手机可操作且无横向溢出。",
+  "qa": {
+    "required_views": [
+      "teacher-desktop",
+      "teacher-roster",
+      "teacher-answer-change",
+      "ai-preview",
+      "student-open",
+      "student-submitted",
+      "student-nudge",
+      "mobile"
+    ],
+    "detector": ".impeccable/review/interaction-20261025/detector.json; one run; tiny review label fixed; system-font/palette drift documented; bounded stage/room intentional clipping",
+    "comp_diff": "not-applicable-local-extension",
+    "review": "Full review: fix mobile publish visibility. Verdict: single fix resolved / ship."
+  }
+}

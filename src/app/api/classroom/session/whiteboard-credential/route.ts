@@ -1,3 +1,4 @@
+import { classroomConnectionReplaced, normalizeClassroomClientId } from "@/lib/classroom/server/connections";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
@@ -9,6 +10,7 @@ export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as {
+    clientId?: unknown;
     courseId?: unknown;
     sessionId?: unknown;
     shareAccess?: unknown;
@@ -53,6 +55,7 @@ export async function POST(request: NextRequest) {
     );
   }
   const sessionId = resolved.access.sessionId;
+  if (await classroomConnectionReplaced(sessionId, resolved.session.userId, normalizeClassroomClientId(body?.clientId))) return NextResponse.json({ code: "classroom_connection_replaced" }, { status: 409 });
   const courseId = resolved.access.courseId;
 
   const member = await prisma.classroomMemberState.findUnique({

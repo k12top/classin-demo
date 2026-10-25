@@ -21,7 +21,8 @@ test("automatic grading requires exact multiple choice and leaves written answer
   assert.deepEqual(gradeAnswers("quiz", short.definition, { q: " ＥＡＲＴＨ " }), { q: 3 });
 });
 test("student definitions omit answer keys without mutating teacher data", () => {
-  const { definition } = quiz(); const safe = publicDefinition(definition, false);
+  const { definition } = quiz(); definition.questions[0].explanation = "Teacher solution"; definition.questions[1].referenceAnswer = "Teacher reference"; const safe = publicDefinition(definition, false);
+  assert.equal("explanation" in safe.questions[0], false); assert.equal("referenceAnswer" in safe.questions[1], false);
   assert.equal("correct" in safe.questions[0], false); assert.deepEqual(definition.questions[0].correct, ["a", "b"]);
   assert.deepEqual(publicDefinition(definition, true), definition);
 });

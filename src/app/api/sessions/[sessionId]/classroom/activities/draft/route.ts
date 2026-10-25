@@ -12,7 +12,7 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{session
  let release:(()=>void)|undefined;
  try{
   const body=await assistantBody(request),{sessionId}=await params;
-  const actor=await activityActor(request,sessionId,typeof body.shareAccess==='string'?body.shareAccess:undefined);if(actor instanceof NextResponse)return actor;
+  const actor=await activityActor(request,sessionId,typeof body.shareAccess==='string'?body.shareAccess:undefined,"activities");if(actor instanceof NextResponse)return actor;
   if(!await canManageClassroom(actor.sessionId,actor.userId,actor.role))return NextResponse.json({error:'Only authorized teachers can prepare questions'},{status:403});
   const lesson=await prisma.courseSession.findUnique({where:{id:actor.sessionId},select:{endedAt:true,status:true}});if(!lesson||lesson.endedAt||['finished','cancelled'].includes(lesson.status))return NextResponse.json({error:'Lesson has ended'},{status:409});
   release=reserve(actor.userId);

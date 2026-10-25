@@ -1,0 +1,60 @@
+"use client";
+import { useEffect, useRef, useState } from 'react';
+import { Bell, Check, CheckCheck, FileText, Grip, X } from 'lucide-react';
+import { useTranslation } from '@/lib/i18n/context';
+import { ACTIVITY_OPEN_EVENT, answersMatch, type ActivityAnswers } from '@/lib/classroom/activities';
+import { useChatActivities } from '@/lib/classroom/use-chat-activities';
+import { activityRequest, activityUrl, announceActivity, useActivityDetail } from '@/lib/classroom/use-activity-detail';
+import { interactionCopy } from '@/lib/classroom/interaction-copy';
+import { ClassroomIconButton } from './icon-button';
+import { ActivitySolutions } from './activity-chat-card';
+import styles from './activity-interaction.module.css';
+
+type Props={sessionId:string;shareAccess?:string|null;currentUserId:string;onChanged:(revision:number)=>void};
+type Draft={answers:ActivityAnswers;expectedVersion:number;answerVersion:number};
+export function StudentActivityOverlay(props:Props) {
+ const feed=useChatActivities(props.sessionId,props.shareAccess,true),[requested,setRequested]=useState<{id:string;serial:number}|null>(null);
+ const active=feed.activities.find(a=>a.status==='active'), activeQuestionId=active?.id;
+ useEffect(()=>{const open=(e:Event)=>{const d=(e as CustomEvent).detail;if(d?.sessionId===props.sessionId&&(d.activityId||activeQuestionId))setRequested({id:d.activityId||activeQuestionId!,serial:Date.now()});};window.addEventListener(ACTIVITY_OPEN_EVENT,open);return()=>window.removeEventListener(ACTIVITY_OPEN_EVENT,open);},[props.sessionId,activeQuestionId]);
+ const id=requested?.id||active?.id||feed.activities[0]?.id;
+ if(!id)return null;
+ return <StudentQuestion key={`${props.sessionId}:${props.currentUserId}:${id}`} {...props} activityId={id} serial={requested?.serial||0} activeId={active?.id} onFollowActive={()=>setRequested(null)}/>;
+}
+function StudentQuestion({sessionId,shareAccess,currentUserId,onChanged,activityId,serial,activeId,onFollowActive}:Props&{activityId:string;serial:number;activeId?:string;onFollowActive:()=>void}) {
+ const storageKey=`activity-draft:${sessionId}:${currentUserId}:${activityId}`;
+ const {locale}=useTranslation(),c=interactionCopy(locale),{detail,reload,error:loadError}=useActivityDetail(sessionId,activityId,shareAccess);
+ const [mode,setMode]=useState<'auto'|'open'|'capsule'|'hidden'>(serial?'open':'auto'),[draft,setDraft]=useState<Draft|null>(()=>{if(typeof window==='undefined')return null;try{const saved=JSON.parse(sessionStorage.getItem(storageKey)||'null');return saved?.answers&&typeof saved.expectedVersion==='number'?saved:null;}catch{return null;}}),[busy,setBusy]=useState(false),[error,setError]=useState(''),[nudge,setNudge]=useState(false),[clearance,setClearance]=useState(88),[capsuleRight,setCapsuleRight]=useState(16),[position,setPosition]=useState<{x:number;y:number}|null>(null);
+ const host=useRef<HTMLDivElement>(null),card=useRef<HTMLElement>(null),lastSerial=useRef(serial),locked=useRef(false);
+
+ useEffect(()=>{if(lastSerial.current!==serial){lastSerial.current=serial;setMode('open');}},[serial]);
+ useEffect(()=>{if(activeId&&activeId!==activityId&&detail?.status!=='active')onFollowActive();},[activeId,activityId,detail?.status,onFollowActive]);
+ const reminderId=detail?.reminder?.id, ownResponseId=detail?.ownResponse?.id, status=detail?.status;
+ useEffect(()=>{if(!reminderId||ownResponseId||status!=='active')return;const key=`activity-nudge:${sessionId}:${currentUserId}`;try{if(localStorage.getItem(key)===reminderId)return;}catch{}const start=setTimeout(()=>{setNudge(true);try{localStorage.setItem(key,reminderId);}catch{}},0);const timer=setTimeout(()=>setNudge(false),10000);return()=>{clearTimeout(start);clearTimeout(timer);};},[reminderId,ownResponseId,status,sessionId,currentUserId]);
+ const [clock,setClock]=useState(()=>Date.now());
+ useEffect(()=>{const timer=setInterval(()=>setClock(Date.now()),1000);return()=>clearInterval(timer);},[]);
+ useEffect(()=>{const h=host.current,parent=h?.parentElement,dock=h?.closest('.classroom-v3-shell')?.querySelector('.classroom-v3-dock');if(!h||!parent)return;const measure=()=>{const root=parent.getBoundingClientRect(),bar=dock?.getBoundingClientRect(),stage=parent.querySelector('.classroom-v3-stage')?.getBoundingClientRect();setClearance(bar&&bar.height?Math.max(16,root.bottom-bar.top+12):88);setCapsuleRight(innerWidth<720?12:Math.max(16,root.right-(stage?.right||root.right)+16));};measure();const observer=new ResizeObserver(measure);observer.observe(parent);if(dock)observer.observe(dock);window.addEventListener('resize',measure);return()=>{observer.disconnect();window.removeEventListener('resize',measure);};},[detail?.id]);
+ const actualMode=mode==='auto'?(detail?.ownResponse?'capsule':detail?.status==='active'?'open':'hidden'):mode;
+ useEffect(()=>{if(actualMode!=='open')return;const close=(e:KeyboardEvent)=>{if(e.key==='Escape')setMode('hidden');};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close);},[actualMode]);
+ function clamp(next:{x:number;y:number}){const h=host.current,b=card.current;if(!h||!b)return next;return{x:Math.max(8,Math.min(h.clientWidth-b.offsetWidth-8,next.x)),y:Math.max(8,Math.min(h.clientHeight-b.offsetHeight-8,next.y))};}
+ useEffect(()=>{const h=host.current,b=card.current;if(!h||!b||actualMode!=='open')return;const place=()=>setPosition(old=>clamp(old||{x:innerWidth<720?12:Math.max(12,(h.parentElement?.querySelector('.classroom-v3-stage')?.getBoundingClientRect().right||h.getBoundingClientRect().right)-h.getBoundingClientRect().left-b.offsetWidth-24),y:h.clientHeight-b.offsetHeight-16}));place();const observer=new ResizeObserver(place);observer.observe(h);observer.observe(b);return()=>observer.disconnect();},[actualMode,detail?.id]);
+ function change(answers:ActivityAnswers){if(!detail)return;const next={answers,expectedVersion:draft?.expectedVersion??detail.ownResponse?.version??0,answerVersion:draft?.answerVersion??detail.ownResponse?.answerVersion??0};setDraft(next);try{sessionStorage.setItem(storageKey,JSON.stringify(next));}catch{}}
+ async function submit(){if(!detail||locked.current||detail.status!=='active')return;locked.current=true;setBusy(true);setError('');const answers=draft?.answers??detail.ownResponse?.answers??{};const expectedVersion=draft&&draft.answerVersion!==(detail.ownResponse?.answerVersion??0)?draft.expectedVersion:detail.ownResponse?.version??0;
+  try{const result=await activityRequest<{revision:number}>(activityUrl(sessionId,activityId,shareAccess),{action:'answer',answers,expectedVersion,shareAccess});setMode('capsule');setDraft(null);setNudge(false);try{sessionStorage.removeItem(storageKey);}catch{}announceActivity(sessionId,result.revision,onChanged);await reload();}
+  catch{try{const latest=await reload();if(latest?.ownResponse&&answersMatch(latest.ownResponse.answers,answers)){setMode('capsule');setDraft(null);sessionStorage.removeItem(storageKey);return;}}catch{}setError(c.failed);}
+  finally{locked.current=false;setBusy(false);}
+ }
+ if(!detail)return loadError?<div className={styles.overlayHost}><button className={styles.capsule} onClick={()=>void reload().catch(()=>undefined)}>{c.retry}</button></div>:null;
+ const answers=draft?.answers??detail.ownResponse?.answers??{},enabled=detail.status==='active'&&(!detail.deadlineAt||Date.parse(detail.deadlineAt)>clock);
+ const complete=detail.definition.questions.every(q=>q.options.length?Array.isArray(answers[q.id])&&(answers[q.id] as string[]).length>0:typeof answers[q.id]==='string'&&String(answers[q.id]).trim());
+ const conflict=draft&&draft.answerVersion!==(detail.ownResponse?.answerVersion??0)&&!answersMatch(draft.answers,detail.ownResponse?.answers||{});
+ const reminder=nudge&&!detail.ownResponse&&enabled?<><Bell/><span>{c.nudge}</span><button type="button" onClick={()=>{setMode('open');setNudge(false);}}>{c.open}</button><ClassroomIconButton title={c.closeNudge} onClick={()=>setNudge(false)}><X/></ClassroomIconButton></>:null;
+ return <div className={`${styles.overlayHost} ${styles.surface}`} ref={host} data-student-activity={activityId} style={{bottom:clearance}}>
+ {actualMode==='open'&&<section className={styles.quizFloat} ref={card} aria-label={c.openQuestion} style={{left:position?.x??12,top:position?.y??12,visibility:position?'visible':'hidden'}}><header><div className={styles.dragHandle} role="button" tabIndex={0} aria-label={c.drag} onKeyDown={e=>{const delta:{[key:string]:number[]}={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};if(delta[e.key]){e.preventDefault();const [x,y]=delta[e.key],step=e.shiftKey?40:12;setPosition(old=>clamp({x:(old?.x||0)+x*step,y:(old?.y||0)+y*step}));}}} onPointerDown={e=>{if(e.button!==0||!card.current)return;const start={x:e.clientX,y:e.clientY,left:card.current.offsetLeft,top:card.current.offsetTop};e.currentTarget.setPointerCapture(e.pointerId);const target=e.currentTarget;target.onpointermove=ev=>setPosition(clamp({x:start.left+ev.clientX-start.x,y:start.top+ev.clientY-start.y}));target.onpointerup=()=>{target.onpointermove=null;};target.onpointercancel=()=>{target.onpointermove=null;};}}><Grip/><span>{c[detail.definition.questions[0].type]}{!enabled?' · '+c.closed:detail.ownResponse?' · '+c.edit:''}</span></div><ClassroomIconButton title={c.closeQuestion} onClick={()=>setMode('hidden')}><X/></ClassroomIconButton></header>
+ {reminder&&<div role="status" className={`${styles.nudge} ${styles.inlineNudge}`}>{reminder}</div>}<form onSubmit={e=>{e.preventDefault();void submit();}}>{detail.definition.questions.map(q=><fieldset key={q.id} disabled={busy}><legend>{q.prompt}</legend>{q.options.length?<div className={styles.answerOptions}>{q.options.map((o,index)=><label key={o.id} className={styles.answerOption}><input type={q.type==='multiple'?'checkbox':'radio'} name={q.id} checked={Array.isArray(answers[q.id])&&(answers[q.id] as string[]).includes(o.id)} disabled={!enabled} onChange={e=>change({...answers,[q.id]:q.type==='multiple'?e.target.checked?[...(answers[q.id] as string[]||[]),o.id]:(answers[q.id] as string[]||[]).filter(x=>x!==o.id):[o.id]})}/><span>{String.fromCharCode(65+index)}</span>{o.text}</label>)}</div>:<textarea className={styles.answerArea} aria-label={q.prompt} readOnly={!enabled} maxLength={10000} value={typeof answers[q.id]==='string'?answers[q.id] as string:''} onChange={e=>change({...answers,[q.id]:e.target.value})}/>}</fieldset>)}
+ {conflict&&<p role="alert" className={styles.error}>{c.conflict}<button type="button" onClick={()=>{setDraft(null);sessionStorage.removeItem(storageKey);}}>{c.latest}</button></p>}{error&&<p role="alert" className={styles.error}>{error}</p>}{detail.status==='published'&&<>{detail.ownResponse&&detail.kind!=='poll'&&detail.definition.questions.map(q=><p key={q.id} className={styles.judgment}>{detail.ownResponse?.aiReview?.[q.id]?.status==='manual'?c.manualGrade:c.autoJudgment} · {detail.ownResponse?.grading?.[q.id]===q.points?c.correct:c.incorrect}{detail.ownResponse?.aiReview?.[q.id]?.reason&&<span>{detail.ownResponse.aiReview[q.id].reason}</span>}</p>)}<ActivitySolutions detail={detail}/></>}
+ <footer><small>{!enabled?c.closed:detail.ownResponse?c.editNotice:c.autoCollapse}</small>{enabled&&<button className={styles.primary} disabled={busy||!complete||!!conflict}>{detail.ownResponse?c.save:c.submit}<Check/></button>}</footer></form></section>}
+ {actualMode==='capsule'&&detail.ownResponse&&<div data-activity-capsule className={styles.capsule} style={{right:capsuleRight}}><CheckCheck/><span>{c.answered}</span><button onClick={()=>setMode('open')}>{enabled?c.edit:c.view}</button><ClassroomIconButton title={c.close} onClick={()=>setMode('hidden')}><X/></ClassroomIconButton></div>}
+ {actualMode!=='open'&&<ClassroomIconButton data-activity-reopen className={styles.questionReopen} title={c.openQuestion} onClick={()=>setMode('open')}><FileText/>{!detail.ownResponse&&enabled&&<i/>}</ClassroomIconButton>}
+ {reminder&&actualMode!=='open'&&<div role="status" className={styles.nudge}>{reminder}</div>}
+ </div>;
+}

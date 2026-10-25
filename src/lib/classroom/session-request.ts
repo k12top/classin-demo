@@ -1,7 +1,7 @@
 import { ClassroomRecoveryError, retryClassroomRecovery } from "./credential-recovery";
 import { withClassroomRequestSignal } from "./request-signal";
 
-type SessionFailure = { error?: string; code?: string; courseId?: string };
+type SessionFailure = { error?: string; code?: string; courseId?: string; devices?: string[] };
 
 export class ClassroomSessionRequestError extends ClassroomRecoveryError {
   constructor(status: number, retryAfterMs: number, public readonly payload: SessionFailure) {

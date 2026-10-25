@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
 import type { ActivityActor } from "@/lib/classroom/server/activities";
 import { ActivityError } from "@/lib/classroom/activities";
-export async function activityActor(request: NextRequest, sessionId: string, shareAccess?: string) {
-  const access = await resolveClassroomRequestAccess(request, sessionId, shareAccess);
+export async function activityActor(request: NextRequest, sessionId: string, shareAccess?: string, purpose?: "activities") {
+  const access = await resolveClassroomRequestAccess(request, sessionId, shareAccess, { purpose });
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
   return { courseId: access.access.courseId, sessionId: access.access.sessionId, userId: access.session.userId,
     displayName: access.session.displayName || access.session.name || access.session.userId, role: access.access.role } satisfies ActivityActor;

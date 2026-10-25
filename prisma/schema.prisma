@@ -851,6 +851,10 @@ model ClassroomConnection {
   rtcUid Int
   screenUid Int
   captionLanguage String?
+  deviceId String?
+  deviceLabel String?
+  entryMode String?
+  replacedAt DateTime?
   lastSeenAt DateTime @default(now())
   leftAt DateTime?
   @@index([sessionId, userId, lastSeenAt])
@@ -907,6 +911,7 @@ model ClassroomActivity {
   updatedAt   DateTime @updatedAt
   runtime     ClassroomRuntime @relation(fields: [runtimeId], references: [id], onDelete: Cascade)
   submissions ClassroomActivitySubmission[]
+  reminders   ClassroomActivityReminder[]
 
   @@unique([sessionId, requestId])
   @@index([sessionId, createdAt])
@@ -918,6 +923,9 @@ model ClassroomActivitySubmission {
   userId      String
   displayName String
   answers     Json
+  answerHistory Json @default("[]")
+  answerVersion Int @default(1)
+  aiReview    Json @default("{}")
   grading     Json
   feedback    String   @default("")
   version     Int      @default(1)
@@ -927,6 +935,19 @@ model ClassroomActivitySubmission {
 
   @@unique([activityId, userId])
   @@index([activityId, id])
+}
+
+model ClassroomActivityReminder {
+  id          String @id @default(uuid())
+  activityId  String
+  requestId   String
+  senderId    String
+  recipients  Json
+  createdAt   DateTime @default(now())
+  activity    ClassroomActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@unique([activityId, requestId])
+  @@index([activityId, createdAt])
 }
 
 // Transactional, coalesced invalidations for ephemeral Redis classroom state.

@@ -1,4 +1,6 @@
 export const ACTIVITY_REFRESH_EVENT = "classroom-activity-refresh";
+export const ACTIVITY_OPEN_EVENT = "classroom-activity-open";
+export const ACTIVITY_CREATE_EVENT = "classroom-activity-create";
 /** Shared validation, grading and wire types; answer keys are server-owned. */
 export type ActivityKind = "poll" | "quiz" | "task";
 export type QuestionKind = "single" | "multiple" | "boolean" | "shortText" | "essay";
@@ -7,6 +9,7 @@ export type ActivityQuestion = {
   id: string; type: QuestionKind; prompt: string; points: number;
   options: Array<{ id: string; text: string }>;
   correct?: string[];
+  explanation?: string; referenceAnswer?: string;
 };
 export type ActivityDefinition = { questions: ActivityQuestion[] };
 export type ActivityAnswers = Record<string, string | string[]>;
@@ -30,11 +33,15 @@ export type ActivitySummary = {
 export type ActivityResponse = {
   id: string; userId: string; displayName: string; answers: ActivityAnswers;
   grading: ActivityGrade | null; feedback: string | null; submittedAt: string; updatedAt: string; version: number;
+  answerVersion?: number; answerHistory?: Array<{ answers: ActivityAnswers; submittedAt: string }>;
+  aiReview?: Record<string, { status: "pending" | "complete" | "failed" | "manual"; correct?: boolean; score?: number; reason?: string }>;
 };
+export type ActivityRosterMember = { userId: string; displayName: string; avatar: string; online: boolean; response: ActivityResponse | null };
 export type ActivityDetail = ActivitySummary & {
   definition: ActivityDefinition; ownResponse: ActivityResponse | null;
   responses: ActivityResponse[]; responseCursor: string | null;
   statistics: Record<string, Record<string, number>> | null;
+  roster?: ActivityRosterMember[]; reminder?: { id: string; createdAt: string } | null; lastRemindedAt?: string | null;
 };
 export type ActivityList = {
   activities: ActivitySummary[]; nextCursor: string | null; active: ActivitySummary | null;
@@ -79,7 +86,7 @@ export function validateActivity(value: unknown): { title: string; kind: Activit
       if (choice && correct.some(a => !options.some(o => o.id === a))) throw new ActivityError("Correct answer is not an option");
       if ((type === "single" || type === "boolean") && correct.length !== 1) throw new ActivityError("Select one correct answer");
     }
-    return { id, type, prompt: text(q.prompt, 4000), points, options, ...(correct ? { correct } : {}) };
+    return { id, type, prompt: text(q.prompt, 4000), points, options, ...(correct ? { correct } : {}), ...(q.explanation ? { explanation: text(q.explanation, 8000) } : {}), ...(q.referenceAnswer ? { referenceAnswer: text(q.referenceAnswer, 4000) } : {}) };
   });
   const durationSec = v.durationSec == null ? null : v.durationSec;
   if (durationSec !== null && (typeof durationSec !== "number" || !Number.isInteger(durationSec) || durationSec < 10 || durationSec > 86400)) throw new ActivityError("Duration must be 10 seconds to 24 hours");
@@ -112,8 +119,8 @@ export function gradeAnswers(kind: ActivityKind, definition: ActivityDefinition,
 }
 export function publicDefinition(definition: ActivityDefinition, reveal: boolean): ActivityDefinition {
   return { questions: definition.questions.map(q => {
-    const { correct, ...safe } = q;
-    return reveal && correct ? { ...safe, correct } : safe;
+    const { correct, explanation, referenceAnswer, ...safe } = q;
+    return reveal ? { ...safe, ...(correct ? { correct } : {}), ...(explanation ? { explanation } : {}), ...(referenceAnswer ? { referenceAnswer } : {}) } : safe;
   }) };
 }
 export function csvCell(value: unknown) {

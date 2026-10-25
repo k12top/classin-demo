@@ -19,7 +19,7 @@ export type VideoProfile = {
   bitrateKbps: number;
 };
 
-export type ClassroomScreenShareOptions = { mode: "screen" | "portrait"; corner?: "tl" | "tr" | "bl" | "br" };
+export type ClassroomScreenShareOptions = { mode: "screen" | "portrait"; corner?: "tl" | "tr" | "bl" | "br"; portraitSize?: number; portraitBorder?: "none" | "solid" | "double"; portraitBorderColor?: "white" | "indigo" | "black" };
 
 export type ClassroomMediaProfile = {
   camera: {
@@ -93,6 +93,7 @@ export type ClassroomMediaSnapshot = {
     screenSharing: boolean;
     screenShareMode?: "screen" | "portrait";
     screenShareCorner?: "tl" | "tr" | "bl" | "br";
+    screenShareOptions?: ClassroomScreenShareOptions;
   };
   focusedParticipantId: string | null;
 };
@@ -210,6 +211,7 @@ export type ClassroomScreenShareLease = {
 };
 
 export type ClassroomMemberSnapshot = {
+  replacedRtcUids?: number[];
   userId: string;
   displayName: string;
   avatar: string;
@@ -407,6 +409,7 @@ export type ClassroomWhiteboardCredential = {
 };
 
 export type ClassroomSessionResponse = {
+  connection?: { entryMode: "primary" | "together" | "replace" } | null;
   mode: ClassroomMode;
   modePolicy: ClassroomModePolicy;
   credential: ClassroomJoinCredential;
@@ -465,6 +468,7 @@ export type ClassroomAction =
   | { type: "setRecordingStartMode"; mode: "classStart" | "scheduled" | "scheduledEarly" | "disabled" }
   | { type: "raiseHand" }
   | { type: "lowerHand" }
+  | { type: "acknowledgeHand"; targetUserId: string; handRaisedAt: string }
   | { type: "inviteStage"; targetUserId: string }
   | { type: "acceptStage" }
   | { type: "declineStage" }

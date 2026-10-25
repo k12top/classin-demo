@@ -113,6 +113,26 @@ async function main() {
       globalThis.handRedisLeases = null;
       await api.touchClassroomConnection(lesson.id, "alice", clientId, true); await request("lowerHand");
     });
+    await check("teacher acknowledges only a specific pending raise without media grants; stale receipts preserve newer raises", async () => {
+      actor("alice"); await request("raiseHand");
+      const before = await student("alice");
+      const action = { type: "acknowledgeHand", targetUserId: "alice", handRaisedAt: before.handRaisedAt.toISOString() };
+      actor("bob"); assert.equal((await request("acknowledgeHand", { action })).status,403,"students cannot clear another hand");
+      assert.ok((await student("alice")).handRaisedAt);
+      const newer = new Date(before.handRaisedAt.getTime()+1);
+      await db.classroomMemberState.update({where:{id:before.id},data:{handRaisedAt:newer}});
+      actor("teacher","teacher");
+      assert.equal((await request("acknowledgeHand", { action })).status,200);
+      assert.equal((await student("alice")).handRaisedAt.toISOString(),newer.toISOString());
+      const accepted = await request("acknowledgeHand", { action:{...action,handRaisedAt:newer.toISOString()} });
+      assert.equal(accepted.status,200);const payload=await accepted.json();
+      assert.equal(payload.runtime.members.find(m=>m.userId==='alice').handRaisedAt,null);
+      const after=await student("alice");assert.equal(after.handRaisedAt,null);
+      for(const key of ["onStage","stageState","microphoneAllowed","cameraAllowed","whiteboardWritable"])assert.equal(after[key],before[key]);
+      assert.equal((await request("acknowledgeHand", { action:{...action,handRaisedAt:newer.toISOString()} })).status,200,"ack retry is idempotent");
+      assert.equal((await request("acknowledgeHand", { action:{...action,targetUserId:'teacher'} })).status,409);
+      assert.equal((await request("acknowledgeHand", { action:{...action,handRaisedAt:'bad-time'} })).status,400);
+    });
     await check("one-to-one and large classes support hands; public broadcasts and ended classrooms retain their restrictions", async () => {
       actor("alice");
       for (const roomType of [0, 2]) {

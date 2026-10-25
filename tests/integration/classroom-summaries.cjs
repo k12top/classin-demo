@@ -14,7 +14,7 @@ async function main() {
     "@/lib/session": "export const getSessionFromRequest=async r=>({userId:r.headers.get('x-user')||'teacher',name:'teacher',displayName:'Teacher',role:'teacher'});",
     "@/lib/courseware-access": "export const resolveCoursewareAccess=async identity=>({allowed:identity.userId!=='outsider',teaching:identity.userId==='teacher'});",
     "@/lib/classroom/server/integration-events": "export const enqueueClassroomEvent=async()=>{};export const deliverClassroomEvents=async()=>{};",
-    "@/lib/classroom/server/recording-orchestrator": "export const stopActiveRecordingsForCourse=async()=>{if(globalThis.summaryCleanupGate)await globalThis.summaryCleanupGate};export const stopRecordingAttempt=async()=>{};export const reconcilePendingRecordings=async()=>{};export const retryFailedLiveRecordings=async()=>{};export const requestRecordingStart=async()=>{};",
+    "@/lib/classroom/server/recording-orchestrator": "export const stopActiveRecordingsForCourse=async()=>{if(globalThis.summaryCleanupGate)await globalThis.summaryCleanupGate};export const stopRecordingAttempt=async()=>{};export const reconcilePendingRecordings=async()=>{};export const retryFailedLiveRecordings=async()=>{};export const requestRecordingStart=async()=>{};export const processRecordingStart=async()=>{};",
     "@/lib/classroom/server/transcription-orchestrator": "export const stopClassroomTranscription=async()=>{if(globalThis.summaryCleanupGate)await globalThis.summaryCleanupGate};export const syncClassroomTranscription=async()=>{};export const reconcileActiveClassroomTranscriptions=async()=>{};",
   };
   globalThis.summaryAfter = [];

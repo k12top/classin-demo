@@ -11,6 +11,7 @@ export function optimisticClassroomRuntime(runtime: ClassroomRuntimeSnapshot, ac
   case "setMemberMuted": return patchMember(action.targetUserId, { chatMuted: action.muted });
   case "raiseHand": return patchMember(actorId, { handRaisedAt: new Date().toISOString() });
   case "lowerHand": return patchMember(actorId, { handRaisedAt: null });
+  case "acknowledgeHand": return runtime.members.find(member => member.userId === action.targetUserId)?.handRaisedAt === action.handRaisedAt ? patchMember(action.targetUserId, { handRaisedAt: null }) : null;
   case "inviteStage": return patchMember(action.targetUserId, { stageState: "invited" });
   case "removeStage": return patchMember(action.targetUserId, { onStage: false, stageState: "offstage", whiteboardWritable: false });
   case "arrangeVideoGallery": return { ...runtime, composition: arrangeClassroomVideoGallery(runtime.composition, runtime.members.filter(member => member.online && (member.role !== "student" || member.onStage))) };

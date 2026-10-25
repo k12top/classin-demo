@@ -1,8 +1,8 @@
 "use client";
 import { ClassroomIconButton } from "./icon-button";
 /* eslint-disable @next/next/no-img-element -- Private no-store chat images and local blob previews must bypass the shared image optimizer. */
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Globe, MessageCircle, MoreHorizontal, X, Loader2, Send, ClipboardList, ArrowLeft, Languages, ImagePlus } from "lucide-react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { Globe, MessageCircle, MoreHorizontal, X, Loader2, Send, ArrowLeft, Languages, ImagePlus, Sparkles } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
 import { useChatTranslations } from "@/lib/classroom/use-chat-translations";
 import { captionLanguageSelectOptions } from "@/lib/classroom/languages";
@@ -14,8 +14,13 @@ import { parseImageMessage } from "@/lib/classroom/chat-image-message";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ChatPopover } from "./chat-popover";
 import { ActivityChatCard } from "./activity-chat-card";
+import { ActivityQuickCreator } from "./activity-quick-creator";
+import { ACTIVITY_CREATE_EVENT } from "@/lib/classroom/activities";
+import { interactionCopy } from "@/lib/classroom/interaction-copy";
 import { ActivityWorkspace } from "./activity-workspace";
 import { useChatActivities } from "@/lib/classroom/use-chat-activities";
+import interactionStyles from "./activity-interaction.module.css";
+import { CLASSROOM_CHAT_MAX_CHARACTERS, chatCharacterCount, limitChatContent } from "@/lib/classroom/chat-content";
 const OPTIMISTIC_MESSAGE_PREFIX = "optimistic:";
 
 export function ClassroomChatPanel({
@@ -35,6 +40,7 @@ export function ClassroomChatPanel({
   onDelete,
   onMuteAll,
   onActivityChanged = () => undefined,
+  createActivityRequest = 0,
   onDeleteMember,
   onMuteMember,
   busy,
@@ -65,6 +71,7 @@ export function ClassroomChatPanel({
   onMuteMember?: (senderId:string,muted:boolean) => void;
   onMuteAll: (muted: boolean) => void;
   onActivityChanged?: (revision: number) => void;
+  createActivityRequest?: number;
   busy: boolean;
 }) {
   const { t, locale } = useTranslation();
@@ -76,6 +83,8 @@ export function ClassroomChatPanel({
   const allMuted = students.length > 0 && students.every((member) => member.chatMuted);
   const allUnmuted = students.every((member) => !member.chatMuted);
   const [activityEditorOpen, setActivityEditorOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const interaction = interactionCopy(locale);
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
   const [sendFailed, setSendFailed] = useState(false);
@@ -84,19 +93,41 @@ export function ClassroomChatPanel({
   const followLatestRef = useRef(true);
   const sendingRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const composingRef = useRef(false);
+  const countId = useId(), limitId = useId();
+  const characterCount = chatCharacterCount(value);
+  useLayoutEffect(() => {
+    const field = inputRef.current;
+    if (!field) return;
+    const resize = () => {
+      const style = getComputedStyle(field);
+      field.style.height = "auto";
+      field.style.height = `${Math.max(parseFloat(style.minHeight) || 76, Math.min(parseFloat(style.maxHeight) || 144, field.scrollHeight))}px`;
+    };
+    resize();
+    let width = field.getBoundingClientRect().width;
+    const observer = new ResizeObserver(entries => {
+      const next = entries[0]?.contentRect.width;
+      if (next && next !== width) { width = next; resize(); }
+    });
+    observer.observe(field);
+    return () => observer.disconnect();
+  }, [value, visible, quickOpen, activityEditorOpen]);
   const failedAttemptRef = useRef<{
     clientMessageId: string; content: string; scope: string; spaceId: string | null; imageId?:string;
   } | null>(null);
   const [scope, setScope] = useState<"classroom" | "room" | "staff">(
     activeSpaceId ? "room" : "classroom",
   );
+  useEffect(() => { const open = (event: Event) => { if (canManage && (event as CustomEvent).detail?.sessionId === sessionId) { setScope("classroom"); setQuickOpen(true); } }; window.addEventListener(ACTIVITY_CREATE_EVENT, open); return () => window.removeEventListener(ACTIVITY_CREATE_EVENT, open); }, [canManage, sessionId]);
+  useEffect(() => { if (!canManage || !createActivityRequest) return; const timer = setTimeout(() => { setScope("classroom"); setQuickOpen(true); }, 0); return () => clearTimeout(timer); }, [canManage, createActivityRequest]);
   const roomId = activeSpaceId || spaces.find((space) => space.isAssigned)?.id || null;
   const visibleMessages = messages.filter((message) => {
     if (scope === "room") return message.scope === "room" && message.spaceId === roomId;
     return message.scope === scope;
   });
   const activityFeed = useChatActivities(sessionId, shareAccess, visible && scope === "classroom");
-  const [translateEnabled, setTranslateEnabled] = useState(true);
+  const [translateEnabled, setTranslateEnabled] = useState(false);
   const [languageOverride, setLanguageOverride] = useState("");
   const language = languageOverride || translationLanguage;
   const chatTranslation = useChatTranslations(sessionId, visibleMessages, language, translateEnabled && visible, shareAccess);
@@ -119,7 +150,7 @@ export function ClassroomChatPanel({
   async function submit(event: FormEvent) {
     event.preventDefault();
     const content = value.trim();
-    if ((!content && !images.attachment) || disabled || sendingRef.current) return;
+    if ((!content && !images.attachment) || disabled || sendingRef.current || composingRef.current || characterCount > CLASSROOM_CHAT_MAX_CHARACTERS) return;
     sendingRef.current = true; setSending(true); setSendFailed(false); images.setError("");
     let sent = false;
     try {
@@ -136,10 +167,10 @@ export function ClassroomChatPanel({
   if (activityEditorOpen) return <div className="classroom-chat-activity-editor"><button type="button" className="classroom-chat-back" onClick={() => setActivityEditorOpen(false)}><ArrowLeft />{t("classroom.v3.chat")}</button><ActivityWorkspace sessionId={sessionId} shareAccess={shareAccess} onChanged={revision => { onActivityChanged(revision); void activityFeed.reload().catch(() => undefined); }} /></div>;
 
   return (
-    <div className="classroom-v3-panel-body is-chat">
+    <div className={`classroom-v3-panel-body is-chat ${quickOpen ? interactionStyles.creating : ""}`}>
       <div className="classroom-chat-inline-tools">
         {(roomId || role !== "student") && <ChatPopover label={t("classroomChat.scope")} icon={<Globe />}><fieldset className="classroom-chat-scope-picker"><legend>{t("classroomChat.scope")}</legend>{(["classroom", ...(roomId ? ["room"] : []), ...(role !== "student" ? ["staff"] : [])] as Array<"classroom" | "room" | "staff">).map(channel => <label key={channel}><input type="radio" name="chat-scope" value={channel} checked={scope === channel} disabled={sending} onChange={() => { followLatestRef.current = true; setScope(channel); }} />{t(channel === "classroom" ? "classroom.v3.mainChannel" : channel === "room" ? "classroom.v3.roomChannel" : "classroom.v3.staffChannel")}</label>)}</fieldset></ChatPopover>}
-        <ChatPopover label={t("classroomWorkspace.translationSettings")} icon={<Languages />}><label className="classroom-chat-check"><input type="checkbox" checked={translateEnabled} onChange={event => setTranslateEnabled(event.target.checked)} />{t("classroomUpdates.translateChat")}</label><label className="classroom-chat-language">{t("classroomUpdates.chatTranslationLanguage")}<select aria-label={t("classroomUpdates.chatTranslationLanguage")} value={language} disabled={!translateEnabled} onChange={event => setLanguageOverride(event.target.value)}>{captionLanguageSelectOptions("shengwang", locale).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></ChatPopover>
+        <ChatPopover label={`${t("classroomWorkspace.translationSettings")} · ${t(translateEnabled ? "captionAppearance.on" : "captionAppearance.off")}`} icon={<Languages>{!translateEnabled && <><path d="m3 3 18 18" stroke="var(--classroom-panel, #fff)" strokeWidth={5} /><path d="m3 3 18 18" /></>}</Languages>}><label className="classroom-chat-check"><input type="checkbox" checked={translateEnabled} onChange={event => setTranslateEnabled(event.target.checked)} />{t("classroomUpdates.translateChat")}</label><label className="classroom-chat-language">{t("classroomUpdates.chatTranslationLanguage")}<select aria-label={t("classroomUpdates.chatTranslationLanguage")} value={language} disabled={!translateEnabled} onChange={event => setLanguageOverride(event.target.value)}>{captionLanguageSelectOptions("shengwang", locale).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></ChatPopover>
         {canManage && <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild><ClassroomIconButton type="button" className="classroom-chat-management" aria-label={t("classroomWorkspace.messageOptions")}><MoreHorizontal /></ClassroomIconButton></DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="classroom-header-menu">
@@ -207,24 +238,27 @@ export function ClassroomChatPanel({
           );
         })}
       </div>
+      <ActivityQuickCreator sessionId={sessionId} shareAccess={shareAccess} open={quickOpen && canManage} hasActive={activityFeed.activities.some(activity => activity.status === "active")} onClose={() => setQuickOpen(false)} onPublished={onActivityChanged} onAdvanced={() => { setQuickOpen(false); setActivityEditorOpen(true); }} />
       {hasNewMessages && <button type="button" className="classroom-chat-latest" onClick={showLatest}>{t("classroomWorkspace.latest")}</button>}
       {images.error && <p className="classroom-chat-send-error" role="alert">{images.error}</p>}
-      {images.attachment && <div className="classroom-chat-image-preview"><img src={images.attachment.preview} alt={t("classroomChat.imageAlt")} /><button type="button" disabled={sending} aria-label={t("common.cancel")} onClick={images.clear}><X/></button></div>}
       {sendFailed && <p className="classroom-chat-send-error" role="alert">{t("classroomWorkspace.sendFailed")}</p>}
       <form className="classroom-v3-chat-form" onSubmit={submit} aria-busy={sending}>
-        <div className="classroom-chat-compose-tools"><input hidden type="file" ref={fileInput} accept="image/png,image/jpeg,image/webp" onChange={event=>{const file=event.target.files?.[0];if(file)images.choose(file);event.currentTarget.value=""}} /><ClassroomIconButton type="button" disabled={disabled||sending} aria-label={t("classroomChat.image")} title={t("classroomChat.image")} onClick={()=>fileInput.current?.click()}><ImagePlus/></ClassroomIconButton>{canManage && <ClassroomIconButton type="button" title={t("classroomChat.newActivity")} aria-label={t("classroomChat.newActivity")} onClick={() => setActivityEditorOpen(true)}><ClipboardList /></ClassroomIconButton>}</div>
+        <div className="classroom-chat-compose-tools"><input hidden type="file" ref={fileInput} accept="image/png,image/jpeg,image/webp" onChange={event=>{const file=event.target.files?.[0];if(file)images.choose(file);event.currentTarget.value=""}} /><ClassroomIconButton type="button" disabled={disabled||sending} aria-label={t("classroomChat.image")} title={t("classroomChat.image")} onClick={()=>fileInput.current?.click()}><ImagePlus/></ClassroomIconButton>{canManage && <ClassroomIconButton type="button" title={interaction.ai} aria-label={interaction.ai} onClick={() => { setScope("classroom"); setQuickOpen(!quickOpen); }}><Sparkles /></ClassroomIconButton>}</div>
+        {images.attachment && <div className="classroom-chat-compose-attachment"><img src={images.attachment.preview} alt={t("classroomChat.imageAlt")} /><ClassroomIconButton type="button" disabled={sending} title={t("classroomChat.removeImage")} aria-label={t("classroomChat.removeImage")} onClick={images.clear}><X/></ClassroomIconButton></div>}
         <textarea
           ref={inputRef}
           rows={2}
           onKeyDown={event => {
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !composingRef.current && event.nativeEvent.keyCode !== 229 && !window.matchMedia("(max-width:760px), (pointer:coarse)").matches) {
               event.preventDefault();
               event.currentTarget.form?.requestSubmit();
             }
           }}
           value={value}
           onPaste={event=>{const file=event.clipboardData.files[0];if(file){event.preventDefault();if(!sending&&!disabled)images.choose(file)}}}
-          onChange={(event) => setValue(event.target.value)}
+          onCompositionStart={() => { composingRef.current = true; }}
+          onCompositionEnd={event => { composingRef.current = false; setValue(limitChatContent(event.currentTarget.value)); }}
+          onChange={event => setValue(composingRef.current ? event.target.value : limitChatContent(event.target.value))}
           placeholder={
             disabled
               ? t("classroom.v3.messageDisabled")
@@ -232,13 +266,19 @@ export function ClassroomChatPanel({
           }
           disabled={disabled}
           readOnly={sending}
-          maxLength={1000}
+          aria-describedby={[characterCount > 0 ? countId : null, characterCount >= CLASSROOM_CHAT_MAX_CHARACTERS ? limitId : null].filter(Boolean).join(" ") || undefined}
           aria-label={t("classroom.v3.classroomMessage")}
         />
-        <ClassroomIconButton type="submit" disabled={disabled || sending || (!value.trim() && !images.attachment)} aria-label={t(sending ? "classroom.v3.messageSending" : "classroom.v3.sendMessage")}>
-          {sending ? <Loader2 className="animate-spin" /> : <Send />}
-        </ClassroomIconButton>
-        <small className="classroom-chat-send-hint" role="status">{t(sending ? "classroomWorkspace.sending" : "classroomWorkspace.sendHint")}</small>
+        <div className="classroom-chat-compose-footer">
+          <div className="classroom-chat-compose-meta">
+            {characterCount > 0 && <span id={countId} className={characterCount >= CLASSROOM_CHAT_MAX_CHARACTERS ? "is-full" : undefined} aria-label={t("classroomWorkspace.characterCount")}>{characterCount} / {CLASSROOM_CHAT_MAX_CHARACTERS}</span>}
+            {characterCount >= CLASSROOM_CHAT_MAX_CHARACTERS && <small id={limitId} role="status">{t("classroomWorkspace.characterLimit", { max: CLASSROOM_CHAT_MAX_CHARACTERS })}</small>}
+            {sending && <small role="status">{t("classroomWorkspace.sending")}</small>}
+          </div>
+          <ClassroomIconButton type="submit" className="classroom-chat-send-button" disabled={disabled || sending || characterCount > CLASSROOM_CHAT_MAX_CHARACTERS || (!value.trim() && !images.attachment)} aria-label={t(sending ? "classroom.v3.messageSending" : "classroom.v3.sendMessage")} title={t("classroom.v3.sendMessage")}>
+            {sending ? <Loader2 className="animate-spin" /> : <Send />}
+          </ClassroomIconButton>
+        </div>
       </form>
       <Dialog open={Boolean(viewedMessage)} onOpenChange={open=>{if(!open)setImageViewer(null)}}><DialogContent className="classroom-chat-image-viewer"><DialogTitle className="sr-only">{t("classroomChat.imageAlt")}</DialogTitle>{viewedMessage&&<img src={imageUrl(viewedMessage.id)} alt={parseImageMessage(viewedMessage.content)?.caption||t("classroomChat.imageAlt")} />}</DialogContent></Dialog>
     </div>

@@ -20,7 +20,7 @@ export function classroomActionCanRetry(action: ClassroomAction) {
     "setMemberMuted", "muteAll", "setWhiteboardWritable",
     "setAssistantPermission", "setStageSettings", "setChatEnabled", "setRecordingStartMode", "setClassStartMode", "startScheduledClass",
     "setInterpretation", "deauthorizeAll", "releaseScreenShare",
-    "raiseHand", "lowerHand", "removeBoardItem", "resetComposition",
+    "raiseHand", "lowerHand", "acknowledgeHand", "removeBoardItem", "resetComposition",
   ].includes(action.type);
 }
 
