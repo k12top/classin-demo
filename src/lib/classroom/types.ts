@@ -19,6 +19,8 @@ export type VideoProfile = {
   bitrateKbps: number;
 };
 
+export type ClassroomScreenShareOptions = { mode: "screen" | "portrait"; corner?: "tl" | "tr" | "bl" | "br" };
+
 export type ClassroomMediaProfile = {
   camera: {
     low: VideoProfile;
@@ -41,6 +43,11 @@ export type ClassroomJoinCredential = {
   publishAllowed?: boolean;
   token: string;
   expiresInSeconds: number;
+  auxiliaryCamera?: {
+    userId: string;
+    rtcUid: number;
+    token: string;
+  };
   screenShare?: {
     userId: string;
     rtcUid: number;
@@ -52,7 +59,7 @@ export type ClassroomParticipant = {
   id: string;
   displayName: string;
   isLocal: boolean;
-  kind: "camera" | "screen";
+  kind: "camera" | "screen" | "auxiliary-camera";
   hasAudio: boolean;
   hasVideo: boolean;
   /** Published video is temporarily suspended by the receiver budget. Audio continues. */
@@ -79,7 +86,13 @@ export type ClassroomMediaSnapshot = {
     microphoneOn: boolean;
     microphoneStatus?: "off" | "starting" | "on" | "interrupted" | "failed";
     cameraOn: boolean;
+    cameraDeviceId?: string;
+    auxiliaryCameraOn?: boolean;
+    auxiliaryCameraStarting?: boolean;
+    auxiliaryCameraDeviceId?: string;
     screenSharing: boolean;
+    screenShareMode?: "screen" | "portrait";
+    screenShareCorner?: "tl" | "tr" | "bl" | "br";
   };
   focusedParticipantId: string | null;
 };
@@ -125,7 +138,12 @@ export interface ClassroomMediaProvider {
   muteMicrophone?(): Promise<void>;
   setMicrophonePermission?(allowed: boolean): void;
   toggleCamera(): Promise<boolean>;
-  startScreenShare(authorize?: () => Promise<void>): Promise<void>;
+  startAuxiliaryCamera(deviceId: string): Promise<void>;
+  stopAuxiliaryCamera(): Promise<void>;
+  setAuxiliaryCameraDevice(deviceId: string): Promise<void>;
+  startScreenShare(authorize?: () => Promise<void>, options?: ClassroomScreenShareOptions): Promise<void>;
+  supportsSharePortrait?(): boolean;
+  setScreenShareOptions?(options: ClassroomScreenShareOptions): Promise<void>;
   stopScreenShare(): Promise<void>;
   focusParticipant(participantId: string | null): Promise<void>;
   attachVideo(participantId: string, element: HTMLElement): void;
@@ -152,7 +170,7 @@ export type ClassroomStageMode =
   | "whiteboard"
   | "spotlight";
 
-export type ClassroomBoardItemKind = "camera" | "screen" | "courseware";
+export type ClassroomBoardItemKind = "camera" | "auxiliary-camera" | "screen" | "courseware";
 export type ClassroomBoardItemShape = "rounded" | "circle";
 
 export type ClassroomBoardRect = {
@@ -166,6 +184,7 @@ export type ClassroomBoardItem = {
   id: string;
   kind: ClassroomBoardItemKind;
   sourceId: string;
+  rtcUid?: number;
   rect: ClassroomBoardRect;
   zIndex: number;
   locked: boolean;
@@ -197,6 +216,7 @@ export type ClassroomMemberSnapshot = {
   role: ClassroomRole;
   rtcUids?: number[];
   screenUids?: number[];
+  auxiliaryCameraUids?: number[];
   signalingUserIds?: string[];
   online: boolean;
   connectionStatus?: "online" | "reconnecting" | "offline";
@@ -222,7 +242,7 @@ export type ClassroomMessageSnapshot = {
   scope: "classroom" | "room" | "staff" | "direct";
   spaceId: string | null;
   recipientId: string | null;
-  kind: "text" | "system";
+  kind: "text" | "system" | "image";
   content: string;
   deletedAt: string | null;
   createdAt: string;

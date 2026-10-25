@@ -57,7 +57,7 @@ test("a slow translation claim becomes retryable after bounded polling instead o
       useEffect: (effect: () => (() => void) | undefined) => { cleanup = effect(); },
     },
   }, {
-    fetch: async () => { calls++; return Response.json({ translations: { message: { status: "pending" } } }); },
+    fetch: async (_url: unknown, init?: RequestInit) => { assert.deepEqual(JSON.parse(String(init?.body)).messageIds, ["message"]); calls++; return Response.json({ translations: { message: { status: "pending" } } }); },
     setTimeout: (callback: () => Promise<void>, delay: number) => {
       if (delay === 200) work = callback;
       else void Promise.resolve().then(callback);
@@ -65,7 +65,7 @@ test("a slow translation claim becomes retryable after bounded polling instead o
     },
     clearTimeout: () => {},
   });
-  api.useChatTranslations("lesson", [{ id: "message", deletedAt: null }] as import("../src/lib/classroom/types").ClassroomMessageSnapshot[], "zh-CN", true);
+  api.useChatTranslations("lesson", [{ id: "message", kind: "text", deletedAt: null }, { id: "image", kind: "image", deletedAt: null }] as import("../src/lib/classroom/types").ClassroomMessageSnapshot[], "zh-CN", true);
   assert.ok(work);
   await work();
   assert.equal(calls, 3);

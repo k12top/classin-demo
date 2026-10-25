@@ -1,6 +1,6 @@
-import { classroomRtcUid } from "./rtc-uid";
+import { participantOwnerId, type RtcMember } from "./participant-identity";
 
-type Member = { userId: string; rtcUids?: number[]; screenUids?: number[] };
+type Member = RtcMember;
 
 /** Local RTC identity remains valid when a database heartbeat is delayed. */
 export function classroomParticipantOwnerId(
@@ -9,11 +9,5 @@ export function classroomParticipantOwnerId(
   currentUserId: string,
 ): string {
   if (participant.isLocal && currentUserId) return currentUserId;
-  const owner = members.find((member) =>
-    member.rtcUids?.some((uid) => String(uid) === participant.id) ||
-    member.screenUids?.some((uid) => String(uid) === participant.id) ||
-    String(classroomRtcUid(member.userId, "camera")) === participant.id ||
-    String(classroomRtcUid(member.userId, "screen")) === participant.id,
-  );
-  return owner?.userId || participant.id.replace(/::screen$/, "");
+  return participantOwnerId(participant.id, members);
 }

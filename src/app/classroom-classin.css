@@ -268,8 +268,22 @@
 }
 
 .is-classin-layout .classroom-v3-seats {
+  /* Center through auto margins below. `justify-content: center` gives an
+     overflowing flex row an unreachable negative start, hiding early seats. */
+  justify-content: flex-start;
   gap: 7px;
   scrollbar-width: none;
+  touch-action: pan-x pinch-zoom;
+}
+
+@media (min-width: 761px) {
+  .is-classin-layout .classroom-v3-seats > :first-child { margin-inline-start: auto; }
+  .is-classin-layout .classroom-v3-seats > :last-child { margin-inline-end: auto; }
+}
+
+/* Touch browsing must win over Motion's inline pan-y used for mouse reorder. */
+.is-classin-layout .classroom-v3-seats > .classroom-v3-seat {
+  touch-action: pan-x pinch-zoom !important;
 }
 
 .is-classin-layout .classroom-v3-seat {
@@ -1553,7 +1567,7 @@ html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-tool-popover-clos
 }
 
 @media (max-height: 500px) and (max-width: 1024px) {
-  html[lang] .classroom-v3-shell.is-classin-layout:not(.is-recorder):not(.is-mode-publicLive):not(.is-rail-collapsed) {
+  html[lang] .classroom-v3-shell.is-classin-layout:not(.is-recorder):not(.is-mode-publicLive):not(.is-rail-collapsed):not([data-responsive-workspace]) {
     grid-template-rows: 52px 66px minmax(0, 1fr) calc(58px + env(safe-area-inset-bottom));
   }
   .is-classin-layout .classroom-v3-live-rail { min-height: 66px; padding-block: 2px; }

@@ -27,6 +27,7 @@ function fixture() {
   };
   const api = loadModule<Api>("src/lib/classroom/server/runtime.ts", {
     "server-only": {}, "./command-receipt": {}, "@/lib/db": { prisma: db },
+    "@/lib/course-session-status": { syncCourseStatusFromSessions: async () => {} },
     "@/lib/courseware-conversion": {}, "./integration-events": {}, "./shared-cache": {},
     "./redis-presence": { readRedisClassroomPresence: async () => null }, "./redis-sync": {}, "./caption-demand": {},
   });

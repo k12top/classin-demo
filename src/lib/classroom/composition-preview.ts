@@ -13,7 +13,7 @@ export function applyClassroomCompositionPreview(
   const item = runtime.composition.boardItems.find(candidate => candidate.id === preview.itemId);
   if (runtime.status === "ended" || preview.actorId === currentUserId || !publisherId ||
     !actor?.signalingUserIds?.includes(publisherId) ||
-    !(actor.role === "teacher" || (actor.role === "assistant" && runtime.assistantPermissions?.[actor.userId] !== false)) ||
+    !(actor.role === "teacher" || actor.role === "assistant") ||
     !item || item.locked || !preview.rect ||
     ![preview.rect.x, preview.rect.y, preview.rect.width, preview.rect.height].every(Number.isFinite)) return null;
   return {

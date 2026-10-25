@@ -93,6 +93,7 @@ export async function POST(request: NextRequest) {
     role: resolved.access.role,
     scenario: mode.rtcScenario,
     publisher: true,
+    allowAuxiliaryCamera: teachingRole || member?.cameraAllowed !== false,
     allowScreenShare: canShareClassroomScreen({ role: resolved.access.role, member,
       studentSharingSupported: mode.studentCanShareWhenOnStage,
       assistantManagementAllowed: true }),

@@ -1,4 +1,5 @@
 "use client";
+import { ClassroomIconButton } from "./icon-button";
 import { useEffect, useId, useRef, useState } from "react";
 import { AlertCircle, Captions, Check, ChevronDown, ChevronUp, Headphones, Loader2, Settings2 } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
@@ -24,11 +25,11 @@ function CaptionQuickToggle({ label, hint, pressed, disabled, onClick, children 
   const tooltipId = useId();
   const [showHint, setShowHint] = useState(false);
   return <div className="classroom-v3-caption-quick-toggle" onMouseEnter={() => setShowHint(true)} onMouseLeave={() => setShowHint(false)}>
-    <button type="button" aria-label={label} aria-pressed={pressed} aria-describedby={showHint ? tooltipId : undefined}
+    <ClassroomIconButton type="button" aria-label={label} aria-pressed={pressed} aria-describedby={showHint ? tooltipId : undefined}
       disabled={disabled} onClick={onClick} onFocus={() => setShowHint(true)} onBlur={() => setShowHint(false)}
       onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setShowHint(false); } }}>
       {children}<span className="classroom-v3-caption-toggle-state" aria-hidden="true">{pressed && <Check />}</span>
-    </button>
+    </ClassroomIconButton>
     {showHint && <div id={tooltipId} role="tooltip"><strong>{label}<small>{t(pressed ? "classroom.v3.enabled" : "classroom.v3.disabled")}</small></strong><p>{hint}</p></div>}
   </div>;
 }
@@ -85,15 +86,21 @@ export function CaptionsPanel({
   const helpId = useId();
   const settingsButton = useRef<HTMLButtonElement>(null);
   const historyRef = useRef<HTMLDivElement>(null);
+  const followingHistory = useRef(true);
+  const lastCaptionSeen = useRef("");
+  const [hasUnseenCaptions,setHasUnseenCaptions] = useState(false);
   const [followLatest, setFollowLatest] = useState(() => {
     try { return window.localStorage.getItem("classroom_caption_follow_latest") !== "0"; }
     catch { return true; }
   });
   useEffect(() => {
+    const last= captions.at(-1), key=last ? last.id+":"+last.text+":"+last.isFinal : "";
+    if ((!followLatest || !followingHistory.current) && lastCaptionSeen.current && lastCaptionSeen.current !== key) setHasUnseenCaptions(true);
+    lastCaptionSeen.current = key;
     if (!followLatest) return;
     const history = historyRef.current;
     if (!history) return;
-    const scrollToLatest = () => { history.scrollTop = history.scrollHeight; };
+    const scrollToLatest = () => { if (followingHistory.current) history.scrollTop = history.scrollHeight; };
     scrollToLatest();
     const observer = new ResizeObserver(scrollToLatest);
     observer.observe(history);
@@ -213,21 +220,39 @@ export function CaptionsPanel({
   const visibleCaptions = captions.slice(-80);
   const preferenceFailure = preferenceError ? <div className="classroom-v3-caption-preference-error" role="alert">
     <p>{t(preferenceError === "caption_language_limit" ? "classroom.v3.captionLanguageLimit" : preferenceError === "caption_language_unsupported" ? "classroom.v3.captionLanguageUnsupported" : "classroom.v3.captionPreferenceFailed")}</p>
-    <button type="button" disabled={saving} onClick={() => settingsOpen ? void applySettings() : onRetryPreference()}>{t("classroom.v3.captionPreferenceRetry")}</button>
+    <ClassroomIconButton type="button" disabled={saving} onClick={() => settingsOpen ? void applySettings() : onRetryPreference()}>{t("classroom.v3.captionPreferenceRetry")}</ClassroomIconButton>
   </div> : null;
   return (
     <div className="classroom-v3-panel-body is-captions" data-settings-open={settingsOpen} onKeyDown={event => {
       if (event.key === "Escape" && settingsOpen && !saving) { event.stopPropagation(); collapseSettings(); }
     }}>
       <div className="classroom-v3-panel-heading classroom-v3-caption-heading">
+        <div className="classroom-v3-caption-heading-actions">
+          <span data-status={runtime.interpretation.status}>{interpretationStateLabel}</span>
+          <ClassroomIconButton ref={settingsButton} type="button" aria-label={t("classroom.v3.captionSettings")}
+            aria-expanded={settingsOpen} aria-controls={settingsId} aria-disabled={saving} onClick={toggleSettings}>
+            <Settings2 aria-hidden="true" />
+          </ClassroomIconButton>
+        </div>
+      </div>
+
+      <ClassroomIconButton type="button" className="classroom-v3-caption-settings-summary" onClick={toggleSettings} disabled={saving}
+        aria-expanded={settingsOpen} aria-controls={settingsId} aria-label={t(settingsOpen ? "classroom.v3.captionSettingsCollapse" : "classroom.v3.captionSettingsExpand")}>
+        <span>{displayLabels[displayMode]}{(displayMode === "bilingual" || displayMode === "translated") && <small>{currentLanguageLabel}</small>}</span>
+        {settingsOpen ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+      </ClassroomIconButton>
+
+      <div id={settingsId} className="classroom-v3-caption-settings-disclosure" data-open={settingsOpen} aria-hidden={!settingsOpen} inert={!settingsOpen}>
+        <div className="classroom-v3-caption-settings-clip">
+          <section className="classroom-v3-caption-settings-card" aria-label={t("classroom.v3.captionSettings")}>
         <div className="classroom-v3-caption-title">
           <h2>{t("classroom.v3.captionsTitle")}</h2>
           <div className="classroom-v3-caption-help" onMouseEnter={() => setHelpOpen(true)} onMouseLeave={() => setHelpOpen(false)}>
-            <button type="button" aria-label={t("classroom.v3.captionHelp")} aria-describedby={helpOpen ? helpId : undefined}
+            <ClassroomIconButton type="button" aria-label={t("classroom.v3.captionHelp")} aria-describedby={helpOpen ? helpId : undefined}
               onFocus={() => setHelpOpen(true)} onBlur={() => setHelpOpen(false)} onClick={() => setHelpOpen(true)}
               onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setHelpOpen(false); } }}>
               <AlertCircle aria-hidden="true" />
-            </button>
+            </ClassroomIconButton>
             {helpOpen && <div id={helpId} role="tooltip">
               <p>{t("classroom.v3.captionDemandHint")}</p>
               <p>{t("classroom.v3.captionOverlayHint")}</p>
@@ -241,24 +266,7 @@ export function CaptionsPanel({
               onClick={() => void quickToggle("interpretation")}><Headphones aria-hidden="true" /></CaptionQuickToggle>}
           </div>
         </div>
-        <div className="classroom-v3-caption-heading-actions">
-          <span data-status={runtime.interpretation.status}>{interpretationStateLabel}</span>
-          <button ref={settingsButton} type="button" aria-label={t("classroom.v3.captionSettings")}
-            aria-expanded={settingsOpen} aria-controls={settingsId} aria-disabled={saving} onClick={toggleSettings}>
-            <Settings2 aria-hidden="true" />
-          </button>
-        </div>
-      </div>
 
-      <button type="button" className="classroom-v3-caption-settings-summary" onClick={toggleSettings} disabled={saving}
-        aria-expanded={settingsOpen} aria-controls={settingsId} aria-label={t(settingsOpen ? "classroom.v3.captionSettingsCollapse" : "classroom.v3.captionSettingsExpand")}>
-        <span>{displayLabels[displayMode]}{(displayMode === "bilingual" || displayMode === "translated") && <small>{currentLanguageLabel}</small>}</span>
-        {settingsOpen ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
-      </button>
-
-      <div id={settingsId} className="classroom-v3-caption-settings-disclosure" data-open={settingsOpen} aria-hidden={!settingsOpen} inert={!settingsOpen}>
-        <div className="classroom-v3-caption-settings-clip">
-          <section className="classroom-v3-caption-settings-card" aria-label={t("classroom.v3.captionSettings")}>
             <div className="classroom-v3-caption-view-settings">
               <CaptionSelect label={t("classroom.v3.displayMode")} value={draftMode} disabled={saving}
                 options={Object.entries(displayLabels).map(([value, label]) => ({ value, label }))}
@@ -302,11 +310,11 @@ export function CaptionsPanel({
             {settingsOpen && preferenceFailure}
             {applyFailed && !preferenceError && <p className="classroom-v3-caption-preference-error" role="alert">{t("classroom.v3.interpretationSaveFailed")}</p>}
             <footer className="classroom-v3-caption-settings-footer">
-              <button type="button" disabled={saving} onClick={collapseSettings}><ChevronUp aria-hidden="true" />{t("classroom.v3.captionSettingsCollapse")}</button>
-              <button type="button" className="classroom-v3-interpretation-save" disabled={saving} aria-busy={saving} onClick={() => void applySettings()}>
+              <ClassroomIconButton type="button" disabled={saving} onClick={collapseSettings}><ChevronUp aria-hidden="true" />{t("classroom.v3.captionSettingsCollapse")}</ClassroomIconButton>
+              <ClassroomIconButton type="button" className="classroom-v3-interpretation-save" disabled={saving} aria-busy={saving} onClick={() => void applySettings()}>
                 {saving ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Settings2 aria-hidden="true" />}
                 {t(saving ? "classroom.v3.applyingInterpretation" : "classroom.v3.captionSettingsApply")}
-              </button>
+              </ClassroomIconButton>
             </footer>
           </section>
         </div>
@@ -316,17 +324,17 @@ export function CaptionsPanel({
       {!settingsOpen && preferenceFailure}
       {!settingsOpen && applyFailed && !preferenceError && <p className="classroom-v3-caption-preference-error" role="alert">{t("classroom.v3.interpretationSaveFailed")}</p>}
 
-      <div className="classroom-v3-caption-follow">
+      {settingsOpen && <div className="classroom-v3-caption-follow">
         <span>{t("classroom.v3.captionFollowLatest")}</span>
-        <button type="button" role="switch" aria-checked={followLatest}
+        <ClassroomIconButton type="button" role="switch" aria-checked={followLatest}
           aria-label={t("classroom.v3.captionFollowLatest")} onClick={() => {
             const next = !followLatest;
             setFollowLatest(next);
             try { window.localStorage.setItem("classroom_caption_follow_latest", next ? "1" : "0"); } catch { /* Storage may be unavailable in embedded browsers. */ }
-          }}><i aria-hidden="true" /></button>
-      </div>
+          }}><i aria-hidden="true" /></ClassroomIconButton>
+      </div>}
 
-      <div ref={historyRef} className="classroom-v3-caption-history" data-follow-latest={followLatest}>
+      <div ref={historyRef} onScroll={event=>{const view=event.currentTarget;followingHistory.current=view.scrollHeight-view.scrollTop-view.clientHeight<48;if(followingHistory.current)setHasUnseenCaptions(false)}} className="classroom-v3-caption-history" data-follow-latest={followLatest}>
         {!visibleCaptions.length ? (
           <div className="classroom-v3-panel-empty">
             <Headphones aria-hidden="true" />
@@ -353,9 +361,9 @@ export function CaptionsPanel({
                 <div role="status" data-translation-state={caption.translationStatus}>
                   <p>{t(`classroom.v3.captionTranslationState${caption.translationStatus[0].toUpperCase()}${caption.translationStatus.slice(1)}`)}</p>
                   {canManage && onRecoverTranslation && ["failed", "recoverable"].includes(caption.translationStatus) ?
-                    <button type="button" disabled={recovering !== null} aria-busy={recovering === caption.id} onClick={() => void recover(caption.id)}>
+                    <ClassroomIconButton type="button" disabled={recovering !== null} aria-busy={recovering === caption.id} onClick={() => void recover(caption.id)}>
                       {t(caption.translationStatus === "recoverable" ? "classroom.v3.captionTranslationRestore" : "classroom.v3.captionTranslationRetry")}
-                    </button> : null}
+                    </ClassroomIconButton> : null}
                   {recoveryFailed === caption.id ? <p role="alert">{t("classroom.v3.captionTranslationRecoveryFailed")}</p> : null}
                 </div>
               ) : null}
@@ -369,6 +377,7 @@ export function CaptionsPanel({
           );
         })}
       </div>
+      {hasUnseenCaptions && <ClassroomIconButton type="button" className="classroom-chat-latest" onClick={()=>{followingHistory.current=true;setFollowLatest(true);setHasUnseenCaptions(false);if(historyRef.current)historyRef.current.scrollTop=historyRef.current.scrollHeight}}>{t("classroomWorkspace.latest")}</ClassroomIconButton>}
       </div>
     </div>
   );

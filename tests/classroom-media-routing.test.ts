@@ -42,7 +42,7 @@ function snapshot(
       microphoneOn: false,
       cameraOn: false,
       screenSharing,
-    },
+      },
     focusedParticipantId: null,
   };
 }

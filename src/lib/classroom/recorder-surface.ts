@@ -1,11 +1,9 @@
-import { classroomRtcUid } from "./rtc-uid";
+import { participantOwnerId } from "./participant-identity";
+import { selectClassroomCameraParticipants } from "./camera-selection";
 import type { ClassroomBoardItem, ClassroomMemberSnapshot, ClassroomParticipant } from "./types";
 
 function cameraOwnerId(id: string, members: readonly ClassroomMemberSnapshot[]): string {
-  return members.find((member) =>
-    member.rtcUids?.some((uid) => String(uid) === id) ||
-    String(classroomRtcUid(member.userId, "camera")) === id,
-  )?.userId ?? id;
+  return participantOwnerId(id, members);
 }
 
 /** Cameras normally shown in the podium must be included in the recording. */
@@ -16,7 +14,7 @@ export function recorderCameraParticipants(
   screenSharing: boolean,
 ) {
   const composed = new Set(boardItems.filter((item) => item.kind === "camera" && item.visible && !screenSharing).map((item) => item.sourceId));
-  return participants.filter((participant) => {
+  return selectClassroomCameraParticipants(participants, members).filter((participant) => {
     if (participant.isLocal || participant.kind !== "camera" || !participant.hasVideo) return false;
     const ownerId = cameraOwnerId(participant.id, members);
     const member = members.find((candidate) => candidate.userId === ownerId);

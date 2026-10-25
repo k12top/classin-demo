@@ -71,6 +71,7 @@ export async function POST(
       role: resolved.access.role,
       scenario: "communication",
       publisher: space.publisher,
+      allowAuxiliaryCamera: space.membership?.cameraAllowed !== false,
       allowScreenShare: space.publisher && space.allowScreenShare,
     });
     if (space.membership) {

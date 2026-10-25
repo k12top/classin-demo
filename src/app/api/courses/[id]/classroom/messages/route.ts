@@ -1,3 +1,4 @@
+import { imageMessageContent, isChatImageId } from "@/lib/classroom/chat-image-message";
 import { classroomMessageAccess } from "@/lib/classroom/server/message-access";
 import { classroomRedisEnabled, classroomRedisCommand } from "@/lib/classroom/server/redis";
 import { canManageClassroom } from "@/lib/classroom/server/management";
@@ -45,7 +46,7 @@ function publicMessage(message: {
         : "classroom",
     spaceId: message.spaceId,
     recipientId: message.recipientId,
-    kind: message.kind === "system" ? "system" : "text",
+    kind: message.kind === "image" ? "image" : message.kind === "system" ? "system" : "text",
     content: message.deletedAt ? "" : message.content,
     deletedAt: message.deletedAt?.toISOString() ?? null,
     createdAt: message.createdAt.toISOString(),
@@ -99,15 +100,18 @@ async function postMessage(
   const { id: courseId } = await params;
   const body = (await request.json().catch(() => null)) as {
     clientMessageId?: unknown;
+    imageId?: unknown;
     content?: unknown;
     scope?: unknown;
     spaceId?: unknown;
     recipientId?: unknown;
     shareAccess?: unknown;
   } | null;
-  const content =
-    typeof body?.content === "string" ? body.content.trim() : "";
-  if (!content || content.length > 1000) {
+  const caption = typeof body?.content === "string" ? body.content.trim() : "";
+  const imageId = isChatImageId(body?.imageId) ? body.imageId : null;
+  if (body?.imageId !== undefined && !imageId) return NextResponse.json({ error: "图片标识无效" }, { status: 400 });
+  const content = imageId ? imageMessageContent(imageId, caption) : caption;
+  if ((!caption && !imageId) || caption.length > 1000) {
     return NextResponse.json(
       { error: "消息长度应为 1–1000 个字符" },
       { status: 400 },
@@ -144,7 +148,7 @@ async function postMessage(
     const existing = await prisma.classroomMessage.findUnique({ where: { id: messageId } });
     if (!existing) return null;
     if (existing.sessionId !== sessionId || existing.senderId !== resolved.session.userId ||
-      existing.content !== content || existing.scope !== scope ||
+      existing.content !== content || existing.kind !== (imageId ? "image" : "text") || existing.scope !== scope ||
       existing.spaceId !== (scope === "room" ? spaceId : null) ||
       existing.recipientId !== (scope === "direct" ? recipientId : null)) {
       return NextResponse.json({ error: "请使用新的标识发送不同消息", code: "message_id_conflict" }, { status: 409 });
@@ -214,6 +218,7 @@ async function postMessage(
     }
   }
 
+  if (imageId && !await prisma.classroomChatImage.findFirst({ where: { id: imageId, sessionId, uploaderId: resolved.session.userId }, select: { id: true } })) return NextResponse.json({ error: "图片不存在或不属于当前用户" }, { status: 403 });
   let message;
   try {
     message = await prisma.classroomMessage.create({
@@ -231,6 +236,7 @@ async function postMessage(
         scope,
         spaceId: scope === "room" ? spaceId : null,
         recipientId: scope === "direct" ? recipientId : null,
+        kind: imageId ? "image" : "text",
         content,
       },
     });
@@ -274,11 +280,13 @@ export async function DELETE(
   const { id: courseId } = await params;
   const body = (await request.json().catch(() => null)) as {
     messageId?: unknown;
+    senderId?: unknown;
     shareAccess?: unknown;
   } | null;
   const messageId =
     typeof body?.messageId === "string" ? body.messageId : "";
-  if (!messageId) {
+  const senderId = typeof body?.senderId === "string" && body.senderId.length <= 200 ? body.senderId : "";
+  if ((!messageId && !senderId) || (messageId && senderId)) {
     return NextResponse.json({ error: "缺少消息 ID" }, { status: 400 });
   }
   const resolved = await access(
@@ -305,19 +313,14 @@ export async function DELETE(
     resolved.access.courseId,
     sessionId,
   );
-  const result = await prisma.classroomMessage.updateMany({
-    where: { id: messageId, sessionId, deletedAt: null },
-    data: {
-      deletedAt: new Date(),
-      deletedBy: resolved.session.userId,
-    },
+  const result = await prisma.$transaction(async tx => {
+    const withdrawn = await tx.classroomMessage.updateMany({
+      where: { ...(messageId ? { id: messageId } : { senderId }), sessionId, deletedAt: null },
+      data: { deletedAt: new Date(), deletedBy: resolved.session.userId },
+    });
+    const updated = await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { revision: { increment: 1 } } });
+    return { count: withdrawn.count, revision: updated.revision };
   });
-  if (result.count === 0) {
-    return NextResponse.json({ error: "消息不存在或已撤回" }, { status: 404 });
-  }
-  const updated = await prisma.classroomRuntime.update({
-    where: { id: runtime.id },
-    data: { revision: { increment: 1 } },
-  });
-  return NextResponse.json({ ok: true, revision: updated.revision });
+  if (!senderId && result.count === 0) return NextResponse.json({ error: "消息不存在或已撤回" }, { status: 404 });
+  return NextResponse.json({ ok: true, ...result });
 }

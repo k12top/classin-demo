@@ -13,6 +13,7 @@ export type IssueClassroomCredentialInput = {
   scenario?: "communication" | "liveBroadcasting";
   publisher?: boolean;
   allowScreenShare?: boolean;
+  allowAuxiliaryCamera?: boolean;
 };
 
 export interface ClassroomServerProvider {

@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Loader2, MessageCircle, Minimize2, Send, Square, RotateCcw, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, GripVertical, Loader2, MessageCircle, Minimize2, Send, Square, RotateCcw, Trash2 } from "lucide-react";
 import { ClassroomMemberAvatar } from "@/components/classroom/member-avatar";
 import { useTranslation } from "@/lib/i18n/context";
 import { ASSISTANT_HISTORY_LIMIT, ASSISTANT_QUESTION_LIMIT, type ClassroomAssistantMessage } from "@/lib/classroom/assistant";
+import { useAssistantPosition } from "./use-assistant-position";
 import styles from "./teacher-assistant.module.css";
 
-export function TeacherAssistant({ sessionId, teacher, shareAccess }: {
-  sessionId: string; teacher: { name: string; avatar: string }; shareAccess: string;
+export function TeacherAssistant({ sessionId, teacher, shareAccess, minimal = false }: {
+  sessionId: string; teacher: { name: string; avatar: string }; shareAccess: string; minimal?: boolean;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -20,7 +21,7 @@ export function TeacherAssistant({ sessionId, teacher, shareAccess }: {
   const [error, setError] = useState("");
   const activeRequest = useRef<AbortController | null>(null);
   const panelOpen = useRef(false);
-  const widget = useRef<HTMLElement>(null);
+  const { bounds: boundsRef, widget, style: positionStyle, dragging, startDrag, captureClick, capturePointerDown, moveWithKeys } = useAssistantPosition(open, minimized);
   const input = useRef<HTMLTextAreaElement>(null);
   const launcher = useRef<HTMLButtonElement>(null);
   const conversation = useRef<HTMLDivElement>(null);
@@ -36,6 +37,13 @@ export function TeacherAssistant({ sessionId, teacher, shareAccess }: {
     observer.observe(element);
     return () => observer.disconnect();
   }, [open]);
+
+  useEffect(() => {
+    if (!minimal) return;
+    const show = () => { panelOpen.current = true; setOpen(true); setMinimized(false); requestAnimationFrame(() => input.current?.focus()); };
+    window.addEventListener("classroom-open-assistant", show);
+    return () => window.removeEventListener("classroom-open-assistant", show);
+  }, [minimal]);
 
   const focusComposer = () => requestAnimationFrame(() => {
     if (panelOpen.current && (document.activeElement === document.body || widget.current?.contains(document.activeElement))) input.current?.focus();
@@ -78,11 +86,16 @@ export function TeacherAssistant({ sessionId, teacher, shareAccess }: {
   const preview = messages.at(-1)?.content || label("prompt");
 
   return (
-    <section ref={widget} className={`${styles.widget} ${minimized ? styles.minimized : ""}`} aria-label={label("title")}>
+    <div ref={boundsRef} className={styles.bounds} data-minimal-assistant={minimal || undefined} hidden={minimal && !open}>
+    <section ref={widget} className={`${styles.widget} ${minimized ? styles.minimized : ""}`} aria-label={label("title")}
+      style={positionStyle} data-dragging={dragging || undefined}
+      onClickCapture={captureClick} onPointerDownCapture={capturePointerDown}>
       {open && (
         <section id={panelId} className={styles.panel} aria-labelledby={`${panelId}-heading`}
           onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); collapse(); } }}>
-          <header className={styles.panelHeader}>
+          <header className={styles.panelHeader} onPointerDown={startDrag} title={label("move")}>
+            <button type="button" className={styles.dragHandle} data-assistant-move
+              onKeyDown={moveWithKeys} title={label("move")} aria-label={label("move")}><GripVertical /></button>
             <div><h2 id={`${panelId}-heading`}>{label("title")} · {teacher.name}</h2><span>{label("private")}</span></div>
             <button type="button" onClick={() => { setMessages([]); setQuestion(""); setError(""); }} disabled={busy || (!messages.length && !question)} title={label("clear")} aria-label={label("clear")}><Trash2 /></button>
             <button type="button" onClick={collapse} title={label("collapse")} aria-label={label("collapse")}><ChevronDown /></button>
@@ -114,8 +127,9 @@ export function TeacherAssistant({ sessionId, teacher, shareAccess }: {
           <p className={styles.disclaimer}>{label("disclaimer")}</p>
         </section>
       )}
-      <div className={styles.dock}>
-        <button ref={launcher} type="button" className={styles.identity} onClick={open ? collapse : expand} aria-expanded={open} aria-controls={panelId} aria-label={`${teacher.name} · ${label("title")}`}>
+      <div className={styles.dock} onPointerDown={startDrag}>
+        <button ref={launcher} type="button" className={styles.identity} onClick={open ? collapse : expand} aria-expanded={open} aria-controls={panelId} aria-label={`${teacher.name} · ${label("title")}`}
+          data-assistant-move onKeyDown={moveWithKeys} title={label("move")}>
           <ClassroomMemberAvatar avatar={teacher.avatar} name={teacher.name} />
           {!minimized && <div><span className={styles.name}>{teacher.name}<span className={styles.badge}>AI</span></span><span className={styles.preview}>{preview}</span></div>}
         </button>
@@ -126,5 +140,6 @@ export function TeacherAssistant({ sessionId, teacher, shareAccess }: {
         {minimized && <MessageCircle className={styles.miniBadge} aria-hidden="true" />}
       </div>
     </section>
+    </div>
   );
 }

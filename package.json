@@ -16,7 +16,8 @@
     "db:migrate:dev": "prisma migrate dev",
     "db:push": "prisma migrate deploy",
     "db:push:unsafe": "prisma db push",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "test:activities": "node scripts/verify-classroom-activities.cjs"
   },
   "dependencies": {
     "@netless/fastboard": "^1.1.8",
@@ -53,6 +54,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "redis": "^6.3.0",
+    "sharp": "0.34.5",
     "tailwind-merge": "^3.6.0",
     "tailwindcss-animate": "^1.0.7",
     "white-web-sdk": "^2.16.56"

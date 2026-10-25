@@ -1,7 +1,7 @@
 // Agora STT and Cloud Recording identify channel members with numeric UIDs.
 // Keep each publisher type in a separate range so screens and bots can be
 // recognized without changing the application's UUID-based member identity.
-export type ClassroomRtcUidKind = "camera" | "screen" | "stt-subscriber" | "stt-publisher" | "recorder";
+export type ClassroomRtcUidKind = "camera" | "screen" | "auxiliary-camera" | "stt-subscriber" | "stt-publisher" | "recorder";
 
 const ranges: Record<ClassroomRtcUidKind, readonly [number, number]> = {
   camera: [1, 1_000_000_000],
@@ -9,6 +9,7 @@ const ranges: Record<ClassroomRtcUidKind, readonly [number, number]> = {
   "stt-subscriber": [2_000_000_001, 2_500_000_000],
   "stt-publisher": [2_500_000_001, 3_000_000_000],
   recorder: [3_000_000_001, 4_000_000_000],
+  "auxiliary-camera": [4_000_000_001, 4_294_967_295],
 };
 
 export function classroomRtcUid(identity: string, kind: ClassroomRtcUidKind): number {
@@ -24,4 +25,19 @@ export function classroomRtcUid(identity: string, kind: ClassroomRtcUidKind): nu
 export function isClassroomScreenRtcUid(id: string): boolean {
   const uid = Number(id);
   return Number.isInteger(uid) && uid >= ranges.screen[0] && uid <= ranges.screen[1];
+}
+
+// Derive from the connection UID so multiple devices belonging to the same
+// member remain distinguishable, without storing uint32 values in a DB Int.
+export function classroomAuxiliaryRtcUid(cameraUid: number): number {
+  if (!Number.isInteger(cameraUid) || cameraUid < ranges.camera[0] || cameraUid > ranges.camera[1]) {
+    throw new Error("Invalid classroom camera UID");
+  }
+  return classroomRtcUid(String(cameraUid), "auxiliary-camera");
+}
+
+export function isClassroomAuxiliaryRtcUid(id: string): boolean {
+  const uid = Number(id);
+  const [first, last] = ranges["auxiliary-camera"];
+  return Number.isInteger(uid) && uid >= first && uid <= last;
 }

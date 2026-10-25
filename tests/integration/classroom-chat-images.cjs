@@ -1,0 +1,37 @@
+const assert=require('node:assert/strict'),sharp=require('sharp');
+const {openChatHarness}=require('./chat-route-harness.cjs');
+async function main(){const h=await openChatHarness(),{db,base,messagesPath,request}=h;const checks=[];
+ try{
+ const bytes=await sharp({create:{width:100,height:60,channels:3,background:'#4f46e5'}}).png().toBuffer();
+ const form=(id,data=bytes)=>{const f=new FormData();f.set('image',new File([data],'image.png',{type:'image/png'}));f.set('uploadId',id);return f};
+ const uploadId=crypto.randomUUID();let response=await request('student','POST',base+'/images',form(uploadId));assert.equal(response.status,201,await response.clone().text());const image=(await response.json()).image;
+ assert.equal((await request('student','POST',base+'/images',form(uploadId))).status,201);assert.equal(await db.classroomChatImage.count({where:{sessionId:h.lesson.id}}),1);
+ assert.equal((await request('student2','POST',base+'/images',form(uploadId))).status,409);
+ assert.equal((await request('student','POST',base+'/images',form(crypto.randomUUID(),Buffer.from('<svg/>')))).status,400);
+ assert.equal((await request('student2','POST',messagesPath,{imageId:image.id,content:'stolen'})).status,403);
+ const key=crypto.randomUUID(),send={imageId:image.id,content:'观察指针',clientMessageId:key};response=await request('student','POST',messagesPath,send);assert.equal(response.status,201,await response.clone().text());const message=(await response.json()).message;
+ assert.equal(message.kind,'image');assert.equal((await request('student','POST',messagesPath,send)).status,200);assert.equal(await db.classroomMessage.count({where:{sessionId:h.lesson.id}}),1);
+ const imagePath=base+`/messages/${message.id}/image`;response=await request('student2','GET',imagePath);assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'image/webp');assert.equal(response.headers.get('cache-control'),'private, no-store');assert.equal((await sharp(Buffer.from(await response.arrayBuffer())).metadata()).width,100);
+ assert.equal((await request('outsider','GET',imagePath)).status,401);
+ checks.push('real multipart/Sharp/private storage receipt → owned message → authenticated private image; retry and ownership enforced');
+ const staffUpload=crypto.randomUUID();assert.equal((await request('teacher','POST',base+'/images',form(staffUpload))).status,201);response=await request('teacher','POST',messagesPath,{imageId:staffUpload,content:'staff only',scope:'staff'});const staff=(await response.json()).message;
+ assert.equal((await request('student','GET',base+`/messages/${staff.id}/image`)).status,404);assert.equal((await request('assistant','GET',base+`/messages/${staff.id}/image`)).status,200);
+ assert.equal((await request('student','DELETE',messagesPath,{senderId:'student'})).status,403);
+ response=await request('assistant','DELETE',messagesPath,{senderId:'student'});assert.equal(response.status,200,await response.clone().text());assert.equal((await request('student','GET',imagePath)).status,404);assert.ok((await db.classroomMessage.findUnique({where:{id:message.id}})).deletedAt);
+ const listed=await (await request('student2','GET',messagesPath)).json();assert.equal(listed.messages.find(m=>m.id===message.id).content,'');assert.ok(!listed.messages.some(m=>m.id===staff.id));
+ checks.push('staff audience protected; assistant globally withdraws sender messages; image bytes immediately inaccessible to subsequent requests');
+ await db.classroomMemberState.update({where:{sessionId_userId:{sessionId:h.lesson.id,userId:'student'}},data:{chatMuted:true}});
+ assert.equal((await request('student','POST',base+'/images',form(crypto.randomUUID()))).status,403);
+ assert.equal((await request('student','POST',messagesPath,{content:'muted'})).status,403);
+ checks.push('server membership mute rejects image and text writes');
+ const before=await db.classroomActivity.count({where:{sessionId:h.lesson.id}});
+ assert.equal((await request('student','POST',base+'/activities/draft',{seed:'Create a poll',kind:'poll',type:'boolean',mode:'generate'})).status,403);
+ process.env.AI_ASSISTANT_ENABLED='false';assert.equal((await request('teacher','POST',base+'/activities/draft',{seed:'Create a poll',kind:'poll',type:'boolean',mode:'generate'})).status,503);
+ assert.equal(await db.classroomActivity.count({where:{sessionId:h.lesson.id}}),before);
+ checks.push('AI drafting author-only, safe unavailable response, never auto-publishes');
+ await db.classroomRuntime.update({where:{id:h.runtime.id},data:{status:'ended'}});
+ assert.equal((await request('teacher','POST',base+'/images',form(crypto.randomUUID()))).status,409);
+ checks.push('ended lesson rejects new image uploads');
+ console.log(JSON.stringify({passed:true,evidence:'real Next routes + isolated PostgreSQL + Sharp; auth actor and object storage fixtures',checks}));
+ }finally{await h.close()}}
+main().then(()=>process.exit(0),e=>{console.error(e);process.exit(1)});

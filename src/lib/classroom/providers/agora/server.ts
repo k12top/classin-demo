@@ -3,7 +3,7 @@ import "server-only";
 import { RtcRole, RtcTokenBuilder } from "agora-token";
 import { classroomRuntimeDefaults } from "@/lib/classroom/config";
 import { buildScreenShareUserId } from "@/lib/classroom/screen-share";
-import { classroomRtcUid } from "@/lib/classroom/rtc-uid";
+import { classroomRtcUid, classroomAuxiliaryRtcUid } from "@/lib/classroom/rtc-uid";
 import {
   ClassroomProviderConfigurationError,
   ClassroomProviderRequestError,
@@ -130,6 +130,15 @@ export class AgoraClassroomServerProvider implements ClassroomServerProvider {
           true,
           expiresInSeconds,
         ),
+      };
+    }
+
+    if (publisher && input.allowAuxiliaryCamera !== false) {
+      const rtcUid = classroomAuxiliaryRtcUid(credential.rtcUid);
+      credential.auxiliaryCamera = {
+        userId: `${input.userId}::auxiliary-camera`,
+        rtcUid,
+        token: buildRtcToken(input.channelName, rtcUid, true, expiresInSeconds),
       };
     }
 

@@ -4,6 +4,7 @@ import { withClassroomRequestSignal } from "./request-signal";
 export type ClassroomMessageRequest = {
   clientMessageId: string;
   content: string;
+  imageId?: string;
   scope: "classroom" | "room" | "staff" | "direct";
   spaceId?: string | null;
   recipientId?: string | null;

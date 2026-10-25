@@ -6,7 +6,7 @@ export function useChatTranslations(sessionId: string, messages: ClassroomMessag
   const [values, setValues] = useState<Record<string, Translation>>({});
   const [unavailable, setUnavailable] = useState(false);
   const [retry, setRetry] = useState(0);
-  const key = messages.filter(message => !message.deletedAt && !message.id.startsWith("optimistic:")).map(message => message.id).join("|");
+  const key = messages.filter(message => message.kind === "text" && !message.deletedAt && !message.id.startsWith("optimistic:")).map(message => message.id).join("|");
   useEffect(() => {
     if (!enabled || unavailable || !sessionId || !key) return;
     const ids = key.split("|").filter(id => !values[`${language}:${id}`]).slice(-20);

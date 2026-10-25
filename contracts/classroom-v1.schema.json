@@ -47,6 +47,16 @@
             "token": { "type": "string" }
           },
           "additionalProperties": false
+        },
+        "auxiliaryCamera": {
+          "type": "object",
+          "required": ["userId", "rtcUid", "token"],
+          "properties": {
+            "userId": { "type": "string" },
+            "rtcUid": { "type": "integer", "minimum": 4000000001, "maximum": 4294967295 },
+            "token": { "type": "string" }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -81,6 +91,8 @@
         "graceEndsAt": { "type": ["string", "null"], "format": "date-time" },
         "stageMode": { "enum": ["auto", "screen", "whiteboard", "spotlight"] },
         "stageLocked": { "type": "boolean" },
+        "stageStudentLimit": { "type": ["integer", "null"], "minimum": 1, "maximum": 100 },
+        "stageInviteBypassLimit": { "type": "boolean" },
         "spotlightUserId": { "type": ["string", "null"] },
         "activeCoursewareId": { "type": ["string", "null"] },
         "chatEnabled": { "type": "boolean" },
@@ -99,6 +111,7 @@
         "role": { "$ref": "#/$defs/role" },
         "rtcUids": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 1000000000 } },
         "screenUids": { "type": "array", "items": { "type": "integer", "minimum": 1000000001, "maximum": 2000000000 } },
+        "auxiliaryCameraUids": { "type": "array", "items": { "type": "integer", "minimum": 4000000001, "maximum": 4294967295 } },
         "signalingUserIds": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 64 } },
         "online": { "type": "boolean" },
         "connectionStatus": { "enum": ["online", "reconnecting", "offline"] },
@@ -144,7 +157,7 @@
       "required": ["type"],
       "properties": {
         "type": {
-          "enum": ["heartbeat", "startClass", "raiseHand", "lowerHand", "inviteStage", "acceptStage", "declineStage", "removeStage", "requestScreenShare", "acceptScreenShare", "declineScreenShare", "stopScreenShare", "setMemberMuted", "setMediaAllowed", "muteAll", "setWhiteboardWritable", "setSpotlight", "setStage", "setChatEnabled", "setInterpretation", "startTimer", "pauseTimer", "resumeTimer", "resetTimer", "giveReward", "startBuzz", "submitBuzz", "closeBuzz", "startRandomSelector", "resetRandomSelector"]
+          "enum": ["heartbeat", "setStageSettings", "startClass", "raiseHand", "lowerHand", "inviteStage", "acceptStage", "declineStage", "removeStage", "requestScreenShare", "acceptScreenShare", "declineScreenShare", "stopScreenShare", "setMemberMuted", "setMediaAllowed", "muteAll", "setWhiteboardWritable", "setSpotlight", "setStage", "setChatEnabled", "setInterpretation", "startTimer", "pauseTimer", "resumeTimer", "resetTimer", "giveReward", "startBuzz", "submitBuzz", "closeBuzz", "startRandomSelector", "resetRandomSelector"]
         }
       },
       "additionalProperties": true

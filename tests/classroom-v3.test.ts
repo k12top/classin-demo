@@ -253,6 +253,6 @@ assert.equal(classroomVideoPresets.fullHd.camera.high.width, 1920);
 assert.equal(classroomVideoPresets.fullHd.camera.high.bitrateKbps, 2500);
 
 assert.deepEqual(classroomMediaProfile.camera, classroomVideoPresets.hd.camera);
-assert.deepEqual(classroomMediaProfile.screen, classroomVideoPresets.hd.screen);
+assert.deepEqual(classroomMediaProfile.screen, classroomVideoPresets.economy.screen);
 assert.equal(classroomMediaProfile.recording.width, 1280);
 assert.equal(classroomMediaProfile.recording.height, 720);

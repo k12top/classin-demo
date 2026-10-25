@@ -4,12 +4,14 @@ import type {
   ClassroomBoardRect,
   ClassroomCompositionSnapshot,
 } from "@/lib/classroom/types";
+import { isClassroomAuxiliaryRtcUid } from "./rtc-uid";
 
 export const CLASSROOM_COMPOSITION_VERSION = 1;
 export const MAX_CLASSROOM_BOARD_ITEMS = 24;
 
 const DEFAULT_RECTS: Record<ClassroomBoardItemKind, ClassroomBoardRect> = {
   camera: { x: 0.68, y: 0.05, width: 0.27, height: 0.23 },
+  "auxiliary-camera": { x: 0.32, y: 0.08, width: 0.5, height: 0.55 },
   screen: { x: 0.08, y: 0.08, width: 0.78, height: 0.76 },
   courseware: { x: 0.08, y: 0.08, width: 0.78, height: 0.76 },
 };
@@ -110,7 +112,7 @@ function boardItem(value: unknown, index: number): ClassroomBoardItem | null {
   const source = value as Partial<ClassroomBoardItem>;
   const id = text(source.id);
   const sourceId = text(source.sourceId);
-  const kind = source.kind === "camera" || source.kind === "screen" || source.kind === "courseware"
+  const kind = source.kind === "camera" || source.kind === "auxiliary-camera" || source.kind === "screen" || source.kind === "courseware"
     ? source.kind
     : null;
   if (!id || !sourceId || !kind) return null;
@@ -118,6 +120,7 @@ function boardItem(value: unknown, index: number): ClassroomBoardItem | null {
     id,
     kind,
     sourceId,
+    ...(kind === "auxiliary-camera" && typeof source.rtcUid === "number" && isClassroomAuxiliaryRtcUid(String(source.rtcUid)) && { rtcUid: source.rtcUid }),
     rect: normalizeBoardRect(source.rect, kind),
     zIndex: Math.max(1, Math.round(finite(source.zIndex, index + 1))),
     locked: source.locked === true,

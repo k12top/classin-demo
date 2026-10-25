@@ -77,6 +77,9 @@ export const classroomVideoPresets = {
 export const classroomMediaProfile: ClassroomMediaProfile = {
   // Fixed product defaults; participants cannot raise the receive cost in settings.
   ...classroomVideoPresets.hd,
+  // A 1080p share alone exhausts the FHD receive budget. Reserve room for
+  // podium cameras (and a second share) instead of crossing into the 2K tier.
+  screen: { ...classroomVideoPresets.economy.screen },
   recording: {
     width: 1280,
     height: 720,

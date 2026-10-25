@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
         classroomRuntime: { select: { status: true, assistantPermissions: true } },
         classroomMembers: {
           where: { userId: user?.userId ?? "" },
-          select: { onStage: true, stageState: true, screenShareState: true }, take: 1,
+          select: { onStage: true, stageState: true, cameraAllowed: true, screenShareState: true }, take: 1,
         },
       },
     }));
@@ -60,7 +60,8 @@ export async function POST(request: NextRequest) {
       clientId: normalizeClassroomClientId(body?.clientId), channelName: lesson.roomUuid,
       userId, role, scenario: mode.rtcScenario,
       publisher: !recorder && (role === "teacher" ||
-        (role === "assistant" && mode.mode !== "largeClass") || Boolean(acceptedStudent)),
+        role === "assistant" || Boolean(acceptedStudent)),
+      allowAuxiliaryCamera: !recorder && member?.cameraAllowed !== false,
       allowScreenShare: !recorder && canShareClassroomScreen({ role, member,
         studentSharingSupported: mode.studentCanShareWhenOnStage,
         assistantManagementAllowed: true }),

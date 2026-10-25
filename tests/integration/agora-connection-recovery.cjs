@@ -26,8 +26,10 @@ function fixture(touch = false) {
     tracks.push(track);
     return track;
   }
+  const composites = [];
   const sdk = {
     registerExtensions: () => undefined, checkSystemRequirements: () => true,
+    createCustomVideoTrack: (config) => { const track = makeTrack("composite-output"); track.mediaTrack = config.mediaStreamTrack; return track; },
     createCameraVideoTrack: async (config) => { const track = makeTrack(config.cameraId || "main"); track.encoder = config.encoderConfig; return track; },
     createMicrophoneAudioTrack: async () => makeTrack("microphone"),
     createScreenVideoTrack: async () => makeTrack("screen"),
@@ -49,7 +51,7 @@ function fixture(touch = false) {
     },
   };
   const filename = path.resolve(__dirname, "../../src/lib/classroom/providers/agora/client.ts");
-  const source = ts.transpileModule(fs.readFileSync(filename, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
+  const source = ts.transpileModule(fs.readFileSync(process.env.CLASSROOM_RTC_FIXTURE_SOURCE || filename, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
   const exports = {};
   const recovery = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/agora-credential-recovery.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: recovery, DOMException });
@@ -58,7 +60,17 @@ function fixture(touch = false) {
     require(name) {
       if (name === "agora-rtc-sdk-ng") return sdk;
       if (name === "agora-extension-virtual-background") return class {};
-      if (name.endsWith("/config")) return { classroomMediaProfile: { screen: { ...profile, width: 1920, height: 1080 }, camera: { high: profile, low: { width: 160, height: 120, frameRate: 15, bitrateKbps: 65 } } } };
+      if (name.endsWith("/share-portrait")) return {
+        supportsSharePortrait: () => true,
+        screenShareProfile: mode => ({ width: mode === "portrait" ? 1920 : 1280, height: mode === "portrait" ? 1080 : 720, frameRate: 15, bitrateMin: 800, bitrateMax: 2600 }),
+        createSharePortrait: async (_screen, camera, options) => { const source = makeTrack("composite-source"); const result = { track: source.mediaTrack, camera, options, disposed: false, setOptions(next) { this.options = next; }, dispose() { this.disposed = true; source.close(); } }; composites.push(result); return result; },
+      };
+      if (name.endsWith("/config")) return { classroomMediaProfile: { screen: { ...profile, width: 1280, height: 720 }, camera: { high: profile, low: { width: 160, height: 120, frameRate: 15, bitrateKbps: 65 } } } };
+      if (name.endsWith("/screen-video-plan")) {
+        const plan = {};
+        vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/screen-video-plan.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: plan, require: () => ({ classroomMediaProfile: { screen: {width:1280,height:720}, camera: {low:{width:160,height:120}} } }) });
+        return plan;
+      }
       if (name.endsWith("/screen-share")) return { isScreenShareUserId: () => false };
       if (name.endsWith("/rtc-uid")) return { isClassroomScreenRtcUid: (id) => Number(id) > 1e9 && Number(id) <= 2e9, isClassroomAuxiliaryRtcUid: (id) => Number(id) > 2e9 };
       if (name.endsWith("/stt-caption")) return { decodeClassroomSttCaption: () => null };
@@ -67,7 +79,7 @@ function fixture(touch = false) {
       throw new Error("Unexpected import: " + name);
     },
   }, { filename });
-  return { provider: new exports.AgoraRtcMediaProvider(), clients, tracks, sdk, makeTrack, subscriptions, streamTypes, observers };
+  return { provider: new exports.AgoraRtcMediaProvider(), clients, tracks, sdk, makeTrack, subscriptions, streamTypes, observers, composites };
 }
 const credential = { appId: "test", channelName: "lesson", rtcUid: 1, userId: "teacher", role: "teacher", scenario: "communication", token: "main",
  screenShare: { rtcUid: 1_000_000_001, token: "screen", userId: "teacher::screen" } };
@@ -159,7 +171,7 @@ test("lesson-start recovery restores missing audio subscriptions without changin
   assert.equal(provider.getSnapshot().local.microphoneOn, true);
   assert.equal(clients[0].left, undefined);
   await provider.recoverMedia();
-  assert.equal(subscriptions.length, 1, "an existing subscription should only replay");
+  assert.equal(subscriptions.length, 2, "a retained track is resubscribed after suspension");
   assert.equal(plays, 2);
   clients[0].emit("connection-state-change", "CONNECTED", "RECONNECTING");
   await tick();
@@ -502,7 +514,7 @@ test("only surfaces within the native thumbnail resolution keep the low stream",
   await provider.disconnect();
 });
 
-test("1080p sharing pauses other video, preserves audio, and restores cameras after sharing ends", async () => {
+test("720p sharing retains teacher thumbnails and audio, then restores the large camera", async () => {
   const { provider, clients, subscriptions, streamTypes } = fixture();
   await provider.connect(credential, "教师");
   const camera = { uid: 2, hasVideo: true, hasAudio: true, audioTrack: { play() {} } };
@@ -512,10 +524,13 @@ test("1080p sharing pauses other video, preserves audio, and restores cameras af
   clients[0].emit("user-published", camera, "audio"); await tick();
   provider.attachVideo(String(screen.uid), videoSurface(1920, 1080));
   clients[0].emit("user-published", screen, "video"); await tick();
-  assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, true);
-  assert.deepEqual(clients[0].unsubscriptions, [[2, "video"]]);
+  assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, true, "unknown share reserves FHD before measuring");
+  clients[0].getRemoteVideoStats=()=>({[screen.uid]:{receiveResolutionWidth:1280,receiveResolutionHeight:720}});clients[0].getRTCStats=()=>({RTT:20});clients[0].getLocalAudioStats=()=>({currentPacketLossRate:0});clients[0].getLocalVideoStats=()=>({currentPacketLossRate:0});
+  clients[0].emit("network-quality",{uplinkNetworkQuality:1,downlinkNetworkQuality:1});await tick();
+  assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, false);
+  assert.ok(streamTypes.some(([uid, type]) => uid === 2 && type === 1));
   assert.ok(subscriptions.some(([uid, kind]) => uid === 2 && kind === "audio"));
-  assert.deepEqual(streamTypes.at(-1), [screen.uid, 0]);
+  assert.ok(streamTypes.some(([uid,type])=>uid===screen.uid&&type===0));
   screen.hasVideo = false; clients[0].emit("user-unpublished", screen, "video"); await tick();
   assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, false);
   assert.equal(subscriptions.filter(([uid, kind]) => uid === 2 && kind === "video").length, 2);
@@ -573,4 +588,154 @@ test("a failed video subscription does not prevent other visible cameras from re
   assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, true);
   assert.equal(provider.getSnapshot().participants.find(p => p.id === "3").videoSubscriptionPaused, false);
   await provider.disconnect();
+});
+
+
+test("resume replaces retained remote subscriptions and removes peers lost while suspended", async () => {
+  const { provider, clients, subscriptions } = fixture();
+  await provider.connect(credential, "Teacher");
+  const oldPeer = {uid:2,hasVideo:true,hasAudio:true,audioTrack:{play(){}}};
+  const departed = {uid:3,hasVideo:true,hasAudio:false};
+  provider.attachVideo("2", videoSurface(160, 120));
+  clients[0].emit("user-published", oldPeer, "video");
+  clients[0].emit("user-published", departed, "video");
+  await tick();
+  const videosBefore = subscriptions.filter(([uid,kind]) => uid===2 && kind==="video").length;
+  // The SDK retains objects, but the underlying transport has been replaced.
+  clients[0].remoteUsers = [oldPeer];
+  await provider.recoverMedia();
+  assert.equal(subscriptions.filter(([uid,kind]) => uid===2 && kind==="video").length, videosBefore+1);
+  assert.ok(subscriptions.some(([uid,kind]) => uid===2 && kind==="audio"));
+  assert.equal(provider.getSnapshot().participants.some(p=>p.id==="3"),false);
+  await provider.disconnect();
+});
+
+test("a late audio subscription cannot resurrect a departed or replaced UID", async () => {
+  const { provider, clients } = fixture();
+  await provider.connect(credential, "Teacher");
+  let complete;
+  clients[0].subscribe = () => new Promise(resolve=>{complete=resolve});
+  let plays=0;
+  const departed={uid:2,hasAudio:true,audioTrack:{play(){plays++}}};
+  clients[0].emit("user-published",departed,"audio");
+  clients[0].emit("user-left",departed);
+  complete();await tick();
+  assert.equal(plays,0);
+  assert.equal(provider.getSnapshot().participants.some(p=>p.id==="2"),false);
+  const replacement={uid:2,hasAudio:false};
+  clients[0].emit("user-joined",replacement);
+  clients[0].emit("user-left",departed);
+  assert.equal(provider.getSnapshot().participants.some(p=>p.id==="2"),true);
+  await provider.disconnect();
+});
+
+test("late cleanup of a reused video node cannot detach its new owner", async () => {
+  const { provider } = fixture();
+  const surface=videoSurface(160,120);let clears=0;surface.replaceChildren=()=>clears++;
+  provider.attachVideo("old",surface);
+  provider.attachVideo("new",surface);
+  const before=clears;
+  provider.detachVideo("old",surface);
+  assert.equal(clears,before);
+  provider.detachVideo("new",surface);
+  assert.equal(clears,before+1);
+});
+
+
+test("a browser falling back to large camera streams reduces subscriptions using measured pixels", async () => {
+  const {provider,clients}=fixture();await provider.connect(credential,"Teacher");
+  const client=clients[0];
+  for(const uid of [2,3,4,1_500_000_000]) {
+    const user={uid,hasVideo:true};
+    provider.attachVideo(String(uid),videoSurface(160,90));
+    client.emit("user-published",user,"video");
+  }
+  await tick();
+  const stats=Object.fromEntries([2,3,4].map(uid=>[uid,{receiveResolutionWidth:1280,receiveResolutionHeight:720}]));
+  stats[1_500_000_000]={receiveResolutionWidth:1280,receiveResolutionHeight:720};
+  client.getRemoteVideoStats=()=>stats;client.getRTCStats=()=>({RTT:20});client.getLocalAudioStats=()=>({currentPacketLossRate:0});client.getLocalVideoStats=()=>({currentPacketLossRate:0});
+  client.emit("network-quality",{uplinkNetworkQuality:1,downlinkNetworkQuality:1});await tick();
+  client.emit("network-quality",{uplinkNetworkQuality:1,downlinkNetworkQuality:1});await tick();
+  const active=provider.getSnapshot().participants.filter(p=>p.hasVideo&&!p.videoSubscriptionPaused);
+  assert.equal(active.some(p=>p.id==="1500000000"),true);
+  assert.equal(active.filter(p=>p.kind==="camera"&&!p.isLocal).length,1);
+  await provider.disconnect();
+});
+
+
+test("portrait shares publish one FHD composite and restore the teacher camera on stop", async () => {
+  const {provider,clients,tracks,composites}=fixture();
+  await provider.connect(credential,"Teacher"); await provider.toggleCamera();
+  const camera=tracks.find(t=>t.deviceId==="main");
+  await provider.startScreenShare(undefined,{mode:"portrait",corner:"br"});
+  assert.equal(clients[0].unpublished,camera);
+  assert.equal(clients[1].published.deviceId,"composite-output");
+  assert.equal(clients[1].published.encoder.width,1920);
+  assert.equal(provider.getSnapshot().local.cameraOn,true);
+  assert.equal(provider.getActualDeviceState().camera,"on");
+  assert.equal(composites[0].camera(),camera.mediaTrack);
+  await provider.stopScreenShare();
+  assert.equal(composites[0].disposed,true);
+  assert.equal(clients[0].published,camera);
+  assert.equal(provider.getSnapshot().local.screenSharing,false);
+});
+
+test("camera opened during a portrait share stays inside the composite; camera-off survives stop", async () => {
+  const {provider,clients,composites}=fixture();await provider.connect(credential,"Teacher");
+  await provider.startScreenShare(undefined,{mode:"portrait"});
+  await provider.toggleCamera();assert.equal(clients[0].published,undefined);assert.ok(composites[0].camera());
+  await provider.toggleCamera();assert.equal(composites[0].camera(),null);
+  await provider.stopScreenShare();assert.equal(clients[0].published,undefined);assert.equal(provider.getSnapshot().local.cameraOn,false);
+  await provider.toggleCamera();assert.ok(clients[0].published);assert.equal(provider.getSnapshot().local.cameraOn,true);
+});
+
+test("live layout changes resize one output and suppress/restore the independent camera", async () => {
+  const {provider,clients,composites}=fixture();await provider.connect(credential,"Teacher");await provider.toggleCamera();
+  await provider.startScreenShare();await provider.setScreenShareOptions({mode:"portrait",corner:"tl"});
+  assert.equal(provider.getSnapshot().local.screenShareMode,"portrait");assert.equal(clients[1].published.deviceId,"composite-output");
+  await provider.setScreenShareOptions({mode:"portrait",corner:"tr"});assert.equal(composites[0].options.corner,"tr");
+  await provider.setScreenShareOptions({mode:"screen"});assert.equal(clients[1].published.encoder.width,1280);assert.ok(clients[0].published);
+  await provider.stopScreenShare();assert.equal(composites[0].disposed,true);
+});
+
+test("browser stop ends the composite, closes capture, and restores camera publication", async () => {
+  const {provider,clients,tracks,composites}=fixture();await provider.connect(credential,"Teacher");await provider.toggleCamera();
+  await provider.startScreenShare(undefined,{mode:"portrait"});tracks.find(t=>t.deviceId==="screen").emit("track-ended");await tick();await tick();
+  assert.equal(provider.getSnapshot().local.screenSharing,false);assert.equal(composites[0].disposed,true);assert.equal(clients[0].published.deviceId,"main");
+});
+
+test("failed composite publication releases capture and restores the original camera", async () => {
+  const {provider,sdk,clients,tracks,composites}=fixture();await provider.connect(credential,"Teacher");await provider.toggleCamera();
+  const create=sdk.createClient;sdk.createClient=()=>{const client=create();client.publish=async()=>{throw new Error('publish failed')};return client};
+  await assert.rejects(provider.startScreenShare(undefined,{mode:"portrait"}),/publish failed/);
+  assert.equal(provider.getSnapshot().local.screenSharing,false);assert.equal(composites[0].disposed,true);assert.equal(tracks.find(t=>t.deviceId==='screen').closed,true);assert.equal(clients[0].published.deviceId,'main');
+});
+
+test("reconnecting during portrait sharing never republishes the independent camera", async () => {
+  const {provider,clients}=fixture();await provider.connect(credential,"Teacher");await provider.toggleCamera();await provider.startScreenShare(undefined,{mode:"portrait"});
+  const recovered=[];clients[0].publish=async tracks=>recovered.push(...(Array.isArray(tracks)?tracks:[tracks]));clients[0].connectionState='DISCONNECTED';
+  await provider.recoverMedia();assert.equal(recovered.some(track=>track.deviceId==='main'),false);assert.equal(provider.getActualDeviceState().camera,'on');
+  await provider.stopScreenShare();assert.equal(recovered.some(track=>track.deviceId==='main'),true);
+});
+
+test("stopping portrait while disconnected defers camera restoration and rejoins exactly once", async () => {
+  const {provider,clients}=fixture();await provider.connect(credential,"Teacher");await provider.toggleCamera();await provider.startScreenShare(undefined,{mode:'portrait'});
+  const primary=clients[0],published=[];primary.connectionState='DISCONNECTED';primary.publish=async tracks=>{assert.equal(primary.connectionState,'CONNECTED');published.push(...(Array.isArray(tracks)?tracks:[tracks]));};
+  await provider.stopScreenShare();assert.equal(published.length,0,'no publish through a disconnected transport');
+  await provider.recoverMedia();assert.equal(published.filter(t=>t.deviceId==='main').length,1,'rejoin owns the only camera publish');
+});
+
+
+test("rapid on/off during initial capture cancels quietly without publishing", async () => {
+ const {provider,sdk,makeTrack,clients}=fixture();await provider.connect(credential,"Teacher");let finish,captures=0;
+ sdk.createMicrophoneAudioTrack=()=>{captures++;return new Promise(resolve=>{finish=resolve})};
+ const opening=provider.toggleMicrophone(),closing=provider.toggleMicrophone();const track=makeTrack('microphone');finish(track);
+ assert.equal(await opening,false);assert.equal(await closing,false);assert.equal(captures,1);assert.equal(clients[0].published,undefined);assert.equal(track.closed,true);assert.equal(provider.getSnapshot().local.microphoneOn,false);
+});
+
+test("three clicks during initial capture reuse capture and retain the latest on intent", async () => {
+ const {provider,sdk,makeTrack}=fixture();await provider.connect(credential,"Teacher");let finish,captures=0;
+ sdk.createMicrophoneAudioTrack=()=>{captures++;return new Promise(resolve=>{finish=resolve})};
+ const a=provider.toggleMicrophone(),b=provider.toggleMicrophone(),c=provider.toggleMicrophone();finish(makeTrack('microphone'));await Promise.all([a,b,c]);
+ assert.equal(captures,1);assert.equal(provider.getSnapshot().local.microphoneOn,true);await provider.disconnect();
 });

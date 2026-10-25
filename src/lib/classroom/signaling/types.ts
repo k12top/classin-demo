@@ -13,7 +13,8 @@ export type ClassroomInvalidation = {
     | "courseware"
     | "recording"
     | "captions"
-    | "engagement";
+    | "engagement"
+    | "activities";
 };
 
 export type ClassroomCompositionPreview = {

@@ -66,7 +66,7 @@ function publicMessage(message: {
         : "classroom",
     spaceId: message.spaceId,
     recipientId: message.recipientId,
-    kind: message.kind === "system" ? "system" : "text",
+    kind: message.kind === "image" ? "image" : message.kind === "system" ? "system" : "text",
     content: message.deletedAt ? "" : message.content,
     deletedAt: message.deletedAt?.toISOString() ?? null,
     createdAt: message.createdAt.toISOString(),
@@ -233,6 +233,7 @@ export async function POST(request: NextRequest) {
         (role === "teacher" ||
           role === "assistant" ||
           (role === "student" && member?.onStage && member.stageState === "accepted")),
+      allowAuxiliaryCamera: !recorder && member?.cameraAllowed !== false,
       allowScreenShare:
         !recorder &&
         runtimeSnapshot.status !== "ended" &&

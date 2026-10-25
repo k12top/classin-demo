@@ -14,6 +14,7 @@ import { getSession } from "@/lib/session";
 import "./globals.css";
 import "./classroom-classin.css";
 import "./classroom-light.css";
+import "./classroom-responsive.css";
 
 export const metadata: Metadata = {
   title: siteTitle,

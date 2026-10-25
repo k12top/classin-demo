@@ -1,5 +1,5 @@
 import { readClassroomCommand, saveClassroomCommand } from "./command-receipt";
-import { classroomRtcUid } from "@/lib/classroom/rtc-uid";
+import { classroomAuxiliaryRtcUid, classroomRtcUid } from "@/lib/classroom/rtc-uid";
 import { classroomSignalingUserId } from "@/lib/classroom/signaling/identity";
 import "server-only";
 import { refreshCoursewareConversions } from "@/lib/courseware-conversion";
@@ -517,6 +517,7 @@ async function loadClassroomRuntimeSnapshot(
         rtcUids: memberConnections.map((connection) => connection.rtcUid),
         signalingUserIds: [classroomSignalingUserId(member.userId), ...memberConnections
           .map(connection => classroomSignalingUserId(connection.id.slice(sessionId.length + 1)))],
+        auxiliaryCameraUids: memberConnections.map((connection) => classroomAuxiliaryRtcUid(connection.rtcUid)),
         screenUids: memberConnections.map((connection) => connection.screenUid) };
     }),
   };
@@ -933,7 +934,7 @@ export async function applyClassroomAction(input: {
           boardItems: currentComposition.boardItems.filter(
             (item) =>
               !(
-                (item.kind === "camera" || item.kind === "screen") &&
+                (item.kind === "camera" || item.kind === "auxiliary-camera" || item.kind === "screen") &&
                 item.sourceId === action.targetUserId
               ),
           ),
@@ -1226,7 +1227,7 @@ export async function applyClassroomAction(input: {
           !action.item ||
           typeof action.item.id !== "string" ||
           typeof action.item.sourceId !== "string" ||
-          !["camera", "screen", "courseware"].includes(action.item.kind)
+          !["camera", "auxiliary-camera", "screen", "courseware"].includes(action.item.kind)
         ) {
           throw new ClassroomActionError("课堂编排对象无效");
         }
@@ -1250,6 +1251,15 @@ export async function applyClassroomAction(input: {
             }));
         if (!sourceExists) {
           throw new ClassroomActionError("课堂编排对象不存在", 404);
+        }
+        if (action.item.kind === "auxiliary-camera" && action.item.rtcUid !== undefined) {
+          const connections = await tx.classroomConnection.findMany({
+            where: { sessionId, userId: action.item.sourceId, leftAt: null, lastSeenAt: { gte: new Date(Date.now() - ONLINE_WINDOW_MS) } },
+            select: { rtcUid: true },
+          });
+          if (!connections.some((connection) => classroomAuxiliaryRtcUid(connection.rtcUid) === action.item.rtcUid)) {
+            throw new ClassroomActionError("辅助摄像头不属于该在线成员", 400);
+          }
         }
         await writeComposition(
           placeClassroomBoardItem(currentComposition, action.item),
@@ -1378,7 +1388,7 @@ export async function applyClassroomAction(input: {
           boardItems: currentComposition.boardItems.filter(
             (item) =>
               !(
-                (item.kind === "camera" || item.kind === "screen") &&
+                (item.kind === "camera" || item.kind === "auxiliary-camera" || item.kind === "screen") &&
                 studentIds.has(item.sourceId)
               ),
           ),

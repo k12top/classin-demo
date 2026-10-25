@@ -3,7 +3,8 @@
   "buildCommand": "npm run build:deploy",
   "git": {
     "deploymentEnabled": {
-      "feature/classroom-live-reliability": false
+      "feature/classroom-live-reliability": false,
+      "feature/classroom-share-portrait": false
     }
   },
   "crons": [
