@@ -132,6 +132,7 @@ model CourseSession {
   leadTeacherName   String    @default("")
   leadTeacherAvatar String    @default("")
   status            String    @default("scheduled") // scheduled | live | afterClass | cancelled | finished
+  timezone          String?   // Original scheduling zone; null for legacy lessons
   startTime         DateTime
   endTime           DateTime
   endedAt           DateTime?

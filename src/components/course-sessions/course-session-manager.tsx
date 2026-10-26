@@ -27,6 +27,9 @@ import {
   X,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { useTimeZone } from "@/lib/use-time-zone";
+import { SchedulingTimeZone, ScheduleTimePreview } from "@/components/time-zone-selector";
+import { parseZonedInput, zonedInputValue } from "@/lib/time-zone";
 import { useTranslation } from "@/lib/i18n/context";
 import { usePortalFeedback } from "@/components/portal/portal-feedback";
 import { LargeClassBreakoutManager } from "@/components/classroom/large-class-breakout-manager";
@@ -75,6 +78,7 @@ type StudentRule = {
 type GroupRule = { groupId: string; action: string };
 
 export type CourseSessionItem = {
+  timezone?: string | null;
   id: string;
   title: string;
   position: number;
@@ -175,6 +179,7 @@ export function CourseSessionManager({
 }: Props) {
   const router = useRouter();
   const { t, locale } = useTranslation();
+  const { timeZone } = useTimeZone();
   const { notify, confirmAction } = usePortalFeedback();
   const [sessions, setSessions] = useState<CourseSessionItem[]>(initialSessions ?? []);
   const [loading, setLoading] = useState(initialSessions === undefined);
@@ -379,13 +384,13 @@ export function CourseSessionManager({
     loading: teacherSchedulesLoading,
   } = useTeacherSchedules(availableTeacherIds, { enabled: dialogOpen, days: 7 });
   const candidateRange = useMemo(() => {
-    const start = new Date(startTime);
-    if (Number.isNaN(start.getTime())) return { start: null, end: null };
+    let start: Date;
+    try { start = parseZonedInput(startTime, timezone); } catch { return { start: null, end: null }; }
     return {
       start,
       end: new Date(start.getTime() + duration * 60_000),
     };
-  }, [duration, startTime]);
+  }, [duration, startTime, timezone]);
 
   const enterSession = (sessionId: string) => {
     if (enteringSessionId) return;
@@ -407,8 +412,10 @@ export function CourseSessionManager({
     setEditScope("this");
     setScheduleType("single");
     setTitle("");
-    setStartTime(localInputValue(nextStart));
+    setTimezone(timeZone);
+    setStartTime(zonedInputValue(nextStart, timeZone));
     setDuration(60);
+    setWeekdays([new Date(zonedInputValue(nextStart, timeZone).slice(0, 10) + "T12:00:00Z").getUTCDay()]);
     setTeacherMode("inherit");
     setStudentMode("inherit");
     setSelectedTeachers(teachers.map((teacher) => teacher.teacherId));
@@ -463,7 +470,8 @@ export function CourseSessionManager({
     setEditScope("this");
     setScheduleType("single");
     setTitle(session.title || "");
-    setStartTime(localInputValue(start));
+    setTimezone(session.timezone || timeZone);
+    setStartTime(zonedInputValue(start, session.timezone || timeZone));
     setDuration(Math.max(10, Math.round((end.getTime() - start.getTime()) / 60_000)));
     setTeacherMode(session.teacherMode === "custom" ? "custom" : "inherit");
     setStudentMode(session.studentMode === "custom" ? "custom" : "inherit");
@@ -591,8 +599,9 @@ export function CourseSessionManager({
   };
 
   const submit = async () => {
-    const start = new Date(startTime);
-    if (Number.isNaN(start.getTime()) || duration < 10) {
+    let start: Date;
+    try { start = parseZonedInput(startTime, timezone); } catch { setError(t("timeZones.invalid")); return; }
+    if (duration < 10) {
       setError(t("courseSessions.invalidSchedule"));
       return;
     }
@@ -632,7 +641,7 @@ export function CourseSessionManager({
       }));
     const end = new Date(start.getTime() + duration * 60_000);
     const schedule = scheduleType === "single"
-      ? { type: "single", startTime: start.toISOString(), endTime: end.toISOString() }
+      ? { type: "single", timezone, startTime: start.toISOString(), endTime: end.toISOString() }
       : {
           type: "recurring",
           timezone,
@@ -661,6 +670,7 @@ export function CourseSessionManager({
                 startTime: start.toISOString(),
                 endTime: end.toISOString(),
                 scope: editScope,
+                timezone,
               }
             : { schedule }),
           teacherMode,
@@ -747,6 +757,7 @@ export function CourseSessionManager({
 
   const formatDate = (value: string) =>
     new Intl.DateTimeFormat(locale, {
+      timeZone,
       month: "short",
       day: "numeric",
       weekday: "short",
@@ -1034,8 +1045,8 @@ export function CourseSessionManager({
         <DialogContent className={styles.dialog}>
           <header className={styles.dialogHeader}>
             <span>{t("courseSessions.scheduleEyebrow")}</span>
-            <h2>{editingSession ? t("courseSessions.editTitle") : t("courseSessions.scheduleTitle")}</h2>
-            <p>{t("courseSessions.scheduleHint")}</p>
+            <DialogTitle>{editingSession ? t("courseSessions.editTitle") : t("courseSessions.scheduleTitle")}</DialogTitle>
+            <DialogDescription>{t("courseSessions.scheduleHint")}</DialogDescription>
           </header>
           {editingSession ? (
             editingSession.seriesId ? (
@@ -1052,12 +1063,13 @@ export function CourseSessionManager({
           )}
           <div className={styles.formGrid}>
             <label className={styles.full}><span>{t("courseSessions.sessionTitle")}</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t("courseSessions.titlePlaceholder")} /></label>
+            <div className="time-zone-session-row"><SchedulingTimeZone value={timezone} onChange={setTimezone} localValue={startTime} /></div>
             <label><span>{t("courseSessions.startTime")}</span><input type="datetime-local" value={startTime} onChange={(event) => setStartTime(event.target.value)} /></label>
             <label><span>{t("courseSessions.duration")}</span><input type="number" min={10} max={720} value={duration} onChange={(event) => setDuration(Number(event.target.value))} /></label>
+            <div className="time-zone-session-conversion"><ScheduleTimePreview value={startTime} timeZone={timezone} /></div>
             <label><span>{t("courseSessions.roomType")}</span><select value={selectedRoomType} onChange={(event) => setSelectedRoomType(Number(event.target.value))}>{ROOM_TYPES.map((value) => <option value={value} key={value}>{t(value === 0 ? "common.roomType1v1" : value === 4 ? "common.roomTypeSmall" : value === 2 ? "common.roomTypeBig" : "common.roomTypePublic")}</option>)}</select></label>
             {!editingSession && scheduleType === "recurring" ? (
               <>
-                <label><span>{t("courseSessions.timezone")}</span><input value={timezone} onChange={(event) => setTimezone(event.target.value)} /></label>
                 <label>
                   <span>{t("courseSessions.occurrences")}</span>
                   <input type="number" min={1} max={MAX_COURSE_SESSION_OCCURRENCES} step={1} aria-describedby="course-session-occurrences-hint" value={occurrenceCount} onChange={(event) => setOccurrenceCount(Number(event.target.value))} />

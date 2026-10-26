@@ -1,3 +1,4 @@
+import { validTimeZone, isExplicitInstant, rescheduleZonedOccurrence } from "@/lib/time-zone";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
@@ -61,6 +62,7 @@ function validMode(value: unknown): "inherit" | "custom" | undefined {
 
 function parseOptionalDate(value: unknown) {
   if (typeof value !== "string") return undefined;
+  if (!isExplicitInstant(value)) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 }
@@ -110,6 +112,7 @@ export async function PATCH(request: NextRequest, context: Context) {
   const resolved = await managedCourse(request, context);
   if ("error" in resolved) return resolved.error;
   const body = await request.json();
+  if (body?.timezone !== undefined && !validTimeZone(body.timezone)) return NextResponse.json({ error: "Invalid time zone" }, { status: 400 });
   const nextStart = parseOptionalDate(body?.startTime);
   const nextEnd = parseOptionalDate(body?.endTime);
   if (nextStart === null || nextEnd === null) {
@@ -144,6 +147,17 @@ export async function PATCH(request: NextRequest, context: Context) {
       })
     : [resolved.lesson];
   const deltaMs = startTime.getTime() - resolved.lesson.startTime.getTime();
+  const shiftedStarts = new Map<string, Date>();
+  try {
+    for (const target of targets) {
+      const zone = body?.timezone || target.timezone;
+      shiftedStarts.set(target.id, nextStart && scope === "future" && zone
+        ? rescheduleZonedOccurrence(target.startTime, resolved.lesson.startTime, startTime, resolved.lesson.timezone || zone, zone)
+        : nextStart ? new Date(target.startTime.getTime() + deltaMs) : target.startTime);
+    }
+  } catch {
+    return NextResponse.json({ error: "Invalid local time in a following lesson; check daylight saving changes" }, { status: 400 });
+  }
   const durationMs = endTime.getTime() - startTime.getTime();
   const teacherMode = validMode(body?.teacherMode);
   const studentMode = validMode(body?.studentMode);
@@ -218,9 +232,7 @@ export async function PATCH(request: NextRequest, context: Context) {
 
   await prisma.$transaction(async (transaction) => {
     for (const target of targets) {
-      const targetStart = nextStart
-        ? new Date(target.startTime.getTime() + deltaMs)
-        : target.startTime;
+      const targetStart = shiftedStarts.get(target.id)!;
       const targetEnd = nextEnd || nextStart
         ? new Date(targetStart.getTime() + durationMs)
         : target.endTime;
@@ -229,6 +241,7 @@ export async function PATCH(request: NextRequest, context: Context) {
         data: {
           ...(typeof body?.title === "string" && { title: body.title.trim() }),
           ...(nextStart && { startTime: targetStart }),
+          ...(body?.timezone && { timezone: body.timezone }),
           ...((nextEnd || nextStart) && { endTime: targetEnd }),
           ...(typeof body?.roomType === "number" && { roomType: body.roomType }),
           ...(teacherMode && { teacherMode }),

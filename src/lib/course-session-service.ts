@@ -214,6 +214,7 @@ export async function createCourseSessions(input: CreateCourseSessionsInput) {
         leadTeacherId,
         leadTeacherName,
         leadTeacherAvatar,
+        timezone: input.schedule.timezone || null,
         startTime: occurrence.startTime,
         endTime: occurrence.endTime,
         createdBy: input.createdBy,

@@ -21,6 +21,9 @@ import { CourseStatusBadge } from "@/components/CourseStatusBadge";
 import { canEnterClassroom } from "@/lib/course-status";
 import { defaultAutoStudentOnStage } from "@/lib/classroom/mode";
 import { classroomVerifyAccessPath } from "@/lib/classroom/entry-path";
+import { useTimeZone } from "@/lib/use-time-zone";
+import { SchedulingTimeZone, ScheduleTimePreview } from "@/components/time-zone-selector";
+import { parseZonedInput, zonedInputValue, zonedDateKey } from "@/lib/time-zone";
 import { useTranslation } from "@/lib/i18n/context";
 import { prefetchCourseDetail } from "@/lib/course-detail-client-cache";
 import {
@@ -119,16 +122,21 @@ type SidebarPage = "schedule" | "courses" | "students" | "settings";
 const CREATE_SUBMIT_DEBOUNCE_MS = 1200;
 const CREATE_REQUEST_REUSE_MS = 2 * 60_000;
 
-function defaultCourseStartValue() {
-  const date = new Date();
-  date.setSeconds(0, 0);
-  date.setMinutes(date.getMinutes() < 30 ? 30 : 60);
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+function defaultCourseStartValue(timeZone?: string) {
+  if (!timeZone) {
+    const date = new Date();
+    date.setSeconds(0, 0);
+    date.setMinutes(date.getMinutes() < 30 ? 30 : 60);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  }
+  const wall = new Date(zonedInputValue(new Date(), timeZone) + ":00Z");
+  wall.setUTCMinutes(wall.getUTCMinutes() < 30 ? 30 : 60);
+  return wall.toISOString().slice(0, 16);
 }
 
 export default function TeacherDashboard({ courses, user, fetchCourses }: { courses: Course[], user: TeacherUser, fetchCourses: () => void }) {
   const router = useRouter();
+  const { timeZone } = useTimeZone();
   const { logout } = useAuth();
   const [activePage, setActivePage] = useState<SidebarPage>("schedule");
   const [visibleMonth, setVisibleMonth] = useState(() => {
@@ -137,6 +145,14 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   });
   const [selectedDate, setSelectedDate] = useState<Date | null>(() => new Date());
   const [schedulePage, setSchedulePage] = useState(0);
+  useEffect(() => {
+    const [year, month, day] = zonedDateKey(new Date(), timeZone).split("-").map(Number);
+    queueMicrotask(() => {
+      setVisibleMonth(new Date(year, month - 1, 1));
+      setSelectedDate(new Date(year, month - 1, day));
+      setSchedulePage(0);
+    });
+  }, [timeZone]);
   useEffect(() => {
     const requestedPage = new URLSearchParams(window.location.search).get("view");
     if (
@@ -158,6 +174,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const [createDesc, setCreateDesc] = useState("");
   const [createKind, setCreateKind] = useState<"series" | "standalone">("series");
   const [createStartTime, setCreateStartTime] = useState(defaultCourseStartValue);
+  const [createTimezone, setCreateTimezone] = useState(timeZone);
   const [createDuration, setCreateDuration] = useState(60);
   const [createRoomType, setCreateRoomType] = useState(0);
   const [createAutoStudentOnStage, setCreateAutoStudentOnStage] = useState(true);
@@ -211,12 +228,13 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
     if (createKind === "series") {
       return t("courseSessions.scheduleAfterCreation");
     }
-    const start = new Date(createStartTime);
-    if (Number.isNaN(start.getTime())) {
+    let start: Date;
+    try { start = parseZonedInput(createStartTime, createTimezone); } catch {
       return t("teacherDashboard.schedulePending");
     }
     const end = new Date(start.getTime() + createDuration * 60_000);
     const formatter = new Intl.DateTimeFormat(locale, {
+      timeZone: createTimezone,
       month: "short",
       day: "numeric",
       hour: "2-digit",
@@ -224,7 +242,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       hour12: false,
     });
     return `${formatter.format(start)} – ${formatter.format(end)}`;
-  }, [createDuration, createKind, createStartTime, locale, t]);
+  }, [createDuration, createKind, createStartTime, createTimezone, locale, t]);
   const createTeacherScheduleIds = useMemo(
     () => [
       ...createTeachers.map((teacher) => teacher.teacherId),
@@ -238,16 +256,16 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   } = useTeacherSchedules(createTeacherScheduleIds, { enabled: createOpen, days: 7 });
   const createCandidateRange = useMemo(() => {
     if (createKind !== "standalone") return { start: null, end: null };
-    const start = new Date(createStartTime);
-    if (Number.isNaN(start.getTime())) return { start: null, end: null };
+    let start: Date;
+    try { start = parseZonedInput(createStartTime, createTimezone); } catch { return { start: null, end: null }; }
     return {
       start,
       end: new Date(start.getTime() + createDuration * 60_000),
     };
-  }, [createDuration, createKind, createStartTime]);
+  }, [createDuration, createKind, createStartTime, createTimezone]);
 
   const scheduleEntries = useMemo(() => buildCourseSchedule(courses), [courses]);
-  const monthDays = useMemo(() => monthSchedule(scheduleEntries, visibleMonth), [scheduleEntries, visibleMonth]);
+  const monthDays = useMemo(() => monthSchedule(scheduleEntries, visibleMonth, timeZone), [scheduleEntries, visibleMonth, timeZone]);
   const dayCounts = useMemo(() => new Map([...monthDays].map(([key, lessons]) => [key, lessons.length])), [monthDays]);
   const selectedGroups = useMemo(() => {
     if (!selectedDate) return [...monthDays];
@@ -275,7 +293,8 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
 
   const showToday = () => {
     setSchedulePage(0);
-    const today = new Date();
+    const [year, month, day] = zonedDateKey(new Date(), timeZone).split("-").map(Number);
+    const today = new Date(year, month - 1, day);
     setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
     setSelectedDate(new Date(today.getFullYear(), today.getMonth(), today.getDate()));
   };
@@ -420,7 +439,8 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const openCreateDialog = () => {
     setCreateError("");
     setCreateKind("series");
-    setCreateStartTime(defaultCourseStartValue());
+    setCreateTimezone(timeZone);
+    setCreateStartTime(defaultCourseStartValue(timeZone));
     setCreateDuration(60);
     resetCreateTeacherSelection();
     setCreateOpen(true);
@@ -453,8 +473,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
         setCreateError(t("teacherDashboard.errStartTimeEmpty"));
         return;
       }
-      standaloneStart = new Date(createStartTime);
-      if (Number.isNaN(standaloneStart.getTime())) {
+      try { standaloneStart = parseZonedInput(createStartTime, createTimezone); } catch {
         setCreateError(t("teacherDashboard.errStartTimeEmpty"));
         return;
       }
@@ -494,6 +513,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       description: createDesc,
       courseKind: createKind,
       startTime: standaloneStart?.toISOString(),
+      timezone: createKind === "standalone" ? createTimezone : undefined,
       endTime: standaloneEnd?.toISOString(),
       roomType: createRoomType,
       autoStudentOnStage: createAutoStudentOnStage,
@@ -626,6 +646,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                             const studentPreview = getCourseStudentPreview(course);
                             const canTeachCourse = course.canTeach !== false;
                             const timeFormatter = new Intl.DateTimeFormat(locale, {
+      timeZone,
                               hour: "2-digit",
                               minute: "2-digit",
                               hour12: false,
@@ -1101,6 +1122,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                     </div>
                     <strong>{createDuration} min</strong>
                   </div>
+                  <div className="time-zone-schedule-row"><SchedulingTimeZone value={createTimezone} onChange={(zone) => { setCreateTimezone(zone); setCreateError(""); }} localValue={createStartTime} /></div>
                   <div className={createCourseStyles.singleScheduleGrid}>
                     <label>
                       <span>{t("teacherDashboard.fieldStartTime")}</span>
@@ -1128,6 +1150,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                       />
                     </label>
                   </div>
+                  <ScheduleTimePreview value={createStartTime} timeZone={createTimezone} />
                   <div className={createCourseStyles.durationPresets}>
                     {[45, 60, 90, 120].map((minutes) => (
                       <button

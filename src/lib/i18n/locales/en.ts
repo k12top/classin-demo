@@ -1,6 +1,38 @@
 import { zhCN } from "./zh-CN";
 
 export const en: typeof zhCN = {
+  timeZones: {
+    "reference": "{city} time",
+    "scheduleKeepClock": "Keep the entered clock time and schedule in the selected city.",
+    "displayKeepInstant": "Convert displayed times without changing the lesson schedule.",
+    "close": "Close time zone picker",
+    "search": "Search country, city or time zone",
+    "clear": "Clear search",
+    "followDevice": "Follow device",
+    "useMine": "Use my time zone",
+    "results": "{count} results",
+    "all": "All time zones",
+    "common": "Common cities",
+    "byCity": "Find by city",
+    "byZone": "Find by time zone",
+    "noResults": "No cities found. Try an English city or time zone name.",
+
+    "display": "Display time zone",
+    "auto": "Automatic (device time zone)",
+    "schedule": "Scheduling time zone",
+    "scheduleHint": "Enter dates and times in this zone. Weekly lessons keep their local start time.",
+    "beijing": "Beijing time reference",
+    "invalid": "Check the time and zone. Avoid missing or repeated times during daylight saving changes.",
+    "starts": "Lesson starts",
+    "opens": "Entry opens",
+    "remaining": "Entry opens in about {minutes} minutes",
+    "ready": "Enter classroom now",
+    "checking": "Checking entry time…",
+    "waiting": "Entry is not open yet. This page updates automatically.",
+    "retry": "Unable to check entry status. Please try again shortly.",
+    "zoneHint": "Times use the selected zone; entry is verified by the server.",
+    "entryDescription": "See the lesson and entry times below. This page checks the latest entry status automatically."
+},
   classroomChat: {removeImage: "Remove image",
     moreActivities: "Earlier questions","withdrawMessageConfirm": "Withdraw this message for everyone?","useDraft": "Use this draft", "copyFailed": "Copy failed. Select the content and copy manually.","answered": "{count} submitted", "manageActivity": "View and manage", "newActivity": "Create activity", "activityRetry": "Activities unavailable. Retry", "scope": "Message audience", "image": "Send image", "imageAlt": "Classroom image", "imageInvalid": "Choose a PNG, JPEG or WebP image up to 5 MB", "imageUploading": "Uploading image…", "imageFailed": "Image could not be sent. Your draft is saved.", "withdrawMember": "Withdraw all messages from this member", "withdrawMemberConfirm": "Withdraw all messages from this member in this lesson?", "muteMember": "Mute this member in chat", "unmuteMember": "Unmute this member in chat", "copy": "Copy content", "polish": "Polish with AI", "generate": "Generate with AI", "seed": "Paste a question or describe what to create", "previewDraft": "Generate draft for review", "aiUnavailable": "AI is unavailable. You can continue editing manually."},
   classroomMinimal: {localRecording: "Local recording", localRecordingActive: "Recording locally", localRecordingPaused: "Local recording paused", localRecordingFailed: "Unable to open local recordings", "offline": "Disconnected","interpretation": "Interpretation","ending": "Closing","color": "Stroke color", "indigo": "Indigo", "black": "Black", "red": "Red", "green": "Green", "stroke": "Stroke width", "undo": "Undo", "redo": "Redo", "clearHint": "This removes the whiteboard content.","waiting": "Before class", "ready": "Waiting to start", "live": "In class", "overtime": "Overtime", "closing": "Closing soon", "ended": "Ended", "scheduled": "Scheduled", "elapsed": "Elapsed", "closesIn": "Room closes in", "recording": "Recording", "devicesUnavailable": "Devices unavailable. Try again.", "noDevice": "No device found", "advanced": "Classroom settings", "assistant": "Assistant", "layout": "Layout", "interaction": "Interact", "course": "Lesson", "appearance": "Appearance", "mode": "View", "online": "Online", "tools": "Board tools"},

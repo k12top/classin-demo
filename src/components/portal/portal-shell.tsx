@@ -18,6 +18,8 @@ import {
   Users,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useTimeZone } from "@/lib/use-time-zone";
+import { TimeZoneSelector } from "@/components/time-zone-selector";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { SiteLogo } from "@/components/SiteLogo";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -75,6 +77,7 @@ export function PortalShell({
   embedded = false,
 }: PortalShellProps) {
   const { t, locale } = useTranslation();
+  const { timeZone } = useTimeZone();
   const copy = portalCopy(t);
   // Keep the first server and client render identical; start the live clock
   // only after hydration so a minute boundary cannot force a full remount.
@@ -258,11 +261,12 @@ export function PortalShell({
             <div className={styles.headerPreferences} aria-label={copy.language}>
               <LanguageSwitcher className="w-[136px]" />
               <ThemeToggle className="h-9 w-9" />
+              <TimeZoneSelector />
             </div>
             <span className={styles.clock}>
               <strong>
                 {now
-                  ? new Intl.DateTimeFormat(locale, {
+                  ? new Intl.DateTimeFormat(locale, { timeZone,
                       hour: "2-digit",
                       minute: "2-digit",
                       hour12: false,
@@ -271,7 +275,7 @@ export function PortalShell({
               </strong>
               <small>
                 {now
-                  ? new Intl.DateTimeFormat(locale, {
+                  ? new Intl.DateTimeFormat(locale, { timeZone,
                       month: "short",
                       day: "numeric",
                       weekday: "short",

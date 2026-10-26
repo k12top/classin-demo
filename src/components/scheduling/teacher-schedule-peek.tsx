@@ -2,10 +2,11 @@
 
 import { AlertTriangle, CalendarClock, CheckCircle2, Clock3, Loader2 } from "lucide-react";
 import { useMemo } from "react";
+import { useTimeZone } from "@/lib/use-time-zone";
+import { zonedCalendarDate } from "@/lib/time-zone";
 import { useTranslation } from "@/lib/i18n/context";
 import {
   addLocalDays,
-  startOfLocalDay,
   teacherScheduleConflict,
   type TeacherScheduleEvent,
 } from "@/lib/teacher-schedule";
@@ -13,8 +14,8 @@ import styles from "./teacher-schedule-peek.module.css";
 
 export { styles as teacherSchedulePeekStyles };
 
-function sameLocalDay(value: string, date: Date) {
-  const eventDate = new Date(value);
+function sameLocalDay(value: string, date: Date, timeZone: string) {
+  const eventDate = zonedCalendarDate(new Date(value), timeZone);
   return eventDate.getFullYear() === date.getFullYear() &&
     eventDate.getMonth() === date.getMonth() &&
     eventDate.getDate() === date.getDate();
@@ -32,12 +33,13 @@ export function TeacherSchedulePeek({
   candidateEnd?: Date | string | null;
 }) {
   const { t, locale } = useTranslation();
+  const { timeZone } = useTimeZone();
   const days = useMemo(() => {
-    const first = startOfLocalDay();
+    const first = zonedCalendarDate(new Date(), timeZone);
     return Array.from({ length: 7 }, (_, index) => addLocalDays(first, index));
-  }, []);
+  }, [timeZone]);
   const conflict = teacherScheduleConflict(events, candidateStart, candidateEnd);
-  const todayCount = events.filter((event) => sameLocalDay(event.startTime, days[0])).length;
+  const todayCount = events.filter((event) => sameLocalDay(event.startTime, days[0], timeZone)).length;
   const scheduledCount = events.filter((event) => event.kind !== "available").length;
   const tone = conflict.hasConflict
     ? "danger"
@@ -60,8 +62,8 @@ export function TeacherSchedulePeek({
         : t("teacherSchedule.sevenDayCount", { count: scheduledCount });
 
   const timeFormatter = useMemo(
-    () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", hour12: false }),
-    [locale],
+    () => new Intl.DateTimeFormat(locale, { timeZone, hour: "2-digit", minute: "2-digit", hour12: false }),
+    [locale, timeZone],
   );
   const dayFormatter = useMemo(
     () => new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric" }),
@@ -87,7 +89,7 @@ export function TeacherSchedulePeek({
             ) : null}
             <div className={styles.days} aria-label={t("teacherSchedule.nextSevenDays")}>
               {days.map((day) => {
-                const dayEvents = events.filter((event) => sameLocalDay(event.startTime, day));
+                const dayEvents = events.filter((event) => sameLocalDay(event.startTime, day, timeZone));
                 return (
                   <div className={styles.day} key={day.toISOString()}>
                     <time dateTime={day.toISOString()}>{dayFormatter.format(day)}</time>

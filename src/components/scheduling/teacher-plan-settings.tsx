@@ -3,8 +3,10 @@
 import { CalendarClock, Loader2, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTeacherSchedules } from "@/hooks/use-teacher-schedules";
+import { useTimeZone } from "@/lib/use-time-zone";
+import { zonedDateKey, zonedCalendarDate, parseZonedInput } from "@/lib/time-zone";
 import { useTranslation } from "@/lib/i18n/context";
-import { addLocalDays, startOfLocalDay } from "@/lib/teacher-schedule";
+import { addLocalDays } from "@/lib/teacher-schedule";
 import styles from "./teacher-plan-settings.module.css";
 
 function localDateKey(date: Date) {
@@ -12,17 +14,15 @@ function localDateKey(date: Date) {
   return new Date(date.getTime() - offset).toISOString().slice(0, 10);
 }
 
-function sameLocalDay(value: string, key: string) {
-  return localDateKey(new Date(value)) === key;
-}
-
 export function TeacherPlanSettings({ teacherId }: { teacherId: string }) {
   const { t, locale } = useTranslation();
+  const { timeZone } = useTimeZone();
   const days = useMemo(() => {
-    const first = startOfLocalDay();
+    const first = zonedCalendarDate(new Date(), timeZone);
     return Array.from({ length: 7 }, (_, index) => addLocalDays(first, index));
-  }, []);
-  const [selectedDate, setSelectedDate] = useState(() => localDateKey(days[0]));
+  }, [timeZone]);
+  const [selectedDay, setSelectedDate] = useState<{ key: string; zone: string } | null>(null);
+  const selectedDate = selectedDay?.zone === timeZone ? selectedDay.key : localDateKey(days[0]);
   const [kind, setKind] = useState<"busy" | "available">("busy");
   const [start, setStart] = useState("09:00");
   const [end, setEnd] = useState("10:00");
@@ -31,20 +31,20 @@ export function TeacherPlanSettings({ teacherId }: { teacherId: string }) {
   const [message, setMessage] = useState("");
   const { schedules, loading, refresh } = useTeacherSchedules([teacherId], { days: 7 });
   const events = schedules[teacherId]?.events || [];
-  const selectedEvents = events.filter((event) => sameLocalDay(event.startTime, selectedDate));
+  const selectedEvents = events.filter((event) => zonedDateKey(event.startTime, timeZone) === selectedDate);
 
   const dayFormatter = useMemo(
     () => new Intl.DateTimeFormat(locale, { weekday: "short" }),
     [locale],
   );
   const timeFormatter = useMemo(
-    () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", hour12: false }),
-    [locale],
+    () => new Intl.DateTimeFormat(locale, { timeZone, hour: "2-digit", minute: "2-digit", hour12: false }),
+    [locale, timeZone],
   );
 
   const saveBlock = async () => {
-    const startTime = new Date(`${selectedDate}T${start}:00`);
-    const endTime = new Date(`${selectedDate}T${end}:00`);
+    let startTime: Date, endTime: Date;
+    try { startTime = parseZonedInput(`${selectedDate}T${start}`, timeZone); endTime = parseZonedInput(`${selectedDate}T${end}`, timeZone); } catch { setMessage(t("timeZones.invalid")); return; }
     if (endTime <= startTime) {
       setMessage(t("teacherSchedule.invalidRange"));
       return;
@@ -61,7 +61,7 @@ export function TeacherPlanSettings({ teacherId }: { teacherId: string }) {
           title,
           startTime: startTime.toISOString(),
           endTime: endTime.toISOString(),
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          timezone: timeZone,
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -103,7 +103,7 @@ export function TeacherPlanSettings({ teacherId }: { teacherId: string }) {
             {days.map((day) => {
               const key = localDateKey(day);
               return (
-                <button type="button" key={key} data-active={selectedDate === key} onClick={() => setSelectedDate(key)}>
+                <button type="button" key={key} data-active={selectedDate === key} onClick={() => setSelectedDate({ key, zone: timeZone })}>
                   <span>{dayFormatter.format(day)}</span>
                   <strong>{day.getDate()}</strong>
                 </button>

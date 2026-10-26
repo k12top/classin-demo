@@ -1,9 +1,9 @@
 "use client";
 
+import { useTimeZone } from "@/lib/use-time-zone";
+import { zonedDateKey, parseZonedInput } from "@/lib/time-zone";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  addLocalDays,
-  startOfLocalDay,
   type TeacherScheduleSummary,
 } from "@/lib/teacher-schedule";
 
@@ -19,6 +19,7 @@ export function useTeacherSchedules(
   teacherIds: string[],
   options: { enabled?: boolean; days?: number } = {},
 ) {
+  const { timeZone } = useTimeZone();
   const enabled = options.enabled ?? true;
   const days = options.days ?? 7;
   const idsKey = Array.from(new Set(teacherIds.filter(Boolean))).sort().join("|");
@@ -29,9 +30,13 @@ export function useTeacherSchedules(
   const [error, setError] = useState("");
 
   const range = useMemo(() => {
-    const from = startOfLocalDay();
-    return { from, to: addLocalDays(from, days) };
-  }, [days]);
+    const today = zonedDateKey(new Date(), timeZone);
+    const end = new Date(Date.parse(`${today}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+    try { return { from: parseZonedInput(`${today}T00:00`, timeZone), to: parseZonedInput(`${end}T00:00`, timeZone) }; }
+    catch { // Include the entire range when a region changes its clock at midnight.
+      return { from: new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000), to: new Date(Date.parse(`${end}T00:00:00Z`) + 86_400_000) };
+    }
+  }, [days, timeZone]);
 
   useEffect(() => {
     if (!enabled || !stableIds.length) {

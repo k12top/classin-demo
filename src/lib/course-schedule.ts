@@ -1,3 +1,4 @@
+import { zonedDateKey } from "./time-zone";
 const MIN_DURATION_MINUTES = 15;
 const MAX_DURATION_MINUTES = 12 * 60;
 
@@ -136,18 +137,20 @@ export function buildCourseSchedule<T extends ScheduleSource>(courses: readonly 
   return entries.sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime) || a.scheduleId.localeCompare(b.scheduleId));
 }
 
-export function scheduleDateKey(date: Date): string {
+export function scheduleDateKey(date: Date, timeZone?: string): string {
+  if (timeZone) return zonedDateKey(date, timeZone);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-export function monthSchedule<T extends { startTime: string }>(entries: readonly T[], month: Date) {
+export function monthSchedule<T extends { startTime: string }>(entries: readonly T[], month: Date, timeZone?: string) {
   const start = new Date(month.getFullYear(), month.getMonth(), 1).getTime();
   const end = new Date(month.getFullYear(), month.getMonth() + 1, 1).getTime();
   const days = new Map<string, T[]>();
   for (const entry of entries) {
     const time = Date.parse(entry.startTime);
-    if (time < start || time >= end || !Number.isFinite(time)) continue;
-    const key = scheduleDateKey(new Date(time));
+    if (!Number.isFinite(time)) continue;
+    const key = scheduleDateKey(new Date(time), timeZone);
+    if (timeZone ? !key.startsWith(`${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}-`) : time < start || time >= end) continue;
     const day = days.get(key) ?? [];
     day.push(entry);
     days.set(key, day);

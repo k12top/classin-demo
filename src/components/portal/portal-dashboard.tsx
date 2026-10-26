@@ -18,6 +18,8 @@ import {
   Video,
 } from "lucide-react";
 import { canEnterClassroom } from "@/lib/course-status";
+import { useTimeZone } from "@/lib/use-time-zone";
+import { zonedDateKey } from "@/lib/time-zone";
 import { useTranslation } from "@/lib/i18n/context";
 import styles from "./portal-dashboard.module.css";
 import { formatTimeUntilClass } from "@/lib/classroom/countdown";
@@ -136,14 +138,6 @@ function copyFor(t: ReturnType<typeof useTranslation>["t"]) {
   };
 }
 
-function sameDay(left: Date, right: Date) {
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  );
-}
-
 function roomTypeLabel(roomType: number, copy: ReturnType<typeof copyFor>) {
   if (roomType === 10) return copy.publicClass;
   if (roomType === 2) return copy.bigClass;
@@ -214,6 +208,7 @@ export function PortalDashboardHero({
   onCreate,
 }: DashboardProps) {
   const { locale, t } = useTranslation();
+  const { timeZone } = useTimeZone();
   const copy = copyFor(t);
   const [now, setNow] = useState(() => new Date());
 
@@ -227,18 +222,18 @@ export function PortalDashboardHero({
       schedule
         .filter(
           (course) =>
-            course.startTime && sameDay(new Date(course.startTime), now),
+            course.startTime && zonedDateKey(course.startTime, timeZone) === zonedDateKey(now, timeZone),
         )
         .sort(
           (left, right) =>
             new Date(left.startTime || 0).getTime() -
             new Date(right.startTime || 0).getTime(),
         ),
-    [schedule, now],
+    [schedule, now, timeZone],
   );
   const nextCourse = getNextCourse(schedule, now);
   const nextTime = nextCourse?.startTime
-    ? new Intl.DateTimeFormat(locale, {
+    ? new Intl.DateTimeFormat(locale, { timeZone,
         month: "short",
         day: "numeric",
         weekday: "short",
@@ -386,7 +381,7 @@ export function PortalDashboardHero({
               >
                 <span className={styles.railTime}>
                   {course.startTime
-                    ? new Intl.DateTimeFormat(locale, {
+                    ? new Intl.DateTimeFormat(locale, { timeZone,
                         hour: "2-digit",
                         minute: "2-digit",
                         hour12: false,
@@ -421,6 +416,7 @@ export function PortalCourseLibrary({
   onPrefetch,
 }: Omit<DashboardProps, "role">) {
   const { locale, t } = useTranslation();
+  const { timeZone } = useTimeZone();
   const copy = copyFor(t);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
@@ -547,12 +543,12 @@ export function PortalCourseLibrary({
                   </>
                 ) : course.startTime ? (
                   <>
-                    {new Intl.DateTimeFormat(locale, {
+                    {new Intl.DateTimeFormat(locale, { timeZone,
                       month: "short",
                       day: "numeric",
                     }).format(new Date(course.startTime))}
                     <br />
-                    {new Intl.DateTimeFormat(locale, {
+                    {new Intl.DateTimeFormat(locale, { timeZone,
                       hour: "2-digit",
                       minute: "2-digit",
                       hour12: false,

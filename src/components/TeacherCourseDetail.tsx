@@ -2103,7 +2103,7 @@ export default function TeacherCourseDetail({
                     <SelectContent>
                       {(course.sessions || []).map((lesson) => (
                         <SelectItem key={lesson.id} value={lesson.id}>
-                          {lesson.title || new Date(lesson.startTime).toLocaleString(locale)}
+                          {lesson.title || <TimeDisplay isoString={lesson.startTime} />}
                         </SelectItem>
                       ))}
                     </SelectContent>

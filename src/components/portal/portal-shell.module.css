@@ -696,3 +696,11 @@
 .navTooltip small { color: hsl(var(--muted-foreground)); }
 .shell[data-sidebar-collapsed="true"] .sidebar .navItem:hover .navTooltip,
 .shell[data-sidebar-collapsed="true"] .sidebar .navItem:focus-within .navTooltip { visibility: visible; opacity: 1; }
+
+/* Keep the original preferences on one row as the time-zone entry collapses. */
+@media (max-width: 640px) {
+  .headerPreferences > button:first-child { width: 36px; min-width: 36px; padding: 8px; gap: 0; }
+  .headerPreferences > button:first-child > div { justify-content: center; width: 100%; }
+  .headerPreferences > button:first-child > div > span,
+  .headerPreferences > button:first-child > span { display: none; }
+}

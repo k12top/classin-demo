@@ -1,3 +1,4 @@
+import { validTimeZone, isExplicitInstant } from "@/lib/time-zone";
 /**
  * Course list & create API
  * GET  /api/courses — list courses (teacher: own; student: enrolled)
@@ -485,6 +486,7 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+    if ((body.timezone !== undefined && !validTimeZone(body.timezone)) || (startTime && (!isExplicitInstant(startTime) || !isExplicitInstant(endTime)))) return NextResponse.json({ error: "Invalid scheduling time zone or timestamp" }, { status: 400 });
     const parsedStartTime = startTime ? new Date(startTime) : null;
     const parsedEndTime = endTime ? new Date(endTime) : null;
     if (
@@ -613,6 +615,7 @@ export async function POST(request: NextRequest) {
                   leadTeacherId: leadTeacher.teacherId,
                   leadTeacherName: leadTeacher.teacherName,
                   leadTeacherAvatar: leadTeacher.teacherAvatar,
+                  timezone: body.timezone || null,
                   startTime: parsedStartTime,
                   endTime: parsedEndTime,
                   createdBy: session.userId,

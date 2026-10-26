@@ -3,6 +3,7 @@ export const MAX_COURSE_SESSION_OCCURRENCES = 50;
 export type SessionScheduleInput =
   | {
       type: "single";
+      timezone?: string;
       startTime: string;
       endTime: string;
     }
@@ -88,7 +89,7 @@ export function zonedLocalToUtc(input: {
       actual.minute,
     );
     const delta = desired - actualAsUtc;
-    if (delta === 0) return candidate;
+    if (delta === 0) break;
     candidate = new Date(candidate.getTime() + delta);
   }
   const verified = localParts(candidate, input.timezone);
@@ -100,6 +101,19 @@ export function zonedLocalToUtc(input: {
     verified.minute !== input.minute
   ) {
     throw new SessionScheduleError("该当地时间不存在，可能处于夏令时切换区间");
+  }
+  // During fall-back the same wall time can refer to two different instants.
+  // Reject it instead of silently choosing a different lesson time.
+  for (const hours of [-36, 36]) {
+    const probe = new Date(candidate.getTime() + hours * 3_600_000);
+    const parts = localParts(probe, input.timezone);
+    const offset = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - probe.getTime();
+    const alternate = new Date(desired - offset);
+    if (alternate.getTime() === candidate.getTime()) continue;
+    const wall = localParts(alternate, input.timezone);
+    if (wall.year === input.year && wall.month === input.month && wall.day === input.day && wall.hour === input.hour && wall.minute === input.minute) {
+      throw new SessionScheduleError("该当地时间重复，请避开夏令时切换区间");
+    }
   }
   return candidate;
 }
@@ -139,6 +153,8 @@ export function expandSessionSchedule(
     MAX_COURSE_SESSION_OCCURRENCES,
   );
   if (schedule.type === "single") {
+    if (schedule.timezone) assertTimezone(schedule.timezone);
+    if (![schedule.startTime, schedule.endTime].every(value => /(?:Z|[+-]\d{2}:\d{2})$/.test(value))) throw new SessionScheduleError("课次时间必须包含时区偏移或 Z");
     const startTime = new Date(schedule.startTime);
     const endTime = new Date(schedule.endTime);
     if (Number.isNaN(startTime.getTime()) || Number.isNaN(endTime.getTime())) {

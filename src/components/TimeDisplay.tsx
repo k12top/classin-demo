@@ -1,5 +1,7 @@
 "use client";
 
+import { useTimeZone } from "@/lib/use-time-zone";
+import { timeZoneLabel } from "@/lib/time-zone";
 import { useSyncExternalStore } from "react";
 import { useTranslation } from "@/lib/i18n/context";
 
@@ -50,17 +52,10 @@ function formatIsoDate(
   }
 }
 
-function isSameLocalDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
 export default function TimeDisplay({ isoString, options }: TimeDisplayProps) {
   const mounted = useIsClient();
   const { t, locale } = useTranslation();
+  const { timeZone } = useTimeZone();
 
   if (!isoString) {
     return <span>{t("common.timeUndetermined")}</span>;
@@ -71,6 +66,7 @@ export default function TimeDisplay({ isoString, options }: TimeDisplayProps) {
   }
 
   const defaultOptions: Intl.DateTimeFormatOptions = options || {
+    timeZone,
     month: "long",
     day: "numeric",
     weekday: "short",
@@ -78,7 +74,7 @@ export default function TimeDisplay({ isoString, options }: TimeDisplayProps) {
     minute: "2-digit",
   };
 
-  return <span>{formatIsoDate(isoString, locale, defaultOptions)}</span>;
+  return <span title={Number.isFinite(Date.parse(isoString)) ? timeZoneLabel(timeZone, new Date(isoString)) : undefined}>{formatIsoDate(isoString, locale, { ...defaultOptions, timeZone })}</span>;
 }
 
 export function CourseTimeRangeDisplay({
@@ -87,6 +83,7 @@ export function CourseTimeRangeDisplay({
 }: CourseTimeRangeDisplayProps) {
   const mounted = useIsClient();
   const { t, locale } = useTranslation();
+  const { timeZone } = useTimeZone();
 
   if (!startIsoString) {
     return <span>{t("common.timeUndetermined")}</span>;
@@ -97,6 +94,7 @@ export function CourseTimeRangeDisplay({
   }
 
   const fullOptions: Intl.DateTimeFormatOptions = {
+    timeZone,
     month: "long",
     day: "numeric",
     weekday: "short",
@@ -104,6 +102,7 @@ export function CourseTimeRangeDisplay({
     minute: "2-digit",
   };
   const timeOptions: Intl.DateTimeFormatOptions = {
+    timeZone,
     hour: "2-digit",
     minute: "2-digit",
   };
@@ -113,7 +112,7 @@ export function CourseTimeRangeDisplay({
     end &&
     !Number.isNaN(start.getTime()) &&
     !Number.isNaN(end.getTime()) &&
-    isSameLocalDay(start, end);
+    new Intl.DateTimeFormat("en-CA", { timeZone }).format(start) === new Intl.DateTimeFormat("en-CA", { timeZone }).format(end);
   const startLabel = formatIsoDate(startIsoString, locale, fullOptions);
   const endLabel = endIsoString
     ? formatIsoDate(endIsoString, locale, canUseCompactEnd ? timeOptions : fullOptions)

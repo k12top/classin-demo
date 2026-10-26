@@ -1,0 +1,1 @@
+ALTER TABLE "CourseSession" ADD COLUMN IF NOT EXISTS "timezone" TEXT;
