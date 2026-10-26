@@ -95,11 +95,11 @@ async function main(){
  win.setContentSize(1440,900);await settle();await run(`document.documentElement.dir='rtl';document.querySelector('.classroom-v3-seats').scrollLeft=0`);await settle();
  let rtl=await geometry();assert.ok(rtl.first.right<=rtl.row.right+1&&rtl.first.left>=rtl.row.left-1,'RTL first member fits');
  await run(`(()=>{const row=document.querySelector('.classroom-v3-seats');row.scrollLeft=-row.scrollWidth})()`);await settle();rtl=await geometry();assert.ok(rtl.last.left>=rtl.row.left-1&&rtl.last.right<=rtl.row.right+1,'RTL last member fits');
- // The approved minimal draft starts short rows at the leading edge too.
+ // Short rows center with auto margins; overflow retains reachable endpoints.
  await run(`document.documentElement.dir='ltr';fixturePayload.runtime.members.splice(3);fixturePayload.runtime.revision++;fixtureReceive({courseId:'fixture-session',topic:'runtime',revision:fixturePayload.runtime.revision},'teacher:tab')`);
  await wait(`document.querySelectorAll('.classroom-v3-seat').length===3`);await new Promise(r=>setTimeout(r,800));
- const few=await geometry();assert.ok(few.first.left>=few.row.left && few.first.left-few.row.left<=25,'short row starts at the leading padding');
- await fs.writeFile(path.join(output,'stage-scroll-checks.json'),JSON.stringify({passed:true,boundary:'Actual ClassroomV3 component and shipped CSS; HTTP/media/RTM mocked. Native Chromium wheel and touch input checked; physical WeChat/device acceptance not performed.',oldCenteredOverflow:old,viewports:result,checks:['first and last fully visible','all 25 members retained','native wheel','native touch over reorderable seats','no accidental touch reorder/spotlight','RTL endpoints','short row leading alignment']},null,2));
- console.log('PASS actual classroom stage rail: old overflow reproduced; 25 peers reachable at both ends in 5 sizes; native wheel/touch, no swipe moderation, RTL and short-row leading alignment.');
+ const few=await geometry();assert.ok(Math.abs((few.first.left+few.last.right-few.row.left-few.row.right)/2)<2,'short row is centered without changing overflow alignment');
+ await fs.writeFile(path.join(output,'stage-scroll-checks.json'),JSON.stringify({passed:true,boundary:'Actual ClassroomV3 component and shipped CSS; HTTP/media/RTM mocked. Native Chromium wheel and touch input checked; physical WeChat/device acceptance not performed.',oldCenteredOverflow:old,viewports:result,checks:['first and last fully visible','all 25 members retained','native wheel','native touch over reorderable seats','no accidental touch reorder/spotlight','RTL endpoints','short row centered alignment']},null,2));
+ console.log('PASS actual classroom stage rail: old overflow reproduced; 25 peers reachable at both ends in 5 sizes; native wheel/touch, no swipe moderation, RTL and short-row centered alignment.');
 }
 app.whenReady().then(main).then(()=>{win?.destroy();server?.close();app.quit()}).catch(e=>{console.error(e);win?.destroy();server?.close();app.exit(1)});

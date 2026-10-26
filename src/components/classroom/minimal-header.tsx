@@ -39,16 +39,16 @@ export function MinimalHeader({ course, runtime, now, roleName, memberCount, rec
         <div className="classroom-course-times" data-tone={clock.tone}><span>{label}</span><strong>{text}</strong></div>
         {clock.elapsed !== null && clock.overtime > 0 && <div className="classroom-course-times"><span>{t("classroomMinimal.elapsed")}</span><span>{lessonClockText(clock.elapsed)}</span></div>}
         {clock.remainingGrace !== null && <div className="classroom-course-times"><span>{t("classroomMinimal.closesIn")}</span><span>{lessonClockText(clock.remainingGrace)}</span></div>}
-        <div className="classroom-course-connection">{status}</div>
+        {status}
         {(canStart || canExtend || canEnd) && <DropdownMenuSeparator />}
         {canStart && <DropdownMenuItem disabled={busy} onSelect={onStart}><Radio />{t("classroom.v3.startClass")}</DropdownMenuItem>}
-        {canExtend && <ClassTimingControls courseId={course.id} sessionId={course.sessionId} ended={runtime.status === "ended"} onExtended={onExtended} onRestarted={onRestarted} />}
+        {canExtend && <ClassTimingControls inMenu courseId={course.id} sessionId={course.sessionId} ended={runtime.status === "ended"} onExtended={onExtended} onRestarted={onRestarted} />}
       </DropdownMenuContent>
     </DropdownMenu>
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild><ClassroomIconButton type="button" className="classroom-lesson-clock" data-phase={clock.phase} data-tone={clock.tone} aria-label={`${label} ${text}`} title={`${label} ${text}`}><Clock3 /><span>{clock.seconds !== null && clock.phase !== "live" && <small>{label}</small>}<strong>{text}</strong></span></ClassroomIconButton></DropdownMenuTrigger>
       <DropdownMenuContent align="end" collisionPadding={8} className="classroom-header-menu classroom-clock-menu"><div className="classroom-course-times"><span>{label}</span><strong>{text}</strong></div>{clock.remainingGrace !== null && <div className="classroom-course-times"><span>{t("classroomMinimal.closesIn")}</span><span>{lessonClockText(clock.remainingGrace)}</span></div>}{status}
-        {canExtend && <><DropdownMenuSeparator /><ClassTimingControls courseId={course.id} sessionId={course.sessionId} ended={runtime.status === "ended"} onExtended={onExtended} onRestarted={onRestarted} /></>}
+        {canExtend && <><DropdownMenuSeparator /><ClassTimingControls inMenu courseId={course.id} sessionId={course.sessionId} ended={runtime.status === "ended"} onExtended={onExtended} onRestarted={onRestarted} /></>}
         {canEnd && <DropdownMenuItem className="is-danger" disabled={busy} onSelect={onEnd}><CircleStop />{t("classroom.v3.endClass")}</DropdownMenuItem>}
       </DropdownMenuContent>
     </DropdownMenu>

@@ -219,7 +219,7 @@ html[lang] .classroom-v3-shell[data-responsive-workspace] article:is(:hover,:foc
 @media(max-width:760px){.classroom-seat-sharing{left:32px;right:4px}.classroom-share-menu{position:fixed;bottom:88px}}
 @media(hover:none){.classroom-conversation-resizer::before{opacity:.4}.classroom-conversation-resizer{width:24px;right:calc(var(--conversation-width) - 7px)}}
 
-html[lang] .classroom-v3-shell[data-responsive-workspace]:not(.is-recorder) .classroom-v3-seat>footer { position:absolute;inset:auto 4px 4px auto;width:auto;min-height:0;padding:2px;border:0;opacity:0;pointer-events:none; }
+html[lang] .classroom-v3-shell[data-responsive-workspace]:not(.is-recorder) .classroom-v3-seat>footer { position:absolute;z-index:4;inset:0;width:100%;height:100%;min-height:0;display:flex;align-items:center;justify-content:center;padding:4px;border:0;border-radius:10px;background:#171b2280;opacity:0;pointer-events:none; }
 html[lang] .classroom-v3-shell[data-responsive-workspace]:not(.is-recorder) .classroom-v3-seat:is(:hover,:focus-within,.is-touch-active)>footer { opacity:1;pointer-events:auto; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat-copy { display:none; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-dock>button[title] { position:relative; }
@@ -271,6 +271,21 @@ html.dark .classroom-minimal-header .classroom-lesson-clock[data-tone="danger"] 
 .classroom-course-times[data-tone="warning"] strong { color:#855308; }
 .classroom-course-times[data-tone="danger"] strong { color:var(--classroom-coral); }
 .classroom-course-connection { margin:8px 10px 12px; }
+.classroom-header-menu :is(.classroom-timing-subtrigger,.classroom-connection-subtrigger) { display:flex;align-items:center;gap:10px;min-height:40px;padding:8px 10px;border:0;border-radius:7px;background:transparent;font-size:13px;color:inherit;cursor:pointer; }
+.classroom-header-menu :is(.classroom-timing-subtrigger,.classroom-connection-subtrigger):is([data-highlighted],[data-state="open"]) { background:var(--conversation-soft,var(--classroom-panel-raised)); }
+.classroom-network-menu { width:min(240px,calc(100vw - 24px)); }
+.classroom-network-details { display:grid;gap:10px;padding:10px;white-space:normal; }
+.classroom-network-details strong { font-size:13px;font-weight:600; }
+.classroom-network-details small { display:flex;align-items:center;gap:7px;color:var(--classroom-mist);font-size:12px;line-height:1.5; }
+.classroom-network-details small svg { width:14px;height:14px;flex:none; }
+.classroom-network-details small i { width:6px;height:6px;border-radius:50%;background:var(--classroom-coral); }
+.classroom-network-details small i.is-good { background:var(--classroom-jade); }
+/* A narrow screen has no room beside the parent menu. Keep Radix keyboard
+   navigation and render these submenus as an in-bounds action sheet. */
+@media(max-width:760px){
+ [data-radix-popper-content-wrapper]:has(>.classroom-header-submenu){position:fixed!important;inset:auto 8px calc(84px + env(safe-area-inset-bottom))!important;transform:none!important;min-width:0!important;width:auto!important}
+ .classroom-header-menu.classroom-header-submenu{width:100%;max-width:none;max-height:calc(100dvh - 100px);overflow-y:auto}
+}
 .classroom-course-menu .classroom-v3-class-controls { display:flex;width:100%;height:44px;align-items:center;gap:10px;padding:8px 10px;font-size:14px; }
 .classroom-header-menu .is-danger { color:var(--classroom-coral); }
 .classroom-settings-error { max-width:28ch;padding:10px;color:var(--classroom-coral);font-size:13px;line-height:1.5; }
@@ -458,7 +473,7 @@ html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-heading-actions>span[data-status="running"]{font-size:0;width:6px;height:6px;border-radius:50%;background:var(--classroom-accent)}
 /* Reserve the collapse control's own lane; it must never cover a seat or
    intercept the first touch of a horizontal swipe near the list endpoint. */
-html[lang] .classroom-v3-shell.is-classin-layout[data-responsive-workspace]:not(.is-recorder) .classroom-v3-workspace>.classroom-v3-live-rail { padding-inline-end:44px; }
+html[lang] .classroom-v3-shell.is-classin-layout[data-responsive-workspace]:not(.is-recorder) .classroom-v3-workspace>.classroom-v3-live-rail { padding-inline:44px; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-message-list>.classroom-chat-activity>.classroom-chat-activity-heading { display:flex;align-items:center;gap:10px;width:100%;height:auto;min-height:54px;margin:0;padding:14px;border:0;border-radius:12px;background:transparent;color:var(--classroom-frost);opacity:1; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-message-list>.classroom-chat-activity>.classroom-chat-activity-body { display:block;height:auto;padding:0 14px 14px; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-message-list>.classroom-chat-activity button { width:auto;height:auto;min-height:36px;margin-left:0;opacity:1; }
@@ -605,11 +620,17 @@ html[lang] .classroom-v3-shell[data-responsive-workspace]>.classroom-v3-hand-rai
 html[lang] .classroom-v3-shell[data-responsive-workspace]>.classroom-v3-hand-raise-popover button { min-width:36px;min-height:36px; }
 html[lang] .classroom-v3-shell[data-responsive-workspace]>.classroom-v3-hand-raise-popover li>button:first-of-type { width:36px;padding:6px; }
 @media(max-width:760px){html[lang] .classroom-v3-shell[data-responsive-workspace]>.classroom-v3-hand-raise-popover{top:140px;right:12px}}
-html[lang] .classroom-v3-shell.is-classin-layout[data-responsive-workspace] .classroom-v3-seats>:is(:first-child,:last-child) { margin-inline:0; }
+/* Auto margins center a short row and collapse to zero on overflow, keeping
+   both endpoints reachable in either writing direction, including phones. */
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seats>:first-child { margin-inline-start:auto; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seats>:last-child { margin-inline-end:auto; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-rail-media .classroom-v3-media-fallback>span { width:auto;height:auto;border:0;border-radius:0;box-shadow:none;background:transparent;color:#a8b0bf;font-size:30px;font-weight:400; }
-html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat>footer { inset:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:4px;border-radius:10px;background:#171b2280; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat-controls { display:flex;justify-content:center;flex-wrap:wrap;gap:4px; }
-html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat-controls>button { width:28px;height:28px;min-width:28px;min-height:28px; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat-controls>button { display:grid;place-items:center;width:32px;height:32px;min-width:32px;min-height:32px;padding:0;border:0;border-radius:7px;background:#ffffff24;color:white; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat-controls>button:hover { background:#ffffff40; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat-controls>button svg { width:16px;height:16px; }
+@media(max-width:760px){html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat-controls>button{width:28px;height:28px;min-width:28px;min-height:28px}}
+@media(max-width:359px){html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat-controls{gap:1px}html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat-controls>button{width:25px;height:25px;min-width:25px;min-height:25px}}
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat:is(:hover,:focus-within,.is-touch-active) .classroom-v3-seat-media-state { opacity:0; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-live-rail[data-collapsed="true"] .classroom-v3-rail-toggle { transform:none;translate:none; }
 html[lang] .classroom-v3-modal-backdrop>section.classroom-v3-device-dialog { width:min(720px,calc(100vw - 24px));height:auto;max-height:min(860px,calc(100dvh - 32px));border-radius:14px; }

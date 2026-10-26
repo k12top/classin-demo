@@ -3,6 +3,7 @@ import { imageMessageContent } from "@/lib/classroom/chat-image-message";
 import { useWhiteboardShortcuts } from "@/lib/classroom/whiteboard/use-shortcuts";
 import { BoardToolsMenu } from "./board-tools-menu";
 import { MinimalHeader } from "./minimal-header";
+import { ClassroomIconButton } from "./icon-button";
 import { ClassroomQuickSettings } from "./quick-settings";
 import { ConversationPanelTabs } from "./conversation-panel-tabs";
 import { ScreenShareMenu } from "./screen-share-menu";
@@ -21,7 +22,7 @@ import { CoursewarePanel, type CoursewareInsertion } from "@/components/classroo
 import { ClassroomMemberAvatar } from "@/components/classroom/member-avatar";
 import { ClassroomDeviceEntry } from "./device-entry";
 import { classroomDeviceId, classroomDeviceLabel, type ClassroomDeviceEntryMode } from "@/lib/classroom/device-admission";
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuPortal } from "@/components/ui/dropdown-menu";
 import { useChatUnread } from "@/lib/classroom/use-chat-unread";
 import { CaptionsPanel } from "@/components/classroom/captions-panel";
 import { MicrophoneLevel } from "@/components/classroom/microphone-level";
@@ -994,10 +995,12 @@ function StatusPill({
   media,
   recording,
   presenceHealthy,
+  inMenu = false,
 }: {
   media: ClassroomMediaSnapshot;
   recording: string | null;
   presenceHealthy: boolean;
+  inMenu?: boolean;
 }) {
   const { t } = useTranslation();
   const rtcConnected = media.connectionState === "connected";
@@ -1006,16 +1009,8 @@ function StatusPill({
   const recordingActive = ["starting", "recording"].includes(
     recording || "",
   );
-  return (
-    <div className="classroom-v3-statuses">
-      <span
-        className={connected ? "is-online" : "is-warning"}
-        tabIndex={0}
-        title={connectionLabel}
-      >
-        <Wifi />
-        {connectionLabel}
-        <span className="classroom-v3-network-popover">
+  const details = (
+        <span className="classroom-network-details">
           <strong>{t("classroom.v3.connectionDetail")}</strong>
           <small>
             <i className={rtcConnected ? "is-good" : ""} />
@@ -1043,6 +1038,21 @@ function StatusPill({
             {media.local.cameraOn ? t("classroom.v3.cameraOn") : t("classroom.v3.cameraOff")}
           </small>
         </span>
+  );
+  if (inMenu) return <DropdownMenuSub>
+    <DropdownMenuSubTrigger className="classroom-connection-subtrigger"><Wifi /><span>{connectionLabel}</span></DropdownMenuSubTrigger>
+    <DropdownMenuPortal><DropdownMenuSubContent sideOffset={4} collisionPadding={8} className="classroom-header-menu classroom-header-submenu classroom-network-menu">{details}</DropdownMenuSubContent></DropdownMenuPortal>
+  </DropdownMenuSub>;
+  return (
+    <div className="classroom-v3-statuses">
+      <span
+        className={connected ? "is-online" : "is-warning"}
+        tabIndex={0}
+        title={connectionLabel}
+      >
+        <Wifi />
+        {connectionLabel}
+        <span className="classroom-v3-network-popover">{details}</span>
       </span>
       {recordingActive && (
         <span className="is-recording">
@@ -1103,6 +1113,7 @@ function LiveRailSeat({
   const { t } = useTranslation();
   const sharing = media.participants.some(item => item.kind === "screen" && item.hasVideo && classroomParticipantOwnerId(item, [member], currentUserId) === member.userId);
   const [touchControlsVisible, setTouchControlsVisible] = useState(false);
+  const [seatMenuOpen, setSeatMenuOpen] = useState(false);
   const skipTouchPreviewActionRef = useRef(false);
   const isSelf = member.userId === currentUserId;
   const microphoneOn = participant?.isLocal
@@ -1175,7 +1186,7 @@ function LiveRailSeat({
         const slots = Math.round(info.offset.x / 150);
         if (slots) onMoveSeat(member.userId, slots);
       }}
-      className={`classroom-v3-seat${sharing ? " is-sharing" : ""}${member.role !== "student" ? " is-teacher" : ""}${cameraOn ? " has-video" : ""}${touchControlsVisible ? " is-touch-active" : ""}${canReorder ? " is-reorderable" : ""}`}
+      className={`classroom-v3-seat${sharing ? " is-sharing" : ""}${member.role !== "student" ? " is-teacher" : ""}${cameraOn ? " has-video" : ""}${touchControlsVisible || seatMenuOpen ? " is-touch-active" : ""}${canReorder ? " is-reorderable" : ""}`}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) {
           setTouchControlsVisible(false);
@@ -1237,81 +1248,22 @@ function LiveRailSeat({
         </span>
         {showControls && (
           <span className="classroom-v3-seat-controls">
-            {canManage && member.handRaisedAt && <button type="button" className="classroom-hand-ack" disabled={busy} title={t("classroomWorkspace.acknowledgeHand")} aria-label={`${member.displayName} · ${t("classroomWorkspace.acknowledgeHand")}`} onClick={onAcknowledgeHand}><Check /></button>}
-            {canManage && canPlaceOnBoard && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onPlaceOnBoard(member.userId)}
-                title={t("classroom.v3.placeOnBoard")}
-              >
-                <Move />
-              </button>
-            )}
-            {canReward && member.role === "student" && (
-              <button
-                type="button"
-                disabled={busy}
-                className="is-reward"
-                onClick={() => onReward(member.userId)}
-                title={t("classroom.v3.giveReward")}
-              >
-                <Trophy />
-              </button>
-            )}
-            <button
-              type="button"
-              disabled={busy}
-              className={microphoneControlOn ? "is-on" : ""}
-              onClick={() =>
-                canControlSelf
-                  ? onToggleLocalMicrophone()
-                  : onManageMedia(member, "microphone")
-              }
-              title={
-                canControlSelf
-                  ? microphoneOn
-                    ? t("classroom.v3.closeMyMicrophone")
-                    : t("classroom.v3.openMyMicrophone")
-                  : member.microphoneAllowed
-                    ? t("classroom.v3.blockStudentMicrophone")
-                    : t("classroom.v3.allowStudentMicrophone")
-              }
-            >
+            {(canControlSelf || canControlStudent) && <ClassroomIconButton type="button" disabled={busy}
+              title={t(canControlSelf ? microphoneOn ? "classroom.v3.closeMyMicrophone" : "classroom.v3.openMyMicrophone" : member.microphoneAllowed ? "classroom.v3.blockStudentMicrophone" : "classroom.v3.allowStudentMicrophone")}
+              onClick={() => canControlSelf ? onToggleLocalMicrophone() : onManageMedia(member, "microphone")}>
               {microphoneControlOn ? <Mic /> : <MicOff />}
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              className={cameraControlOn ? "is-on" : ""}
-              onClick={() =>
-                canControlSelf
-                  ? onToggleLocalCamera()
-                  : onManageMedia(member, "camera")
-              }
-              title={
-                canControlSelf
-                  ? cameraOn
-                    ? t("classroom.v3.closeMyCamera")
-                    : t("classroom.v3.openMyCamera")
-                  : member.cameraAllowed
-                    ? t("classroom.v3.blockStudentCamera")
-                    : t("classroom.v3.allowStudentCamera")
-              }
-            >
-              {cameraControlOn ? <Video /> : <VideoOff />}
-            </button>
-            {canControlStudent && member.onStage && (
-              <button
-                type="button"
-                disabled={busy}
-                className="is-remove"
-                onClick={() => onRemoveStage(member.userId)}
-                title={t("classroom.v3.removeStage")}
-              >
-                <X />
-              </button>
-            )}
+            </ClassroomIconButton>}
+            {canManage && canPlaceOnBoard && <ClassroomIconButton type="button" disabled={busy} title={t("classroom.v3.placeOnBoard")} onClick={() => onPlaceOnBoard(member.userId)}><Move /></ClassroomIconButton>}
+            {canControlSelf && <ClassroomIconButton type="button" disabled={busy} title={t(cameraOn ? "classroom.v3.closeMyCamera" : "classroom.v3.openMyCamera")} onClick={onToggleLocalCamera}>{cameraControlOn ? <Video /> : <VideoOff />}</ClassroomIconButton>}
+            {(canControlStudent || (canReward && member.role === "student")) && <DropdownMenu modal={false} open={seatMenuOpen} onOpenChange={setSeatMenuOpen}>
+              <DropdownMenuTrigger asChild><ClassroomIconButton type="button" disabled={busy} title={t("classroom.v3.more")}><MoreHorizontal /></ClassroomIconButton></DropdownMenuTrigger>
+              <DropdownMenuContent className="classroom-header-menu classroom-seat-menu" sideOffset={6} collisionPadding={8}>
+                {canManage && member.handRaisedAt && <DropdownMenuItem disabled={busy} onSelect={onAcknowledgeHand}><Check />{t("classroomWorkspace.acknowledgeHand")}</DropdownMenuItem>}
+                {canControlStudent && <DropdownMenuItem disabled={busy} onSelect={() => onManageMedia(member, "camera")}>{cameraControlOn ? <Video /> : <VideoOff />}{t(member.cameraAllowed ? "classroom.v3.blockStudentCamera" : "classroom.v3.allowStudentCamera")}</DropdownMenuItem>}
+                {canReward && member.role === "student" && <DropdownMenuItem disabled={busy} onSelect={() => onReward(member.userId)}><Trophy />{t("classroom.v3.giveReward")}</DropdownMenuItem>}
+                {canControlStudent && member.onStage && <DropdownMenuItem disabled={busy} className="is-danger" onSelect={() => onRemoveStage(member.userId)}><X />{t("classroom.v3.removeStage")}</DropdownMenuItem>}
+              </DropdownMenuContent>
+            </DropdownMenu>}
           </span>
         )}
       </footer>
@@ -6504,7 +6456,7 @@ export function ClassroomV3({
         onEnd={() => setEndClassConfirming(true)} onRestarted={() => void refreshState()}
         onExtended={timing => { updateSession({ course: { ...sessionData.course, endTime: timing.endTime }, runtime: { ...sessionData.runtime, scheduledEndAt: timing.endTime, scheduledStartAt: timing.startTime, revision: timing.revision } }); publishInvalidation(timing.revision, "runtime"); void refreshState(); }}
         onMembers={sessionData.capabilities.canManageMembers ? () => setActivePanel("members") : undefined}
-        status={<StatusPill media={media} recording={recordingStatus} presenceHealthy={presenceHealthy && !sessionData.runtime.presenceUncertain} />}
+        status={<StatusPill inMenu media={media} recording={recordingStatus} presenceHealthy={presenceHealthy && !sessionData.runtime.presenceUncertain} />}
         settings={<ClassroomQuickSettings provider={controlsRoomMedia && roomProvider ? roomProvider : mediaProvider} dark={theme !== "light"}
           onTheme={() => setClientTheme(theme === "light" ? "dark" : "light")} onCaptions={() => setActivePanel("captions")} onAdvanced={() => setSettingsOpen(true)} />}
         actions={minimalFunctionActions}
