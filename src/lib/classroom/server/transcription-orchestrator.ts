@@ -19,9 +19,11 @@ import {
   isWordlyConfigured,
   isWordlyHealthy,
   stopWordlyRoom,
+  wordlyTranslationCapabilities,
 } from "@/lib/classroom/translation/wordly";
 import { ensureClassroomRuntime } from "@/lib/classroom/server/runtime";
 import { reconcileCaptionDemand } from "./caption-demand";
+import { resolveCaptionTranslations } from "./caption-routing";
 
 const TRANSCRIPTION_TRANSITION_LEASE_MS = 30_000;
 const TRANSCRIPTION_HEALTH_CHECK_INTERVAL_MS = 30_000;
@@ -51,9 +53,7 @@ export async function stopClassroomTranscription(
     });
     const results = await Promise.allSettled([
       agentId ? stopAgoraTranscription(agentId) : Promise.resolve(),
-      runtime.interpretationProvider === "wordly"
-        ? stopWordlyRoom(sessionId)
-        : Promise.resolve(),
+      stopWordlyRoom(sessionId),
     ]);
     const failure = results.find(
       (result): result is PromiseRejectedResult => result.status === "rejected",
@@ -191,11 +191,15 @@ async function syncClassroomTranscriptionTask(
   );
 
   try {
+    const plan = await resolveCaptionTranslations(provider, sourceLanguage, targetLanguages);
+    if (plan.unsupportedTargets.length || plan.exceedsLimit) {
+      throw new Error(`Caption languages unavailable: ${plan.unsupportedTargets.join(", ") || "provider language limit exceeded"}`);
+    }
     if (!isAgoraTranscriptionConfigured()) {
       throw new Error("Shengwang ASR is not configured. Check AGORA_STT_* and REST credentials.");
     }
     const channelName = courseIdToRoomUuid(lesson.id, lesson.roomUuid);
-    if (provider === "wordly" && targetLanguages.length > 0) {
+    if (plan.wordlyTargets.length > 0) {
       if (!isWordlyConfigured() || !(await isWordlyHealthy())) {
         throw new Error("Wordly is not configured. Set WORDLY_API_URL and WORDLY_INTERNAL_TOKEN.");
       }
@@ -204,7 +208,7 @@ async function syncClassroomTranscriptionTask(
         title: lesson.title || lesson.course.name,
         channelName,
         sourceLanguage,
-        targetLanguages,
+        targetLanguages: plan.wordlyTargets,
       });
     } else {
       await stopWordlyRoom(sessionId).catch(() => undefined);
@@ -220,8 +224,8 @@ async function syncClassroomTranscriptionTask(
           if (["running", "starting", "recovering"].includes(status)) {
             await updateAgoraTranscription(runtime.transcriptionAgentId, {
               sourceLanguage,
-              targetLanguages,
-              translationProvider: provider,
+              targetLanguages: plan.shengwangTargets,
+              translationProvider: "shengwang",
             });
             return prisma.classroomRuntime.update({
               where: { id: runtime.id },
@@ -259,8 +263,8 @@ async function syncClassroomTranscriptionTask(
       courseId: sessionId,
       channelName,
       sourceLanguage,
-      targetLanguages,
-      translationProvider: provider,
+      targetLanguages: plan.shengwangTargets,
+      translationProvider: "shengwang",
     });
     console.info("[classroom:captions] ASR agent started", {
       sessionId,
@@ -289,7 +293,6 @@ async function syncClassroomTranscriptionTask(
       where: { id: runtime.id },
       data: {
         transcriptionStatus: "failed",
-        transcriptionAgentId: null,
         transcriptionError: message.slice(0, 1000),
         transcriptionRetryCount: attemptRetryCount,
         transcriptionLastCheckedAt: new Date(),
@@ -300,9 +303,11 @@ async function syncClassroomTranscriptionTask(
 }
 
 export async function classroomInterpretationAvailability() {
+  const bridge = await wordlyTranslationCapabilities();
   return {
     shengwang: isAgoraTranscriptionConfigured(),
-    wordly: isWordlyConfigured() ? await isWordlyHealthy() : false,
+    wordly: bridge.configured,
+    wordlyTargetLanguages: bridge.targetLanguages,
   };
 }
 

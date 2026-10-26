@@ -1,4 +1,5 @@
 import { shengwangTranslationLanguages, supportedCaptionTranslationCodes, type CaptionTranslationProvider } from "./translation-capabilities";
+import { isCaptionLanguageCode } from "./caption-routing";
 
 export type ClassroomLanguage = {
   code: string;
@@ -31,6 +32,9 @@ export const classroomLanguages: ClassroomLanguage[] = [
   { code: "it-IT", label: "Italian", nativeLabel: "Italiano", region: "global" },
   { code: "ru-RU", label: "Russian", nativeLabel: "Русский", region: "global" },
   { code: "sw-KE", label: "Swahili", nativeLabel: "Kiswahili", region: "global" },
+  { code: "am-ET", label: "Amharic (Ethiopia)", nativeLabel: "አማርኛ", region: "global" },
+  { code: "bm", label: "Bambara · 班巴拉语", nativeLabel: "Bamanankan", region: "global" },
+  { code: "chm", label: "Meadow Mari · 草原马里语", nativeLabel: "Meadow Mari", region: "global" },
 ];
 
 const languageCodes = new Set([...classroomLanguages.map((language) => language.code), ...shengwangTranslationLanguages.map(language => language.code), ...supportedCaptionTranslationCodes("wordly")]);
@@ -43,10 +47,10 @@ export function defaultClassroomTargetLanguages(_sourceLanguage: string): string
 
 const captionOptionsCache = new Map<CaptionTranslationProvider, ClassroomLanguage[]>();
 
-export function captionLanguageOptions(provider: CaptionTranslationProvider): ClassroomLanguage[] {
-  const cached = captionOptionsCache.get(provider);
+export function captionLanguageOptions(provider: CaptionTranslationProvider, codes?: readonly string[]): ClassroomLanguage[] {
+  const cached = !codes && captionOptionsCache.get(provider);
   if (cached) return cached;
-  const options: ClassroomLanguage[] = supportedCaptionTranslationCodes(provider).map(code => {
+  const options: ClassroomLanguage[] = [...new Set(codes ?? supportedCaptionTranslationCodes(provider))].map(code => {
     const existing = classroomLanguages.find(language => language.code === code);
     if (existing) return existing;
     const label = shengwangTranslationLanguages.find(language => language.code === code)?.label || code;
@@ -56,7 +60,7 @@ export function captionLanguageOptions(provider: CaptionTranslationProvider): Cl
     } catch { /* Provider-specific dialect identifiers may not be valid Intl locales. */ }
     return { code, label, nativeLabel, region: "global" };
   });
-  captionOptionsCache.set(provider, options);
+  if (!codes) captionOptionsCache.set(provider, options);
   return options;
 }
 
@@ -77,7 +81,7 @@ export function normalizeTargetLanguages(
       value
         .filter((item): item is string => typeof item === "string")
         .map((item) => item.trim())
-        .filter((item) => languageCodes.has(item) && item !== sourceLanguage),
+        .filter((item) => isCaptionLanguageCode(item) && item !== sourceLanguage),
     ),
   ).slice(0, maxTargets);
 }
@@ -109,12 +113,12 @@ export function classroomLanguageLabel(code: string, locale?: string): string {
 }
 
 /** Sort the names people see; retain English, native and localized names for search. */
-export function captionLanguageSelectOptions(provider: CaptionTranslationProvider, locale: string) {
+export function captionLanguageSelectOptions(provider: CaptionTranslationProvider, locale: string, codes?: readonly string[]) {
   const alphabet = new Intl.Collator("en", { sensitivity: "base", numeric: true });
-  return captionLanguageOptions(provider).map(language => ({
+  return captionLanguageOptions(provider, codes).map(language => ({
     value: language.code,
     label: classroomLanguageLabel(language.code, locale),
-    searchText: [language.label, language.nativeLabel, languageDisplayName(language.code, "en"), language.code].join(" "),
+    searchText: [language.label, language.nativeLabel, languageDisplayName(language.code, locale), languageDisplayName(language.code, "en"), language.code].join(" "),
   })).sort((a, b) => alphabet.compare(a.label, b.label) || alphabet.compare(a.value, b.value));
 }
 

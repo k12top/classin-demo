@@ -22,7 +22,7 @@ function fixture() {
     "server-only": {}, "@/lib/db": { prisma: { classroomRuntime: table } }, "@/lib/course-room": {}, "@/lib/classroom/languages": {},
     "@/lib/classroom/transcription/agora-stt": { stopAgoraTranscription: async () => { stops++; await stop(); } },
     "@/lib/classroom/translation/wordly": { stopWordlyRoom: async () => { wordlyStops++; } },
-    "@/lib/classroom/server/runtime": {}, "./caption-demand": {},
+    "@/lib/classroom/server/runtime": {}, "./caption-demand": {}, "./caption-routing": {},
   });
   return { row, api, setStop: (next: () => Promise<void>) => { stop = next; }, calls: () => ({ stops, wordlyStops }) };
 }

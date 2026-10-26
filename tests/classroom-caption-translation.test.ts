@@ -4,10 +4,11 @@ import test from "node:test";
 import { loadModule } from "./helpers/load-module";
 import { shouldReusePersistedCaption } from "../src/lib/classroom/caption-idempotency";
 import { runClaimedCaptionTranslation, captionTranslationState } from "../src/lib/classroom/caption-translation";
+import { planCaptionTranslations } from "../src/lib/classroom/caption-routing";
 type Row = Record<string, unknown> & {text: string;translations: Record<string,string>};
-function fixture(translate: (input: Row)=>Promise<Row>) {
+function fixture(translate: (input: Row)=>Promise<Row>, provider = "wordly", targets = ["en-US"]) {
  let active = 0, calls = 0, row: Row | null = null, revision = 1; const jobs=new Map<string, {noticeId:string;payload:Record<string,unknown>}>();let prepareFailure=false,commitFailure=false,prepareHook:(()=>Promise<void>)|null=null;
- const runtime={id:"runtime",status:"live",interpretationEnabled:true,interpretationProvider:"wordly",sourceLanguage:"zh-CN",targetLanguages:["en-US"],revision};
+ const runtime={id:"runtime",status:"live",interpretationEnabled:true,interpretationProvider:provider,sourceLanguage:"zh-CN",targetLanguages:targets,revision};
  const tx={classroomCaption:{findUnique:async()=>row,upsert:async({create,update}:{create:Row;update:Row})=>{row={...(row?{...row,...update}:{id:"stored",createdAt:new Date(),...create}),updatedAt:new Date()} as Row;return row;},update:async({data}:{data:Partial<Row>})=>{if(commitFailure){commitFailure=false;throw Error("commit unavailable");}row={...row!,...data,updatedAt:new Date()};return row;}},classroomMemberState:{findUnique:async()=>null},classroomRuntime:{findUnique:async()=>({...runtime,revision}),update:async()=>({...runtime,revision:++revision})},classroomProviderEvent:{
  findUnique:async({where}:{where:{noticeId:string}})=>jobs.get(where.noticeId)||null,
  update:async({where,data}:{where:{noticeId:string};data:{payload:Record<string,unknown>}})=>{const value=structuredClone({...jobs.get(where.noticeId)!,...data});jobs.set(where.noticeId,value);return value;},
@@ -18,11 +19,25 @@ function fixture(translate: (input: Row)=>Promise<Row>) {
  Object.assign(tx.classroomCaption,{findMany:async()=>row?[{...row}]:[]});
  Object.assign(prisma.classroomProviderEvent,{findMany:async({where}:{where:{noticeId:{in:string[]}}})=>[...jobs.values()].filter(job=>where.noticeId.in.includes(job.noticeId))});
  const api=loadModule<typeof import("../src/lib/classroom/server/captions")>("src/lib/classroom/server/captions.ts",{
- "server-only":{},"node:crypto":crypto,"../caption-translation":{runClaimedCaptionTranslation,captionTranslationState},"@/lib/db":{prisma},"@/lib/classroom/server/runtime":{ensureClassroomRuntime:async()=>runtime},"@/lib/course-room":{courseIdToRoomUuid:()=>"room"},"@/lib/classroom/languages":{normalizeTargetLanguages:()=>["en-US"]},"@/lib/classroom/caption-idempotency":{shouldReusePersistedCaption},"@/lib/classroom/translation/wordly":{ensureWordlyRoom:async()=>{assert.equal(active,0);if(prepareHook)await prepareHook();if(prepareFailure)throw Error("prepare failed");},translateCaptionWithWordly:async(_id:string,input:Row)=>{assert.equal(active,0,"paid provider must not run in DB transaction");calls++;return translate(input);}},
+ "./caption-routing":{resolveCaptionTranslations:async(provider: "wordly" | "shengwang", source: string, targets: string[])=>planCaptionTranslations(provider,source,targets,{configured:true,targetLanguages:["en-US","bm","chm"],maxTargetLanguages:10})},
+ "server-only":{},"node:crypto":crypto,"../caption-translation":{runClaimedCaptionTranslation,captionTranslationState},"@/lib/db":{prisma},"@/lib/classroom/server/runtime":{ensureClassroomRuntime:async()=>runtime},"@/lib/course-room":{courseIdToRoomUuid:()=>"room"},"@/lib/classroom/languages":{normalizeTargetLanguages:(value:string[])=>value},"@/lib/classroom/caption-idempotency":{shouldReusePersistedCaption},"@/lib/classroom/translation/wordly":{ensureWordlyRoom:async()=>{assert.equal(active,0);if(prepareHook)await prepareHook();if(prepareFailure)throw Error("prepare failed");},translateCaptionWithWordly:async(_id:string,input:Row)=>{assert.equal(active,0,"paid provider must not run in DB transaction");calls++;return translate(input);}},
  });
  return {api,get calls(){return calls;},get row(){return row;},get jobs(){return jobs.size;},get ledger(){return jobs;},set prepareHook(value:(()=>Promise<void>)|null){prepareHook=value;},set prepareFailure(value:boolean){prepareFailure=value;},set commitFailure(value:boolean){commitFailure=value;}};
 }
 const input={id:"caption",text:"正文",speakerId:"teacher",speakerName:"老师",sourceLanguage:"zh-CN",detectedLanguage:"zh-CN",translations:{},isFinal:true,provider:"shengwang" as const,occurredAt:new Date().toISOString()};
+test("mixed Shengwang and bridge captions merge late native translations without billing again", async()=>{
+ const f=fixture(async value=>({...value,translations:{bm:"Bridge text"}}),"shengwang",["en-US","bm"]);
+ const first=await f.api.ingestClassroomCaption("course",input,"session");
+ assert.ok("caption" in first);assert.equal(first.caption.translations.bm,"Bridge text");
+ const late=await f.api.ingestClassroomCaption("course",{...input,translations:{"en-US":"Agora text"}},"session");
+ assert.ok("caption" in late);assert.deepEqual(late.caption.translations,{bm:"Bridge text","en-US":"Agora text"});assert.equal(f.calls,1);
+ await f.api.ingestClassroomCaption("course",input,"session");assert.equal(f.calls,1);
+});
+test("Amharic subtitles stay on Shengwang and never dispatch a bridge transcript", async()=>{
+ const f=fixture(async value=>value,"shengwang",["am-ET"]);
+ await f.api.ingestClassroomCaption("course",{...input,translations:{"am-ET":"ሰላም"}},"session");
+ assert.equal(f.calls,0);assert.equal(f.jobs,0);assert.equal(f.row?.translations["am-ET"],"ሰላም");
+});
 test("translation is outside transactions, original caption commits before provider wait; duplicate requests reserve once",async()=>{
  let finish!:(value:Row)=>void;let started!:()=>void;const began=new Promise<void>(r=>started=r);
  const f=fixture(async value=>{started();return new Promise<Row>(r=>{finish=()=>r({...value,translations:{"en-US":"Text"}});});});

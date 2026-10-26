@@ -439,6 +439,7 @@ export type ClassroomSessionResponse = {
   interpretationAvailability: {
     shengwang: boolean;
     wordly: boolean;
+    wordlyTargetLanguages?: string[];
   };
   recording: {
     enabled: boolean;

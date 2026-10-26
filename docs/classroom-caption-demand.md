@@ -12,7 +12,15 @@
 
 订阅保存在 `ClassroomConnection.captionLanguage`，按浏览器标签页区分。课堂输出是有效连接订阅的去重集合；同一语种由多人共用。切换语言、仅原文、关闭字幕或离开课堂会释放本人需求，连接超过 120 秒未续约也会在字幕恢复检查中被移除。前端每 20 秒重申当前选择，以恢复中断的请求；相同订阅不重复写连接记录，也不重复更新翻译任务。录制页面不订阅翻译。
 
-语言列表来自 `translation-capabilities.ts` 中的服务能力表，独立于 23 种界面语言和当前已开启的通道。声网旧版 join/update 接口最多同时开启 10 个目标语种，Wordly 桥接的应用上限为 20。所有支持的语言都可在列表中选择；超过当前并发容量时，接口返回 `caption_language_limit`，事务回滚并保留原选择。Wordly 不支持的语种不会出现在其列表里。
+语言列表独立于 23 种界面语言和当前已开启的通道。默认 `shengwang` 按每个目标语言自动路由：声网能力表内的语言优先使用声网，其余使用自有同传桥接（配置仍名为 `WORDLY_*`）。例如阿姆哈拉语（埃塞俄比亚，`am-ET`）在声网识别和翻译表内，默认使用声网；`bm`、`chm` 等额外语言只有自有服务实际声明支持时才出现。国家名不作为独立语种。
+
+自有服务能力来自带服务端 Bearer 认证的 `GET /api/v1/bridge/capabilities`，与 meeting 项目相同；读取 `configured`、`targetLanguages` 和 `maxTargetLanguages`，缓存 30 秒并合并并发请求，失败时不推测支持范围。`wordlyTranslationCodes` 中的公共产品语言表只保留兼容用途，不决定自有桥接能力。前端通过课堂会话响应中的 `interpretationAvailability.wordlyTargetLanguages` 获取实际额外语言。语音识别仍由声网承担；桥接只接收定稿文本，音频采集和播放语言不受此变更影响。
+
+默认自动路由维持每堂课最多 10 个目标语言；历史显式 `wordly` 模式仍固定使用桥接，应用上限 20，并受桥接返回的实际上限约束。超过容量时接口返回 `caption_language_limit`，事务回滚并保留原选择；两边均不支持时返回 `caption_language_unsupported`。已保存的额外语言需求在桥接临时不可用时保留，服务同步记录失败，恢复后继续同步。
+
+混合翻译时，声网只接收自身负责的目标语言，自有房间只配置额外目标语言。发送桥接 transcript 时清空 `translations`，防止自有服务因声网已有译文而跳过翻译；返回结果与原字幕已有译文合并。重复定稿、延迟声网译文、已付费请求结果未知和显式恢复仍使用现有字幕事件账本，避免重复翻译。下课或关闭同传时同时停止两边服务。
+
+声网支持表核实于 2026-10-26：https://doc.shengwang.cn/doc/speech-to-text/restful/api/supported-languages 。目录声明支持不等同于当前账号已通过真实语音验收。
 
 服务端锁定课堂运行状态后汇总需求，避免并发用户覆盖彼此的选择。`transcriptionConfigKey` 记录已应用的服务配置，`transcriptionSyncLeaseUntil` 在多个实例间串行化服务更新。更新期间发生的新选择会再次汇总；中断的同步由个人订阅重试、老师心跳及现有定时恢复流程继续处理。无译文需求时，声网关闭 `translateConfig`，Wordly 不再执行字幕翻译调用，原文转写继续用于课堂字幕及回放。
 

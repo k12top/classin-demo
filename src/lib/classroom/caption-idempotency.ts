@@ -15,6 +15,8 @@ export function shouldReusePersistedCaption(input: {
   if (input.provider === "wordly") {
     return input.targetLanguages.every((language) =>
       Boolean(input.existingTranslations[language]),
+    ) && !Object.entries(input.incomingTranslations).some(
+      ([language, translation]) => input.existingTranslations[language] !== translation,
     );
   }
 

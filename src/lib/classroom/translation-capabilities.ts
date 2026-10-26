@@ -1,6 +1,7 @@
 // Language catalog for the Shengwang STT REST API used by this application.
 // https://doc.shengwang.cn/doc/speech-to-text/restful/api/supported-languages
-// The v7 join/update documentation links to this catalog. Checked 2026-10-13.
+// The v7 join/update documentation links to this catalog. Both recognition and
+// translation tables include am-ET. Rechecked 2026-10-26.
 export const shengwangTranslationLanguages = [
   { code: "af-ZA", label: "Afrikaans (South Africa)" },
   { code: "am-ET", label: "Amharic (Ethiopia)" },
@@ -156,8 +157,8 @@ export const shengwangTranslationLanguages = [
 
 export type CaptionTranslationProvider = "shengwang" | "wordly";
 
-// The internal Wordly bridge uses classroom BCP-47 identifiers. Include only
-// languages listed for attendees, never infer support from interface locales.
+// Legacy public Wordly catalog, retained for compatibility. The self-hosted
+// bridge uses authenticated capability discovery, not this product's catalog.
 // https://dev-help.wordly.ai/develop/languages/ (checked 2026-10-13).
 export const wordlyTranslationCodes = [
   "af-ZA", "sq-AL", "ar-SA", "hy-AM", "bn-IN", "bg-BG", "zh-HK",

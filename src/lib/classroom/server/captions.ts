@@ -13,6 +13,8 @@ import { courseIdToRoomUuid } from "@/lib/course-room";
 import { normalizeTargetLanguages } from "@/lib/classroom/languages";
 import { shouldReusePersistedCaption } from "@/lib/classroom/caption-idempotency";
 import { ensureClassroomRuntime } from "@/lib/classroom/server/runtime";
+import { requestedBridgeTargets } from "../caption-routing";
+import { resolveCaptionTranslations } from "./caption-routing";
 
 function translationsRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
@@ -67,8 +69,8 @@ export async function getClassroomCaptions(courseId: string, take = 100, session
     prisma.classroomRuntime.findUnique({ where: { sessionId }, select: { interpretationEnabled: true, interpretationProvider: true, targetLanguages: true, sourceLanguage: true } }),
   ]);
   const publicItems = captions.reverse().map(publicCaption);
-  if (!runtime?.interpretationEnabled || runtime.interpretationProvider !== "wordly") return publicItems;
-  const targets = normalizeTargetLanguages(runtime.targetLanguages, runtime.sourceLanguage, 20);
+  if (!runtime?.interpretationEnabled) return publicItems;
+  const targets = requestedBridgeTargets(runtime.interpretationProvider, runtime.sourceLanguage, normalizeTargetLanguages(runtime.targetLanguages, runtime.sourceLanguage, 20));
   const pending = publicItems.filter(item => item.isFinal && targets.some(language => !item.translations[language]));
   if (!pending.length) return publicItems;
   const jobs = await prisma.classroomProviderEvent.findMany({ where: { provider: "classroom-translation", noticeId: { in: pending.map(item => translationNoticeId(sessionId, item, targets)) } }, select: { noticeId: true, payload: true } });
@@ -139,14 +141,13 @@ export async function ingestClassroomCaption(
       );
       const incomingTranslations = suppliedTranslations;
       const effectiveText = text || existingCaption?.text || "";
-      const wordlyTargets = normalizeTargetLanguages(
+      const wordlyTargets = requestedBridgeTargets(runtime.interpretationProvider, runtime.sourceLanguage, normalizeTargetLanguages(
         runtime.targetLanguages,
         runtime.sourceLanguage,
         20,
-      );
+      ));
       const wordlyFinal =
         runtime.interpretationEnabled &&
-        runtime.interpretationProvider === "wordly" &&
         input.isFinal && wordlyTargets.length > 0;
       if (
         existingCaption &&
@@ -265,8 +266,8 @@ export async function ingestClassroomCaption(
     },
     { maxWait: 5_000, timeout: 5_000 },
   );
-  const targets = normalizeTargetLanguages(runtime.targetLanguages, runtime.sourceLanguage, 20);
-  if (!input.isFinal || !result.caption?.isFinal || runtime.interpretationProvider !== "wordly" || !runtime.interpretationEnabled ||
+  const targets = requestedBridgeTargets(runtime.interpretationProvider, runtime.sourceLanguage, normalizeTargetLanguages(runtime.targetLanguages, runtime.sourceLanguage, 20));
+  if (!input.isFinal || !result.caption?.isFinal || !runtime.interpretationEnabled ||
       !targets.some(language => !result.caption.translations[language]) || result.caption.text !== text) {
     if (targets.length && targets.every(language => result.caption.translations[language])) result.caption.translationStatus = "completed";
     return result;
@@ -299,7 +300,11 @@ export async function ingestClassroomCaption(
       if (!options.recoverOnly || !existing || !(previous.state === "failed" || stalePreparing)) return false;
       return (await prisma.classroomProviderEvent.updateMany({ where: { noticeId, payload: { equals: existing.payload as Prisma.InputJsonValue } }, data: { payload: ownedPayload, processedAt: null } })).count === 1;
     },
-    prepare: async () => { await ensureWordlyRoom({ courseId: sessionId, title: lesson.title, channelName: courseIdToRoomUuid(lesson.id, lesson.roomUuid), sourceLanguage: runtime.sourceLanguage, targetLanguages: targets }); },
+    prepare: async () => {
+      const plan = await resolveCaptionTranslations(runtime.interpretationProvider === "wordly" ? "wordly" : "shengwang", runtime.sourceLanguage, targets);
+      if (plan.unsupportedTargets.length || plan.exceedsLimit) throw new Error("Caption bridge languages unavailable");
+      await ensureWordlyRoom({ courseId: sessionId, title: lesson.title, channelName: courseIdToRoomUuid(lesson.id, lesson.roomUuid), sourceLanguage: runtime.sourceLanguage, targetLanguages: targets });
+    },
     beforeTranslate: async () => {
       const next = payloadFor("requesting");
       const changed = await prisma.classroomProviderEvent.updateMany({ where: { noticeId, payload: { equals: ownedPayload } }, data: { payload: next } });
