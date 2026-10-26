@@ -1451,7 +1451,7 @@ export async function applyClassroomAction(input: {
         requireLeadTeacher(role);
         const provider = action.provider === "wordly" ? "wordly" : "shengwang";
         const sourceLanguage = normalizeClassroomLanguage(action.sourceLanguage);
-        if (!supportsCaptionTranslation(provider, action.sourceLanguage) || !supportsCaptionTranslation("shengwang", action.sourceLanguage)) throw new ClassroomActionError("当前翻译服务不支持此课堂语言");
+        if (!supportsCaptionTranslation("shengwang", action.sourceLanguage)) throw new ClassroomActionError("当前语音识别服务不支持此课堂语言");
         // Output languages belong to active participants, including older clients
         // that still submit a manually configured targetLanguages array.
         const targetLanguages = await captionDemandTargets(tx, sessionId, sourceLanguage, provider);

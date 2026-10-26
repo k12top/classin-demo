@@ -55,7 +55,7 @@ export function CaptionsPanel({
 }: {
   runtime: ClassroomRuntimeSnapshot;
   captions: ClassroomCaptionSnapshot[];
-  availability: { shengwang: boolean; wordly: boolean };
+  availability: { shengwang: boolean; wordly: boolean; wordlyTargetLanguages?: string[] };
   canManage: boolean;
   displayMode: CaptionDisplayMode;
   overlayVisible: boolean;
@@ -118,13 +118,7 @@ export function CaptionsPanel({
   );
   const targetLanguages = runtime.interpretation.targetLanguages;
   const configuredProvider = runtime.interpretation.provider;
-  const effectiveProvider = availability[configuredProvider]
-    ? configuredProvider
-    : availability.wordly
-      ? "wordly"
-      : availability.shengwang
-        ? "shengwang"
-        : configuredProvider;
+  const effectiveProvider = configuredProvider;
   const interpretationStateLabel = !runtime.interpretation.enabled
     ? t("classroom.v3.notEnabled")
     : runtime.status !== "live"
@@ -141,8 +135,10 @@ export function CaptionsPanel({
       : t("classroom.v3.captionsWaitingHint");
 
   const supportedSources = new Set(supportedCaptionTranslationCodes("shengwang"));
-  const sourceOptions = captionLanguageSelectOptions(effectiveProvider, locale).filter(language => supportedSources.has(language.value));
-  const languageOptions = captionLanguageSelectOptions(configuredProvider, locale);
+  const sourceOptions = captionLanguageSelectOptions("shengwang", locale);
+  const bridgeCodes = availability.wordly ? availability.wordlyTargetLanguages ?? [] : [];
+  const codes = configuredProvider === "wordly" ? bridgeCodes : [...supportedSources, ...bridgeCodes];
+  const languageOptions = captionLanguageSelectOptions(configuredProvider, locale, codes);
   const currentLanguageLabel = classroomLanguageLabel(preferredLanguage, locale);
   const displayLabels: Record<CaptionDisplayMode, string> = {
     off: t("classroom.v3.captionsOff"),

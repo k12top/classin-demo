@@ -18,7 +18,7 @@ async function main() {
     "@/lib/classroom/server/request-access": `export async function resolveClassroomRequestAccess(){const a=globalThis.captionActor;return a.allowed===false?{ok:false,status:403,error:'Forbidden',code:'forbidden'}:{ok:true,session:{userId:a.userId},access:{sessionId:a.sessionId,courseId:a.courseId,role:a.role}}}`,
     "@/lib/classroom/server/integration-events": "export const enqueueClassroomEvent=async()=>{};export const deliverClassroomEvents=async()=>{};",
     "@/lib/classroom/transcription/agora-stt": `import {buildAgoraSttJoinPayload,buildAgoraSttUpdatePayload} from '${root}/src/lib/classroom/transcription/agora-stt-payload';export const isAgoraTranscriptionConfigured=()=>true;export const normalizeAgoraTranscriptionStatus=()=> 'running';export const queryAgoraTranscription=async()=>({status:'RUNNING'});export const stopAgoraTranscription=async()=>{};export const startAgoraTranscription=async input=>{globalThis.captionProviderCalls.push({kind:'start',input,payload:buildAgoraSttJoinPayload({...input,taskName:'fixture',subscriberUid:'1',publisherUid:'2'})});return {agentId:'fixture-agent',status:'running'}};export const updateAgoraTranscription=async (id,input)=>{globalThis.captionProviderCalls.push({kind:'update',input,payload:buildAgoraSttUpdatePayload(input)});await globalThis.captionProviderBarrier?.();return {status:'RUNNING'}};`,
-    "@/lib/classroom/translation/wordly": `export const isWordlyConfigured=()=>true;export const isWordlyHealthy=async()=>true;export const stopWordlyRoom=async()=>{};export const ensureWordlyRoom=async input=>{globalThis.captionProviderCalls.push({kind:'wordly',input})};export const translateCaptionWithWordly=async (id,input)=>{globalThis.captionProviderCalls.push({kind:'translate',input});return input};`,
+    "@/lib/classroom/translation/wordly": `export const isWordlyConfigured=()=>true;export const isWordlyHealthy=async()=>true;export const wordlyTranslationCapabilities=async()=>({configured:true,targetLanguages:['zh-CN','en-US','bm','chm'],maxTargetLanguages:2});export const stopWordlyRoom=async()=>{};export const ensureWordlyRoom=async input=>{globalThis.captionProviderCalls.push({kind:'wordly',input})};export const translateCaptionWithWordly=async (id,input)=>{globalThis.captionProviderCalls.push({kind:'translate',input});return {...input,translations:{bm:'Bambara text',chm:'Mari text'}}};`,
   };
   await esbuild.build({ stdin: { contents: `export {prisma} from './src/lib/db';export * from './src/lib/classroom/server/caption-demand';export * from './src/lib/classroom/server/connections';export * from './src/lib/classroom/server/runtime';export * from './src/lib/classroom/server/transcription-orchestrator';export * from './src/lib/classroom/server/captions';export {POST as preference} from './src/app/api/sessions/[sessionId]/classroom/caption-preference/route';`, resolveDir: root }, outfile: output, bundle: true, platform: "node", format: "cjs", packages: "external", tsconfig: path.join(root, "tsconfig.json"), plugins: [{ name: "external-boundaries", setup(build) {
     build.onResolve({ filter: /^(server-only|next\/server|@\/lib\/classroom\/(server\/(request-access|integration-events)|transcription\/agora-stt|translation\/wordly))$/ }, args => ({ path: args.path, namespace: "mock" }));
@@ -106,6 +106,28 @@ async function main() {
       await db.classroomConnection.updateMany({ where: { sessionId: lesson.id }, data: { captionLanguage: null } });
       await api.applyClassroomAction({ courseId: course.id, sessionId: lesson.id, session: { userId: "teacher", displayName: "Teacher", name: "teacher", avatar: "" }, role: "teacher", action: { type: "setInterpretation", enabled: true, provider: "shengwang", sourceLanguage: "zh-CN", targetLanguages: ["en-US", "ja-JP"] } });
       assert.deepEqual(await targets(), []);
+    });
+    await check("automatic routing shares Amharic on Shengwang and sends only extra targets to the bridge", async () => {
+      await connect("alice"); await connect("bob");
+      assert.equal((await request("alice", "am-ET")).status, 200);
+      assert.equal((await request("bob", "bm")).status, 200);
+      await flush();
+      assert.deepEqual(await targets(), ["am-ET", "bm"]);
+      const native = globalThis.captionProviderCalls.filter(call => call.kind === "update").at(-1);
+      assert.deepEqual(native.payload.translateConfig.languages[0].target, ["am-ET"]);
+      const room = globalThis.captionProviderCalls.filter(call => call.kind === "wordly").at(-1);
+      assert.deepEqual(room.input.targetLanguages, ["bm"]);
+      const caption = { id: "mixed-caption", text: "Hello", sourceLanguage: "zh-CN", detectedLanguage: "zh-CN", translations: { "am-ET": "ሰላም" }, isFinal: true, speakerId: "teacher", occurredAt: new Date().toISOString() };
+      const result = await api.ingestClassroomCaption(course.id, caption, lesson.id);
+      assert.equal(result.caption.translations.bm, "Bambara text");
+      assert.equal(result.caption.translations["am-ET"], "ሰላም");
+      const count = globalThis.captionProviderCalls.filter(call => call.kind === "translate").length;
+      await api.ingestClassroomCaption(course.id, caption, lesson.id);
+      assert.equal(globalThis.captionProviderCalls.filter(call => call.kind === "translate").length, count);
+      const unsupported = await request("bob", "xx-XX");
+      assert.equal(unsupported.status, 400);
+      assert.deepEqual(await targets(), ["am-ET", "bm"]);
+      await request("alice", null); await request("bob", null); await flush();
     });
     await check("Wordly rejects unsupported languages and never translates with zero demand", async () => {
       await db.classroomRuntime.update({ where: { sessionId: lesson.id }, data: { interpretationProvider: "wordly" } });

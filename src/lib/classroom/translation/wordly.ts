@@ -1,10 +1,44 @@
 import "server-only";
 
 import type { ClassroomCaptionInput } from "@/lib/classroom/types";
+import { isCaptionLanguageCode, type BridgeTranslationCapabilities } from "../caption-routing";
 
 const REQUEST_TIMEOUT_MS = 12_000;
 const HEALTH_CACHE_MS = 30_000;
 let healthCache: { checkedAt: number; healthy: boolean } | null = null;
+let capabilitiesCache: { key: string; checkedAt: number; value: BridgeTranslationCapabilities } | null = null;
+let capabilitiesRequest: { key: string; promise: Promise<BridgeTranslationCapabilities> } | null = null;
+
+const unavailableCapabilities = (): BridgeTranslationCapabilities => ({ configured: false, targetLanguages: [], maxTargetLanguages: 0 });
+
+/** Match meeting's authenticated bridge discovery, never the public Wordly catalog. */
+export async function wordlyTranslationCapabilities(): Promise<BridgeTranslationCapabilities> {
+  if (!isWordlyConfigured()) return unavailableCapabilities();
+  const config = configuration();
+  const key = JSON.stringify([config.baseUrl, config.token]);
+  if (capabilitiesCache?.key === key && Date.now() - capabilitiesCache.checkedAt < HEALTH_CACHE_MS) return capabilitiesCache.value;
+  if (capabilitiesRequest?.key === key) return capabilitiesRequest.promise;
+  const promise = (async () => {
+    let value = unavailableCapabilities();
+    try {
+      const response = await fetch(`${config.baseUrl}/api/v1/bridge/capabilities`, {
+        headers: { Accept: "application/json", Authorization: `Bearer ${config.token}` },
+        cache: "no-store", signal: AbortSignal.timeout(4_000),
+      });
+      if (response.ok) {
+        const body = await response.json();
+        if (body.configured === true && Array.isArray(body.targetLanguages) && Number.isInteger(body.maxTargetLanguages) && body.maxTargetLanguages > 0) {
+          value = { configured: true, targetLanguages: [...new Set<string>(body.targetLanguages.filter(isCaptionLanguageCode))], maxTargetLanguages: Math.min(20, body.maxTargetLanguages) };
+        }
+      }
+    } catch { /* Fail closed; a health endpoint alone does not establish language support. */ }
+    capabilitiesCache = { key, checkedAt: Date.now(), value };
+    return value;
+  })();
+  capabilitiesRequest = { key, promise };
+  try { return await promise; }
+  finally { if (capabilitiesRequest?.promise === promise) capabilitiesRequest = null; }
+}
 
 type WordlyRoomInput = {
   courseId: string;
@@ -53,7 +87,7 @@ export async function isWordlyHealthy() {
   }
 }
 
-async function requestWordly<T>(path: string, body: unknown): Promise<T> {
+async function requestWordly<T>(path: string, body: unknown, allowMissingRoom = false): Promise<T> {
   const config = configuration();
   if (!config.baseUrl || !config.token) {
     throw new Error("Wordly translation is not configured");
@@ -70,8 +104,9 @@ async function requestWordly<T>(path: string, body: unknown): Promise<T> {
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   const text = await response.text();
+  if (allowMissingRoom && response.status === 404) return {} as T;
   if (!response.ok) {
-    throw new Error(`Wordly HTTP ${response.status}: ${text.trim()}`);
+    throw new Error(`Wordly HTTP ${response.status}`);
   }
   return (text ? JSON.parse(text) : {}) as T;
 }
@@ -98,7 +133,9 @@ export async function translateCaptionWithWordly(
       text: caption.text,
       sourceLang: caption.sourceLanguage,
       detectedLang: caption.detectedLanguage,
-      translations: caption.translations,
+      // The bridge skips translation when any translations are supplied.
+      // Shengwang may already have produced other tracks in this mixed request.
+      translations: {},
       isFinal: caption.isFinal,
       speakerId: caption.speakerId,
       speakerLabel: caption.speakerName || "",
@@ -112,5 +149,6 @@ export async function stopWordlyRoom(courseId: string) {
   await requestWordly(
     `/api/v1/bridge/rooms/${encodeURIComponent(courseId)}/control`,
     { action: "stop" },
+    true,
   );
 }
