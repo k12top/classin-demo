@@ -4,6 +4,7 @@ import type { ClassroomAction, ClassroomRuntimeSnapshot } from "./types";
 export function optimisticClassroomRuntime(runtime: ClassroomRuntimeSnapshot, action: ClassroomAction, actorId: string): ClassroomRuntimeSnapshot | null {
  const patchMember = (userId: string, patch: Partial<ClassroomRuntimeSnapshot["members"][number]>) => ({ ...runtime, members: runtime.members.map((member) => member.userId === userId ? { ...member, ...patch } : member) });
  switch (action.type) {
+  case "setCaptionStartPreferences": return { ...runtime, captionStartPreferences: action.preferences };
   case "setClassStartMode": return { ...runtime, classStartMode: action.mode };
   case "setRecordingStartMode": return { ...runtime, recordingStartMode: action.mode };
   case "setWhiteboardWritable": return patchMember(action.targetUserId, { whiteboardWritable: action.writable });

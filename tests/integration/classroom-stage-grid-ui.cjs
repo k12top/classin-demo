@@ -62,6 +62,14 @@ async function main(){
  const checks=[];
  for(const [width,height] of (process.argv.includes('--menu-only')?[]:[[1440,900],[390,844],[320,740]])){
   win.setContentSize(width,height);await win.loadURL(url+'&role=teacher');await wait(`document.querySelectorAll('.classroom-v3-seat').length===4`);await settle();
+  await run(`document.querySelector('.classroom-minimal-header .classroom-header-more').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`);await wait(`document.querySelector('[role="menu"]')`);
+  const labels=await run(`[...document.querySelectorAll('[role^="menuitem"]')].map(e=>e.textContent.trim())`);
+  assert.ok(!labels.some(l=>['课件','互动','开始录制','界面语言','举手列表'].includes(l)),'top menu omits moved and duplicate entries');
+  assert.ok(labels.findIndex(l=>l==='恢复音视频')>labels.findIndex(l=>l==='布局'),'recovery follows layout');
+  assert.ok(await run(`!!document.querySelector('.classroom-minimal-header .classroom-v3-hand-raise-menu')`),'hand queue belongs to top bar');
+  await run(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));document.querySelector('.classroom-v3-dock-wrap .classroom-header-more').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`);await wait(`document.querySelector('.classroom-dock-menu')`);
+  const bottomLabels=await run(`[...document.querySelectorAll('.classroom-dock-menu [role^="menuitem"]')].map(e=>e.textContent.trim())`);assert.ok(bottomLabels.includes('课件')&&bottomLabels.includes('互动'));assert.ok(!bottomLabels.includes('恢复音视频'));
+  await run(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);await settle();
   await openLayout();await capture('layout-menu-'+width+'.png');await clickText('上台成员宫格');await wait(`document.querySelectorAll('.classroom-v3-board-item').length===4`);assert.equal(await run('fixtureLastLayout.layout'),'grid',await run('JSON.stringify(fixtureLastLayout)'));
   assert.ok(await run(`document.querySelector('.classroom-v3-board-composition').classList.contains('is-video-gallery')`),'gallery covers the whiteboard');assert.equal(await run(`document.querySelector('.classroom-v3-stage').dataset.boardToolsVisible`),'false','hidden board cannot receive drawing tools');await settle();const geometry=await run(`(()=>{const stage=document.querySelector('.classroom-v3-stage-content').getBoundingClientRect();return [...document.querySelectorAll('.classroom-v3-board-item')].map(e=>{const r=e.getBoundingClientRect();return{left:r.left-stage.left,top:r.top-stage.top,right:r.right-stage.left,bottom:r.bottom-stage.top,stageWidth:stage.width,stageHeight:stage.height,video:!!e.querySelector('video')}})})()`);
   for(const r of geometry){assert.ok(r.left>=-1&&r.top>=-1&&r.right<=r.stageWidth+1&&r.bottom<=r.stageHeight+1,'grid fits '+width);assert.ok(r.video,'each grid window has a video element')}

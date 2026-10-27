@@ -1,3 +1,4 @@
+import { validateCaptionStartPreferences } from "@/lib/classroom/caption-start-preferences";
 import { validTimeZone, isExplicitInstant } from "@/lib/time-zone";
 /**
  * Course list & create API
@@ -437,6 +438,7 @@ export async function POST(request: NextRequest) {
       description,
       roomType,
       autoStudentOnStage,
+      captionStartPreferences,
       startTime,
       endTime,
       studentRemarks,
@@ -458,6 +460,12 @@ export async function POST(request: NextRequest) {
         { error: "autoStudentOnStage must be a boolean" },
         { status: 400 },
       );
+    }
+
+    let normalizedCaptionStartPreferences;
+    if (captionStartPreferences !== undefined) {
+      try { normalizedCaptionStartPreferences = validateCaptionStartPreferences(captionStartPreferences); }
+      catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid caption settings" }, { status: 400 }); }
     }
 
     const normalizedCourseKind =
@@ -584,6 +592,7 @@ export async function POST(request: NextRequest) {
         roomType: roomType ?? 0,
         autoStudentOnStage:
           autoStudentOnStage ?? defaultAutoStudentOnStage(roomType ?? 0),
+        ...(normalizedCaptionStartPreferences && { captionStartPreferences: normalizedCaptionStartPreferences }),
         passcode: finalPasscode,
         ownerId: session.userId,
         ownerName,

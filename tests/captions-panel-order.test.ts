@@ -41,7 +41,9 @@ test("teacher caption controls stay together inside the minimal settings disclos
   assert.match(html, /我的字幕语言/);
   assert.ok(html.indexOf('课堂主要语言') > display);
   assert.match(html, /原文 \+ 译文/);
-  assert.match(html, /应用设置/);
+  assert.doesNotMatch(html, /应用设置/);
+  assert.match(html, /classroom-caption-save-status/);
+  assert.match(html, /<details[^>]*class="classroom-v3-caption-settings classroom-v3-caption-local-settings"/);
 });
 
 test("student caption settings retain their overlay and display controls without teacher interpretation controls", () => {

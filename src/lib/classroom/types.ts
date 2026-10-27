@@ -1,3 +1,4 @@
+import type { CaptionStartPreferences } from "./caption-start-preferences";
 export type ClassroomRole = "teacher" | "assistant" | "student";
 export type ClassroomProviderName = "agora";
 export type ClassroomConnectionState =
@@ -358,6 +359,7 @@ export type ClassroomRuntimeSnapshot = {
   status: "waiting" | "live" | "ended";
   /** Missing on older snapshots means manual with scheduled-time reminders. */
   classStartMode?: "manual" | "scheduled";
+  captionStartPreferences?: CaptionStartPreferences;
   recordingStartMode: "classStart" | "scheduled" | "scheduledEarly" | "disabled";
   startedAt: string | null;
   graceEndsAt: string | null;
@@ -467,6 +469,7 @@ export type ClassroomAction =
   | { type: "setAssistantPermission"; targetUserId: string; allowed: boolean }
   | { type: "startClass" }
   | { type: "startScheduledClass" }
+  | { type: "setCaptionStartPreferences"; preferences: CaptionStartPreferences }
   | { type: "setClassStartMode"; mode: "manual" | "scheduled" }
   | { type: "setRecordingStartMode"; mode: "classStart" | "scheduled" | "scheduledEarly" | "disabled" }
   | { type: "raiseHand" }

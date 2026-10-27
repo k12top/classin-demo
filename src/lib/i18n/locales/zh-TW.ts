@@ -4,6 +4,8 @@ import type { DeepPartial } from "../types";
 export const zhTW = {
 
   ...zhCN,
+  captionStart: {"title": "開課字幕與同傳", "autoCaptions": "自動開啟字幕", "autoInterpretation": "自動開啟同傳", "languages": "同傳語言", "addLanguage": "新增語言", "chooseLanguage": "請選擇至少一種同傳語言", "hint": "開課後自動開啟，課中可調整。", "saved": "已儲存", "saving": "儲存中…"},
+
   timeZones: {
     ...zhCN.timeZones,
     "reference": "{city}時間",

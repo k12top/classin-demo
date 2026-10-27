@@ -55,7 +55,7 @@ export function ClassroomHeaderMenu({ actions, variant = "legacy" }: { actions: 
         disabled={action.disabled} onSelect={action.onSelect}>
         {action.icon}<span>{action.label}</span>{action.checked && <Check className="classroom-menu-check" aria-hidden="true" />}
       </DropdownMenuItem>)}
-      {variant !== "operations" && (compact ? <DropdownMenuItem onSelect={event => { event.preventDefault(); setPage({ id: "interface-language", label: t("classroom.v3.interfaceLanguage"), icon: null }); }}><Globe aria-hidden="true" /><span>{t("classroom.v3.interfaceLanguage")}</span><ChevronRight className="ml-auto" aria-hidden="true" /></DropdownMenuItem> : <DropdownMenuSub>
+      {variant === "legacy" && (compact ? <DropdownMenuItem onSelect={event => { event.preventDefault(); setPage({ id: "interface-language", label: t("classroom.v3.interfaceLanguage"), icon: null }); }}><Globe aria-hidden="true" /><span>{t("classroom.v3.interfaceLanguage")}</span><ChevronRight className="ml-auto" aria-hidden="true" /></DropdownMenuItem> : <DropdownMenuSub>
         <DropdownMenuSubTrigger><Globe aria-hidden="true" /><span>{t("classroom.v3.interfaceLanguage")}</span></DropdownMenuSubTrigger>
         <DropdownMenuPortal><DropdownMenuSubContent className="classroom-header-menu classroom-header-submenu" collisionPadding={8}>
           {languageItems}

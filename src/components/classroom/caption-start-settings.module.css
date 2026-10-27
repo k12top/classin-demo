@@ -1,0 +1,140 @@
+.settings {
+  padding:18px 20px;
+  border:1px solid hsl(var(--border));
+  border-radius:12px;
+  background:hsl(var(--card));
+  color:hsl(var(--foreground));
+  min-width:0}
+
+.settings h3 {
+  margin:0 0 8px;
+  font-size:14px;
+  font-weight:600}
+
+.row {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:20px;
+  min-height:46px;
+  font-size:13px}
+
+.row>button {
+  position:relative;
+  flex:none;
+  width:34px;
+  height:20px;
+  padding:3px;
+  border:0;
+  border-radius:12px;
+  background:hsl(var(--muted-foreground)/.3);
+  cursor:pointer}
+
+.row>button[aria-checked=true] {
+  background:hsl(var(--primary))}
+
+.row>button i {
+  display:block;
+  width:14px;
+  height:14px;
+  border-radius:50%;
+  background:white;
+  transform:translateX(0)}
+
+.row>button[aria-checked=true] i {
+  transform:translateX(14px)}
+
+.row>button:disabled,.chips button:disabled {
+  opacity:.45;
+  cursor:default}
+
+.row>button:focus-visible,.chips button:focus-visible {
+  outline:2px solid hsl(var(--primary));
+  outline-offset:3px}
+
+.languages {
+  padding-top:12px;
+  margin-top:8px;
+  border-top:1px solid hsl(var(--border));
+  display:grid;
+  gap:16px}
+
+.languages :global(.classroom-v3-caption-select-trigger) {
+  height:auto;
+  min-height:38px;
+  font-size:13px}
+
+.languages :global(.classroom-v3-caption-select-trigger)>span {
+  white-space:normal}
+
+.languages :global(.classroom-v3-caption-select-field)>span,.targets>span {
+  font-size:12px;
+  color:hsl(var(--muted-foreground))}
+
+.targets {
+  display:grid;
+  gap:8px;
+  min-width:0}
+
+.chips {
+  display:flex;
+  flex-wrap:wrap;
+  gap:7px}
+
+.chip {
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:5px 7px 5px 9px;
+  border-radius:7px;
+  background:var(--caption-start-accent-background, hsl(var(--primary)/.07));
+  color:var(--caption-start-accent, hsl(var(--primary)));
+  font-size:12px;
+  max-width:100%;
+  overflow-wrap:anywhere}
+
+.chip button {
+  border:0;
+  background:transparent;
+  color:inherit;
+  padding:0;
+  cursor:pointer}
+
+.chip svg {
+  width:13px;
+  height:13px}
+
+.add {
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  padding:5px 7px;
+  border:0;
+  border-radius:7px;
+  background:transparent;
+  color:hsl(var(--muted-foreground));
+  font-size:12px;
+  cursor:pointer}
+
+.add svg {
+  width:14px;
+  height:14px}
+
+.hint {
+  display:flex;
+  gap:6px;
+  align-items:center;
+  font-size:11px;
+  line-height:1.6;
+  color:hsl(var(--muted-foreground));
+  margin:14px 0 0}
+
+.hint svg {
+  width:13px;
+  height:13px;
+  flex:none}
+
+.targets>p {
+  font-size:12px;
+  color:hsl(var(--destructive));
+  margin:0}

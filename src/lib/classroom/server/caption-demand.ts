@@ -1,3 +1,4 @@
+import { captionStartPreferences } from "../caption-start-preferences";
 import "server-only";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -17,9 +18,12 @@ export async function captionDemandTargets(tx: Prisma.TransactionClient, session
     select: { captionLanguage: true },
   });
   if (!supportsCaptionTranslation("shengwang", sourceLanguage)) return [];
+  const runtime = await tx.classroomRuntime.findUnique({ where: { sessionId }, select: { captionStartPreferences: true } });
+  const start = captionStartPreferences(runtime?.captionStartPreferences);
+  const defaults = start.autoInterpretation ? start.targetLanguages : [];
   // Preserve accepted demand during a temporary bridge outage. Synchronization
   // reports the unavailable tracks instead of silently discarding preferences.
-  return [...new Set(connections.map(connection => connection.captionLanguage!).filter(language => language !== sourceLanguage))].sort();
+  return [...new Set([...defaults, ...connections.map(connection => connection.captionLanguage!)].filter(language => language !== sourceLanguage))].sort();
 }
 
 /** Caller holds the runtime row lock, so simultaneous choices cannot lose demand. */

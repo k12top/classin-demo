@@ -649,3 +649,40 @@ html[lang] .classroom-v3-modal-backdrop>section.classroom-v3-device-dialog { wid
  html[lang] .classroom-v3-shell[data-responsive-workspace]:not(.is-recorder):has(.classroom-v3-workspace[data-conversation-open="true"]) .classroom-v3-dock-wrap { right:0!important;bottom:12px; }
  .classroom-v3-device-dialog .classroom-v3-device-body { padding:16px; }
 }
+
+/* Minimal caption settings: one surface, full language values, immediate save. */
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-settings-card{margin:0;padding:12px 18px 16px;border:0;border-radius:0;background:transparent;box-shadow:none}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-settings-card>.classroom-v3-caption-title{flex-wrap:wrap;gap:10px;padding-bottom:16px;justify-content:flex-start}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-settings-card .classroom-v3-caption-title>h2{display:block;margin:0;font-size:14px;line-height:1.5;font-weight:600;color:var(--classroom-frost)}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-help{margin-inline-start:auto}
+.classroom-caption-save-status{font-size:11px;color:var(--classroom-mist);margin-inline-start:auto;min-height:16px}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-toggles{flex-basis:100%;justify-content:flex-start;gap:16px;margin:0}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-quick-toggle>button{display:flex;gap:6px;width:auto;height:30px;min-height:30px;padding:3px 0;border:0;background:transparent;border-radius:6px;box-shadow:none;font-size:12px;color:var(--classroom-mist)}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-quick-toggle>button[aria-pressed=true]{color:var(--classroom-iris);background:transparent}
+.classroom-caption-toggle-label{white-space:normal}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-toggle-state{position:relative;inset:auto;width:25px;height:15px;flex:none;border:0;border-radius:10px;background:var(--conversation-line);box-shadow:none}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-toggle-state:after{content:"";position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:var(--classroom-panel)}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-quick-toggle>button[aria-pressed=true] .classroom-v3-caption-toggle-state{background:var(--classroom-iris)}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-quick-toggle>button[aria-pressed=true] .classroom-v3-caption-toggle-state:after{left:12px}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-toggle-state svg{display:none}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-view-settings{display:flex;flex-direction:column;gap:14px}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-select-field{min-width:0;gap:7px}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-select-field>span{font-size:12px;color:var(--classroom-mist)}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-select-trigger{height:auto;min-height:39px;padding:8px 10px;font-size:13px;border-radius:8px;background:var(--classroom-panel);line-height:1.5}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-select-trigger>span:first-child{white-space:normal;text-overflow:clip;overflow-wrap:anywhere}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-local-settings{padding:14px 0 0;border:0;border-top:1px solid var(--conversation-line);margin:16px 0 0;border-radius:0;min-width:0}
+.classroom-v3-caption-local-settings>summary{cursor:pointer;list-style:none;font-size:13px;font-weight:500;color:var(--classroom-frost);padding:0 0 10px}
+.classroom-v3-caption-local-settings>summary{display:flex;align-items:center;gap:8px}
+.classroom-v3-caption-local-settings>summary>svg{width:15px;height:15px;margin-inline-start:auto;color:var(--classroom-mist)}
+.classroom-v3-caption-local-settings[open]>summary>svg{transform:rotate(180deg)}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-settings-disclosure{max-height:calc(100% - 150px);flex:0 1 auto;min-height:0;overscroll-behavior:contain;overflow:auto}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .is-captions[data-settings-open=true] .classroom-v3-caption-feed{min-height:90px;flex:1 1 90px}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-minimal-header .classroom-v3-hand-raise-menu{display:flex;align-items:center;position:relative;flex:none}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-minimal-header .classroom-v3-hand-raise-button{position:relative;display:grid;place-items:center;width:36px;min-width:36px;height:36px;padding:8px;border:0;border-radius:8px;background:transparent;color:var(--classroom-frost);box-shadow:none}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-minimal-header .classroom-v3-hand-raise-button>span{display:none}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-minimal-header .classroom-v3-hand-count{position:absolute;top:0;right:0;background:transparent;color:var(--classroom-mist);font-size:11px;min-width:10px;padding:0}
+html[lang] .classroom-v3-shell[data-responsive-workspace]>.classroom-v3-hand-raise-popover.is-header{top:68px;right:124px;max-height:calc(100dvh - 100px)}
+@media(max-width:760px){html[lang] .classroom-v3-shell[data-responsive-workspace]>.classroom-v3-hand-raise-popover.is-header{top:60px;right:12px}}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .is-captions[data-settings-open=true]>.classroom-v3-caption-settings-summary{display:none}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-follow{position:static;inset:auto;width:auto;order:2;flex:none;padding:10px 0 0;border-top:1px solid var(--conversation-line)}
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-caption-follow>span{display:block;font-size:11px}

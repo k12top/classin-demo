@@ -30,7 +30,7 @@ async function main() {
     const provider = {attachVideo(){}, detachVideo(){}, getMicrophoneLevel(){return window.microphoneLevel}};
     const runtime = {status: 'live', interpretation: {enabled: true, provider: 'shengwang', sourceLanguage: 'zh-CN', targetLanguages: ['en-US'], status: 'running', error: null}};
     const member = {userId:'student',displayName:'李明 · Alex',role:'student',avatar:'',onStage:true,microphoneAllowed:true,cameraAllowed:true,rewardCount:0};
-    const media = {local:{microphoneOn:true,cameraOn:false}};
+    const media = {participants:[],local:{microphoneOn:true,cameraOn:false}};
     function Fixture(){
       const {setLocale}=useTranslation();
       const [playbackSettings,setPlaybackSettings]=useState(false);
@@ -54,7 +54,7 @@ async function main() {
       if(playbackSettings) return <TestPlaybackCaptionSettings mode={mode} onModeChange={setMode}
         language={preferredLanguage} languages={['vi-VN','id-ID','ru-RU']} onLanguageChange={setPreferredLanguage}
         appearance={{background:'solid',size:'medium',position:'bottom'}} onAppearanceChange={()=>{}} chinese={false}/>;
-      return <main className="classroom-v3-shell is-classin-layout fixture">
+      return <main className="classroom-v3-shell is-classin-layout fixture" data-responsive-workspace="true">
         <div className="classroom-v3-live-rail"><div className="classroom-v3-seats">
           <TestLiveRailSeat member={member} participant={{id:'student-rtc',displayName:'student-rtc',isLocal:false,kind:'camera',hasAudio:microphoneOn,hasVideo}}
             provider={provider} media={media} currentUserId="teacher" canManage={false} canReward={false} busy={false} canReorder={false} previewPlacesOnBoard={false} />
@@ -76,7 +76,7 @@ async function main() {
       </main>;
     }
     createRoot(document.getElementById('root')).render(<I18nProvider initialLocale="zh-CN"><Fixture/></I18nProvider>);
-  `, resolveDir: root, loader: "tsx" }, bundle: true, write: false, platform: "browser", format: "iife", tsconfig: path.join(root, "tsconfig.json"),
+  `, resolveDir: root, loader: "tsx" }, bundle: true, write: false, outdir: "out", platform: "browser", format: "iife", tsconfig: path.join(root, "tsconfig.json"),
     define: { "process.env": "{}" },
     plugins: [{ name: "private-seat-fixture-export", setup(build) {
       build.onLoad({ filter: /\.module\.css$/ }, () => ({ contents: "export default {};", loader: "js" }));
@@ -88,9 +88,9 @@ async function main() {
       }));
     } }],
   });
-  const styles = (await Promise.all(["globals.css", "classroom-classin.css", "classroom-light.css"].map(name => fs.readFile(path.join(root, "src/app", name), "utf8")))).join("\n");
+  const styles = (await Promise.all(["globals.css", "classroom-classin.css", "classroom-light.css", "classroom-responsive.css"].map(name => fs.readFile(path.join(root, "src/app", name), "utf8")))).join("\n");
   server = http.createServer((request, response) => {
-    if (request.url === "/fixture.js") { response.setHeader("Content-Type", "application/javascript"); response.end(bundle.outputFiles[0].text); }
+    if (request.url === "/fixture.js") { response.setHeader("Content-Type", "application/javascript"); response.end(bundle.outputFiles.find(file=>file.path.endsWith(".js")).text); }
     else if (request.url === "/fixture.css") { response.setHeader("Content-Type", "text/css"); response.end(styles); }
     else response.end(`<!doctype html><html class="light" lang="zh-CN"><meta charset="utf-8"><link rel="stylesheet" href="/fixture.css"><style>
       *{box-sizing:border-box}body{margin:0;font-family:system-ui}button{font:inherit}#root{height:100vh}
@@ -107,7 +107,7 @@ async function main() {
   const errors = [];
   window.webContents.on("console-message", event => { if (event.level === "error") errors.push(event.message); });
   await window.loadURL(`http://127.0.0.1:${server.address().port}/?lang=zh-CN`);
-  const run = code => window.webContents.executeJavaScript(code);
+  const run = async code => { try { return await window.webContents.executeJavaScript(code); } catch(error) { throw new Error("Browser script failed: "+code+"; "+error.message); } };
   const waitFor = async (code) => {
     const deadline = Date.now() + 10_000;
     while (!await run(code)) {
@@ -115,7 +115,7 @@ async function main() {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
   };
-  await waitFor("Boolean(window.fixture)");
+  await waitFor("Boolean(window.fixture) && !!document.querySelector('[role=meter]')");
   await waitFor("document.querySelector('[role=meter]').getAttribute('aria-valuenow') === '70'");
   await waitFor("getComputedStyle(document.querySelector('[role=meter]')).visibility === 'visible'");
   assert.equal(await run("document.querySelector('.classroom-v3-seat-name').textContent"), "李明 · Alex");
@@ -181,9 +181,8 @@ async function main() {
   await run("document.querySelector('.classroom-v3-caption-settings-summary').click()");
   await waitFor("document.querySelector('.classroom-v3-caption-settings-disclosure').dataset.open==='true'");
   await new Promise(resolve => setTimeout(resolve, 300));
-  const controlsInOrder = "(()=>{const panel=document.querySelector('.is-captions');const switches=Array.from(panel.querySelectorAll('.classroom-v3-caption-toggles [aria-pressed]'));return switches.length===2 && switches.every(button=>button.closest('.classroom-v3-caption-heading') && !button.closest('.classroom-v3-caption-settings-disclosure') && (button.compareDocumentPosition(panel.querySelector('.classroom-v3-caption-settings-summary')) & Node.DOCUMENT_POSITION_FOLLOWING)!==0)})()";
-  assert.ok(await run(controlsInOrder), "quick switches stay in the heading beside the title, outside the settings disclosure");
-  assert.ok(await run("(()=>{const title=document.querySelector('.classroom-v3-caption-title h2').getBoundingClientRect();return Array.from(document.querySelectorAll('.classroom-v3-caption-toggles button')).every(button=>{const r=button.getBoundingClientRect();return Math.abs((r.top+r.height/2)-(title.top+title.height/2))<3})})()"), "quick switches align with the title on the same row");
+  assert.ok(await run("document.querySelectorAll('.classroom-v3-caption-settings-card .classroom-v3-caption-toggles button').length===2"), "quick switches stay at the top of the settings card");
+  assert.equal(await run("document.querySelector('.classroom-v3-interpretation-save')===null"),true,"no Apply button remains");
   assert.deepEqual(await run("Array.from(document.querySelectorAll('.classroom-v3-caption-toggles button')).map(button=>button.getAttribute('aria-label'))"), ['舞台字幕浮窗','课堂同传']);
   assert.ok(await run("document.documentElement.scrollWidth<=innerWidth"), "mobile settings have no horizontal overflow");
   await fs.writeFile(path.join(output, "mobile-settings.png"), (await window.webContents.capturePage()).toPNG());
@@ -202,28 +201,22 @@ async function main() {
   await waitFor("document.querySelector('.classroom-v3-caption-quick-toggle [role=tooltip]')!==null");
   await capturePanel("desktop-tooltip.png");
   await run(`${quickButtons}[0].dispatchEvent(new MouseEvent('mouseout',{bubbles:true,relatedTarget:document.body}))`);
-  await run("document.querySelector('.classroom-v3-caption-settings-summary').click()");
-  await waitFor("document.querySelector('.classroom-v3-caption-settings-disclosure').dataset.open==='false'");
-  await waitFor("getComputedStyle(document.querySelector('.classroom-v3-caption-settings-disclosure')).visibility==='hidden'");
-  await capturePanel("desktop-header-collapsed.png");
   await run(`${quickButtons}[0].click()`);
-  await waitFor(`${quickButtons}[0].getAttribute('aria-pressed')==='false' && !${quickButtons}[1].disabled`);
-  assert.equal(await run("window.appliedSettings.overlayVisible"), false, "overlay switch saves immediately with settings closed");
+  await waitFor("window.appliedSettings?.overlayVisible===false");
   await run(`${quickButtons}[1].click()`);
-  await waitFor("Array.from(document.querySelectorAll('.classroom-v3-caption-toggles button')).every(button=>button.getAttribute('aria-pressed')==='false')");
-  assert.equal(await run("window.appliedSettings.interpretation.enabled"), false, "interpretation switch saves immediately");
+  await waitFor("window.appliedSettings?.interpretation?.enabled===false");
   await run(`window.failNextSave=true;${quickButtons}[1].click()`);
-  await waitFor("document.querySelector('.classroom-v3-caption-feed [role=alert]')!==null");
-  assert.equal(await run(`${quickButtons}[1].getAttribute('aria-pressed')`), 'false', "failed quick save preserves the applied state");
-  await run(`window.holdSave=true;window.callsBefore=window.appliedCalls;${quickButtons}[1].click();${quickButtons}[0].click()`);
-  await waitFor(`${quickButtons}[0].disabled && Boolean(window.releaseSave)`);
-  assert.equal(await run("window.appliedCalls-window.callsBefore"), 1, "in-flight quick saves cannot overlap");
+  await waitFor("document.querySelector('.classroom-v3-caption-preference-error [type=button]')!==null");
+  assert.equal(await run(`${quickButtons}[1].getAttribute('aria-pressed')`),'true','failed selection remains visible for retry');
+  await run("document.querySelector('.classroom-v3-caption-preference-error [type=button]').click()");
+  await waitFor("window.appliedSettings?.interpretation?.enabled===true");
+  await run(`window.holdSave=true;window.callsBefore=window.appliedCalls;${quickButtons}[1].click()`);
+  await waitFor("Boolean(window.releaseSave)");
+  await run(`${quickButtons}[0].click();${quickButtons}[0].click();${quickButtons}[0].click()`);
+  assert.equal(await run("window.appliedCalls-window.callsBefore"),1,'only one request runs while newer selections queue');
   await run("window.holdSave=false;window.releaseSave()");
-  await waitFor(`${quickButtons}[1].getAttribute('aria-pressed')==='true' && !${quickButtons}[0].disabled`);
-  await run(`${quickButtons}[0].click()`);
-  await waitFor(`${quickButtons}[0].getAttribute('aria-pressed')==='true' && !${quickButtons}[1].disabled`);
-  await run("document.querySelector('.classroom-v3-caption-settings-summary').click()");
-  await waitFor("document.querySelector('.classroom-v3-caption-settings-disclosure').dataset.open==='true'");
+  await waitFor("window.appliedSettings?.overlayVisible===true");
+  await waitFor("document.querySelector('.classroom-caption-save-status').textContent==='已保存'");
   const languageTrigger = "document.querySelector('.classroom-v3-caption-view-settings .classroom-v3-caption-select-field:nth-child(2) button')";
   await run(`${languageTrigger}.click()`);
   await waitFor("document.querySelector('.classroom-v3-caption-language-search input')===document.activeElement");
@@ -261,13 +254,10 @@ async function main() {
   window.webContents.sendInputEvent({type:'keyDown',keyCode:'Return'}); window.webContents.sendInputEvent({type:'keyUp',keyCode:'Return'});
   await waitFor("document.querySelector('.classroom-v3-caption-language-content')===null");
   assert.ok(await run(`${languageTrigger}.textContent.includes('Bahasa Indonesia')`), "keyboard selection updates the draft");
-  assert.equal(await run("window.appliedSettings.preferredLanguage"), 'en-US', "language choice stays a draft until Apply");
-  await run("document.querySelector('.classroom-v3-interpretation-save').click()");
-  await waitFor("window.appliedSettings.preferredLanguage==='id-ID' && document.querySelector('.classroom-v3-caption-settings-disclosure').dataset.open==='false'");
+  await waitFor("window.appliedSettings.preferredLanguage==='id-ID'");
+  assert.equal(await run("document.querySelector('.classroom-v3-caption-settings-disclosure').dataset.open"),'true','changing a language saves without closing settings');
   window.setContentSize(390, 844);
   await waitFor("innerWidth===390");
-  await run("document.querySelector('.classroom-v3-caption-settings-summary').click()");
-  await waitFor("document.querySelector('.classroom-v3-caption-settings-disclosure').dataset.open==='true'");
   await run(`${languageTrigger}.click()`);
   await waitFor("document.querySelector('.classroom-v3-caption-language-search input')===document.activeElement");
   assert.ok(await run("(()=>{const r=document.querySelector('.classroom-v3-caption-language-content').getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && r.top>=0 && r.bottom<=innerHeight})()"), "mobile popup fits the viewport");

@@ -1,3 +1,4 @@
+import { automaticCaptionServiceEnabled, captionStartPreferences, validateCaptionStartPreferences } from "../caption-start-preferences";
 import { readClassroomCommand, saveClassroomCommand } from "./command-receipt";
 import { classroomAuxiliaryRtcUid, classroomRtcUid } from "@/lib/classroom/rtc-uid";
 import { classroomSignalingUserId } from "@/lib/classroom/signaling/identity";
@@ -122,7 +123,11 @@ export async function ensureClassroomRuntime(
         status: ended ? "ended" : "waiting",
         graceEndsAt: classroomGraceEndAt(currentLesson.endTime),
         startedAt: null,
-        targetLanguages: [],
+        ...(await (async () => {
+          const course = await tx.course.findUniqueOrThrow({ where: { id: courseId }, select: { captionStartPreferences: true } });
+          const preferences = captionStartPreferences(course.captionStartPreferences);
+          return { captionStartPreferences: course.captionStartPreferences as Prisma.InputJsonObject, sourceLanguage: preferences.sourceLanguage, targetLanguages: [] };
+        })()),
       },
       update: {
         graceEndsAt: classroomGraceEndAt(currentLesson.endTime),
@@ -211,9 +216,9 @@ export async function startScheduledClassroomIfDue(
     await tx.classroomRuntime.update({ where: { id: runtime.id }, data: {
       status: "live", startedAt: now,
       graceEndsAt: classroomGraceEndAt(runtime.session.endTime),
-      interpretationEnabled: true,
+      interpretationEnabled: automaticCaptionServiceEnabled(runtime.captionStartPreferences),
       targetLanguages: await captionDemandTargets(tx, sessionId, runtime.sourceLanguage, runtime.interpretationProvider === "wordly" ? "wordly" : "shengwang"),
-      transcriptionStatus: "starting", transcriptionError: null, transcriptionLastCheckedAt: null,
+      transcriptionStatus: automaticCaptionServiceEnabled(runtime.captionStartPreferences) ? "starting" : "stopped", transcriptionError: null, transcriptionLastCheckedAt: null,
       revision: { increment: 1 },
     } });
     await tx.course.updateMany({ where: { id: runtime.courseId, status: CourseStatus.SCHEDULED }, data: { status: CourseStatus.LIVE } });
@@ -487,6 +492,7 @@ async function loadClassroomRuntimeSnapshot(
           ? "ended"
           : "waiting",
     classStartMode: normalizeClassStartMode(runtime.classStartMode),
+    captionStartPreferences: runtime.captionStartPreferences && Object.keys(runtime.captionStartPreferences as object).length ? captionStartPreferences(runtime.captionStartPreferences) : undefined,
     recordingStartMode: normalizeRecordingStartMode(runtime.recordingStartMode),
     startedAt: runtime.startedAt?.toISOString() ?? null,
     graceEndsAt: runtime.graceEndsAt?.toISOString() ?? null,
@@ -783,6 +789,19 @@ export async function applyClassroomAction(input: {
         } });
         break;
       }
+      case "setCaptionStartPreferences": {
+        requireLeadTeacher(role);
+        if (runtime.status !== "waiting") throw new ClassroomActionError("只能在开课前调整自动字幕与同传", 409);
+        let preferences;
+        try { preferences = validateCaptionStartPreferences(action.preferences); }
+        catch (error) { throw new ClassroomActionError(error instanceof Error ? error.message : "字幕设置无效"); }
+        await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { captionStartPreferences: preferences, sourceLanguage: preferences.sourceLanguage } });
+        const combinedTargets = await captionDemandTargets(tx, sessionId, preferences.sourceLanguage, runtime.interpretationProvider === "wordly" ? "wordly" : "shengwang");
+        if (combinedTargets.length > captionTranslationLimit(runtime.interpretationProvider === "wordly" ? "wordly" : "shengwang")) {
+          throw new ClassroomActionError("当前课堂使用的翻译语言超出服务上限", 409);
+        }
+        break;
+      }
       case "setClassStartMode": {
         requireLeadTeacher(role);
         if (action.mode !== "manual" && action.mode !== "scheduled") throw new ClassroomActionError("开课方式无效");
@@ -822,6 +841,7 @@ export async function applyClassroomAction(input: {
           throw new ClassroomActionError("已结束或取消的课次不能开始", 409);
         }
         const now = new Date();
+        const startCaptionService = runtime.status === "live" ? runtime.interpretationEnabled : automaticCaptionServiceEnabled(runtime.captionStartPreferences);
         await tx.courseSession.update({
           where: { id: sessionId },
           data: { status: CourseStatus.LIVE, endedAt: null },
@@ -835,10 +855,10 @@ export async function applyClassroomAction(input: {
             // Every lesson records speaker captions for playback and the
             // teacher-reviewed post-class summary. Teachers may still disable
             // interpretation explicitly after the class starts.
-            interpretationEnabled: true,
+            interpretationEnabled: startCaptionService,
             targetLanguages: await captionDemandTargets(tx, sessionId, runtime.sourceLanguage, runtime.interpretationProvider === "wordly" ? "wordly" : "shengwang"),
             transcriptionStatus:
-              runtime.transcriptionStatus === "running" ? "running" : "starting",
+              startCaptionService ? runtime.transcriptionStatus === "running" ? "running" : "starting" : "stopped",
             transcriptionError: null,
             transcriptionLastCheckedAt:
               runtime.transcriptionStatus === "running"
@@ -1465,8 +1485,8 @@ export async function applyClassroomAction(input: {
         const provider = action.provider === "wordly" ? "wordly" : "shengwang";
         const sourceLanguage = normalizeClassroomLanguage(action.sourceLanguage);
         if (!supportsCaptionTranslation("shengwang", action.sourceLanguage)) throw new ClassroomActionError("当前语音识别服务不支持此课堂语言");
-        // Output languages belong to active participants, including older clients
-        // that still submit a manually configured targetLanguages array.
+        // Combine explicit startup languages with active participants' demand.
+        // Ignore legacy clients' arbitrary targetLanguages writes.
         const targetLanguages = await captionDemandTargets(tx, sessionId, sourceLanguage, provider);
         if (targetLanguages.length > captionTranslationLimit(provider)) throw new ClassroomActionError("当前课堂使用的翻译语言超出服务上限", 409);
         await tx.classroomRuntime.update({

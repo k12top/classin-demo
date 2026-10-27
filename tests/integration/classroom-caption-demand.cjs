@@ -42,6 +42,13 @@ async function main() {
   const targets = async () => (await db.classroomRuntime.findUnique({ where: { sessionId: lesson.id } })).targetLanguages;
   const check = async (name, run) => { await run(); console.log("PASS", name); };
   try {
+    const disabledLesson = await db.courseSession.create({ data: { courseId: course.id, position: 2, roomUuid: crypto.randomUUID(), roomType: 4, createdBy: "teacher", status: "live", startTime: new Date(), endTime: new Date(Date.now()+3600000) } });
+    await db.classroomRuntime.create({ data: { courseId: course.id, sessionId: disabledLesson.id, status: "live", captionStartPreferences: { autoCaptions: false, autoInterpretation: false, sourceLanguage: "zh-CN", targetLanguages: ["en-US"] } } });
+    const beforeDisabled = globalThis.captionProviderCalls.length;
+    const disabled = await api.ensureClassroomTranscriptionForLiveSession(course.id, disabledLesson.id);
+    assert.equal(disabled.interpretationEnabled, false, "legacy recovery never overrides explicit automatic-off settings");
+    assert.equal(globalThis.captionProviderCalls.length, beforeDisabled, "no recognition or translation provider starts for disabled settings");
+    console.log("PASS explicit auto-off is preserved by live transcription recovery");
     await connect("alice"); await connect("bob");
     await check("new lesson starts ASR without any translation channel", async () => {
       assert.deepEqual(await targets(), []); await api.ensureClassroomTranscriptionForLiveSession(course.id, lesson.id);

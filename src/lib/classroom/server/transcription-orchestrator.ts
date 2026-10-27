@@ -1,3 +1,4 @@
+import { automaticCaptionServiceEnabled } from "../caption-start-preferences";
 import "server-only";
 
 import { prisma } from "@/lib/db";
@@ -517,6 +518,8 @@ export async function ensureClassroomTranscriptionForLiveSession(
   if (!runtime.interpretationEnabled && !untouchedDisabledRuntime) {
     return runtime;
   }
+
+  if (untouchedDisabledRuntime && !automaticCaptionServiceEnabled(runtime.captionStartPreferences)) return runtime;
 
   if (untouchedDisabledRuntime) {
     runtime = await prisma.classroomRuntime.update({

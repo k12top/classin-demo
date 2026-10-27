@@ -16,7 +16,7 @@ export function useCaptionSubscription(input: {
   const interactiveError = useRef(false);
   useEffect(() => { generation.current += 1; return () => { generation.current += 1; }; }, [active, sessionId]);
 
-  const save = useCallback((nextLanguage: string, nextMode: CaptionDisplayMode, interactive = true) => {
+  const save = useCallback((nextLanguage: string, nextMode: CaptionDisplayMode, interactive = true, sourceOverride?: string) => {
     if (!active) return Promise.resolve(false);
     const currentGeneration = generation.current;
     if (interactive) { setBusy(true); lastIntent.current = { language: nextLanguage, mode: nextMode }; }
@@ -26,7 +26,7 @@ export function useCaptionSubscription(input: {
         const translated = nextMode === "bilingual" || nextMode === "translated";
         const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/classroom/caption-preference`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clientId, language: translated && nextLanguage !== sourceLanguage ? nextLanguage : null, ...(shareAccess && { shareAccess }) }),
+          body: JSON.stringify({ clientId, language: translated && nextLanguage !== (sourceOverride ?? sourceLanguage) ? nextLanguage : null, ...(shareAccess && { shareAccess }) }),
           signal: AbortSignal.timeout(8_000),
         });
         const payload = await response.json() as { code?: string };

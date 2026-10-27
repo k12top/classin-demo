@@ -30,8 +30,8 @@ export function HandRaiseButton({ raised, busy, onToggle }: {
   </button>;
 }
 
-export function HandRaiseQueue({ members, busy, onAction, onViewMembers }: {
-  members: ClassroomMemberSnapshot[]; busy: boolean;
+export function HandRaiseQueue({ members, busy, onAction, onViewMembers, placement = "rail" }: {
+  placement?: "rail" | "header"; members: ClassroomMemberSnapshot[]; busy: boolean;
   onAction: (action: ClassroomAction) => Promise<boolean>;
   onViewMembers: () => void;
 }) {
@@ -62,7 +62,7 @@ export function HandRaiseQueue({ members, busy, onAction, onViewMembers }: {
       {queue.length > 0 && <strong className="classroom-v3-hand-count">{queue.length}</strong>}
     </button>
     <span className="sr-only" role="status" aria-live="polite">{queue.length ? t("classroom.v3.handRaiseWaiting", { count: queue.length }) : t("classroom.v3.noHands")}</span>
-    {open && host && createPortal(<section ref={popup} id={panelId} className="classroom-v3-hand-raise-popover" aria-label={t("classroom.v3.handRaiseQueue")}>
+    {open && host && createPortal(<section ref={popup} id={panelId} className={`classroom-v3-hand-raise-popover${placement === "header" ? " is-header" : ""}`} aria-label={t("classroom.v3.handRaiseQueue")}>
       <header><strong>{t("classroom.v3.handRaiseWaiting", { count: queue.length })}</strong>
         <button type="button" aria-label={t("common.dismiss")} onClick={close}><X aria-hidden="true" /></button></header>
       {queue.length ? <ol>{queue.map(member => <li key={member.userId}>
