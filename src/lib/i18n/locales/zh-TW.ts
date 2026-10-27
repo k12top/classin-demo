@@ -339,6 +339,8 @@ export const zhTW = {
       }
     },
     v3: {      ...zhCN.classroom.v3,
+      boardLayout: "白板（視訊移回上方）",
+      stageGridLayout: "上台成員宮格",
       deviceSettings: "裝置設定",
       screenQualityHint: "一般共享最高 720p；共享＋人像最高 1080p。",
       videoPausedForSharedContent: "優先顯示重點畫面，語音保持連通",

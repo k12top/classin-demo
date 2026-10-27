@@ -3,6 +3,7 @@ import test from "node:test";
 import { classroomBoardPresentation } from "../src/lib/classroom/board-presentation";
 import { selectActiveScreenShare } from "../src/lib/classroom/media-routing";
 import { recorderCameraParticipants } from "../src/lib/classroom/recorder-surface";
+import { arrangeClassroomVideoGallery, emptyClassroomComposition } from "../src/lib/classroom/composition";
 import type { ClassroomBoardItem, ClassroomMediaSnapshot, ClassroomMemberSnapshot, ClassroomParticipant } from "../src/lib/classroom/types";
 
 const camera: ClassroomBoardItem = {
@@ -16,6 +17,19 @@ const snapshot = (participants: ClassroomParticipant[] = [], sharing = false): C
   local: { microphoneOn: false, cameraOn: false, screenSharing: sharing, },
 });
 const screen = { id: "screen-123", displayName: "Screen", isLocal: false, kind: "screen", hasAudio: false, hasVideo: true } as const;
+
+test("shared onstage grid is recorded once per camera and returns to the recorded rail", () => {
+  const members = Array.from({ length: 16 }, (_, i) => ({ userId: `member-${i}`, role: i ? "student" : "teacher", rtcUids: [i + 1], online: true, onStage: true })) as ClassroomMemberSnapshot[];
+  const participants = members.map((member, i) => ({ id: String(i + 1), kind: "camera", hasVideo: true, hasAudio: true, isLocal: false, displayName: member.userId })) as ClassroomParticipant[];
+  const grid = arrangeClassroomVideoGallery(emptyClassroomComposition(), members);
+  const presented = classroomBoardPresentation(grid.boardItems, true, hidden);
+  assert.equal(presented.boardItems.length, 16);
+  assert.equal(presented.cameraSourceIds.size, 16);
+  assert.equal(recorderCameraParticipants(participants, members, presented.boardItems, false).length, 0, "board cameras must not be duplicated in the recording rail");
+  assert.equal(recorderCameraParticipants(participants, members, [], true).length, 16, "screen sharing keeps all cameras in the recorded rail");
+  const restored = arrangeClassroomVideoGallery(grid, members, "rail");
+  assert.equal(recorderCameraParticipants(participants, members, restored.boardItems, false).length, 16);
+});
 
 test("local and remote main/room shares return board cameras to seats, then restore the exact layout", () => {
   const saved = [camera], before = JSON.stringify(saved);

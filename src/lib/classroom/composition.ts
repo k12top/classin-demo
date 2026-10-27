@@ -171,6 +171,7 @@ export function normalizeClassroomComposition(
     version: CLASSROOM_COMPOSITION_VERSION,
     seatOrder: uniqueIds(source.seatOrder),
     boardItems,
+    ...(source.videoLayout === "grid" && { videoLayout: "grid" as const }),
     updatedBy: text(source.updatedBy),
     updatedAt: text(source.updatedAt, 64),
     ...(screenShares && { screenShares }),
@@ -277,16 +278,24 @@ export function bringClassroomBoardItemToFront(
 export function arrangeClassroomVideoGallery(
   composition: ClassroomCompositionSnapshot,
   members: readonly { userId: string; role: "teacher" | "assistant" | "student" }[],
+  layout: "grid" | "rail" = "grid",
 ): ClassroomCompositionSnapshot {
+  const retainedItems = composition.boardItems.filter(item => item.kind !== "camera");
+  if (layout === "rail") return { ...composition, boardItems: retainedItems, videoLayout: undefined };
   if (!members.length) return composition;
   const roleOrder = { teacher: 0, assistant: 1, student: 2 };
-  const order = [...members].sort((a, b) => roleOrder[a.role] - roleOrder[b.role]).slice(0, 12);
+  // The server reports capacity errors. Keep the optimistic view unchanged
+  // rather than silently dropping an onstage member or another board object.
+  if (members.length + retainedItems.length > MAX_CLASSROOM_BOARD_ITEMS) return composition;
+  const seatIndex = new Map(composition.seatOrder.map((id, index) => [id, index]));
+  const order = [...members].sort((a, b) => roleOrder[a.role] - roleOrder[b.role] ||
+    (seatIndex.get(a.userId) ?? Number.MAX_SAFE_INTEGER) - (seatIndex.get(b.userId) ?? Number.MAX_SAFE_INTEGER));
   const columns = Math.ceil(Math.sqrt(order.length));
   const rows = Math.ceil(order.length / columns);
   const gap = 0.018;
   const width = (1 - gap * (columns + 1)) / columns;
   const height = (1 - gap * (rows + 1)) / rows;
-  let next = normalizeClassroomComposition({ ...composition, seatOrder: order.map(member => member.userId), boardItems: composition.boardItems.filter(item => item.kind !== "camera") });
+  let next = normalizeClassroomComposition({ ...composition, videoLayout: "grid", seatOrder: order.map(member => member.userId), boardItems: retainedItems });
   order.forEach((member, index) => {
     next = placeClassroomBoardItem(next, { id: `camera:${member.userId}`, kind: "camera", sourceId: member.userId, rect: { x: gap + index % columns * (width + gap), y: gap + Math.floor(index / columns) * (height + gap), width, height }, locked: false, visible: true });
   });

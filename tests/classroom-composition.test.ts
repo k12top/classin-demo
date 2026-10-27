@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  arrangeClassroomVideoGallery,
   boardItemUpdateConfirmed,
   circleBoardGeometry,
   bringClassroomBoardItemToFront,
@@ -14,6 +15,35 @@ import {
   translateBoardRectByPixels,
   updateClassroomBoardItem,
 } from "../src/lib/classroom/composition";
+
+test("onstage grid retains all 24 seats, respects seat order and fits every window", () => {
+  const members = Array.from({ length: 24 }, (_, index) => ({ userId: `member-${index}`, role: index ? "student" as const : "teacher" as const }));
+  const composition = { ...emptyClassroomComposition(), seatOrder: ["member-23", "member-1"] };
+  const grid = arrangeClassroomVideoGallery(composition, members);
+  assert.equal(grid.boardItems.length, 24);
+  assert.equal(normalizeClassroomComposition(grid).videoLayout, "grid");
+  assert.deepEqual(grid.seatOrder.slice(0, 3), ["member-0", "member-23", "member-1"]);
+  for (const item of grid.boardItems) {
+    assert.ok(item.rect.x >= 0 && item.rect.y >= 0);
+    assert.ok(item.rect.x + item.rect.width <= 1 && item.rect.y + item.rect.height <= 1);
+  }
+  assert.equal(composition.boardItems.length, 0);
+});
+
+test("returning videos to the rail preserves courseware, auxiliary feeds and screen ownership", () => {
+  const lease = { userId: "teacher", clientId: "client-123", claimId: "claim-123", rtcUid: 1000000001 };
+  let composition = { ...emptyClassroomComposition(), screenShares: { main: lease } };
+  for (const kind of ["camera", "courseware", "auxiliary-camera"] as const) {
+    composition = placeClassroomBoardItem(composition, { id: kind, kind, sourceId: "teacher", rect: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 }, locked: true, visible: true }) as typeof composition;
+  }
+  const restored = arrangeClassroomVideoGallery(composition, [], "rail");
+  assert.equal(restored.videoLayout, undefined);
+  assert.deepEqual(restored.boardItems, composition.boardItems.filter(item => item.kind !== "camera"));
+  assert.deepEqual(restored.screenShares, { main: lease });
+  assert.deepEqual(restored.seatOrder, composition.seatOrder);
+  const tooMany = Array.from({ length: 24 }, (_, i) => ({ userId: `member-${i}`, role: "student" as const }));
+  assert.strictEqual(arrangeClassroomVideoGallery(composition, tooMany), composition, "capacity overflow must not silently remove members or teaching content");
+});
 
 test("a dragged camera stays optimistic until a newer matching cloud revision arrives", () => {
   const item = placeClassroomBoardItem(emptyClassroomComposition(), {

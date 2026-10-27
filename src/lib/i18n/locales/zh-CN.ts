@@ -743,6 +743,8 @@ export const zhCN = {
       focusLayout: "聚焦",
       splitLayout: "分屏",
       gridLayout: "宫格",
+      boardLayout: "白板（视频移回上方）",
+      stageGridLayout: "上台成员宫格",
       classroomLayout: "课堂布局",
       useLayout: "使用{layout}布局",
       unlockStage: "解除舞台锁定",

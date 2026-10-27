@@ -197,6 +197,8 @@ export type ClassroomCompositionSnapshot = {
   version: number;
   seatOrder: string[];
   boardItems: ClassroomBoardItem[];
+  /** Full-stage camera gallery; omitted for individually placed board windows. */
+  videoLayout?: "grid";
   updatedBy: string;
   updatedAt: string;
   /** One authorized publisher per RTC channel; absent on legacy snapshots. */
@@ -510,7 +512,7 @@ export type ClassroomAction =
   | { type: "removeBoardItem"; itemId: string }
   | { type: "bringBoardItemToFront"; itemId: string }
   | { type: "resetComposition" }
-  | { type: "arrangeVideoGallery" }
+  | { type: "arrangeVideoGallery"; layout?: "grid" | "rail" }
   | { type: "swapSeats"; firstUserId: string; secondUserId: string }
   | { type: "authorizeAllOnStage" }
   | { type: "deauthorizeAll" }

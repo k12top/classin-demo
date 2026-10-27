@@ -811,6 +811,7 @@ function BoardCompositionItem({
 
 function BoardCompositionLayer({
   items,
+  videoGallery = false,
   members,
   courseware,
   participants,
@@ -824,6 +825,7 @@ function BoardCompositionLayer({
   onHideLocally,
 }: {
   items: ClassroomBoardItem[];
+  videoGallery?: boolean;
   revision: number;
   members: ClassroomMemberSnapshot[];
   courseware: ClassroomCoursewareSnapshot[];
@@ -893,7 +895,7 @@ function BoardCompositionLayer({
   return (
     <div
       ref={stageRef}
-      className="classroom-v3-board-composition"
+      className={`classroom-v3-board-composition${videoGallery ? " is-video-gallery" : ""}`}
       onPointerDown={(event) => {
         if (event.target === event.currentTarget) setSelectedItemId(null);
       }}
@@ -5987,7 +5989,8 @@ export function ClassroomV3({
   const { boardItems: presentedBoardItems, cameraSourceIds: boardSourceIds } = classroomBoardPresentation(
     compositionBoardItems, showWhiteboard, hiddenBoardItemIds,
   );
-  const drawingSurfaceAvailable = showWhiteboard || Boolean(screenParticipant && !hideLocalScreenSharePreview);
+  const videoGalleryActive = showWhiteboard && sessionData?.runtime.composition.videoLayout === "grid" && boardSourceIds.size > 0;
+  const drawingSurfaceAvailable = (showWhiteboard && !videoGalleryActive) || Boolean(screenParticipant && !hideLocalScreenSharePreview);
   const drawingController = screenParticipant ? screenAnnotationController : whiteboardController;
   const recorderCameras = isRecorder ? recorderCameraParticipants(
     media.participants,
@@ -6338,9 +6341,14 @@ export function ClassroomV3({
           ] : []),
           ...(sessionData.capabilities.canManageMembers ? [{ id: "hand-queue", label: t("classroom.v3.handRaiseQueue"), icon: <Hand />, onSelect: () => setActivePanel("members") }] : []),
           { id: "layout", label: t("classroomMinimal.layout"), icon: <LayoutGrid />, children: [
-            { id: "focus", label: t("classroom.v3.focusLayout"), icon: <Presentation />, onSelect: () => setLayoutMode("focus") },
-            { id: "grid", label: t("classroom.v3.gridLayout"), icon: <LayoutGrid />, onSelect: () => setLayoutMode("grid") },
-            { id: "seats", label: t("classroom.v3.members"), icon: <Users />, onSelect: () => setLiveRailCollapsed(value => !value) },
+            ...(whiteboardStageEnabled ? sessionData.capabilities.canManageStage && !classEnded ? [
+              { id: "board", label: t("classroom.v3.boardLayout"), icon: <Presentation />, checked: !compositionBoardItems.some(item => item.kind === "camera" && item.visible), disabled: Boolean(actionBusy) || !showWhiteboard, onSelect: () => { void performAction({ type: "arrangeVideoGallery", layout: "rail" }); } },
+              { id: "board-grid", label: t("classroom.v3.stageGridLayout"), icon: <LayoutGrid />, checked: sessionData.runtime.composition.videoLayout === "grid" && compositionBoardItems.some(item => item.kind === "camera" && item.visible), disabled: Boolean(actionBusy) || !showWhiteboard, onSelect: () => { void performAction({ type: "arrangeVideoGallery", layout: "grid" }); } },
+            ] : [] : [
+              { id: "focus", label: t("classroom.v3.focusLayout"), icon: <Presentation />, checked: layoutMode === "focus", onSelect: () => setLayoutMode("focus") },
+              { id: "grid", label: t("classroom.v3.gridLayout"), icon: <LayoutGrid />, checked: layoutMode === "grid", onSelect: () => setLayoutMode("grid") },
+            ]),
+            { id: "seats", label: t("classroom.v3.members"), icon: <Users />, checked: !liveRailCollapsed, onSelect: () => setLiveRailCollapsed(value => !value) },
           ] },
           ...(sessionData.capabilities.canControlRecording && !classEnded ? [{ id: "recording", label: t(["starting", "recording"].includes(recordingStatus || "") ? "classroom.v3.stopRecording" : "classroom.v3.startRecording"), icon: <CircleDot />, onSelect: onRecordingControl }] : []),
           ...(classEnded ? [{ id: "playback", label: t("studentDashboard.viewPlayback"), icon: <Play/>, onSelect: () => window.open(`/courses/${encodeURIComponent(sessionData.course.id)}/playback?sessionId=${encodeURIComponent(sessionData.course.sessionId)}`, "_blank", "noopener,noreferrer") }] : []),
@@ -6908,6 +6916,7 @@ export function ClassroomV3({
                     }
                   />
                   <BoardCompositionLayer
+                    videoGallery={videoGalleryActive}
                     items={presentedBoardItems}
                     revision={sessionData.runtime.revision}
                     members={classroomMembers}

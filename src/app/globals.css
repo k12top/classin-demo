@@ -330,6 +330,11 @@
   container-type: size;
 }
 
+.classroom-v3-board-composition.is-video-gallery {
+  background: hsl(var(--background));
+  pointer-events: auto;
+}
+
 .classroom-v3-board-item {
   position: absolute;
   overflow: visible;

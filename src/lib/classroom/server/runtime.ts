@@ -54,6 +54,7 @@ import { captionTranslationLimit, supportsCaptionTranslation } from "@/lib/class
 import { classroomSelectorCycle } from "@/lib/classroom/engagement";
 import {
   arrangeClassroomVideoGallery,
+  MAX_CLASSROOM_BOARD_ITEMS,
   bringClassroomBoardItemToFront,
   defaultBoardRect,
   emptyClassroomComposition,
@@ -1327,6 +1328,13 @@ export async function applyClassroomAction(input: {
         break;
       case "arrangeVideoGallery": {
         requireTeachingRole(role);
+        if (action.layout !== undefined && action.layout !== "grid" && action.layout !== "rail") {
+          throw new ClassroomActionError("无效的视频布局", 400);
+        }
+        if (action.layout === "rail") {
+          await writeComposition(arrangeClassroomVideoGallery(currentComposition, [], "rail"));
+          break;
+        }
         const onlineFilter = await classroomOnlineMemberFilter(tx, sessionId, redisPresence);
         const galleryMembers = await tx.classroomMemberState.findMany({
           where: {
@@ -1335,10 +1343,13 @@ export async function applyClassroomAction(input: {
           },
           select: { userId: true, role: true },
           orderBy: { joinedAt: "asc" },
-          take: 12,
+          take: MAX_CLASSROOM_BOARD_ITEMS + 1,
         });
         if (galleryMembers.length === 0) {
           throw new ClassroomActionError("当前没有可编排的视频席位", 409);
+        }
+        if (galleryMembers.length + currentComposition.boardItems.filter(item => item.kind !== "camera").length > MAX_CLASSROOM_BOARD_ITEMS) {
+          throw new ClassroomActionError(`白板最多容纳 ${MAX_CLASSROOM_BOARD_ITEMS} 个窗口，请减少上台人数或移除其他窗口后重试`, 409);
         }
         await writeComposition(arrangeClassroomVideoGallery(currentComposition, galleryMembers.map(member => ({ ...member, role: member.role as ClassroomRole }))));
         break;

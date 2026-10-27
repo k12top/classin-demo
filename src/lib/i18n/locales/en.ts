@@ -745,6 +745,8 @@ export const en: typeof zhCN = {
       focusLayout: "Focus",
       splitLayout: "Split",
       gridLayout: "Grid",
+      boardLayout: "Whiteboard (videos above)",
+      stageGridLayout: "Onstage video grid",
       classroomLayout: "Classroom layout",
       useLayout: "Use {layout} layout",
       unlockStage: "Unlock stage",

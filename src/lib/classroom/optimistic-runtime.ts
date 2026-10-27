@@ -14,7 +14,7 @@ export function optimisticClassroomRuntime(runtime: ClassroomRuntimeSnapshot, ac
   case "acknowledgeHand": return runtime.members.find(member => member.userId === action.targetUserId)?.handRaisedAt === action.handRaisedAt ? patchMember(action.targetUserId, { handRaisedAt: null }) : null;
   case "inviteStage": return patchMember(action.targetUserId, { stageState: "invited" });
   case "removeStage": return patchMember(action.targetUserId, { onStage: false, stageState: "offstage", whiteboardWritable: false });
-  case "arrangeVideoGallery": return { ...runtime, composition: arrangeClassroomVideoGallery(runtime.composition, runtime.members.filter(member => member.online && (member.role !== "student" || member.onStage))) };
+  case "arrangeVideoGallery": return { ...runtime, composition: arrangeClassroomVideoGallery(runtime.composition, runtime.members.filter(member => member.online && (member.role !== "student" || member.onStage)), action.layout) };
   case "resetComposition": return { ...runtime, composition: { ...emptyClassroomComposition(), screenShares: runtime.composition.screenShares } };
   case "startTimer": return { ...runtime, timerStartedAt: new Date().toISOString(), timerPausedAt: null, timerDurationSec: action.durationSec };
   case "resetTimer": return { ...runtime, timerStartedAt: null, timerPausedAt: null, timerDurationSec: null };
