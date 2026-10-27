@@ -39,6 +39,7 @@ const ACTION_TYPES = new Set<ClassroomAction["type"]>([
   "startClass",
   "startScheduledClass",
   "setClassStartMode",
+  "setCaptionStartPreferences",
   "setRecordingStartMode",
   "raiseHand",
   "lowerHand",

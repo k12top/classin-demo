@@ -1,5 +1,7 @@
 "use client";
 
+import { CaptionStartSettings } from "@/components/classroom/caption-start-settings";
+import { newCaptionStartPreferences } from "@/lib/classroom/caption-start-preferences";
 import { copyInvitationText } from "@/lib/invitation-sharing";
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
@@ -177,6 +179,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
   const [createTimezone, setCreateTimezone] = useState(timeZone);
   const [createDuration, setCreateDuration] = useState(60);
   const [createRoomType, setCreateRoomType] = useState(0);
+  const [createCaptionStartPreferences, setCreateCaptionStartPreferences] = useState(newCaptionStartPreferences);
   const [createAutoStudentOnStage, setCreateAutoStudentOnStage] = useState(true);
   const [createRequirePasscode, setCreateRequirePasscode] = useState(true);
   const [createPasscode, setCreatePasscode] = useState("");
@@ -517,6 +520,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       endTime: standaloneEnd?.toISOString(),
       roomType: createRoomType,
       autoStudentOnStage: createAutoStudentOnStage,
+      captionStartPreferences: createCaptionStartPreferences,
       requirePasscode: createRoomType === 10 ? createRequirePasscode : undefined,
       passcode: createRoomType === 10 && createRequirePasscode ? createPasscode : undefined,
       primaryTeacher: selectedPrimaryTeacher,
@@ -554,6 +558,7 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
       }
       const { course } = await res.json();
       createRequestRef.current = null;
+      setCreateCaptionStartPreferences(newCaptionStartPreferences());
       setCreateName(""); setCreateDesc(""); setCreateKind("series"); setCreateStartTime(defaultCourseStartValue()); setCreateDuration(60); setCreateRoomType(0); setCreateAutoStudentOnStage(true); setCreateRequirePasscode(true); setCreatePasscode("");
       resetCreateTeacherSelection();
       router.push(`/courses/${course.id}`);
@@ -1395,6 +1400,8 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                   <span className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${createAutoStudentOnStage ? "translate-x-5" : "translate-x-0"}`} />
                 </button>
               </div>
+
+              <CaptionStartSettings value={createCaptionStartPreferences} onChange={setCreateCaptionStartPreferences} disabled={createLoading} />
 
               {createRoomType === 10 && (
                 <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">

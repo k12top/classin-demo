@@ -1,4 +1,5 @@
 export const zhCN = {
+  captionStart: {"title": "开课字幕与同传", "autoCaptions": "自动开启字幕", "autoInterpretation": "自动开启同传", "languages": "同传语言", "addLanguage": "添加语言", "chooseLanguage": "请选择至少一种同传语言", "hint": "开课后自动开启，课中可调整。", "saved": "已保存", "saving": "保存中…"},
   timeZones: {
     "reference": "{city}时间",
     "scheduleKeepClock": "保留填写的钟点，按所选城市排课。",

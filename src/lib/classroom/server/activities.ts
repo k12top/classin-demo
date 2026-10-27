@@ -1,3 +1,4 @@
+import { captionStartPreferences } from "../caption-start-preferences";
 import "server-only";
 import { createHash } from "node:crypto";
 import { Prisma, type ClassroomActivity, type ClassroomActivitySubmission } from "@prisma/client";
@@ -157,7 +158,10 @@ export async function createActivity(actor: ActivityActor, value: unknown, reque
   const lesson = await prisma.courseSession.findFirst({ where: { id: actor.sessionId, courseId: actor.courseId } });
   if (!lesson) throw new ActivityError("Lesson not found", 404);
   if (actor.role === "assistant" && !(await prisma.classroomRuntime.findUnique({ where: { sessionId: actor.sessionId } }))) throw new ActivityError("Only authorized teachers can create activities", 403);
-  await prisma.classroomRuntime.upsert({ where: { sessionId: actor.sessionId }, create: { sessionId: actor.sessionId, courseId: actor.courseId }, update: {} });
+  const course = await prisma.course.findUniqueOrThrow({ where: { id: actor.courseId }, select: { captionStartPreferences: true } });
+  await prisma.classroomRuntime.upsert({ where: { sessionId: actor.sessionId }, create: { sessionId: actor.sessionId, courseId: actor.courseId,
+    captionStartPreferences: course.captionStartPreferences as Prisma.InputJsonObject,
+    sourceLanguage: captionStartPreferences(course.captionStartPreferences).sourceLanguage }, update: {} });
   return activityWrite(actor, async (tx, ctx) => {
     if (!ctx.canManage) throw new ActivityError("Only authorized teachers can create activities", 403);
     const previous = await tx.classroomActivity.findUnique({ where: { sessionId_requestId: { sessionId: actor.sessionId, requestId } } });

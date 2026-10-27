@@ -1,3 +1,5 @@
+import { automaticCaptionServiceEnabled, captionStartPreferences } from "../caption-start-preferences";
+import type { Prisma } from "@prisma/client";
 import "server-only";
 import { prisma } from "@/lib/db";
 import { classroomGraceEndAt } from "../policy";
@@ -30,9 +32,12 @@ export async function changeClassroomTiming(input: { sessionId: string; courseId
     const endTime = input.action === "reopen" ? new Date(now.getTime() + Math.max(15 * 60_000, lesson.endTime.getTime() - lesson.startTime.getTime()))
       : new Date(Math.max(now.getTime(), lesson.endTime.getTime()) + input.minutes! * 60_000);
     await tx.courseSession.update({ where: { id: lesson.id }, data: { startTime, endTime, ...(input.action === "reopen" && { status: "live", endedAt: null }) } });
+    const course = !runtime ? await tx.course.findUniqueOrThrow({ where: { id: lesson.courseId }, select: { captionStartPreferences: true } }) : null;
+    const startPreferences = runtime?.captionStartPreferences ?? course?.captionStartPreferences ?? {};
+    const startService = automaticCaptionServiceEnabled(startPreferences);
     const state = await tx.classroomRuntime.upsert({ where: { sessionId: lesson.id },
-      create: { sessionId: lesson.id, courseId: lesson.courseId, status: input.action === "reopen" ? "live" : "waiting", startedAt: input.action === "reopen" ? now : null, graceEndsAt: classroomGraceEndAt(endTime) },
-      update: { graceEndsAt: classroomGraceEndAt(endTime), revision: { increment: 1 }, ...(input.action === "reopen" && { status: "live", startedAt: now, transcriptionError: null }) } });
+      create: { captionStartPreferences: startPreferences as Prisma.InputJsonObject, sourceLanguage: captionStartPreferences(startPreferences).sourceLanguage, interpretationEnabled: input.action === "reopen" && startService, transcriptionStatus: input.action === "reopen" && startService ? "starting" : "stopped", sessionId: lesson.id, courseId: lesson.courseId, status: input.action === "reopen" ? "live" : "waiting", startedAt: input.action === "reopen" ? now : null, graceEndsAt: classroomGraceEndAt(endTime) },
+      update: { graceEndsAt: classroomGraceEndAt(endTime), revision: { increment: 1 }, ...(input.action === "reopen" && { status: "live", startedAt: now, interpretationEnabled: startService, transcriptionStatus: startService ? "starting" : "stopped", transcriptionError: null }) } });
     let recordingId: string | undefined;
     if (input.action === "reopen") {
       // Fence the old cloud page before queuing a new one. Persist both tasks

@@ -1,6 +1,7 @@
 import { zhCN } from "./zh-CN";
 
 export const en: typeof zhCN = {
+  captionStart: {"title": "Captions at class start", "autoCaptions": "Automatically show captions", "autoInterpretation": "Automatically start interpretation", "languages": "Interpretation languages", "addLanguage": "Add language", "chooseLanguage": "Choose at least one interpretation language", "hint": "Starts with the lesson. You can change it during class.", "saved": "Saved", "saving": "Saving\u2026"},
   timeZones: {
     "reference": "{city} time",
     "scheduleKeepClock": "Keep the entered clock time and schedule in the selected city.",

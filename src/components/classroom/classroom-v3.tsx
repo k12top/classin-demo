@@ -1,4 +1,6 @@
 "use client";
+import { CaptionStartSettings } from "./caption-start-settings";
+import { initialCaptionStartView, newCaptionStartPreferences, type CaptionStartPreferences } from "@/lib/classroom/caption-start-preferences";
 import { imageMessageContent } from "@/lib/classroom/chat-image-message";
 import { useWhiteboardShortcuts } from "@/lib/classroom/whiteboard/use-shortcuts";
 import { BoardToolsMenu } from "./board-tools-menu";
@@ -86,7 +88,6 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   Sparkles,
   ClipboardList,
-  CircleDot,
   AlertCircle,
   ArrowLeft,
   BookOpen,
@@ -1302,7 +1303,9 @@ function LiveRail({
   previewPlacesOnBoard,
   onAction, onViewMembers,
   canPlaceOnBoard = true,
+  showHandQueue = true,
 }: {
+  showHandQueue?: boolean;
   members: ClassroomMemberSnapshot[];
   media: ClassroomMediaSnapshot;
   provider: ClassroomMediaProvider;
@@ -1434,7 +1437,7 @@ function LiveRail({
           />
         ))}
       </div>
-      {canManage && queue.length > 0 && <div className="classroom-v3-hand-queue has-hands"><HandRaiseQueue members={members} busy={busy} onAction={onAction} onViewMembers={onViewMembers} /></div>}
+      {showHandQueue && canManage && queue.length > 0 && <div className="classroom-v3-hand-queue has-hands"><HandRaiseQueue members={members} busy={busy} onAction={onAction} onViewMembers={onViewMembers} /></div>}
     </section>
   );
 }
@@ -2997,6 +3000,7 @@ function DeviceSettings({
   onStageSettingsChange,
   canUseAuxiliaryCamera,
   onClassStartModeChange,
+  onCaptionStartPreferencesChange,
   startSettingsBusy,
   focusClassStart = false,
   onRecordingStartModeChange,
@@ -3017,6 +3021,7 @@ function DeviceSettings({
   onStageSettingsChange: (studentLimit: number | null, inviteBypassLimit: boolean) => void;
   canUseAuxiliaryCamera: boolean;
   onClassStartModeChange: (mode: ClassStartMode) => void;
+  onCaptionStartPreferencesChange: (value: CaptionStartPreferences) => void;
   startSettingsBusy: boolean;
   focusClassStart?: boolean;
   onRecordingStartModeChange: (mode: "classStart" | "scheduled" | "scheduledEarly" | "disabled") => void;
@@ -3322,6 +3327,7 @@ function DeviceSettings({
               <div className="classroom-v3-device-column">
                 {canManageRecording && runtime && <>
                   <ClassStartSettings runtime={runtime} reveal={focusClassStart} busy={startSettingsBusy} onChange={onClassStartModeChange} />
+                  <CaptionStartSettings value={runtime.captionStartPreferences ?? newCaptionStartPreferences()} disabled={startSettingsBusy || runtime.status !== "waiting"} onChange={onCaptionStartPreferencesChange} />
                   <fieldset className="classroom-v3-caption-settings classroom-v3-start-policy is-recording">
                     <legend>{t("classroom.v3.recordingPolicyTitle")}</legend>
                     <label>
@@ -3574,6 +3580,20 @@ export function ClassroomV3({
       locale,
     );
   });
+  const captionDefaultsSession = useRef("");
+  useEffect(() => {
+    const id = sessionData?.course.sessionId, preferences = sessionData?.runtime.captionStartPreferences;
+    if (!id || !preferences) return;
+    const key = `${id}:${sessionData.credential.userId}:${sessionData.runtime.status}:${JSON.stringify(preferences)}`;
+    if (captionDefaultsSession.current === key) return;
+    captionDefaultsSession.current = key;
+    let personal: unknown = null;
+    try { personal = JSON.parse(localStorage.getItem(`classroom_caption_choice:${sessionData.credential.userId}:${id}`) || "null"); } catch { /* Use course defaults when storage is unavailable. */ }
+    const view = initialCaptionStartView(preferences, personal);
+    setCaptionDisplayMode(view.displayMode);
+    setCaptionOverlayVisible(view.overlayVisible);
+    setCaptionLanguage(view.preferredLanguage);
+  }, [sessionData?.course.sessionId, sessionData?.runtime.captionStartPreferences, sessionData?.runtime.status, sessionData?.credential.userId]);
   const [recordingStatus, setRecordingStatus] = useState<string | null>(null);
   const [recordingFallback, setRecordingFallback] = useState<string | null>(null);
   const [recordingStopConfirming, setRecordingStopConfirming] = useState(false);
@@ -6336,15 +6356,8 @@ export function ClassroomV3({
   const minimalFunctionActions: ClassroomHeaderMenuAction[] = [
           { id: "settings", compactOnly: true, label: t("classroom.v3.deviceSettings"), icon: <Settings2 />, onSelect: () => setSettingsOpen(true) },
           ...(!classEnded ? [
-            { id: "courseware", label: t("classroom.v3.courseware"), icon: <BookOpen />, onSelect: () => setActivePanel("courseware") },
-            { id: "interaction", label: t("classroomMinimal.interaction"), icon: <Zap />, children: [
-              { id: "activities", label: t("activities.title"), icon: <ClipboardList />, onSelect: openActivityTools },
-              { id: "questions", label: t("classroom.v3.questions"), icon: <MessageCircle />, onSelect: () => setActivePanel("questions") },
-              { id: "engagement", label: t("classroomMinimal.interaction"), icon: <Zap />, onSelect: () => setActivePanel("engagement") },
-            ] },
             { id: "assistant", label: t(assistantVisible ? "classroomWorkspace.hideAssistant" : "classroomWorkspace.showAssistant"), icon: <Sparkles />, checked: assistantVisible, onSelect: () => setAssistantVisible(value => !value) },
           ] : []),
-          ...(sessionData.capabilities.canManageMembers ? [{ id: "hand-queue", label: t("classroom.v3.handRaiseQueue"), icon: <Hand />, onSelect: () => setActivePanel("members") }] : []),
           { id: "layout", label: t("classroomMinimal.layout"), icon: <LayoutGrid />, children: [
             ...(whiteboardStageEnabled ? sessionData.capabilities.canManageStage && !classEnded ? [
               { id: "board", label: t("classroom.v3.boardLayout"), icon: <Presentation />, checked: !compositionBoardItems.some(item => item.kind === "camera" && item.visible), disabled: Boolean(actionBusy) || !showWhiteboard, onSelect: () => { void performAction({ type: "arrangeVideoGallery", layout: "rail" }); } },
@@ -6355,20 +6368,29 @@ export function ClassroomV3({
             ]),
             { id: "seats", label: t("classroom.v3.members"), icon: <Users />, checked: !liveRailCollapsed, onSelect: () => setLiveRailCollapsed(value => !value) },
           ] },
-          ...(sessionData.capabilities.canControlRecording && !classEnded ? [{ id: "recording", label: t(["starting", "recording"].includes(recordingStatus || "") ? "classroom.v3.stopRecording" : "classroom.v3.startRecording"), icon: <CircleDot />, onSelect: onRecordingControl }] : []),
           ...(classEnded ? [{ id: "playback", label: t("studentDashboard.viewPlayback"), icon: <Play/>, onSelect: () => window.open(`/courses/${encodeURIComponent(sessionData.course.id)}/playback?sessionId=${encodeURIComponent(sessionData.course.sessionId)}`, "_blank", "noopener,noreferrer") }] : []),
+    { id: "recover", label: t("classroom.v3.resetMedia"), icon: mediaBusy.includes("recover") ? <Loader2 className="animate-spin" /> : <RefreshCw />, disabled: classEnded || mediaBusy.includes("recover"), onSelect: () => { void runMediaAction("recover", async provider => { await renewClassroomCredentials(); await provider.recoverMedia(true); }); } },
         ];
 
   const minimalOperationActions: ClassroomHeaderMenuAction[] = [
+    ...(!classEnded ? [
+            { id: "courseware", label: t("classroom.v3.courseware"), icon: <BookOpen />, onSelect: () => setActivePanel("courseware") },
+            { id: "interaction", label: t("classroomMinimal.interaction"), icon: <Zap />, children: [
+              { id: "activities", label: t("activities.title"), icon: <ClipboardList />, onSelect: openActivityTools },
+              { id: "questions", label: t("classroom.v3.questions"), icon: <MessageCircle />, onSelect: () => setActivePanel("questions") },
+              { id: "engagement", label: t("classroomMinimal.interaction"), icon: <Zap />, onSelect: () => setActivePanel("engagement") },
+            ] },
+    ] : []),
     ...(isScreenShareAllowed && (screenShareSupported || controlMedia.local.screenSharing) ? [{ id: "share", compactOnly: true, label: t(controlMedia.local.screenSharing ? "classroomSharing.title" : "classroom.v3.screenShare"), icon: <MonitorUp />, disabled: Boolean(actionBusy), onSelect: () => { void toggleScreenShare(); } }] : []),
     { id: "captions", compactOnly: true, label: t("classroom.v3.captions"), icon: <Headphones />, onSelect: () => setActivePanel(current => current === "captions" ? null : "captions") },
-    { id: "recover", label: t("classroom.v3.resetMedia"), icon: mediaBusy.includes("recover") ? <Loader2 className="animate-spin" /> : <RefreshCw />, disabled: classEnded || mediaBusy.includes("recover"), onSelect: () => { void runMediaAction("recover", async provider => { await renewClassroomCredentials(); await provider.recoverMedia(true); }); } },
+
     { id: "leave", label: t("classroom.v3.leave"), icon: <LogOut />, onSelect: leaveClassroom, disabled: isLeaving, danger: true },
   ];
 
   const liveRail = (!isRecorder && (sessionData.modePolicy.showLiveRail ||
         (classinLayout && sessionData.mode !== "publicLive")) && (
         <LiveRail
+          showHandQueue={!classinLayout}
           onAction={performAction} onViewMembers={() => setActivePanel("members")}
           members={classroomMembers}
           media={media}
@@ -6473,6 +6495,7 @@ export function ClassroomV3({
         settings={<ClassroomQuickSettings provider={controlsRoomMedia && roomProvider ? roomProvider : mediaProvider} dark={theme !== "light"}
           onTheme={() => setClientTheme(theme === "light" ? "dark" : "light")} onCaptions={() => setActivePanel("captions")} onAdvanced={() => setSettingsOpen(true)} />}
         actions={minimalFunctionActions}
+          handQueue={sessionData.capabilities.canManageMembers ? <HandRaiseQueue placement="header" members={classroomMembers} busy={Boolean(actionBusy)} onAction={performAction} onViewMembers={() => setActivePanel("members")} /> : undefined}
         notices={<>{!settingsOpen && <ClassStartReminder role={sessionData.credential.role} status={sessionData.runtime.status} mode={sessionData.runtime.classStartMode} startTime={sessionData.course.startTime} endTime={sessionData.course.endTime} now={now + presenceClockOffset} busy={Boolean(actionBusy)} onStart={() => void performAction({ type: "startClass" })} onSettings={() => { setFocusClassStart(true); setSettingsOpen(true); }} />}</>}
       /> : (<>
       <header className="classroom-v3-topbar">
@@ -7385,11 +7408,13 @@ export function ClassroomV3({
                       return result.caption.translationStatus === "completed";
                     } : undefined}
                     onApplySettings={async settings => {
-                      if (!await captionSubscription.save(settings.preferredLanguage, settings.displayMode)) return false;
+                      setCaptionOverlayVisible(settings.overlayVisible);
+                      if (settings.interpretation && !await performAction(settings.interpretation)) return false;
+                      if (!await captionSubscription.save(settings.preferredLanguage, settings.displayMode, true, settings.interpretation?.sourceLanguage)) return false;
                       setCaptionLanguage(settings.preferredLanguage);
                       setCaptionDisplayMode(settings.displayMode);
-                      setCaptionOverlayVisible(settings.overlayVisible);
-                      return settings.interpretation ? await performAction(settings.interpretation) : true;
+                      try { localStorage.setItem(`classroom_caption_choice:${sessionData.credential.userId}:${sessionData.course.sessionId}`, JSON.stringify(settings)); } catch { /* Current tab retains its choice. */ }
+                      return true;
                     }}
                   />
                 </section>}
@@ -7873,6 +7898,7 @@ export function ClassroomV3({
         canUseAuxiliaryCamera={canUseAuxiliaryCamera}
         focusClassStart={focusClassStart}
         startSettingsBusy={Boolean(actionBusy)}
+        onCaptionStartPreferencesChange={preferences => { void performAction({ type: "setCaptionStartPreferences", preferences }); }}
         onClassStartModeChange={(mode) => void performAction({ type: "setClassStartMode", mode })}
         onRecordingStartModeChange={(mode) => void performAction({ type: "setRecordingStartMode", mode })}
         onOpenCaptions={() => setActivePanel("captions")}
