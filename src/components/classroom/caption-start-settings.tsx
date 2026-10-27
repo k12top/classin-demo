@@ -7,8 +7,8 @@ import { captionLanguageSelectOptions, classroomLanguageLabel } from '@/lib/clas
 import { type CaptionStartPreferences } from '@/lib/classroom/caption-start-preferences';
 import styles from './caption-start-settings.module.css';
 
-export function CaptionStartSettings({ value, disabled = false, onChange }: {
-  value: CaptionStartPreferences; disabled?: boolean; onChange: (value: CaptionStartPreferences) => void;
+export function CaptionStartSettings({ value, disabled = false, className = '', onChange }: {
+  value: CaptionStartPreferences; disabled?: boolean; className?: string; onChange: (value: CaptionStartPreferences) => void;
 }) {
   const { t, locale } = useTranslation();
   const [adding, setAdding] = useState(false);
@@ -16,7 +16,7 @@ export function CaptionStartSettings({ value, disabled = false, onChange }: {
   // Course defaults use the built-in provider's supported languages. Extra
   // bridge languages remain available in the live, capability-aware selector.
   const targets = sources.filter(option => option.value !== value.sourceLanguage && !value.targetLanguages.includes(option.value));
-  return <section className={styles.settings} aria-label={t('captionStart.title')}>
+  return <section className={`${styles.settings} ${className}`} aria-label={t('captionStart.title')}>
     <h3>{t('captionStart.title')}</h3>
     {(['autoCaptions', 'autoInterpretation'] as const).map(key => <div className={styles.row} key={key}>
       <label id={`caption-start-${key}`}>{t(`captionStart.${key}`)}</label>

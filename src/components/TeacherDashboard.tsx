@@ -1401,7 +1401,12 @@ export default function TeacherDashboard({ courses, user, fetchCourses }: { cour
                 </button>
               </div>
 
-              <CaptionStartSettings value={createCaptionStartPreferences} onChange={setCreateCaptionStartPreferences} disabled={createLoading} />
+              <CaptionStartSettings
+                className={createCourseStyles.captionSettings}
+                value={createCaptionStartPreferences}
+                onChange={setCreateCaptionStartPreferences}
+                disabled={createLoading}
+              />
 
               {createRoomType === 10 && (
                 <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">

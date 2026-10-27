@@ -87,8 +87,8 @@
   gap:6px;
   padding:5px 7px 5px 9px;
   border-radius:7px;
-  background:hsl(var(--primary)/.07);
-  color:hsl(var(--primary));
+  background:var(--caption-start-accent-background, hsl(var(--primary)/.07));
+  color:var(--caption-start-accent, hsl(var(--primary)));
   font-size:12px;
   max-width:100%;
   overflow-wrap:anywhere}

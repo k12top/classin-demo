@@ -1,13 +1,133 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- Actual reusable start-settings form in Chromium. */
-const {app,BrowserWindow}=require('electron'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),esbuild=require('esbuild'),http=require('node:http');const root=path.resolve(__dirname,'../..');let win,server;
-async function main(){
- const output=process.env.CLASSROOM_CONTROLS_OUTPUT||path.join(root,'outputs/classroom-minimal-controls-2026-10-27');await fs.mkdir(output,{recursive:true});
- const bundle=await esbuild.build({stdin:{contents:`import React,{useState}from'react';import{createRoot}from'react-dom/client';import{I18nProvider}from'@/lib/i18n/context';import{CaptionStartSettings}from'@/components/classroom/caption-start-settings';import{newCaptionStartPreferences}from'@/lib/classroom/caption-start-preferences';function Form(){const[value,setValue]=useState(newCaptionStartPreferences);window.startFixture={value};return <main className="creation"><header><h1>创建新课程</h1><p>设置课堂默认行为，课中仍可调整。</p></header><div className="form-scroll"><label className="course-field">课程名称<input defaultValue="Python-S 26班"/></label><section className="existing"><div><strong>学生自动上台</strong><p>学生入课后自动获得台上席位。</p></div><button type="button" role="switch" aria-label="学生自动上台" aria-checked="true"><i/></button></section><CaptionStartSettings value={value} onChange={setValue}/></div><footer><button>取消</button><button className="primary" onClick={()=>{window.submitted=value}}>创建课程组</button></footer></main>}createRoot(document.getElementById('root')).render(<I18nProvider initialLocale="zh-CN"><Form/></I18nProvider>);`,loader:'tsx',resolveDir:root},bundle:true,write:false,outdir:'out',platform:'browser',format:'iife',define:{'process.env':'{}'},tsconfig:path.join(root,'tsconfig.json')});
- const styles=(await Promise.all(['globals.css','classroom-classin.css','classroom-light.css','classroom-responsive.css'].map(f=>fs.readFile(path.join(root,'src/app',f),'utf8')))).join('\n')+'\n'+bundle.outputFiles.find(f=>f.path.endsWith('.css')).text;
- server=http.createServer((req,res)=>{if(req.url==='/app.js'){res.setHeader('content-type','text/javascript');return res.end(bundle.outputFiles.find(f=>f.path.endsWith('.js')).text)}if(req.url==='/style.css'){res.setHeader('content-type','text/css');return res.end(styles)}res.end(`<!doctype html><html class="light" lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><style>*{box-sizing:border-box}body{margin:0;background:#f5f5f7;font-family:system-ui;color:#22262d;display:grid;place-items:center;min-height:100vh}.creation{display:flex;flex-direction:column;width:min(640px,calc(100vw - 32px));max-height:calc(100dvh - 48px);background:white;border:1px solid #e5e5e7;border-radius:16px;overflow:hidden}.creation>header{padding:24px 28px 20px;border-bottom:1px solid #e8eaee;flex:none}h1{font-size:22px;letter-spacing:-.02em;margin:0 0 8px;font-weight:600}header p{color:#686f7b;font-size:13px;margin:0}.form-scroll{padding:22px 28px;overflow:auto;overscroll-behavior:contain;min-height:0;scrollbar-width:thin}.course-field{font-size:12px;color:#686f7b;display:grid;gap:8px}.course-field input{border:1px solid #dde0e6;padding:10px 12px;border-radius:8px;font-size:14px;color:#22262d;background:white}.existing{margin:22px 0 14px;display:flex;gap:20px;align-items:center;justify-content:space-between;padding:17px 20px;border:1px solid #e5e5e7;border-radius:12px}.existing strong{font-size:13px;font-weight:500}.existing p{font-size:12px;color:#686f7b;margin:5px 0 0}.existing button{position:relative;flex:none;width:34px;height:20px;border:0;border-radius:12px;background:#4f46e5}.existing button i{position:absolute;top:3px;right:3px;width:14px;height:14px;border-radius:50%;background:white}.creation>footer{padding:16px 28px;display:flex;justify-content:flex-end;gap:10px;border-top:1px solid #e8eaee;flex:none}footer button{border:0;padding:10px 15px;border-radius:8px;font-size:13px;background:transparent;color:#686f7b;cursor:pointer}footer .primary{background:#4f46e5;color:white}.creation section [class*=settings] h3{font-size:14px}button:focus-visible,input:focus-visible{outline:2px solid #4f46e5;outline-offset:3px}@media(max-width:600px){body{display:block}.creation{width:100%;height:100dvh;max-height:none;border:0;border-radius:0}.creation>header{padding:22px 20px 18px}.form-scroll{padding:20px;flex:1}.creation>footer{padding:14px 20px}.existing{padding:15px 16px}}</style><div id="root"></div><script src="/app.js"></script></html>`)});await new Promise(r=>server.listen(0,'127.0.0.1',r));
- win=new BrowserWindow({width:1100,height:860,show:false,webPreferences:{backgroundThrottling:false,partition:'start-settings-'+Date.now()}});const errors=[];win.webContents.on('console-message',e=>{if(e.level==='error'||e.level>=3)errors.push(e.message)});const run=c=>win.webContents.executeJavaScript(c),pause=t=>new Promise(r=>setTimeout(r,t)),wait=async c=>{for(let i=0;i<120;i++){if(await run(c))return;await pause(50)}throw Error('timeout '+c+' '+errors.join(';'))};
- for(const [w,h]of[[1100,860],[390,844],[320,740]]){win.setContentSize(w,h);await win.loadURL('http://127.0.0.1:'+server.address().port+'/?lang=zh-CN');await wait('!!window.startFixture');await pause(100);assert.equal(await run('document.body.scrollWidth>innerWidth'),false);await fs.writeFile(path.join(output,'course-start-settings-'+w+'.png'),(await win.webContents.capturePage()).toPNG());
- await run(`document.querySelector('[aria-labelledby="caption-start-autoInterpretation"]').click()`);await wait('!startFixture.value.autoInterpretation');assert.equal(await run(`document.querySelector('[class*="targets"]')===null`),true,'translation languages collapse when automatic interpretation is off');await run(`document.querySelector('[aria-labelledby="caption-start-autoCaptions"]').click()`);await wait('!startFixture.value.autoCaptions');assert.equal(await run(`document.querySelector('.classroom-v3-caption-select-field')===null`),true,'all language controls collapse when both defaults are off');
- await run(`document.querySelector('[aria-labelledby="caption-start-autoInterpretation"]').click()`);await wait('startFixture.value.autoInterpretation');await run(`document.querySelector('[class*="add"]').click()`);await wait(`document.querySelectorAll('.classroom-v3-caption-select-field').length===2`);await run(`document.querySelectorAll('.classroom-v3-caption-select-field')[1].querySelector('button').click()`);await wait(`document.querySelector('[data-value="ja-JP"]')!==null || [...document.querySelectorAll('[role=option]')].some(e=>e.textContent.includes('日本'))`);await run(`[...document.querySelectorAll('[role=option]')].find(e=>e.textContent.includes('日本')).click()`);await wait('startFixture.value.targetLanguages.includes("ja-JP")');await run(`document.querySelector('footer .primary').click()`);assert.deepEqual(await run('submitted.targetLanguages'),['en-US','ja-JP']);}
- assert.deepEqual(errors,[]);console.log('PASS start settings: independent switches, conditional languages, multi-language selection, submission payload; 3 viewports.');}
-app.whenReady().then(main).then(()=>{win?.destroy();server?.close();app.quit()}).catch(e=>{console.error(e);win?.destroy();server?.close();app.exit(1)});
+/* eslint-disable @typescript-eslint/no-require-imports -- Render the complete shipped creation dialog in Chromium. */
+const { app, BrowserWindow } = require('electron');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const esbuild = require('esbuild');
+const postcss = require('postcss');
+const tailwind = require('tailwindcss');
+const root = path.resolve(__dirname, '../..');
+let win, server;
+
+async function main() {
+  const output = process.env.CLASSROOM_CONTROLS_OUTPUT || path.join(root, 'outputs/classroom-original-create-2026-10-28');
+  await fs.mkdir(output, { recursive: true });
+  // Only navigation is simulated. TeacherDashboard, the original two-column
+  // dialog, form state, language controls and POST serialization are real.
+  const bundle = await esbuild.build({
+    stdin: {
+      contents: `import React from 'react';
+        import {createRoot} from 'react-dom/client';
+        import {I18nProvider} from '@/lib/i18n/context';
+        import {PortalFeedbackProvider} from '@/components/portal/portal-feedback';
+        import TeacherDashboard from '@/components/TeacherDashboard';
+        window.fetch = async (url, options = {}) => {
+          if (url === '/api/courses' && options.method === 'POST') {
+            window.submitted = JSON.parse(options.body);
+            return new Response(JSON.stringify({course:{id:'fixture-course'}}));
+          }
+          return new Response(JSON.stringify({schedules:[],teachers:[],users:[],groups:[]}));
+        };
+        createRoot(document.getElementById('root')).render(
+          <I18nProvider initialLocale="zh-CN"><PortalFeedbackProvider>
+            <TeacherDashboard courses={[]} user={{userId:'teacher-fixture',displayName:'nkwill'}} fetchCourses={()=>{}} />
+          </PortalFeedbackProvider></I18nProvider>);`,
+      loader: 'tsx', resolveDir: root,
+    },
+    bundle: true, write: false, outdir: 'out', platform: 'browser', format: 'iife',
+    define: { 'process.env': '{}' }, tsconfig: path.join(root, 'tsconfig.json'),
+    plugins: [{ name: 'next-navigation-fixture', setup(build) {
+      build.onResolve({ filter: /^next\/navigation$/ }, () => ({ path: 'next-navigation', namespace: 'fixture' }));
+      build.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({
+        contents: `const router={push:path=>{window.navigated=path},prefetch:()=>{},refresh:()=>{},replace:()=>{}};
+          export const useRouter=()=>router; export const usePathname=()=>'/';
+          export const useSearchParams=()=>new URLSearchParams();`, loader: 'js',
+      }));
+    } }],
+  });
+  const globalCss = await fs.readFile(path.join(root, 'src/app/globals.css'), 'utf8');
+  const compiled = await postcss([tailwind({ config: path.join(root, 'tailwind.config.ts') })])
+    .process(globalCss, { from: path.join(root, 'src/app/globals.css') });
+  const courseCss = await fs.readFile(path.join(root, 'src/app/course-details.css'), 'utf8');
+  const classroomCss = (await Promise.all(['classroom-classin.css', 'classroom-light.css', 'classroom-responsive.css']
+    .map(file => fs.readFile(path.join(root, 'src/app', file), 'utf8')))).join('\n');
+  const styles = compiled.css.replace(/@import[^;]+;/g, '') + courseCss + classroomCss
+    + bundle.outputFiles.find(file => file.path.endsWith('.css')).text;
+  server = require('node:http').createServer((req, res) => {
+    if (req.url === '/app.js') {
+      res.setHeader('content-type', 'text/javascript');
+      return res.end(bundle.outputFiles.find(file => file.path.endsWith('.js')).text);
+    }
+    if (req.url === '/style.css') { res.setHeader('content-type', 'text/css'); return res.end(styles); }
+    res.end(`<!doctype html><html class="light" lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><div id="root"></div><script src="/app.js"></script></html>`);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  win = new BrowserWindow({ width: 1440, height: 1000, show: false,
+    webPreferences: { backgroundThrottling: false, partition: 'original-creation-' + Date.now() } });
+  const errors = [];
+  win.webContents.on('console-message', event => { if (event.level === 'error' || event.level >= 3) errors.push(event.message); });
+  const run = code => win.webContents.executeJavaScript(code);
+  const pause = time => new Promise(resolve => setTimeout(resolve, time));
+  const wait = async code => {
+    for (let i = 0; i < 120; i++) { if (await run(code)) return; await pause(50); }
+    throw new Error('timeout ' + code + ' ' + errors.join(';'));
+  };
+  const open = `([...document.querySelectorAll('button')].find(b=>b.textContent.includes('创建')))`;
+  const dialog = `document.querySelector('[role="dialog"]')`;
+  const settings = `document.querySelector('section[aria-label="开课字幕与同传"]')`;
+  const switchFor = key => `document.querySelector('[aria-labelledby="caption-start-${key}"]')`;
+  const checks = [];
+  for (const [width, height, theme] of [[1440, 1000, 'light'], [390, 844, 'light'], [320, 740, 'light'], [1440, 1000, 'dark']]) {
+    win.setContentSize(width, height);
+    await win.loadURL('http://127.0.0.1:' + server.address().port + '/?lang=zh-CN');
+    await wait(open);
+    await run(`document.documentElement.className=${JSON.stringify(theme)}; ${open}.click()`);
+    await wait(settings);
+    await pause(350);
+    assert.equal(await run(`${dialog}.querySelector('aside').textContent.includes('Classroom studio')`), true);
+    for (const text of ['讲课老师', '课堂类型', '学生自动上台', '课程名称']) {
+      assert.equal(await run(`${dialog}.textContent.includes(${JSON.stringify(text)})`), true, 'preserve original field: ' + text);
+    }
+    assert.equal(await run('document.body.scrollWidth > innerWidth'), false);
+    if (width === 1440) {
+      assert.equal(await run(`${dialog}.querySelector('aside').getBoundingClientRect().right <= ${dialog}.querySelector('[class*="formBody"]').getBoundingClientRect().left + 1`), true, 'original two-column layout');
+    }
+    await fs.writeFile(path.join(output, `original-create-${width}-${theme}-top.png`), (await win.webContents.capturePage()).toPNG());
+    await run(`${settings}.scrollIntoView({block:'end'})`);
+    await pause(100);
+    assert.equal(await run(`${settings}.scrollWidth > ${settings}.clientWidth`), false, 'new controls fit original form');
+    await fs.writeFile(path.join(output, `original-create-${width}-${theme}-settings.png`), (await win.webContents.capturePage()).toPNG());
+    await run(`${switchFor('autoInterpretation')}.click()`);
+    await wait(`!${settings}.querySelector('[class*="targets"]')`);
+    await run(`${switchFor('autoCaptions')}.click()`);
+    await wait(`!${settings}.querySelector('.classroom-v3-caption-select-field')`);
+    await run(`${switchFor('autoInterpretation')}.click()`);
+    await wait(`${settings}.querySelector('[class*="add"]')`);
+    await run(`${settings}.querySelector('[class*="add"]').click()`);
+    await wait(`${settings}.querySelectorAll('.classroom-v3-caption-select-field').length === 2`);
+    await run(`${settings}.querySelectorAll('.classroom-v3-caption-select-field')[1].querySelector('button').click()`);
+    await wait(`[...document.querySelectorAll('[role="option"]')].some(e=>e.textContent.includes('日本'))`);
+    await run(`[...document.querySelectorAll('[role="option"]')].find(e=>e.textContent.includes('日本')).click()`);
+    await wait(`${settings}.textContent.includes('日本')`);
+    assert.equal(await run(`${dialog} !== null`), true, 'language selection keeps full creation dialog open');
+    await run(`{
+      const input=${dialog}.querySelector('input[maxlength="100"]') || ${dialog}.querySelector('input');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Python-S 26班');
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+    }`);
+    await pause(100);
+    await run(`${dialog}.querySelector('[class*="createButton"]').click()`);
+    await wait('!!window.submitted');
+    assert.deepEqual(await run('submitted.captionStartPreferences'), {
+      autoCaptions: false, autoInterpretation: true, sourceLanguage: 'zh-CN', targetLanguages: ['en-US', 'ja-JP'],
+    });
+    assert.equal(await run('submitted.autoStudentOnStage'), true);
+    assert.equal(await run('submitted.name'), 'Python-S 26班');
+    checks.push({ width, height, theme, originalPanel: true, newSettings: true, payload: true });
+  }
+  assert.deepEqual(errors, []);
+  await fs.writeFile(path.join(output, 'checks.json'), JSON.stringify(checks, null, 2));
+  console.log('PASS original full creation dialog: original fields and two-column layout retained, added independent caption/interpretation defaults, language selection and actual POST payload; desktop, 390px, 320px and dark theme.');
+}
+app.whenReady().then(main).then(() => { win?.destroy(); server?.close(); app.quit(); })
+  .catch(error => { console.error(error); win?.destroy(); server?.close(); app.exit(1); });

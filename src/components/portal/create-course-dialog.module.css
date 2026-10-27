@@ -497,12 +497,35 @@
   scrollbar-width: thin;
 }
 
-.formBody > div {
+.formBody > div,
+.formBody > .captionSettings {
   border: 1px solid rgba(21, 23, 28, 0.075);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.82);
   padding: 17px;
   box-shadow: 0 1px 1px rgba(9, 10, 13, 0.025);
+}
+
+.formBody .captionSettings label {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: normal;
+}
+
+.captionSettings button[role="switch"] {
+  width: 48px;
+  height: 28px;
+  padding: 4px;
+  border-radius: 999px;
+}
+
+.captionSettings button[role="switch"] i {
+  width: 20px;
+  height: 20px;
+}
+
+.captionSettings button[role="switch"][aria-checked="true"] i {
+  transform: translateX(20px);
 }
 
 .formBody input,
@@ -990,12 +1013,18 @@
   scrollbar-color: rgba(167, 175, 189, 0.28) transparent;
 }
 
-:global(html.dark) .formBody > div {
+:global(html.dark) .formBody > div,
+:global(html.dark) .formBody > .captionSettings {
   border-color: rgba(167, 175, 189, 0.12);
   background: #15171c;
   box-shadow:
     inset 0 1px rgba(255, 255, 255, 0.035),
     0 12px 28px rgba(0, 0, 0, 0.12);
+}
+
+:global(html.dark) .captionSettings {
+  --caption-start-accent: #c4bdff;
+  --caption-start-accent-background: rgba(123, 111, 242, 0.18);
 }
 
 :global(html.dark) .formBody input,
@@ -1305,7 +1334,8 @@
     font-size: 16px;
   }
 
-  .formBody > div {
+  .formBody > div,
+  .formBody > .captionSettings {
     border-radius: 15px;
     padding: 14px;
   }
