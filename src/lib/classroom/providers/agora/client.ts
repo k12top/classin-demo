@@ -420,13 +420,20 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         }
       }
       if (this.client !== client) return;
+      let subscriptionStateChanged = false;
       for (const [id, user] of this.remoteUsers) {
         if (user.hasVideo && !this.isLocalParticipant(id)) {
           const participant = this.participants.get(id);
-          if (participant) participant.videoSubscriptionPaused = !this.remoteVideoStreamTypes.has(id);
+          const paused = !this.remoteVideoStreamTypes.has(id);
+          if (participant && Boolean(participant.videoSubscriptionPaused) !== paused) {
+            participant.videoSubscriptionPaused = paused;
+            subscriptionStateChanged = true;
+          }
         }
       }
-      this.emit();
+      // ResizeObserver also runs after attaching a target. Do not feed an
+      // unchanged receive plan back into React and its layout measurements.
+      if (subscriptionStateChanged) this.emit();
     }).catch((error: unknown) => {
       console.warn("[ClassroomRTC] Failed to update remote video subscriptions", error);
     });

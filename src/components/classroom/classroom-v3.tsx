@@ -355,7 +355,9 @@ function MediaSurface({
       <div key={participant.id} ref={targetRef} className="classroom-v3-media-video" />
       {(!participant.hasVideo || participant.videoSubscriptionPaused) && (
         <div className="classroom-v3-media-fallback">
-          <span>{initialOf(displayName)}</span>
+          {member && participant.kind === "camera"
+            ? <div className="classroom-v3-media-avatar"><ClassroomMemberAvatar avatar={member.avatar} name={displayName} /></div>
+            : <span>{initialOf(displayName)}</span>}
           <small>
             {participant.videoSubscriptionPaused
               ? t("classroom.v3.videoPausedForSharedContent")
@@ -1141,6 +1143,7 @@ function LiveRailSeat({
           displayName={member.displayName}
           className="classroom-v3-rail-media"
           showCaption={false}
+          member={member}
         />
       ) : (
         <div className="classroom-v3-rail-fallback">
@@ -1153,7 +1156,7 @@ function LiveRailSeat({
         {member.displayName}
       </span>
       {participant && <MicrophoneLevel provider={provider} participantId={participant.id} enabled={microphoneOn} />}
-      <HandRaiseVideoBadge member={member} />
+      {(!participant || sharing) && <HandRaiseVideoBadge member={member} />}
       {!microphoneOn && (
         <span
           className="classroom-v3-seat-media-state"
@@ -1180,7 +1183,9 @@ function LiveRailSeat({
 
   return (
     <motion.article
-      layout
+      // Seat identity and video must stay still during network/presence updates.
+      // Explicit dragging below remains available for teacher reordering.
+      layout={false}
       drag={canReorder ? "x" : false}
       dragElastic={0.08}
       dragMomentum={false}

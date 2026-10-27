@@ -367,7 +367,7 @@ html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-dock .cl
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seats { gap:8px;padding:12px 24px;height:100%;align-items:center; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat { width:148px;min-width:148px;flex:0 0 148px;height:84px;min-height:84px;padding:0;border:0;border-radius:10px;background:#20242b; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat .classroom-v3-seat-preview { height:100%;width:100%;padding:0;border:0;border-radius:10px; }
-html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat .classroom-v3-seat-name { inset:auto auto 8px 10px;max-width:calc(100% - 20px);padding:0;font-size:11px;color:white;background:none; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat .classroom-v3-seat-name { inset:auto auto 8px 10px;max-width:calc(100% - 34px);padding:0;font-size:11px;color:white;background:none; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat.is-sharing .classroom-v3-seat-name { color:var(--classroom-frost); }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-rail-fallback { background:#20242b; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat-media-state { inset:7px 8px auto auto; }

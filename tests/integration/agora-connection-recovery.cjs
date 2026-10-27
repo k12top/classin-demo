@@ -376,6 +376,28 @@ function videoSurface(width, height) {
   };
 }
 
+test("unchanged video target measurements do not broadcast new classroom snapshots", async () => {
+  const { provider, clients, observers, subscriptions } = fixture();
+  await provider.connect(credential, "Teacher");
+  const camera = { uid: 2, hasVideo: true };
+  clients[0].emit("user-published", camera, "video"); await tick();
+  let snapshots = 0;
+  const unsubscribe = provider.subscribe(() => { snapshots++; });
+  const surface = videoSurface(160, 120);
+  provider.attachVideo("2", surface); await tick();
+  assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, false);
+  const settledSnapshots = snapshots;
+  for (let i = 0; i < 10; i++) { observers[0].callback(); await tick(); }
+  assert.equal(snapshots, settledSnapshots, "stable layout must not retrigger React layout measurement");
+  assert.equal(subscriptions.filter(([, kind]) => kind === "video").length, 1);
+  surface.width = 0; observers[0].callback(); await tick();
+  assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, true);
+  surface.width = 160; observers[0].callback(); await tick();
+  assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, false);
+  assert.equal(subscriptions.filter(([, kind]) => kind === "video").length, 2, "visible camera resubscribes after being hidden");
+  unsubscribe(); await provider.disconnect();
+});
+
 test("solo and recorder video surfaces upgrade to high and return to low after shrinking", async () => {
   const { provider, clients, streamTypes, observers } = fixture();
   await provider.connect(credential, "教师");
