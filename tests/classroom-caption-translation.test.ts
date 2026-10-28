@@ -9,12 +9,13 @@ type Row = Record<string, unknown> & {text: string;translations: Record<string,s
 function fixture(translate: (input: Row)=>Promise<Row>, provider = "wordly", targets = ["en-US"]) {
  let active = 0, calls = 0, row: Row | null = null, revision = 1; const jobs=new Map<string, {noticeId:string;payload:Record<string,unknown>}>();let prepareFailure=false,commitFailure=false,prepareHook:(()=>Promise<void>)|null=null;
  const runtime={id:"runtime",status:"live",interpretationEnabled:true,interpretationProvider:provider,sourceLanguage:"zh-CN",targetLanguages:targets,revision};
- const tx={classroomCaption:{findUnique:async()=>row,upsert:async({create,update}:{create:Row;update:Row})=>{row={...(row?{...row,...update}:{id:"stored",createdAt:new Date(),...create}),updatedAt:new Date()} as Row;return row;},update:async({data}:{data:Partial<Row>})=>{if(commitFailure){commitFailure=false;throw Error("commit unavailable");}row={...row!,...data,updatedAt:new Date()};return row;}},classroomMemberState:{findUnique:async()=>null},classroomRuntime:{findUnique:async()=>({...runtime,revision}),update:async()=>({...runtime,revision:++revision})},classroomProviderEvent:{
+ const lesson={id:"session",title:"lesson",roomUuid:"room",createdAt:new Date(Date.now()-86_400_000),endedAt:null as Date|null,recordings:[] as {stoppedAt:Date}[]};
+ const tx={classroomCaption:{findUnique:async({where}:{where:{sessionId_externalId?:{externalId:string}}})=>!where.sessionId_externalId||!row||row.externalId===where.sessionId_externalId.externalId?row:null,upsert:async({create,update}:{create:Row;update:Row})=>{row={...(row?{...row,...update}:{id:"stored",createdAt:new Date(),...create}),updatedAt:new Date()} as Row;return row;},update:async({data}:{data:Partial<Row>})=>{if(commitFailure){commitFailure=false;throw Error("commit unavailable");}row={...row!,...data,updatedAt:new Date()};return row;}},classroomMemberState:{findUnique:async()=>null},classroomRuntime:{findUnique:async()=>({...runtime,revision}),update:async()=>({...runtime,revision:++revision})},classroomProviderEvent:{
  findUnique:async({where}:{where:{noticeId:string}})=>jobs.get(where.noticeId)||null,
  update:async({where,data}:{where:{noticeId:string};data:{payload:Record<string,unknown>}})=>{const value=structuredClone({...jobs.get(where.noticeId)!,...data});jobs.set(where.noticeId,value);return value;},
  updateMany:async({where,data}:{where:{noticeId:string;payload:{equals:unknown}};data:{payload:Record<string,unknown>}})=>{const current=jobs.get(where.noticeId);if(!current||JSON.stringify(current.payload)!==JSON.stringify(where.payload.equals))return {count:0};jobs.set(where.noticeId,structuredClone({...current,...data}));return {count:1};},
 },$queryRaw:async()=>[]};
- const prisma={...tx,courseSession:{findUniqueOrThrow:async()=>({id:"session",title:"lesson",roomUuid:"room",endedAt:null})},classroomProviderEvent:{...tx.classroomProviderEvent,createMany:async({data}:{data:{noticeId:string;payload:Record<string,unknown>}[]})=>{const id=data[0].noticeId;if(jobs.has(id))return {count:0};jobs.set(id,structuredClone(data[0]));return {count:1};}},$transaction:async<T>(fn:(tx:unknown)=>Promise<T>)=>{active++;try{return await fn(tx);}finally{active--;}}};
+ const prisma={...tx,courseSession:{findUniqueOrThrow:async()=>lesson},classroomProviderEvent:{...tx.classroomProviderEvent,createMany:async({data}:{data:{noticeId:string;payload:Record<string,unknown>}[]})=>{const id=data[0].noticeId;if(jobs.has(id))return {count:0};jobs.set(id,structuredClone(data[0]));return {count:1};}},$transaction:async<T>(fn:(tx:unknown)=>Promise<T>)=>{active++;try{return await fn(tx);}finally{active--;}}};
  Object.assign(tx.classroomProviderEvent,{createMany:prisma.classroomProviderEvent.createMany});
  Object.assign(tx.classroomCaption,{findMany:async()=>row?[{...row}]:[]});
  Object.assign(prisma.classroomProviderEvent,{findMany:async({where}:{where:{noticeId:{in:string[]}}})=>[...jobs.values()].filter(job=>where.noticeId.in.includes(job.noticeId))});
@@ -22,9 +23,31 @@ function fixture(translate: (input: Row)=>Promise<Row>, provider = "wordly", tar
  "./caption-routing":{resolveCaptionTranslations:async(provider: "wordly" | "shengwang", source: string, targets: string[])=>planCaptionTranslations(provider,source,targets,{configured:true,targetLanguages:["en-US","bm","chm"],maxTargetLanguages:10})},
  "server-only":{},"node:crypto":crypto,"../caption-translation":{runClaimedCaptionTranslation,captionTranslationState},"@/lib/db":{prisma},"@/lib/classroom/server/runtime":{ensureClassroomRuntime:async()=>runtime},"@/lib/course-room":{courseIdToRoomUuid:()=>"room"},"@/lib/classroom/languages":{normalizeTargetLanguages:(value:string[])=>value},"@/lib/classroom/caption-idempotency":{shouldReusePersistedCaption},"@/lib/classroom/translation/wordly":{ensureWordlyRoom:async()=>{assert.equal(active,0);if(prepareHook)await prepareHook();if(prepareFailure)throw Error("prepare failed");},translateCaptionWithWordly:async(_id:string,input:Row)=>{assert.equal(active,0,"paid provider must not run in DB transaction");calls++;return translate(input);}},
  });
- return {api,get calls(){return calls;},get row(){return row;},get jobs(){return jobs.size;},get ledger(){return jobs;},set prepareHook(value:(()=>Promise<void>)|null){prepareHook=value;},set prepareFailure(value:boolean){prepareFailure=value;},set commitFailure(value:boolean){commitFailure=value;}};
+ return {api,runtime,lesson,get calls(){return calls;},get row(){return row;},get jobs(){return jobs.size;},get ledger(){return jobs;},set prepareHook(value:(()=>Promise<void>)|null){prepareHook=value;},set prepareFailure(value:boolean){prepareFailure=value;},set commitFailure(value:boolean){commitFailure=value;}};
 }
 const input={id:"caption",text:"正文",speakerId:"teacher",speakerName:"老师",sourceLanguage:"zh-CN",detectedLanguage:"zh-CN",translations:{},isFinal:true,provider:"shengwang" as const,occurredAt:new Date().toISOString()};
+test("partial speech commits without finality, and a late partial can add translation without reverting final text", async()=>{
+ const f=fixture(async value=>value,"shengwang",[]);
+ await f.api.ingestClassroomCaption("course",{...input,isFinal:false},"session");
+ assert.equal(f.row?.isFinal,false);assert.equal(f.row?.text,"正文");
+ await f.api.ingestClassroomCaption("course",input,"session");
+ await f.api.ingestClassroomCaption("course",{...input,isFinal:false,translations:{"en-US":"Saved translation"}},"session");
+ assert.equal(f.row?.isFinal,true);assert.equal(f.row?.translations["en-US"],"Saved translation");
+ await f.api.ingestClassroomCaption("course",{...input,isFinal:false,text:"正",translations:{"en-US":"Stale"}},"session");
+ assert.equal(f.row?.text,"正文");assert.equal(f.row?.translations["en-US"],"Saved translation");assert.equal(f.calls,0);
+});
+test("ended lessons accept buffered partials and late translations, including recordings without lesson.endedAt", async()=>{
+ const f=fixture(async value=>value,"shengwang",[]);
+ f.runtime.status="ended";f.runtime.interpretationEnabled=false;
+ const end=new Date(Date.now()-3_600_000);f.lesson.recordings=[{stoppedAt:end}];
+ const speech={...input,isFinal:false,occurredAt:new Date(end.getTime()-60_000).toISOString()};
+ const result=await f.api.ingestClassroomCaption("course",speech,"session");
+ assert.ok("caption" in result);assert.equal(f.row?.text,"正文");
+ await f.api.ingestClassroomCaption("course",{...speech,occurredAt:new Date().toISOString(),translations:{"en-US":"Late"}},"session");
+ assert.equal(f.row?.translations["en-US"],"Late");
+ await assert.rejects(f.api.ingestClassroomCaption("course",{...input,id:"post-class",occurredAt:new Date().toISOString()},"session"),/outside this lesson/);
+ assert.equal(f.calls,0);
+});
 test("mixed Shengwang and bridge captions merge late native translations without billing again", async()=>{
  const f=fixture(async value=>({...value,translations:{bm:"Bridge text"}}),"shengwang",["en-US","bm"]);
  const first=await f.api.ingestClassroomCaption("course",input,"session");

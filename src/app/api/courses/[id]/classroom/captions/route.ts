@@ -60,7 +60,8 @@ async function postCaption(
     : false;
   const resolved = recorder
     ? null
-    : await resolveClassroomRequestAccess(request, courseId, shareAccess);
+    // Caption delivery outlives live entry, while roster and role checks remain.
+    : await resolveClassroomRequestAccess(request, courseId, shareAccess, { purpose: "activities" });
   if (resolved && !resolved.ok) {
     return NextResponse.json(
       { error: resolved.error, code: resolved.code },

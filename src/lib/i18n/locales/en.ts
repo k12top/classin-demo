@@ -570,6 +570,7 @@ export const en: typeof zhCN = {
       captionLanguageLimit: "All translation channels are in use. Choose an active language or try later. Your previous selection was kept.",
       captionLanguageUnsupported: "This service does not support this language. Choose another caption language.",
       captionPreferenceFailed: "Caption language was not saved. Check your connection and retry.",
+      captionStorageUnavailable: "Caption backup on this device is unavailable. Keep the classroom open and check your browser storage settings.",
       captionNoDemand: "No translation requested. Only original captions are generated.",
       interpretation: "Live interpretation",
       interpretationHint: "Shengwang ASR with a selectable translation service",

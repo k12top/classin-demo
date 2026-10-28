@@ -10,6 +10,7 @@ import {
 } from "react";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
+import { startCaptionOutboxRecovery } from "@/lib/classroom/caption-delivery";
 
 export interface AuthUser {
   userId: string;
@@ -56,6 +57,10 @@ export function AuthProvider({
 }) {
   const [user, setUser] = useState<AuthUser | null>(initialUser);
   const [loading, setLoading] = useState(!initialUser);
+
+  useEffect(() => {
+    if (user?.userId) return startCaptionOutboxRecovery(user.userId);
+  }, [user?.userId]);
 
   useEffect(() => {
     if (initialUser) return;

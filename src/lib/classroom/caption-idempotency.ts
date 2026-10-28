@@ -8,7 +8,10 @@ export function shouldReusePersistedCaption(input: {
   provider: "shengwang" | "wordly";
   targetLanguages: readonly string[];
 }): boolean {
-  if (!input.existingIsFinal) return false;
+  if (!input.existingIsFinal) {
+    return !input.incomingIsFinal && input.existingText === input.incomingText &&
+      !Object.entries(input.incomingTranslations).some(([language, text]) => input.existingTranslations[language] !== text);
+  }
   if (!input.incomingIsFinal) return true;
   if (input.existingText !== input.incomingText) return false;
 

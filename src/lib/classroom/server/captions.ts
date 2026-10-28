@@ -15,6 +15,8 @@ import { shouldReusePersistedCaption } from "@/lib/classroom/caption-idempotency
 import { ensureClassroomRuntime } from "@/lib/classroom/server/runtime";
 import { requestedBridgeTargets } from "../caption-routing";
 import { resolveCaptionTranslations } from "./caption-routing";
+import { mergeCaptionInput } from "../caption-merge";
+import { captionWithinLesson } from "../caption-admission";
 
 function translationsRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
@@ -98,19 +100,12 @@ export async function ingestClassroomCaption(
   const runtime = await ensureClassroomRuntime(courseId, sessionId);
   const lesson = await prisma.courseSession.findUniqueOrThrow({
     where: { id: sessionId },
-    select: { id: true, title: true, roomUuid: true, endedAt: true },
+    select: { id: true, title: true, roomUuid: true, createdAt: true, endedAt: true,
+      recordings: { where: { stoppedAt: { not: null } }, orderBy: { stoppedAt: "desc" }, take: 1, select: { stoppedAt: true } },
+    },
   });
-  // A transcription provider can finish its last sentence just after the
-  // teacher ends class. Keep that final sentence, but quietly discard delayed
-  // partials and any later callbacks from an already stopped agent.
-  if (
-    runtime.status === "ended" &&
-    (!input.isFinal ||
-      !lesson.endedAt ||
-      Date.now() - lesson.endedAt.getTime() > 30_000)
-  ) {
-    return { ignored: true };
-  }
+  const endedAt = runtime.status === "ended"
+    ? lesson.endedAt ?? lesson.recordings[0]?.stoppedAt ?? runtime.updatedAt : null;
   const externalId = input.id.trim().slice(0, 240);
   const text = input.text.trim().slice(0, 20_000);
   const suppliedTranslations = translationsRecord(input.translations);
@@ -136,18 +131,27 @@ export async function ingestClassroomCaption(
       const existingCaption = await transaction.classroomCaption.findUnique({
         where: { sessionId_externalId: { sessionId, externalId } },
       });
+      // A late translation belongs to the original sentence even when the
+      // provider stamps its delivery after class. New sentences remain bounded.
+      if (!captionWithinLesson(existingCaption?.occurredAt.toISOString() ?? input.occurredAt,
+        { createdAt: lesson.createdAt, endedAt })) {
+        throw new Error("Caption timestamp is outside this lesson");
+      }
+      const merged = existingCaption
+        ? mergeCaptionInput(publicCaption(existingCaption), { ...input, text, translations: suppliedTranslations })
+        : { ...input, text, translations: suppliedTranslations };
       const existingTranslations = translationsRecord(
-        !text || existingCaption?.text === text ? existingCaption?.translations : {},
+        existingCaption?.translations,
       );
-      const incomingTranslations = suppliedTranslations;
-      const effectiveText = text || existingCaption?.text || "";
+      const incomingTranslations = merged.translations;
+      const effectiveText = merged.text;
       const wordlyTargets = requestedBridgeTargets(runtime.interpretationProvider, runtime.sourceLanguage, normalizeTargetLanguages(
         runtime.targetLanguages,
         runtime.sourceLanguage,
         20,
       ));
       const wordlyFinal =
-        runtime.interpretationEnabled &&
+        runtime.interpretationEnabled && (runtime.status === "live" || options.recoverOnly) &&
         input.isFinal && wordlyTargets.length > 0;
       if (
         existingCaption &&
@@ -155,7 +159,7 @@ export async function ingestClassroomCaption(
           existingIsFinal: existingCaption.isFinal,
           existingText: existingCaption.text,
           existingTranslations,
-          incomingIsFinal: input.isFinal,
+          incomingIsFinal: merged.isFinal,
           incomingText: effectiveText,
           incomingTranslations,
           provider: wordlyFinal ? "wordly" : "shengwang",
@@ -179,31 +183,28 @@ export async function ingestClassroomCaption(
           })
         : null;
       const normalized: ClassroomCaptionInput = {
-        ...input,
+        ...merged,
         id: externalId,
         text: effectiveText,
         speakerId:
-          input.speakerId.slice(0, 240) || existingCaption?.speakerId || "",
+          merged.speakerId.slice(0, 240) || existingCaption?.speakerId || "",
         speakerName: (
-          input.speakerName ||
+          merged.speakerName ||
           member?.displayName ||
           existingCaption?.speakerName ||
           "Speaker"
         ).slice(0, 240),
         sourceLanguage:
-          input.sourceLanguage.slice(0, 32) ||
+          merged.sourceLanguage.slice(0, 32) ||
           existingCaption?.sourceLanguage ||
           "",
         detectedLanguage:
-          input.detectedLanguage.slice(0, 32) ||
+          merged.detectedLanguage.slice(0, 32) ||
           existingCaption?.detectedLanguage ||
           "",
-        translations: {
-          ...existingTranslations,
-          ...incomingTranslations,
-        },
+        translations: incomingTranslations,
       };
-      const occurredAt = new Date(input.occurredAt);
+      const occurredAt = new Date(normalized.occurredAt);
       const safeOccurredAt = Number.isNaN(occurredAt.getTime())
         ? new Date()
         : occurredAt;
@@ -243,15 +244,11 @@ export async function ingestClassroomCaption(
           occurredAt: safeOccurredAt,
         },
       });
-      const updatedRuntime =
-        input.isFinal
-          ? await transaction.classroomRuntime.update({
-              where: { id: runtime.id },
-              data: {
-                revision: { increment: 1 },
-              },
-            })
-          : runtime;
+      // Archive replay must not move the legacy fallback end boundary forward.
+      const updatedRuntime = runtime.status === "ended" ? runtime : await transaction.classroomRuntime.update({
+        where: { id: runtime.id },
+        data: { revision: { increment: 1 } },
+      });
       if (!options.recoverOnly && wordlyFinal && wordlyTargets.some(language => !translationsRecord(caption.translations)[language])) {
         const payload = { claim, state: "preparing", sessionId, captionId: externalId, at: new Date().toISOString() };
         const reservation = await transaction.classroomProviderEvent.createMany({ data: [{
@@ -267,7 +264,7 @@ export async function ingestClassroomCaption(
     { maxWait: 5_000, timeout: 5_000 },
   );
   const targets = requestedBridgeTargets(runtime.interpretationProvider, runtime.sourceLanguage, normalizeTargetLanguages(runtime.targetLanguages, runtime.sourceLanguage, 20));
-  if (!input.isFinal || !result.caption?.isFinal || !runtime.interpretationEnabled ||
+  if (!input.isFinal || !result.caption?.isFinal || !runtime.interpretationEnabled || (runtime.status !== "live" && !options.recoverOnly) ||
       !targets.some(language => !result.caption.translations[language]) || result.caption.text !== text) {
     if (targets.length && targets.every(language => result.caption.translations[language])) result.caption.translationStatus = "completed";
     return result;

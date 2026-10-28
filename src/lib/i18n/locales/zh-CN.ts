@@ -568,6 +568,7 @@ export const zhCN = {
       captionLanguageLimit: "课堂同时使用的翻译语言已达上限。请选已开启的语言，或稍后重试；原选择已保留。",
       captionLanguageUnsupported: "当前服务不支持此语言，请选择其他字幕语言。",
       captionPreferenceFailed: "字幕语言未保存，请检查连接后重试。",
+      captionStorageUnavailable: "本机字幕备份不可用，请保持课堂页面打开，并检查浏览器存储设置。",
       captionNoDemand: "暂无翻译需求，仅生成课堂原文字幕。",
       interpretation: "课堂同传",
       interpretationHint: "声网 ASR 转写，翻译服务可切换",

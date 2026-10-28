@@ -55,6 +55,8 @@ import { applyClassroomScreenShareRequest } from "@/lib/classroom/screen-share-r
 import { canRetryClassroomRecovery, ClassroomRecoveryError, retryClassroomRecovery } from "@/lib/classroom/credential-recovery";
 import { reportClassroomDiagnostic, type ClassroomConnectionDiagnostic } from "@/lib/classroom/connection-diagnostics";
 import { createCaptionPersistenceQueue } from "@/lib/classroom/caption-persistence";
+import { createCaptionOutbox } from "@/lib/classroom/caption-outbox";
+import { deliverClassroomCaption } from "@/lib/classroom/caption-delivery";
 import { requestClassroomHeartbeat, classroomPollDelay } from "@/lib/classroom/heartbeat-request";
 import { withClassroomRequestSignal } from "@/lib/classroom/request-signal";
 import { classroomMemberVisible, classroomPresenceClockOffset } from "@/lib/classroom/presence";
@@ -3418,6 +3420,7 @@ export function ClassroomV3({
   const sessionRef = useRef<ClassroomSessionResponse | null>(null);
   const classEnded = sessionData?.runtime.status === "ended";
   const liveRequestsRef = useRef<AbortController | null>(null);
+  const captionQueueRef = useRef<ReturnType<typeof createCaptionPersistenceQueue> | null>(null);
   const [clientId, setClientId] = useState(() => crypto.randomUUID());
   const [deviceId] = useState(classroomDeviceId);
   const deviceEntryModeRef = useRef<ClassroomDeviceEntryMode | undefined>(undefined);
@@ -4184,25 +4187,21 @@ export function ClassroomV3({
             reportConnectionDiagnostic({ event: "connection-state", ...event });
           }
         });
+        let captionStore;
+        try {
+          captionStore = createCaptionOutbox(window.localStorage,
+            isRecorder ? `recorder:${payload.course.sessionId}` : user!.userId, courseId, clientId);
+        } catch (error) {
+          console.warn("[classroom:v3] caption local storage unavailable", error);
+          if (!isRecorder) setActionError(translateSession("classroom.v3.captionStorageUnavailable"));
+        }
         captionQueue = createCaptionPersistenceQueue(async (caption) => {
-          const controller = liveRequestsRef.current;
-          if (!controller || cancelled || sessionRef.current?.runtime.status === "ended") return;
-          const result = await retryClassroomRecovery(() => withClassroomRequestSignal(10_000, controller.signal, async (signal) => {
-            const response = await fetch(
-              `/api/sessions/${encodeURIComponent(courseId)}/classroom/captions`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                signal,
-                body: JSON.stringify({ caption, ...(shareAccess && { shareAccess }), ...(isRecorder && recorderToken ? { recorderToken } : {}) }),
-              },
-            );
-            const result = await response.json() as { caption?: ClassroomCaptionSnapshot; revision?: number };
-            if (stopEndedSession(response.status, result)) return {};
-            if (!response.ok) throw new ClassroomRecoveryError(response.status, Number(response.headers.get("Retry-After") || 0) * 1_000);
-            return result;
-          }), { signal: controller.signal });
-          if (cancelled || controller.signal.aborted || !result.caption) return;
+          // Caption delivery has its own timeout. Ending class aborts live
+          // polling/media requests, but must never cancel an archive write.
+          const result = await deliverClassroomCaption(courseId, caption, {
+            shareAccess, ...(isRecorder && recorderToken ? { recorderToken } : {}),
+          });
+          if (cancelled) return;
           if (!isRecorder) {
             const current = sessionRef.current;
             if (current) updateSession({ captions: mergeCaptions(current.captions, result.caption) });
@@ -4211,12 +4210,17 @@ export function ClassroomV3({
             void signalingRef.current?.publish({ courseId, revision: result.revision, topic: "captions" }).catch(() => undefined);
           }
         }, (error) => {
-          if (!cancelled && !liveRequestsRef.current?.signal.aborted) console.warn("[classroom:v3] caption ingest failed", error);
-        });
+          console.warn("[classroom:v3] caption delivery retained for retry", error);
+          if (!cancelled && !isRecorder && error instanceof DOMException &&
+              ["QuotaExceededError", "SecurityError"].includes(error.name)) {
+            setActionError(translateSession("classroom.v3.captionStorageUnavailable"));
+          }
+        }, 300, { store: captionStore });
+        captionQueueRef.current = captionQueue;
         unsubscribeCaptions = provider.subscribeCaptions((caption) => {
           if (cancelled) return;
           const runtime = sessionRef.current?.runtime ?? payload.runtime;
-          if (runtime.status === "ended" || endingClassRef.current) return;
+          // Provider finals/translations can arrive while endClass is in flight.
           const speakerId = participantOwnerId(caption.speakerId, runtime.members);
           const localCaption: ClassroomCaptionSnapshot = {
             ...caption,
@@ -4269,7 +4273,17 @@ export function ClassroomV3({
       }
     }
     void launch();
+    const flushCaptions = () => { void captionQueue?.flush(); };
+    window.addEventListener("online", flushCaptions);
+    window.addEventListener("pagehide", flushCaptions);
+    document.addEventListener("visibilitychange", flushCaptions);
     return () => {
+      window.removeEventListener("online", flushCaptions);
+      window.removeEventListener("pagehide", flushCaptions);
+      document.removeEventListener("visibilitychange", flushCaptions);
+      // Start best-effort delivery; the durable outbox remains until acked and
+      // AuthProvider continues recovery after navigation or the next login.
+      flushCaptions();
       cancelled = true;
       unsubscribe?.();
       liveRequestsRef.current?.abort();
@@ -4277,6 +4291,7 @@ export function ClassroomV3({
       credentialRecoveryFailureRef.current = null;
       unsubscribeCaptions?.();
       captionQueue?.dispose();
+      if (captionQueueRef.current === captionQueue) captionQueueRef.current = null;
       unsubscribeTokenExpiry?.();
       signalingRef.current?.disconnect().catch(() => undefined);
       signalingRef.current = null;
@@ -4285,6 +4300,7 @@ export function ClassroomV3({
     };
   }, [
     authLoading,
+    clientId,
     courseId,
     fetchInitialSession,
     isRecorder,
@@ -4900,6 +4916,7 @@ export function ClassroomV3({
   );
   useEffect(() => {
     if (!classEnded) return;
+    void captionQueueRef.current?.flush();
     liveRequestsRef.current?.abort();
     refreshRequestIdRef.current += 1;
     refreshAbortRef.current?.abort();
@@ -5745,6 +5762,7 @@ export function ClassroomV3({
   const exitClassroom = useCallback(() => {
     if (isLeaving) return;
     setIsLeaving(true);
+    void captionQueueRef.current?.flush();
     liveRequestsRef.current?.abort();
     const destination = parentCourseId
       ? `/courses/${encodeURIComponent(parentCourseId)}`
@@ -5787,6 +5805,14 @@ export function ClassroomV3({
     setActionBusy("endClass");
     setActionError("");
     try {
+      // Begin archive delivery before the lifecycle changes. Never keep an
+      // offline teacher trapped here: unacknowledged entries are already local.
+      const queue = captionQueueRef.current;
+      if (queue) {
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([queue.flush(), new Promise<void>(resolve => { timeout = setTimeout(resolve, 1_000); })]);
+        clearTimeout(timeout);
+      }
       const response = await fetch(
         `/api/courses/${encodeURIComponent(current.course.id)}/sessions/${encodeURIComponent(courseId)}/lifecycle`,
         {

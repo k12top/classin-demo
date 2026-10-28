@@ -443,6 +443,7 @@ export const zhTW = {
       captionLanguageLimit: "課堂同時使用的翻譯語言已達上限。請選已開啟的語言，或稍後重試；原選擇已保留。",
       captionLanguageUnsupported: "目前服務不支援此語言，請選擇其他字幕語言。",
       captionPreferenceFailed: "字幕語言未儲存，請檢查連線後重試。",
+      captionStorageUnavailable: "本機字幕備份不可用，請保持課堂頁面開啟，並檢查瀏覽器儲存設定。",
       captionNoDemand: "暫無翻譯需求，僅產生課堂原文字幕。",
       scheduledLessonEnded: "已到下課時間",
       roomClosesIn: "教室將在 {minutes} 分鐘後自動關閉",

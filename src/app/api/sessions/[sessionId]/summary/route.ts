@@ -49,10 +49,10 @@ export async function GET(request: NextRequest, context: Context) {
     return NextResponse.json({ summary: visibleSummary, generation: publicSummaryGeneration(generation), canManage: resolved.access.teaching });
   }
   const captionCursor = request.nextUrl.searchParams.get("captionCursor") || undefined;
-  // Final captions back the authorized playback timeline and CC controls even
-  // while the teacher's generated summary is still a private draft.
+  // Persisted partials remain playable if the provider never sends a final
+  // (disconnect/shutdown). Each sentence is still one upserted row.
   const captions = await prisma.classroomCaption.findMany({
-        where: { sessionId, courseId: resolved.courseId, isFinal: true },
+        where: { sessionId, courseId: resolved.courseId },
         orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
         select: {
           id: true,
