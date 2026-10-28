@@ -717,7 +717,7 @@ export default function CoursePlaybackPage({
           </div>
           {course?.teacherName && <Badge variant="outline">{copy.teacher}: {course.teacherName}</Badge>}
         </div>
-        <div className={`grid items-start gap-4 ${reviewableSessions.length > 1 ? "xl:grid-cols-[210px_minmax(0,1fr)_350px]" : "xl:grid-cols-[minmax(0,1fr)_370px]"}`}>
+        <div className={`grid items-start gap-4 ${reviewableSessions.length > 1 ? "xl:grid-cols-[210px_minmax(0,1fr)]" : ""}`}>
         {reviewableSessions.length > 1 && (
           <nav aria-label={t("replayExtras.lessonReplays")} className="hidden overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm xl:block">
             <div className="border-b border-border/60 px-4 py-4">
@@ -735,6 +735,10 @@ export default function CoursePlaybackPage({
             ))}
           </nav>
         )}
+        <Tabs value={lessonReviewTab} onValueChange={(value) => {
+          setLessonReviewTab(value);
+          requestAnimationFrame(() => reviewContentRef.current?.scrollIntoView({ block: "start" }));
+        }} className={`grid min-w-0 items-start gap-4 ${reviewableSessions.length > 1 ? "xl:grid-cols-[minmax(0,1fr)_350px]" : "xl:grid-cols-[minmax(0,1fr)_370px]"}`}>
         <div className="min-w-0">
         {reviewableSessions.length > 1 && (
           <label className="mb-3 block xl:hidden">
@@ -860,12 +864,8 @@ export default function CoursePlaybackPage({
             )}
           </CardContent>
         </Card>
-        </div>
         {selectedSessionId && (
-          <Tabs ref={reviewContentRef} value={lessonReviewTab} onValueChange={(value) => {
-            setLessonReviewTab(value);
-            requestAnimationFrame(() => reviewContentRef.current?.scrollIntoView({ block: "start" }));
-          }} className={`min-w-0 xl:contents ${embedded ? "scroll-mt-3" : "scroll-mt-[70px] min-[1025px]:scroll-mt-[80px]"}`}>
+          <div ref={reviewContentRef} className={`mt-4 min-w-0 ${embedded ? "scroll-mt-3" : "scroll-mt-[70px] min-[1025px]:scroll-mt-[80px]"}`}>
             <TabsList aria-label={t("replayExtras.lessonReview")}
               className={`sticky z-20 mb-4 grid h-auto w-full grid-cols-2 rounded-xl bg-muted p-1 xl:hidden ${embedded ? "top-0" : "top-[58px] min-[1025px]:top-[68px]"}`}>
               <TabsTrigger value="summary" className="min-h-11 gap-2 rounded-lg">
@@ -875,18 +875,20 @@ export default function CoursePlaybackPage({
                 <Clock3 className="h-4 w-4" aria-hidden="true" />{t("replayExtras.timeline")}
               </TabsTrigger>
             </TabsList>
-            <TabsContent value="timeline" forceMount asChild className="mt-0 data-[state=inactive]:hidden xl:data-[state=inactive]:block">
-              <aside className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
-                <LessonSummaryPanel presentation="timeline" {...lessonContentProps} />
-              </aside>
-            </TabsContent>
             <TabsContent value="summary" forceMount asChild className="mt-0 data-[state=inactive]:hidden xl:data-[state=inactive]:block">
-              <section id="lesson-summary" className={`min-w-0 scroll-mt-6 ${reviewableSessions.length > 1 ? "xl:col-start-2 xl:col-span-2" : "xl:col-span-2"}`} aria-label={summaryCopy.title}>
+              <section id="lesson-summary" className="min-w-0 scroll-mt-6" aria-label={summaryCopy.title}>
                 <LessonSummaryPanel presentation="summary" {...lessonContentProps} />
               </section>
             </TabsContent>
-          </Tabs>
+          </div>
         )}
+        </div>
+        {selectedSessionId && <TabsContent value="timeline" forceMount asChild className="mt-0 data-[state=inactive]:hidden xl:data-[state=inactive]:block">
+          <aside className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
+            <LessonSummaryPanel presentation="timeline" {...lessonContentProps} />
+          </aside>
+        </TabsContent>}
+        </Tabs>
         </div>
       </main>
     </PortalShell>
