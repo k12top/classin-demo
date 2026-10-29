@@ -54,6 +54,7 @@ const ACTION_TYPES = new Set<ClassroomAction["type"]>([
   "stopScreenShare",
   "startScreenShare",
   "releaseScreenShare",
+  "selectScreenShare",
   "setMemberMuted",
   "setMediaAllowed",
   "muteAll",

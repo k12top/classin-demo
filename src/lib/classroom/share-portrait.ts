@@ -22,7 +22,7 @@ export function portraitGeometry(width: number, height: number, options: Classro
 
 export function screenShareProfile(mode: ClassroomScreenShareOptions["mode"]) {
   return mode === "portrait"
-    ? { width: 1920, height: 1080, frameRate: 15, bitrateMin: 1400, bitrateMax: 2600 }
+    ? { width: 1600, height: 900, frameRate: 15, bitrateMin: 1400, bitrateMax: 2600 }
     : { width: 1280, height: 720, frameRate: 15, bitrateMin: 800, bitrateMax: 1600 };
 }
 

@@ -1,3 +1,4 @@
+import { mainScreenShareCandidates, prepareMainScreenShare, selectMainScreenShare, releaseMainScreenShare } from "@/lib/classroom/screen-share-selection";
 import { automaticCaptionServiceEnabled, captionStartPreferences, validateCaptionStartPreferences } from "../caption-start-preferences";
 import { readClassroomCommand, saveClassroomCommand } from "./command-receipt";
 import { classroomAuxiliaryRtcUid, classroomRtcUid } from "@/lib/classroom/rtc-uid";
@@ -1011,36 +1012,51 @@ export async function applyClassroomAction(input: {
             throw new ClassroomActionError("老师尚未授予屏幕共享权限", 403);
           }
         }
+        if (scope === "main" && mainScreenShareCandidates(currentComposition.screenShares).some(lease => lease.claimId === action.claimId && !ownsScreenShare(lease, session.userId, input.clientId!))) {
+          throw new ClassroomActionError("共享标识已被使用", 409);
+        }
         const previous = currentComposition.screenShares?.[scope];
-        if (previous && !ownsScreenShare(previous, session.userId, input.clientId) &&
-          !((role === "teacher" || role === "assistant") && scope === "main")) {
+        if (scope !== "main" && previous && !ownsScreenShare(previous, session.userId, input.clientId)) {
           throw new ClassroomActionError("已有成员正在共享屏幕，请先停止当前共享", 409);
         }
-        if (previous && previous.userId !== session.userId && scope === "main") {
-          await tx.classroomMemberState.updateMany({ where: { sessionId, userId: previous.userId, role: "student" },
-            data: { screenShareState: "idle", screenShareRequestedAt: null } });
-        }
-        const next = { ...currentComposition, screenShares: { ...currentComposition.screenShares,
-          [scope]: { userId: session.userId, clientId: input.clientId,
-            rtcUid: classroomRtcUid(`${session.userId}:${input.clientId}`, "screen"), claimId: action.claimId } } };
+        const lease = { userId: session.userId, clientId: input.clientId,
+          rtcUid: classroomRtcUid(`${session.userId}:${input.clientId}`, "screen"), claimId: action.claimId };
+        const next = { ...currentComposition, screenShares: scope === "main"
+          ? prepareMainScreenShare(currentComposition.screenShares, lease, role === "teacher" || role === "assistant")
+          : { ...currentComposition.screenShares, [scope]: lease } };
         await writeComposition(scope === "main" ? placeClassroomBoardItem({ ...next,
           boardItems: next.boardItems.filter(item => item.kind !== "screen" || item.sourceId === session.userId),
         }, { id: `screen:${session.userId}`, kind: "screen", sourceId: session.userId,
           rect: defaultBoardRect("screen"), locked: false, visible: true }) : next);
-        if (scope === "main") await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { stageMode: "screen", stageLocked: false } });
+        if (scope === "main" && next.screenShares.main?.claimId === lease.claimId) await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { stageMode: "screen", stageLocked: false } });
         break;
       }
       case "releaseScreenShare": {
         const scope = action.spaceId || "main";
+        if (!input.clientId) return;
         const lease = currentComposition.screenShares?.[scope];
-        // A delayed teardown must never remove a replacement publisher.
-        if (!input.clientId || !ownsScreenShare(lease, session.userId, input.clientId) || lease?.claimId !== action.claimId) return;
-        const screenShares = { ...currentComposition.screenShares };
-        delete screenShares[scope];
-        await writeComposition({ ...currentComposition, screenShares,
-          boardItems: scope === "main" ? currentComposition.boardItems.filter(item => !(item.kind === "screen" && item.sourceId === session.userId)) : currentComposition.boardItems });
+        const screenShares = scope === "main"
+          ? releaseMainScreenShare(currentComposition.screenShares, session.userId, input.clientId, action.claimId)
+          : { ...currentComposition.screenShares };
+        if (scope !== "main") {
+          if (!ownsScreenShare(lease, session.userId, input.clientId) || lease?.claimId !== action.claimId) return;
+          delete screenShares[scope];
+        }
+        await writeComposition({ ...currentComposition, screenShares });
         // Releasing a capture (including a failed join) does not revoke the
         // teacher's grant. Explicit stop/revoke actions still remove it.
+        break;
+      }
+      case "selectScreenShare": {
+        requireTeachingRole(role);
+        if (action.claimId !== null && (typeof action.claimId !== "string" || !/^[a-zA-Z0-9-]{8,64}$/.test(action.claimId))) {
+          throw new ClassroomActionError("共享连接无效", 400);
+        }
+        let screenShares;
+        try { screenShares = selectMainScreenShare(currentComposition.screenShares, action.claimId); }
+        catch { throw new ClassroomActionError("该学生已停止共享，请重新选择", 409); }
+        await writeComposition({ ...currentComposition, screenShares });
+        await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { stageMode: action.claimId ? "screen" : "whiteboard", stageLocked: false } });
         break;
       }
       case "requestScreenShare": {
@@ -1464,6 +1480,7 @@ export async function applyClassroomAction(input: {
         break;
       case "setStage":
         requireTeachingRole(role);
+        if (action.mode !== "screen") await writeComposition({ ...currentComposition, screenShares: selectMainScreenShare(currentComposition.screenShares, null) });
         await tx.classroomRuntime.update({
           where: { id: runtime.id },
           data: {

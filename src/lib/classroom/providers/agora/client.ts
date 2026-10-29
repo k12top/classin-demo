@@ -88,6 +88,9 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   private auxiliaryStartTask: Promise<void> | null = null;
   private screenClient: IAgoraRTCClient | null = null;
   private screenStartVersion = 0;
+  private selectedScreenUid: string | null | undefined;
+  private screenPublicationQueue: Promise<void> = Promise.resolve();
+  private screenSelectionQueue: Promise<void> = Promise.resolve();
   private screenCaptureTrack: ILocalVideoTrack | null = null;
   private sharePortrait: Awaited<ReturnType<typeof createSharePortrait>> | null = null;
   private portraitCameraSuppressed = false;
@@ -335,7 +338,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
 
   private remoteVideoPlan(): Map<string, 0 | 1> {
     const visible = Array.from(this.remoteUsers.entries()).flatMap(([id, user]) => {
-      if (!user.hasVideo || this.isLocalParticipant(id)) return [];
+      if (!user.hasVideo || this.isLocalParticipant(id) || (this.isScreen(id) && this.selectedScreenUid !== undefined && id !== this.selectedScreenUid)) return [];
       let area = 0;
       let enlarged = false;
       for (const element of this.videoElements.get(id) ?? []) {
@@ -349,10 +352,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       Number(b.id === this.snapshot.focusedParticipantId) - Number(a.id === this.snapshot.focusedParticipantId) ||
       b.area - a.area || a.id.localeCompare(b.id));
     const plan = new Map<string, 0 | 1>();
-    // Reserve FHD before the first receive sample. Never briefly subscribe
-    // thumbnails beside an unknown 1080p composite while waiting for stats.
+    // Reserve the bounded 900p share profile before the first receive sample,
+    // leaving room for visible low-stream camera thumbnails.
     const pixels = new Map(this.remoteObservedPixels);
-    for (const { id } of visible) if (this.isScreen(id) && !pixels.has(id)) pixels.set(id, 1920 * 1080);
+    for (const { id } of visible) if (this.isScreen(id) && !pixels.has(id)) pixels.set(id, 1600 * 900);
     const sharingPlan = screenVideoPlan(visible, id => this.isScreen(id), pixels);
     if (sharingPlan) return sharingPlan;
     const low = classroomMediaProfile.camera.low;
@@ -408,9 +411,15 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         try {
           if (this.remoteVideoStreamTypes.get(id) !== type) {
             await client.setRemoteVideoStreamType(user.uid, type);
-            if (!current(id, user)) continue;
+            if (!current(id, user) || (this.isScreen(id) && this.selectedScreenUid !== undefined && id !== this.selectedScreenUid)) continue;
             if (!this.remoteVideoStreamTypes.has(id)) await client.subscribe(user, "video");
             if (!current(id, user)) continue;
+            if (this.isScreen(id) && this.selectedScreenUid !== undefined && id !== this.selectedScreenUid) {
+              await client.unsubscribe(user, "video");
+              this.remoteVideoStreamTypes.delete(id);
+              this.clearVideoTargets(id);
+              continue;
+            }
             this.remoteVideoStreamTypes.set(id, type);
           }
           this.renderVideoTargets(id);
@@ -621,7 +630,13 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       return;
     }
 
+    if (mediaType === "audio" && this.isScreen(id) && this.selectedScreenUid !== undefined && id !== this.selectedScreenUid) return;
     if (mediaType === "audio") await client.subscribe(user, mediaType);
+    if (mediaType === "audio" && this.isScreen(id) && this.selectedScreenUid !== undefined && id !== this.selectedScreenUid) {
+      user.audioTrack?.stop();
+      await client.unsubscribe(user, "audio");
+      return;
+    }
     if (this.client !== client || this.remoteUsers.get(id) !== user) return;
     if (mediaType === "audio" && user.audioTrack) {
       user.audioTrack.play();
@@ -679,7 +694,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     }
     // A captured track is assigned before authorization and the first join.
     // Recovery must only rejoin a publisher whose initial start has completed.
-    if (this.snapshot.local.screenSharing && this.screenClient?.connectionState === "DISCONNECTED" && this.credential.screenShare) {
+    if (this.screenIsSelected() && this.snapshot.local.screenSharing && this.screenClient?.connectionState === "DISCONNECTED" && this.credential.screenShare) {
       const screenClient = this.screenClient;
       const tracks = [this.screenTrack, this.screenAudioTrack].filter((track): track is ILocalVideoTrack | ILocalAudioTrack => Boolean(track));
       await renewAgoraConnection(screenClient, { ...this.credential, ...this.credential.screenShare }, tracks, () => this.client === client && this.screenClient === screenClient);
@@ -1189,7 +1204,17 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     options = normalizeScreenShareOptions(options);
     const version = this.screenStartVersion;
     const task = this.screenOptionsQueue.catch(() => undefined).then(async () => {
-      if (version !== this.screenStartVersion || !this.snapshot.local.screenSharing || !this.screenClient || !this.screenCaptureTrack || !this.screenTrack) return;
+      if (version !== this.screenStartVersion || !this.snapshot.local.screenSharing || !this.screenCaptureTrack || !this.screenTrack) return;
+      if (!this.screenClient) {
+        if (options.mode === "portrait" && !this.sharePortrait) throw new Error("请先退出共享，再选择共享＋人像");
+        this.sharePortrait?.setOptions(options);
+        await this.screenTrack.setEncoderConfiguration(screenShareProfile(options.mode));
+        this.snapshot.local.screenShareMode = options.mode;
+        this.snapshot.local.screenShareCorner = options.corner ?? "br";
+        this.snapshot.local.screenShareOptions = { ...options };
+        this.emit();
+        return;
+      }
       if (!this.client) throw new Error("课堂尚未连接");
     if (options.mode === "portrait" && !this.supportsSharePortrait()) throw new Error("共享＋人像需要桌面 Chrome 或 Edge");
       const client = this.screenClient, capture = this.screenCaptureTrack;
@@ -1197,7 +1222,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       const previous = { mode: this.snapshot.local.screenShareMode ?? "screen", corner: this.snapshot.local.screenShareCorner };
       try {
         if (!this.sharePortrait && options.mode === "portrait") {
-          await capture.getMediaStreamTrack().applyConstraints?.({ width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 15, max: 15 } });
+          await capture.getMediaStreamTrack().applyConstraints?.({ width: { ideal: 1600, max: 1600 }, height: { ideal: 900, max: 900 }, frameRate: { ideal: 15, max: 15 } });
           if (!active()) return;
           const composite = await createSharePortrait(capture.getMediaStreamTrack(), () => this.snapshot.local.cameraOn ? this.cameraTrack?.getMediaStreamTrack() ?? null : null, options);
           if (!active()) { composite.dispose(); return; }
@@ -1207,7 +1232,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
           if (!active()) return;
           await client.unpublish(this.screenTrack);
           if (!active()) return;
-          this.screenTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: composite.track, width: 1920, height: 1080, frameRate: 15, optimizationMode: "detail" });
+          this.screenTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: composite.track, width: 1600, height: 900, frameRate: 15, optimizationMode: "detail" });
           await this.screenTrack.setEncoderConfiguration(screenShareProfile("portrait"));
           if (!active()) return;
           await client.publish(this.screenTrack);
@@ -1279,68 +1304,128 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.screenTrack = screenTrack;
     this.screenAudioTrack = screenAudioTrack;
 
-    const screenClient = AgoraRTC.createClient({
-      mode:
-        this.credential.scenario === "liveBroadcasting" ? "live" : "rtc",
-      codec: "vp8",
-      ...(this.credential.scenario === "liveBroadcasting" && {
-        role: "host" as const,
-      }),
-    });
-    this.screenClient = screenClient;
-    this.watchTokenExpiry(screenClient);
     screenTrack.on("track-ended", () => {
-      if (this.screenCaptureTrack === screenTrack) void this.stopScreenShare().catch(error => console.warn("[classroom:rtc] camera restoration deferred after capture ended", error));
+      if (this.screenCaptureTrack === screenTrack) void this.stopScreenShare().catch(error => console.warn("[classroom:rtc] capture cleanup failed", error));
     });
-
     try {
-      // Capture first to preserve browser activation. Claim the classroom's
-      // publisher slot only after the user actually chooses a screen.
       await authorize?.();
       const assertActive = () => {
-        if (version !== this.screenStartVersion || this.screenClient !== screenClient || this.client !== primaryClient) {
+        if (version !== this.screenStartVersion || this.screenCaptureTrack !== screenTrack || this.client !== primaryClient) {
           throw new DOMException("Screen sharing canceled", "AbortError");
         }
       };
       assertActive();
-      await screenClient.join(
-        this.credential.appId,
-        this.credential.channelName,
-        this.credential.screenShare.token,
-        this.credential.screenShare.rtcUid,
-      );
-      assertActive();
-      if (options.mode === "portrait") {
+      if (this.supportsSharePortrait() || (typeof HTMLCanvasElement !== "undefined" && typeof HTMLCanvasElement.prototype.captureStream === "function")) {
         const composite = await createSharePortrait(screenTrack.getMediaStreamTrack(), () => this.snapshot.local.cameraOn ? this.cameraTrack?.getMediaStreamTrack() ?? null : null, options);
         try { assertActive(); } catch (error) { composite.dispose(); throw error; }
         this.sharePortrait = composite;
-        this.screenTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: composite.track, width: 1920, height: 1080, frameRate: 15, optimizationMode: "detail" });
-        await this.screenTrack.setEncoderConfiguration(screenShareProfile("portrait"));
-        assertActive();
-        this.portraitCameraSuppressed = true;
-        await this.syncCameraPublication();
+        this.screenTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: composite.track, width: screen.width, height: screen.height, frameRate: 15, optimizationMode: "detail" });
+        await this.screenTrack.setEncoderConfiguration(screenShareProfile(options.mode));
         assertActive();
       }
-      const output = this.screenTrack!;
-      await screenClient.publish(screenAudioTrack ? [output, screenAudioTrack] : output);
-      assertActive();
       this.snapshot.local.screenSharing = true;
       this.snapshot.local.screenShareMode = options.mode;
       this.snapshot.local.screenShareCorner = options.corner ?? "br";
       this.snapshot.local.screenShareOptions = { ...options };
       this.upsertParticipant(String(this.credential.screenShare.rtcUid), {
-        displayName: `${this.displayName} · 屏幕`,
-        isLocal: true,
-        kind: "screen",
-        hasVideo: true,
-        hasAudio: Boolean(screenAudioTrack),
+        displayName: `${this.displayName} · 屏幕`, isLocal: true, kind: "screen", hasVideo: this.screenIsSelected(), hasAudio: Boolean(screenAudioTrack) && this.screenIsSelected(),
       });
+      await this.syncScreenPublication();
+      assertActive();
       await this.focusParticipant(String(this.credential.screenShare.rtcUid));
     } catch (error) {
-      if (this.screenClient === screenClient) await this.stopScreenShare();
-      else { screenTrack.close(); screenAudioTrack?.close(); await screenClient.leave().catch(() => undefined); }
+      if (this.screenCaptureTrack === screenTrack) await this.stopScreenShare();
+      else { screenTrack.close(); screenAudioTrack?.close(); }
       throw error;
     }
+  }
+
+  private screenIsSelected() {
+    return this.selectedScreenUid === undefined || this.selectedScreenUid === this.screenId();
+  }
+
+  /** Selection is a subscription boundary, independent of animated/hidden DOM targets. */
+  setScreenShareSelection(rtcUid: string | null): Promise<void> {
+    this.selectedScreenUid = rtcUid;
+    const localScreen = this.screenId() ? this.participants.get(this.screenId()!) : undefined;
+    if (localScreen?.isLocal && this.snapshot.local.screenSharing) {
+      this.upsertParticipant(localScreen.id, { hasVideo: this.screenIsSelected(), hasAudio: this.screenIsSelected() && Boolean(this.screenAudioTrack) });
+    }
+    if (!this.screenIsSelected()) {
+      if (this.screenTrack) this.screenTrack.getMediaStreamTrack().enabled = false;
+      if (this.screenAudioTrack) this.screenAudioTrack.getMediaStreamTrack().enabled = false;
+    }
+    // Stop old audio synchronously. Video planning releases every old subscription
+    // before considering the new share, even while an exit animation still renders it.
+    for (const [id, user] of this.remoteUsers) if (this.isScreen(id) && id !== rtcUid) {
+      user.audioTrack?.stop();
+      this.clearVideoTargets(id);
+    }
+    const task = this.screenSelectionQueue.catch(() => undefined).then(async () => {
+      const client = this.client;
+      if (client) for (const [id, user] of this.remoteUsers) {
+        if (this.isScreen(id) && id !== this.selectedScreenUid) await client.unsubscribe(user, "audio").catch(() => undefined);
+      }
+      await this.updateRemoteVideos();
+      await this.syncScreenPublication();
+      if (client && this.client === client) {
+        const id = this.selectedScreenUid, user = id ? this.remoteUsers.get(id) : undefined;
+        if (id && user?.hasAudio && !this.isLocalParticipant(id)) {
+          await client.subscribe(user, "audio");
+          if (id === this.selectedScreenUid && this.client === client) user.audioTrack?.play();
+          else await client.unsubscribe(user, "audio").catch(() => undefined);
+        }
+      }
+    });
+    this.screenSelectionQueue = task;
+    return task;
+  }
+
+  private syncScreenPublication(): Promise<void> {
+    const task = this.screenPublicationQueue.catch(() => undefined).then(async () => {
+      const track = this.screenTrack, primary = this.client, version = this.screenStartVersion;
+      if (!track || !primary || !this.credential?.screenShare || !this.snapshot.local.screenSharing) return;
+      if (!this.screenIsSelected()) {
+        const oldClient = this.screenClient;
+        this.screenClient = null;
+        if (oldClient) {
+          oldClient.removeAllListeners();
+          await oldClient.unpublish(this.screenAudioTrack ? [track, this.screenAudioTrack] : track).catch(() => undefined);
+          await oldClient.leave();
+        }
+        this.portraitCameraSuppressed = false;
+        await this.syncCameraPublication();
+        return;
+      }
+      if (this.screenClient) return;
+      const screenClient = AgoraRTC.createClient({ mode: this.credential.scenario === "liveBroadcasting" ? "live" : "rtc", codec: "vp8",
+        ...(this.credential.scenario === "liveBroadcasting" && { role: "host" as const }) });
+      this.screenClient = screenClient;
+      this.watchTokenExpiry(screenClient);
+      const active = () => version === this.screenStartVersion && this.screenClient === screenClient && this.client === primary && this.screenIsSelected();
+      try {
+        await screenClient.join(this.credential.appId, this.credential.channelName, this.credential.screenShare.token, this.credential.screenShare.rtcUid);
+        if (!active()) throw new DOMException("Screen selection changed", "AbortError");
+        track.getMediaStreamTrack().enabled = true;
+        if (this.screenAudioTrack) this.screenAudioTrack.getMediaStreamTrack().enabled = true;
+        this.portraitCameraSuppressed = this.snapshot.local.screenShareMode === "portrait";
+        await this.syncCameraPublication();
+        if (!active()) throw new DOMException("Screen selection changed", "AbortError");
+        await screenClient.publish(this.screenAudioTrack ? [track, this.screenAudioTrack] : track);
+        if (!active()) throw new DOMException("Screen selection changed", "AbortError");
+      } catch (error) {
+        await screenClient.leave().catch(() => undefined);
+        if (this.screenClient === screenClient) this.screenClient = null;
+        this.portraitCameraSuppressed = false;
+        await this.syncCameraPublication();
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        // A failed publisher must release its prepared lease via the UI lifecycle.
+        if (version === this.screenStartVersion) await this.stopScreenShare();
+        throw error;
+      }
+    });
+    this.screenPublicationQueue = task;
+    return task;
   }
 
   async stopScreenShare(): Promise<void> {
@@ -1453,8 +1538,8 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     if (rejoining) this.cameraPublished = Boolean(this.cameraTrack && tracks.includes(this.cameraTrack));
     this.expiredClients.delete(client);
     // Retain the fresh primary token even if a secondary publisher fails.
-    this.credential = { ...this.credential, token: credential.token, expiresInSeconds: credential.expiresInSeconds };
-    if (this.screenClient && !credential.screenShare) await this.stopScreenShare();
+    this.credential = { ...this.credential, token: credential.token, expiresInSeconds: credential.expiresInSeconds, screenShare: credential.screenShare };
+    if (this.screenTrack && !credential.screenShare) await this.stopScreenShare();
     if (this.screenClient && this.snapshot.local.screenSharing) {
       if (
         !credential.screenShare ||

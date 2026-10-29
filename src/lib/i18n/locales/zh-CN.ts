@@ -1,4 +1,5 @@
 export const zhCN = {
+  classroomMultiShare: {"title": "学生共享", "follows": "全班及录制跟随老师展示的画面。", "invite": "邀请学生", "choose": "选择要邀请的学生", "send": "邀请 {count} 人", "presenting": "正在展示", "ready": "已准备，等待展示", "pause": "停止展示", "show": "全班展示", "end": "结束共享", "invited": "等待接受", "preparing": "等待选择共享窗口", "cancel": "取消", "empty": "邀请学生准备共享，再选择一人向全班展示。", "waiting": "已准备，等待老师展示。浏览器仍在采集，画面尚未向课堂发送。", "live": "你的屏幕正在向全班展示", "exit": "退出共享", "connecting": "正在连接共享画面…", "failed": "共享连接失败，已返回白板，请重新选择。", "timeout": "该学生的共享未能连接，已返回白板。"},
   captionStart: {"title": "开课字幕与同传", "autoCaptions": "自动开启字幕", "autoInterpretation": "自动开启同传", "languages": "同传语言", "addLanguage": "添加语言", "chooseLanguage": "请选择至少一种同传语言", "hint": "开课后自动开启，课中可调整。", "saved": "已保存", "saving": "保存中…"},
   timeZones: {
     "reference": "{city}时间",

@@ -65,7 +65,7 @@ function fixture(touch = false) {
       if (name.endsWith("/share-portrait")) return {
         supportsSharePortrait: () => true,
         normalizeScreenShareOptions: portraitHelpers.normalizeScreenShareOptions,
-        screenShareProfile: mode => ({ width: mode === "portrait" ? 1920 : 1280, height: mode === "portrait" ? 1080 : 720, frameRate: 15, bitrateMin: 800, bitrateMax: 2600 }),
+        screenShareProfile: mode => ({ width: mode === "portrait" ? 1600 : 1280, height: mode === "portrait" ? 900 : 720, frameRate: 15, bitrateMin: 800, bitrateMax: 2600 }),
         createSharePortrait: async (_screen, camera, options) => { const source = makeTrack("composite-source"); const result = { track: source.mediaTrack, camera, options, disposed: false, setOptions(next) { this.options = next; }, dispose() { this.disposed = true; source.close(); } }; composites.push(result); return result; },
       };
       if (name.endsWith("/config")) return { classroomMediaProfile: { screen: { ...profile, width: 1280, height: 720 }, camera: { high: profile, low: { width: 160, height: 120, frameRate: 15, bitrateKbps: 65 } } } };
@@ -261,7 +261,7 @@ test("fully expired primary and screen publishers rejoin with their independent 
   for (const client of clients) client.emit("token-privilege-did-expire");
   await provider.renewCredential({ ...credential, token: "fresh-main", screenShare: { ...credential.screenShare, token: "fresh-screen" } });
   assert.equal(clients[0].joined[2], "fresh-main"); assert.equal(clients[1].joined[2], "fresh-screen");
-  assert.equal(clients[0].published[0], tracks[0]); assert.equal(clients[1].published[0], tracks[1]);
+  assert.equal(clients[0].published[0], tracks[0]); assert.equal(clients[1].published[0].deviceId, "composite-output");
   assert.ok(clients.every(client => client.left === true)); await provider.disconnect();
 });
 
@@ -314,8 +314,8 @@ test("server denial closes capture without publishing or disturbing microphone a
   await provider.toggleMicrophone();
   await assert.rejects(provider.startScreenShare(async () => { throw new Error("Not authorized"); }), /Not authorized/);
   assert.equal(tracks.find(track => track.deviceId === "screen").closed, true);
-  assert.equal(clients[1].joined, undefined);
-  assert.equal(clients[1].published, undefined);
+  assert.equal(clients[1]?.joined, undefined);
+  assert.equal(clients[1]?.published, undefined);
   assert.equal(provider.getSnapshot().local.microphoneOn, true);
   assert.equal(clients[0].left, undefined);
   await provider.disconnect();
@@ -327,14 +327,14 @@ test("authorization happens after capture and before RTC publication; stopping c
   let authorize;
   const starting = provider.startScreenShare(() => {
     assert.equal(tracks.find(track => track.deviceId === "screen").closed, undefined);
-    assert.equal(clients[1].joined, undefined);
+    assert.equal(clients[1]?.joined, undefined);
     return new Promise(resolve => { authorize = resolve; });
   });
   await tick();
   await provider.stopScreenShare();
   authorize();
   await assert.rejects(starting, error => error.name === "AbortError");
-  assert.equal(clients[1].published, undefined);
+  assert.equal(clients[1]?.published, undefined);
   assert.equal(provider.getSnapshot().local.screenSharing, false);
   assert.equal(clients[0].left, undefined);
   await provider.disconnect();
@@ -549,7 +549,7 @@ test("720p sharing retains teacher thumbnails and audio, then restores the large
   clients[0].emit("user-published", camera, "audio"); await tick();
   provider.attachVideo(String(screen.uid), videoSurface(1920, 1080));
   clients[0].emit("user-published", screen, "video"); await tick();
-  assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, true, "unknown share reserves FHD before measuring");
+  assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, false, "unknown share reserves 900p and room for thumbnails");
   clients[0].getRemoteVideoStats=()=>({[screen.uid]:{receiveResolutionWidth:1280,receiveResolutionHeight:720}});clients[0].getRTCStats=()=>({RTT:20});clients[0].getLocalAudioStats=()=>({currentPacketLossRate:0});clients[0].getLocalVideoStats=()=>({currentPacketLossRate:0});
   clients[0].emit("network-quality",{uplinkNetworkQuality:1,downlinkNetworkQuality:1});await tick();
   assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, false);
@@ -558,7 +558,7 @@ test("720p sharing retains teacher thumbnails and audio, then restores the large
   assert.ok(streamTypes.some(([uid,type])=>uid===screen.uid&&type===0));
   screen.hasVideo = false; clients[0].emit("user-unpublished", screen, "video"); await tick();
   assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, false);
-  assert.equal(subscriptions.filter(([uid, kind]) => uid === 2 && kind === "video").length, 2);
+  assert.equal(subscriptions.filter(([uid, kind]) => uid === 2 && kind === "video").length, 1);
   await provider.disconnect();
 });
 
@@ -688,14 +688,14 @@ test("a browser falling back to large camera streams reduces subscriptions using
 });
 
 
-test("portrait shares publish one FHD composite and restore the teacher camera on stop", async () => {
+test("portrait shares publish one bounded 900p composite and restore the teacher camera on stop", async () => {
   const {provider,clients,tracks,composites}=fixture();
   await provider.connect(credential,"Teacher"); await provider.toggleCamera();
   const camera=tracks.find(t=>t.deviceId==="main");
   await provider.startScreenShare(undefined,{mode:"portrait",corner:"br"});
   assert.equal(clients[0].unpublished,camera);
   assert.equal(clients[1].published.deviceId,"composite-output");
-  assert.equal(clients[1].published.encoder.width,1920);
+  assert.equal(clients[1].published.encoder.width,1600);
   assert.equal(provider.getSnapshot().local.cameraOn,true);
   assert.equal(provider.getActualDeviceState().camera,"on");
   assert.equal(composites[0].camera(),camera.mediaTrack);
@@ -797,4 +797,80 @@ test("reopening an ended camera reacquires a live track, while closing an interr
   assert.equal(await provider.toggleCamera(),true);assert.equal(expired.closed,true);assert.equal(tracks.length,2);assert.equal(tracks[1].mediaTrack.readyState,'live');
   tracks[1].mediaTrack.readyState='ended';assert.equal(await provider.toggleCamera(),false);assert.equal(tracks.length,2,'closing must not ask for camera access');
   assert.equal(provider.getActualDeviceState().camera,'off');await provider.disconnect();
+});
+
+test("prepared screens do not join or publish; selection resumes the same capture and deselection leaves", async () => {
+  const { provider, clients, tracks } = fixture();
+  await provider.connect(credential, "Student");
+  await provider.setScreenShareSelection(null);
+  await provider.startScreenShare();
+  assert.equal(provider.getSnapshot().local.screenSharing, true);
+  assert.equal(clients.length, 1, "waiting capture creates no screen RTC connection");
+  const capture = tracks.find(track => track.deviceId === "screen");
+  await provider.setScreenShareSelection(String(credential.screenShare.rtcUid));
+  assert.equal(clients[1].published.deviceId, "composite-output");
+  await provider.setScreenShareSelection("1500000002");
+  assert.equal(clients[1].left, true);
+  assert.equal(capture.closed, undefined, "switching away preserves browser permission/capture");
+  assert.equal(provider.getSnapshot().local.screenSharing, true);
+  await provider.setScreenShareSelection(String(credential.screenShare.rtcUid));
+  assert.equal(clients[2].published, clients[1].published, "switching back reuses the output track");
+  await provider.stopScreenShare();
+  assert.equal(capture.closed, true);
+  await provider.disconnect();
+});
+
+test("selection releases old screen video and audio before subscribing the next, despite retained visible targets", async () => {
+  const { provider, clients, subscriptions } = fixture();
+  await provider.connect(credential, "Viewer");
+  const client = clients[0], calls = [];
+  const subscribe = client.subscribe, unsubscribe = client.unsubscribe;
+  client.subscribe = async (user, kind) => { calls.push(`subscribe:${user.uid}:${kind}`); return subscribe(user, kind); };
+  client.unsubscribe = async (user, kind) => { calls.push(`unsubscribe:${user.uid}:${kind}`); return unsubscribe(user, kind); };
+  await provider.setScreenShareSelection("1500000001");
+  for (const uid of [1500000001, 1500000002]) {
+    const user = { uid, hasVideo: true, hasAudio: true, audioTrack: { play() {}, stop() {} } };
+    provider.attachVideo(String(uid), videoSurface(1280, 720));
+    client.emit("user-published", user, "video");
+    client.emit("user-published", user, "audio");
+  }
+  await tick(); await tick();
+  assert.equal(subscriptions.some(([id]) => id === 1500000002), false, "nonselected screens cannot receive even if still mounted");
+  calls.length = 0;
+  await provider.setScreenShareSelection("1500000002");
+  assert.ok(calls.indexOf("unsubscribe:1500000001:video") < calls.indexOf("subscribe:1500000002:video"));
+  assert.ok(calls.includes("unsubscribe:1500000001:audio"));
+  assert.ok(calls.includes("subscribe:1500000002:audio"));
+  await provider.setScreenShareSelection(null);
+  assert.equal(provider.getSnapshot().participants.filter(p => p.kind === "screen" && !p.videoSubscriptionPaused).length, 0);
+  await provider.disconnect();
+});
+
+test("switching away during a slow screen join never publishes the old selection", async () => {
+  const { provider, clients, sdk } = fixture();
+  await provider.connect(credential, "Student");
+  await provider.setScreenShareSelection(null); await provider.startScreenShare();
+  let finish;
+  const create = sdk.createClient;
+  sdk.createClient = () => { const client = create(); client.join = () => new Promise(resolve => { finish = resolve; }); return client; };
+  const first = provider.setScreenShareSelection(String(credential.screenShare.rtcUid));
+  await tick();
+  const second = provider.setScreenShareSelection("1500000002");
+  finish(); await Promise.all([first, second]);
+  assert.equal(clients[1].published, undefined);
+  assert.equal(clients[1].left, true);
+  assert.equal(provider.getSnapshot().local.screenSharing, true);
+  await provider.stopScreenShare(); await provider.disconnect();
+});
+
+test("a late screen subscription is released instead of restoring an obsolete selection", async () => {
+  const {provider,clients}=fixture(); await provider.connect(credential,'Viewer');
+  await provider.setScreenShareSelection('1500000001');
+  let finish; clients[0].subscribe=(_user,kind)=>kind==='video'?new Promise(resolve=>{finish=resolve}):Promise.resolve();
+  const screen={uid:1500000001,hasVideo:true};provider.attachVideo(String(screen.uid),videoSurface(1280,720));
+  clients[0].emit('user-published',screen,'video');await tick();
+  const change=provider.setScreenShareSelection(null);finish();await change;await tick();
+  assert.equal(provider.getSnapshot().participants.find(p=>p.id===String(screen.uid)).videoSubscriptionPaused,true);
+  assert.ok(clients[0].unsubscriptions.some(([uid,kind])=>uid===screen.uid&&kind==='video'));
+  await provider.disconnect();
 });

@@ -1,0 +1,14 @@
+.panel { padding: 20px; color: hsl(var(--foreground)); min-width: 0; }
+.panel header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.panel h2 { font-size: 18px; font-weight: 600; }
+.panel p { margin: 12px 0 20px; font-size: 13px; line-height: 1.6; color: hsl(var(--muted-foreground)); }
+.list { margin-top: 20px; }
+.list article { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0; border-top: 1px solid hsl(var(--border)); }
+.list article > div:first-child { display: grid; gap: 4px; }
+.list strong { overflow-wrap: anywhere; font-size: 14px; }
+.list span { color: hsl(var(--muted-foreground)); font-size: 12px; }
+.list article[data-current="true"] span { color: hsl(var(--primary)); }
+.actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.invite { display: grid; gap: 12px; margin-top: 20px; border: 0; padding: 0; }
+.invite legend { margin-bottom: 12px; font-size: 14px; }
+.invite label { display: flex; align-items: center; gap: 12px; min-height: 44px; font-size: 14px; }

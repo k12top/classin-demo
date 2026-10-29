@@ -9,7 +9,7 @@ import { isMicrophonePermissionAction } from "./member-permissions";
 export function classroomActionRequiresRevision(action: ClassroomAction) {
   return [
     "placeBoardItem", "bringBoardItemToFront",
-    "arrangeVideoGallery", "reorderSeats", "swapSeats",
+    "arrangeVideoGallery", "reorderSeats", "swapSeats", "selectScreenShare",
   ].includes(action.type);
 }
 

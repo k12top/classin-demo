@@ -8,6 +8,8 @@ import { MinimalHeader } from "./minimal-header";
 import { ClassroomIconButton } from "./icon-button";
 import { ClassroomQuickSettings } from "./quick-settings";
 import { ConversationPanelTabs } from "./conversation-panel-tabs";
+import { StudentScreenShares } from "./student-screen-shares";
+import { mainScreenShareCandidates } from "@/lib/classroom/screen-share-selection";
 import { ScreenShareMenu } from "./screen-share-menu";
 import { ConversationResizer } from "./conversation-resizer";
 import type { ClassroomScreenShareOptions } from "@/lib/classroom/types";
@@ -239,6 +241,7 @@ const CLASSROOM_BACKGROUND_IMAGE_TYPES = new Set([
   "image/webp",
 ]);
 type DrawerPanel =
+  | "screens"
   | "members"
   | "rooms"
   | "questions"
@@ -6158,10 +6161,28 @@ export function ClassroomV3({
   const screenPermission = requiresRoomMedia
     ? controlsRoomMedia && Boolean(currentSpaceMember?.screenShareAllowed)
     : mainScreenPermission;
-  const mayClaimScreen = !screenLease || ownsScreenShare(screenLease, currentUserId, clientId) ||
+  const mayClaimScreen = screenScope === "main" || !screenLease || ownsScreenShare(screenLease, currentUserId, clientId) ||
     (!controlsRoomMedia && isClassroomTeachingRole(sessionData?.credential.role));
   const isScreenShareAllowed = !isRecorder && !classEnded && (controlMedia.local.screenSharing ||
     (screenPermission && mayClaimScreen && (controlsRoomMedia || Boolean(sessionData?.credential.screenShare)) && canUseMedia));
+  const selectedMainScreenUid = screenLeases?.main ? String(screenLeases.main.rtcUid) : null;
+  const selectedScreenClaim = screenLeases?.main?.claimId;
+  const selectedScreenHasVideo = Boolean(screenParticipant);
+  useEffect(() => {
+    if (!selectedScreenClaim || selectedScreenHasVideo || !sessionData?.capabilities.canManageMembers || isRecorder) return;
+    const timer = window.setTimeout(() => {
+      if (sessionRef.current?.runtime.composition.screenShares?.main?.claimId !== selectedScreenClaim) return;
+      void performAction({ type: "selectScreenShare", claimId: null });
+      setActionError(t("classroomMultiShare.timeout"));
+    }, 15000);
+    return () => window.clearTimeout(timer);
+  }, [isRecorder, performAction, selectedScreenClaim, selectedScreenHasVideo, sessionData?.capabilities.canManageMembers, t]);
+
+  useEffect(() => {
+    void mediaProvider?.setScreenShareSelection?.(selectedMainScreenUid).catch(error => setActionError(error instanceof Error ? error.message : t("classroomMultiShare.failed")));
+  }, [mediaProvider, selectedMainScreenUid, t]);
+  const selectedRoomScreenUid = activeSpaceId && screenLeases?.[activeSpaceId] ? String(screenLeases[activeSpaceId].rtcUid) : null;
+  useEffect(() => { void roomProvider?.setScreenShareSelection?.(selectedRoomScreenUid).catch(() => undefined); }, [roomProvider, selectedRoomScreenUid]);
   const screenCredentialRefreshRef = useRef(false);
   useEffect(() => {
     if (!mainScreenPermission || sessionData?.credential.screenShare || !canUseMedia || controlsRoomMedia || isRecorder || classEnded) {
@@ -6177,10 +6198,10 @@ export function ClassroomV3({
   }, [canUseMedia, classEnded, controlsRoomMedia, isRecorder, mainScreenPermission, renewClassroomCredentials, sessionData?.credential.screenShare, t]);
   useEffect(() => {
     if (isRecorder || !controlMedia.local.screenSharing) return;
-    if (!screenPermission || (screenLeases && !ownsScreenShare(screenLease, currentUserId, clientId))) {
+    if (!screenPermission || (screenLeases && !(screenScope === "main" ? mainScreenShareCandidates(screenLeases).some(lease => ownsScreenShare(lease, currentUserId, clientId)) : ownsScreenShare(screenLease, currentUserId, clientId)))) {
       void (controlsRoomMedia ? roomProvider : mediaProvider)?.stopScreenShare();
     }
-  }, [clientId, controlMedia.local.screenSharing, controlsRoomMedia, currentUserId, isRecorder, mediaProvider, roomProvider, screenLease, screenLeases, screenPermission]);
+  }, [clientId, controlMedia.local.screenSharing, controlsRoomMedia, currentUserId, isRecorder, mediaProvider, roomProvider, screenLease, screenLeases, screenPermission, screenScope]);
   const requestScreenShareAction = useCallback(async (action: Extract<ClassroomAction, { type: "startScreenShare" | "releaseScreenShare" }>) => {
     const { response, payload } = await requestClassroomAction(
       `/api/sessions/${encodeURIComponent(courseId)}/classroom/actions`,
@@ -6230,6 +6251,10 @@ export function ClassroomV3({
     });
   };
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  const studentSharesOpen = activePanel === "screens";
+  const setStudentSharesOpen = useCallback((value: boolean | ((current: boolean) => boolean)) => {
+    setActivePanel(current => (typeof value === "function" ? value(current === "screens") : value) ? "screens" : null);
+  }, []);
   const closeShareMenu = useCallback(() => setShareMenuOpen(false), []);
   const stopLocalSharing = useCallback(() => {
     setShareMenuOpen(false);
@@ -6253,7 +6278,8 @@ export function ClassroomV3({
           await flushScreenReleases();
           authorizationAttempted = true;
           await requestScreenShareAction({ type: "startScreenShare", claimId: claim.claimId, ...(claim.spaceId && { spaceId: claim.spaceId }) });
-          const lease = sessionRef.current?.runtime.composition.screenShares?.[claim.spaceId || "main"];
+          const latestShares = sessionRef.current?.runtime.composition.screenShares;
+          const lease = claim.spaceId ? latestShares?.[claim.spaceId] : mainScreenShareCandidates(latestShares).find(item => item.claimId === claim.claimId);
           if (!ownsScreenShare(lease, currentUserId, clientId) || lease?.claimId !== claim.claimId) {
             throw new DOMException("Screen share replaced", "AbortError");
           }
@@ -6380,6 +6406,7 @@ export function ClassroomV3({
 
   const openActivityTools = () => { setActivePanel("chat"); if (sessionData.credential.role === "student") window.dispatchEvent(new CustomEvent(ACTIVITY_OPEN_EVENT, { detail: { sessionId: courseId } })); else setActivityCreateRequest(value => value + 1); };
   const minimalFunctionActions: ClassroomHeaderMenuAction[] = [
+    ...(!classEnded && sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage ? [{ id: "student-screens", label: t("classroomMultiShare.title"), icon: <MonitorUp />, onSelect: () => { setStudentSharesOpen(true); } }] : []),
           { id: "settings", compactOnly: true, label: t("classroom.v3.deviceSettings"), icon: <Settings2 />, onSelect: () => setSettingsOpen(true) },
           ...(!classEnded ? [
             { id: "assistant", label: t(assistantVisible ? "classroomWorkspace.hideAssistant" : "classroomWorkspace.showAssistant"), icon: <Sparkles />, checked: assistantVisible, onSelect: () => setAssistantVisible(value => !value) },
@@ -6506,6 +6533,7 @@ export function ClassroomV3({
       data-recorder-cameras={isRecorder && recorderCameras.length > 0}
     >
       {classinLayout && !isRecorder ? <MinimalHeader
+        screenShareControl={!classEnded && sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage ? <button type="button" className="classroom-minimal-icon classroom-student-share-trigger" aria-label={t("classroomMultiShare.title")} title={t("classroomMultiShare.title")} aria-expanded={studentSharesOpen} onClick={() => { setStudentSharesOpen(value => !value); }}><MonitorUp /><span>{mainScreenShareCandidates(screenLeases).length}</span></button> : undefined}
         course={sessionData.course} runtime={sessionData.runtime} now={now + presenceClockOffset}
         roleName={roleLabel(sessionData.credential.role, t)} memberCount={classroomMembers.filter(classroomMemberVisible).length}
         connectionState={media.connectionState} presenceHealthy={presenceHealthy && !sessionData.runtime.presenceUncertain}
@@ -6805,10 +6833,11 @@ export function ClassroomV3({
         </section>
       )}
 
-      <section className="classroom-v3-workspace" data-panel-open={Boolean(activePanel)} data-conversation-open={conversationOpen}>
+      <section className="classroom-v3-workspace" data-panel-open={Boolean(activePanel || studentSharesOpen)} data-conversation-open={conversationOpen}>
         {classinLayout && liveRail}
         {!isRecorder && sessionData.credential.role === "student" && !classEnded && sessionData.mode !== "publicLive" && <StudentActivityOverlay sessionId={courseId} shareAccess={shareAccess} currentUserId={currentUserId} onChanged={revision => publishInvalidation(revision, "activities")} />}
         {!isRecorder && <ConversationResizer open={conversationOpen} />}
+        {!isRecorder && controlMedia.local.screenSharing && <div className="classroom-screen-prepared" role="status"><span>{t(ownsScreenShare(screenLease, currentUserId, clientId) ? "classroomMultiShare.live" : "classroomMultiShare.waiting")}</span><button type="button" onClick={stopLocalSharing}>{t("classroomMultiShare.exit")}</button></div>}
         {!isRecorder && <ScreenShareMenu open={shareMenuOpen} sharing={controlMedia.local.screenSharing} supported={Boolean((controlsRoomMedia ? roomProvider : mediaProvider)?.supportsSharePortrait?.())} options={{ ...controlMedia.local.screenShareOptions, mode: controlMedia.local.screenShareMode ?? "portrait", corner: controlMedia.local.screenShareCorner ?? "br" }} busy={Boolean(actionBusy)} onClose={closeShareMenu} onStop={stopLocalSharing} onOptionsChange={options => { const provider = controlsRoomMedia ? roomProvider : mediaProvider; void provider?.setScreenShareOptions?.(options).catch(error => setActionError(error instanceof Error ? error.message : t("classroom.v3.mediaActionFailed"))); }} onSelect={options => toggleScreenShare(options)} />}
         <motion.section
           layout
@@ -6830,6 +6859,7 @@ export function ClassroomV3({
               </span>
             </div>
             <div>
+              {!isRecorder && !classEnded && sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage && <button type="button" aria-expanded={studentSharesOpen} onClick={() => { setStudentSharesOpen(value => !value); }}><MonitorUp /><span>{t("classroomMultiShare.title")} · {mainScreenShareCandidates(screenLeases).length}</span></button>}
               {!isRecorder && !classEnded && sessionData.mode !== "publicLive" && <ActivityNotice sessionId={courseId} shareAccess={shareAccess} onOpen={openActivityTools} />}
               {!isRecorder &&
                 !screenParticipant &&
@@ -7039,6 +7069,7 @@ export function ClassroomV3({
                 </motion.div>
               ) : null}
             </AnimatePresence>
+            {!classEnded && selectedScreenClaim && !screenParticipant && <div className="classroom-v3-stage-layer" role="status"><div className="classroom-v3-stage-empty"><Loader2 className="animate-spin" /><p>{t("classroomMultiShare.connecting")}</p></div></div>}
             <AnimatePresence initial={false}>
               {!classEnded && screenParticipant ? (
                 <motion.div
@@ -7304,7 +7335,7 @@ export function ClassroomV3({
           )}
         </section>
         <AnimatePresence initial={false}>
-            {activePanel && (
+            {(activePanel || studentSharesOpen) && (
               <motion.aside
                 key={conversationOpen ? "conversation" : activePanel}
                 className="classroom-v3-drawer"
@@ -7317,16 +7348,17 @@ export function ClassroomV3({
                 transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
               >
                 {conversationOpen && !isRecorder && <ConversationPanelTabs active={activePanel as "chat" | "captions"} unread={unreadMessages} onChange={setActivePanel} onClose={() => setActivePanel(null)} />}
-                {!isRecorder && !conversationOpen && (
+                {!isRecorder && !conversationOpen && !studentSharesOpen && (
                   <button
                     type="button"
                     className="classroom-v3-drawer-close"
-                    onClick={() => setActivePanel(null)}
+                    onClick={() => { setStudentSharesOpen(false); }}
                     title={t("classroom.v3.collapsePanel")}
                   >
                     <PanelRightClose />
                   </button>
                 )}
+                {studentSharesOpen && sessionData.capabilities.canManageMembers && <StudentScreenShares members={classroomMembers} shares={screenLeases || {}} busy={Boolean(actionBusy)} onAction={performAction} onClose={() => setStudentSharesOpen(false)} />}
                 {activePanel === "members" && sessionData.capabilities.canManageMembers && (
                   <MemberPanel
                     members={classroomMembers}

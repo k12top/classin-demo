@@ -1733,3 +1733,8 @@ html.light .classroom-v3-device-dialog fieldset.classroom-v3-start-policy p {
 .classroom-v3-caption-local-settings .classroom-caption-appearance { border: 0; margin: 0; padding: 0; }
 html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-top-actions > .classroom-v3-class-controls { width: auto; min-width: 44px; flex: 0 0 auto; white-space: nowrap; }
 @media(max-width:640px) { .classroom-v3-caption-local-settings select { font-size: 16px; } }
+
+.classroom-screen-prepared { position: fixed; z-index: 50; left: 50%; transform: translateX(-50%); bottom: 96px; width: min(90vw, 560px); display: flex; align-items: center; gap: 16px; padding: 12px 16px; background: hsl(var(--card)); color: hsl(var(--foreground)); border: 1px solid hsl(var(--border)); border-radius: 12px; font-size: 13px; line-height: 1.5; }
+.classroom-screen-prepared button { flex-shrink: 0; color: hsl(var(--primary)); min-height: 44px; }
+.classroom-student-share-trigger { position: relative; flex-shrink: 0; }
+.classroom-student-share-trigger span { font-size: 11px; }

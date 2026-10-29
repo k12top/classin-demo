@@ -147,6 +147,7 @@ export interface ClassroomMediaProvider {
   supportsSharePortrait?(): boolean;
   setScreenShareOptions?(options: ClassroomScreenShareOptions): Promise<void>;
   stopScreenShare(): Promise<void>;
+  setScreenShareSelection?(rtcUid: string | null): Promise<void>;
   focusParticipant(participantId: string | null): Promise<void>;
   attachVideo(participantId: string, element: HTMLElement): void;
   detachVideo(participantId: string, element: HTMLElement): void;
@@ -202,7 +203,7 @@ export type ClassroomCompositionSnapshot = {
   videoLayout?: "grid";
   updatedBy: string;
   updatedAt: string;
-  /** One authorized publisher per RTC channel; absent on legacy snapshots. */
+  /** main selects the displayed share; main:<rtcUid> retains prepared shares. Other keys are breakout channels. */
   screenShares?: Record<string, ClassroomScreenShareLease>;
 };
 
@@ -485,6 +486,7 @@ export type ClassroomAction =
   | { type: "stopScreenShare"; targetUserId: string }
   | { type: "startScreenShare"; claimId: string; spaceId?: string }
   | { type: "releaseScreenShare"; claimId: string; spaceId?: string }
+  | { type: "selectScreenShare"; claimId: string | null }
   | { type: "setMemberMuted"; targetUserId: string; muted: boolean }
   | {
       type: "setMediaAllowed";
