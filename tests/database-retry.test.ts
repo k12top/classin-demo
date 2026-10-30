@@ -3,6 +3,31 @@ import test from "node:test";
 
 process.env.DATABASE_URL ||= "postgresql://user:password@127.0.0.1:5432/classroom";
 
+test("nested PostgreSQL timeout and rollback conflicts are retryable responses", async () => {
+  const { isTransientDatabaseError } = await import("../src/lib/db");
+  for (const code of ["57014", "40001", "40P01"]) {
+    assert.equal(isTransientDatabaseError({ code: "P2010", meta: { driverAdapterError: { cause: { code } } } }), true);
+  }
+  assert.equal(isTransientDatabaseError({ code: "P2010", meta: { driverAdapterError: { cause: { code: "42601" } } } }), false);
+  assert.equal(isTransientDatabaseError({ code: "P2010", meta: { driverAdapterError: { cause: { kind: "TransactionWriteConflict" } } } }), true);
+});
+
+test("only confirmed rollback conflicts replay the whole operation", async () => {
+  const { withDatabaseConflictRetry } = await import("../src/lib/db");
+  let calls = 0;
+  const result = await withDatabaseConflictRetry(async () => {
+    if (++calls === 1) throw { code: "P2010", meta: { driverAdapterError: { cause: { code: "40001" } } } };
+    return "joined";
+  });
+  assert.equal(result, "joined");
+  assert.equal(calls, 2);
+  for (const code of ["P2028", "57014", "ECONNRESET"]) {
+    let attempts = 0;
+    await assert.rejects(withDatabaseConflictRetry(async () => { attempts++; throw Object.assign(new Error("unconfirmed"), { code }); }));
+    assert.equal(attempts, 1, "must not replay a write with uncertain outcome");
+  }
+});
+
 test("retries idempotent reads after transient disconnects", async () => {
   const { isTransientDatabaseError, withDatabaseReadRetry } = await import(
     "../src/lib/db"

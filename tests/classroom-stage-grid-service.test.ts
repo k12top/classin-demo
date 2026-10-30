@@ -31,7 +31,7 @@ function fixture(count = 4) {
   };
   const prisma = { ...db, $transaction: async <T>(fn: (tx: typeof db) => Promise<T>) => fn(db) };
   const api = loadModule<typeof import("../src/lib/classroom/server/runtime")>("src/lib/classroom/server/runtime.ts", {
-    "server-only": {}, "@/lib/db": { prisma },
+    "server-only": {}, "@/lib/db": { prisma, withDatabaseConflictRetry: <T>(operation: () => Promise<T>) => operation() },
     "./command-receipt": { readClassroomCommand: async () => null, saveClassroomCommand: async () => {} },
     "@/lib/courseware-conversion": {}, "./integration-events": {}, "@/lib/course-session-status": {},
     "./shared-cache": {}, "./caption-demand": {},

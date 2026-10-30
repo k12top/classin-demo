@@ -34,14 +34,9 @@ function createPrisma(): PrismaClient {
   }
   const poolConfig: PoolConfig = {
     connectionString,
-    // Development commonly combines the web server, HMR and a remote database
-    // in one process. Three connections are easily exhausted by a course
-    // creation dialog (directory + schedule) while a classroom bootstraps.
-    // Production retains the conservative default unless a pooler is used.
-    max: positiveIntegerEnv(
-      "DATABASE_POOL_MAX",
-      process.env.NODE_ENV === "production" ? 3 : 6,
-    ),
+    // Entry, activity polling and presence share an instance. Keep ten slots
+    // by default; deployment-specific limits can still use DATABASE_POOL_MAX.
+    max: positiveIntegerEnv("DATABASE_POOL_MAX", 10),
     connectionTimeoutMillis: positiveIntegerEnv(
       "DATABASE_CONNECT_TIMEOUT_MS",
       3_000,
@@ -55,6 +50,13 @@ function createPrisma(): PrismaClient {
     ),
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,
+    // Server-side limits cancel the SQL itself. A browser or Prisma timeout
+    // alone can leave a query holding a pool slot and classroom row locks.
+    statement_timeout: positiveIntegerEnv("DATABASE_STATEMENT_TIMEOUT_MS", 4_000),
+    lock_timeout: positiveIntegerEnv("DATABASE_LOCK_TIMEOUT_MS", 1_000),
+    idle_in_transaction_session_timeout: positiveIntegerEnv(
+      "DATABASE_IDLE_TRANSACTION_TIMEOUT_MS", 15_000,
+    ),
     allowExitOnIdle: process.env.NODE_ENV !== "production",
   };
   databasePool = new Pool(poolConfig);
@@ -73,7 +75,13 @@ function createPrisma(): PrismaClient {
       });
     },
   });
-  return new PrismaClient({ adapter });
+  const client = new PrismaClient({ adapter, log: [{ emit: "event", level: "query" }] });
+  client.$on("query", (event) => {
+    if (event.duration < 1_000) return;
+    const command = /^\s*(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK|SET)\b/i.exec(event.query)?.[1]?.toUpperCase() || "OTHER";
+    console.warn("[database:slow]", { command, durationMs: event.duration, pool: databasePoolSnapshot() });
+  });
+  return client;
 }
 
 function positiveIntegerEnv(name: string, fallback: number): number {
@@ -102,6 +110,11 @@ const TRANSIENT_DATABASE_CODES = new Set([
   "57P02",
   "57P03",
   "55P03", // PostgreSQL lock_timeout; the failed transaction is rolled back.
+  "57014", // Server-side statement_timeout.
+  "40001", // Transaction rolled back due to a serialization conflict.
+  "40P01", // Transaction rolled back due to a deadlock.
+  "P2034",
+  "ENTRY_BUSY",
 ]);
 
 const TRANSIENT_DATABASE_MESSAGES = [
@@ -124,18 +137,42 @@ const TRANSIENT_DATABASE_MESSAGES = [
 
 function errorChain(error: unknown): unknown[] {
   const chain: unknown[] = [];
-  let current = error;
+  const pending: unknown[] = [error];
   const visited = new Set<unknown>();
-  while (current && chain.length < 8 && !visited.has(current)) {
+  while (pending.length && chain.length < 12) {
+    const current = pending.shift();
+    if (!current || visited.has(current)) continue;
     chain.push(current);
     visited.add(current);
-    if (typeof current !== "object") break;
-    current = (current as { cause?: unknown }).cause;
+    if (typeof current !== "object") continue;
+    const value = current as { cause?: unknown; meta?: { driverAdapterError?: unknown } };
+    pending.push(value.cause, value.meta?.driverAdapterError);
   }
   return chain;
 }
 
+/** Only replay a whole operation after PostgreSQL confirms its rollback. */
+export async function withDatabaseConflictRetry<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try { return await operation(); }
+    catch (error) {
+      const conflict = isDatabaseRollbackConflict(error);
+      if (!conflict || attempt >= 2) throw error;
+      await new Promise(resolve => setTimeout(resolve, 50 * 2 ** attempt + Math.floor(Math.random() * 50)));
+    }
+  }
+}
+
+function isDatabaseRollbackConflict(error: unknown): boolean {
+  return errorChain(error).some(item => {
+    const code = item && typeof item === "object" && "code" in item ? String(item.code) : "";
+    return ["P2034", "40001", "40P01"].includes(code) ||
+      Boolean(item && typeof item === "object" && "kind" in item && item.kind === "TransactionWriteConflict");
+  });
+}
+
 export function isTransientDatabaseError(error: unknown): boolean {
+  if (isDatabaseRollbackConflict(error)) return true;
   return errorChain(error).some((item) => {
     const code =
       typeof item === "object" && item && "code" in item

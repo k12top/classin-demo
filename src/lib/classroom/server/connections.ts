@@ -1,6 +1,6 @@
 import "server-only";
 import { ClassroomConnectionEndedError, ClassroomConnectionReplacedError, ClassroomDeviceConflictError } from "./errors";
-import { prisma } from "@/lib/db";
+import { prisma, withDatabaseConflictRetry } from "@/lib/db";
 import { refreshCaptionDemand } from "./caption-demand";
 import { classroomPgFallback, classroomRedisEnabled } from "./redis";
 import { redisClassroomHeartbeat } from "./redis-presence";
@@ -8,7 +8,7 @@ import { synchronizeClassroomRedis, registerClassroomRedisConnection } from "./r
 import { enqueueClassroomEvent } from "./integration-events";
 import { classroomRtcUid } from "@/lib/classroom/rtc-uid";
 import { normalizeClassroomComposition } from "@/lib/classroom/composition";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, ClassroomMemberState } from "@prisma/client";
 import { CLASSROOM_RECONNECT_WINDOW_MS } from "@/lib/classroom/presence";
 import type { ClassroomDeviceEntryMode } from "@/lib/classroom/device-admission";
 export function normalizeClassroomClientId(value: unknown): string | undefined {
@@ -20,11 +20,16 @@ export async function classroomConnectionReplaced(sessionId: string, userId: str
   return Boolean(connection?.replacedAt);
 }
 
-type DeviceAdmission = { deviceId?: string; deviceLabel?: string; mode?: ClassroomDeviceEntryMode };
-export function touchClassroomConnection(sessionId: string, userId: string, clientId: string, rejoin: true, admission?: DeviceAdmission): Promise<{ entryMode: "primary" | ClassroomDeviceEntryMode }>;
+type DeviceAdmission = {
+  deviceId?: string; deviceLabel?: string; mode?: ClassroomDeviceEntryMode;
+  initializeMember?: (tx: Prisma.TransactionClient) => Promise<ClassroomMemberState>;
+};
+type JoinedConnection = { entryMode: "primary" | ClassroomDeviceEntryMode; member?: ClassroomMemberState };
+type HeartbeatConnection = { status: string; refreshed: boolean; reason: string };
+export function touchClassroomConnection(sessionId: string, userId: string, clientId: string, rejoin: true, admission?: DeviceAdmission): Promise<JoinedConnection>;
 export function touchClassroomConnection(sessionId: string, userId: string, clientId: string, rejoin?: false): Promise<{ status: string; refreshed: boolean; reason: string }>;
 export async function touchClassroomConnection(sessionId: string, userId: string, clientId: string, rejoin = false,
-  admission?: DeviceAdmission) {
+  admission?: DeviceAdmission): Promise<JoinedConnection | HeartbeatConnection> {
   const identity = `${userId}:${clientId}`;
   if (!rejoin) {
     if (classroomRedisEnabled()) {
@@ -71,12 +76,10 @@ export async function touchClassroomConnection(sessionId: string, userId: string
   }
   const values = { sessionId, userId, rtcUid: classroomRtcUid(identity, "camera"), screenUid: classroomRtcUid(identity, "screen"), lastSeenAt: new Date(), leftAt: null };
   // Scope the row key to authenticated identity; a supplied tab id cannot overwrite another user.
-  const joined = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SET LOCAL lock_timeout = '1s'`;
+  const joined = await withDatabaseConflictRetry(() => prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
     const runtime = await tx.classroomRuntime.findUnique({ where: { sessionId }, select: { status: true } });
     if (!runtime || runtime.status === "ended") throw new ClassroomConnectionEndedError();
-    await tx.$queryRaw`SELECT "id" FROM "ClassroomMemberState" WHERE "sessionId" = ${sessionId} AND "userId" = ${userId} FOR UPDATE`;
     const id = `${sessionId}:${identity}`;
     const own = await tx.classroomConnection.findUnique({ where: { id } });
     // Replaced tabs cannot resurrect themselves through bootstrap retries.
@@ -92,6 +95,10 @@ export async function touchClassroomConnection(sessionId: string, userId: string
     if (!continuing && admission && others.length && !sameDevice && !admission.mode) {
       throw new ClassroomDeviceConflictError([...new Set(others.map(row => row.deviceLabel || ""))]);
     }
+    // Upsert only after device intent passes validation, using this same
+    // runtime lock and transaction. Failed admission rolls back both records.
+    const member = admission?.initializeMember ? await admission.initializeMember(tx) : undefined;
+    if (!member) await tx.$queryRaw`SELECT "id" FROM "ClassroomMemberState" WHERE "sessionId" = ${sessionId} AND "userId" = ${userId} FOR UPDATE`;
     const mode = continuing ? own!.entryMode || "primary" : admission?.mode || sameDevice?.entryMode || "primary";
     // Repeat responses are idempotent: a retry must not evict devices that
     // joined after the original replacement committed.
@@ -120,16 +127,15 @@ export async function touchClassroomConnection(sessionId: string, userId: string
     await tx.classroomConnection.upsert({ where: { id }, create: { id, ...values, ...metadata }, update: { ...values, ...metadata } });
     await tx.classroomProviderEvent.updateMany({ where: { noticeId: `classroom-empty:${sessionId}` },
       data: { payload: { cancelledAt: values.lastSeenAt.getTime() } } });
-    return { entryMode: mode as "primary" | ClassroomDeviceEntryMode };
-  }, { maxWait: 1_500, timeout: 3_500 });
+    return { entryMode: mode as "primary" | ClassroomDeviceEntryMode, member };
+  }, { maxWait: 1_500, timeout: 3_500 }));
   await registerClassroomRedisConnection(sessionId, `${sessionId}:${identity}`);
   // Publish the tombstones as well as the new lease before old Redis heartbeats.
   if (admission) await synchronizeClassroomRedis(sessionId, true);
   return joined;
 }
 export async function leaveClassroomConnection(sessionId: string, userId: string, clientId?: string, voluntary = false) {
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SET LOCAL lock_timeout = '1s'`;
+  await withDatabaseConflictRetry(() => prisma.$transaction(async (tx) => {
     // Match moderation's lock order before releasing a publisher's slot.
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
     await tx.$queryRaw`SELECT "id" FROM "ClassroomMemberState" WHERE "sessionId" = ${sessionId} AND "userId" = ${userId} FOR UPDATE`;
@@ -162,6 +168,6 @@ export async function leaveClassroomConnection(sessionId: string, userId: string
       await tx.classroomMemberState.updateMany({ where: { sessionId, userId }, data: { presence: voluntary ? "offline" : "reconnecting", lastSeenAt: now, ...(voluntary ? { onStage: false, stageState, handRaisedAt: null, screenShareState: "idle", whiteboardWritable: false } : {}) } });
       await tx.classroomRuntime.updateMany({ where: { sessionId }, data: { revision: { increment: 1 } } });
     }
-  }, { maxWait: 1_500, timeout: 3_500 });
+  }, { maxWait: 1_500, timeout: 3_500 }));
   await synchronizeClassroomRedis(sessionId, true);
 }

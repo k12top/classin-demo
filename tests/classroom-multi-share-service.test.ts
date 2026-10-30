@@ -22,7 +22,7 @@ function fixture() {
   };
   const prisma = { ...db, $transaction: async (fn: any) => fn(db) };
   const api = loadModule<typeof import('../src/lib/classroom/server/runtime')>('src/lib/classroom/server/runtime.ts', {
-    'server-only': {}, '@/lib/db': { prisma }, './command-receipt': { readClassroomCommand: async () => null, saveClassroomCommand: async () => {} },
+    'server-only': {}, '@/lib/db': { prisma, withDatabaseConflictRetry: <T>(operation: () => Promise<T>) => operation() }, './command-receipt': { readClassroomCommand: async () => null, saveClassroomCommand: async () => {} },
     '@/lib/courseware-conversion': {}, './integration-events': {}, '@/lib/course-session-status': {}, './shared-cache': {}, './caption-demand': {},
     './redis-presence': { readRedisClassroomPresence: async () => null, overlayRedisClassroomPresence: (value: unknown) => value }, './redis-sync': { refreshClassroomRedisControl: async () => {} },
   });

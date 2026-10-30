@@ -15,7 +15,7 @@ test("activity stage API binds recorder access to its signed recording and exclu
     const output = path.join(directory, "route.cjs");
     const mocks: Record<string, string> = {
       "server-only": "",
-      "@/lib/db": `export const prisma={classroomRecording:{findFirst:async q=>q.where.id==='recording-a'&&q.where.sessionId==='lesson-a'&&q.where.mode==='web'?{id:'recording-a',sessionId:'lesson-a',courseId:'course-a'}:null}};`,
+      "@/lib/db": `export const databasePoolSnapshot=()=>null;export const isTransientDatabaseError=()=>false;export const prisma={classroomRecording:{findFirst:async q=>q.where.id==='recording-a'&&q.where.sessionId==='lesson-a'&&q.where.mode==='web'?{id:'recording-a',sessionId:'lesson-a',courseId:'course-a'}:null}};`,
       "@/lib/classroom/server/activities": `export const calls=[];export async function activityPresentation(id){calls.push(id);return {id:'activity-a',title:'Quiz',status:'active',question:{prompt:'Question',options:[]},statistics:null}};`,
       "@/lib/classroom/server/request-access": `export async function resolveClassroomRequestAccess(){return {ok:false,status:401,error:'Unauthorized'}};`,
     };

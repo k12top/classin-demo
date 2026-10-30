@@ -12,7 +12,7 @@ const fixture = {
 Object.assign(globalThis, { __activityAccessFixture: fixture });
 const stubs: Record<string, string> = {
   "server-only": "",
-  "@/lib/db": "export const prisma={};",
+  "@/lib/db": "export const databasePoolSnapshot=()=>null;export const isTransientDatabaseError=()=>false;export const prisma={};",
   "@/lib/course-session-status": "export const syncCourseStatusFromSessions=async()=>{};",
   "@/lib/session": "export const getSessionFromRequest=async request=>{const userId=request.headers.get('x-test-user');return userId?{userId,name:userId,displayName:userId}:null};",
   "@/lib/join-link": "export const verifyShareAccessToken=async()=>({ok:false});",

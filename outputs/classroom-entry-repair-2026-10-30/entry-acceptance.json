@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "pool": {
+    "total": 5,
+    "idle": 5,
+    "waiting": 0,
+    "max": 10,
+    "connectionTimeoutMs": 3000
+  },
+  "checks": [
+    "unauthenticated entry denied before any connection creation",
+    "automatic stage admission plus connection registration uses one transaction",
+    "8 duplicate entry requests: 8 access checks, 1 bootstrap, independently readable responses",
+    "24 different students enter concurrently through actual client retry and entry route (27 total attempts)",
+    "voluntary leave, same-device re-entry and delayed old-page beacon preserve new connection",
+    "real runtime row lock: entry/leave return retryable 503; both recover and re-entry succeeds after unlock",
+    "server cancels slow SQL, pool accepts next query, no idle transactions remain"
+  ],
+  "boundary": "PostgreSQL and actual route/business code; identity, credential signing and external after-response services are fixtures; no RTC media or production changes"
+}

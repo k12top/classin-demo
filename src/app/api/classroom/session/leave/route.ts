@@ -3,7 +3,9 @@ import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-ac
 import { leaveClassroomConnection, normalizeClassroomClientId } from "@/lib/classroom/server/connections";
 import { syncClassroomTranscription } from "@/lib/classroom/server/transcription-orchestrator";
 import { deliverClassroomEvents } from "@/lib/classroom/server/integration-events";
+import { databaseUnavailableResponse } from "@/lib/database-response";
 export async function POST(request: NextRequest) {
+ try {
  const body = await request.json().catch(() => null);
  if (typeof body?.sessionId !== "string") return NextResponse.json({ error: "sessionId required" }, { status: 400 });
  const clientId = normalizeClassroomClientId(body.clientId);
@@ -16,4 +18,9 @@ export async function POST(request: NextRequest) {
   await syncClassroomTranscription(resolved.access.courseId, { sessionId: resolved.access.sessionId });
  });
  return NextResponse.json({ ok: true });
+ } catch (error) {
+  const unavailable = databaseUnavailableResponse(error, { route: "classroom/session/leave", operation: "leave" });
+  if (unavailable) return unavailable;
+  throw error;
+ }
 }

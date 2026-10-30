@@ -1,0 +1,2 @@
+{"clientVersion":"7.10.1","observedState":{"state":"idle","query":"ROLLBACK"},"waiting":0}
+PASS: timed-out transaction start rolls back before reuse; RepeatableRead succeeds

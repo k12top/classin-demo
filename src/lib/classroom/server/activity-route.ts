@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
 import type { ActivityActor } from "@/lib/classroom/server/activities";
 import { ActivityError } from "@/lib/classroom/activities";
+import { databaseUnavailableResponse } from "@/lib/database-response";
 export async function activityActor(request: NextRequest, sessionId: string, shareAccess?: string, purpose?: "activities") {
   const access = await resolveClassroomRequestAccess(request, sessionId, shareAccess, { purpose });
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
@@ -10,6 +11,8 @@ export async function activityActor(request: NextRequest, sessionId: string, sha
 }
 export function activityFailure(error: unknown) {
   if (error instanceof ActivityError) return NextResponse.json({ error: error.message }, { status: error.status });
+  const unavailable = databaseUnavailableResponse(error, { route: "classroom/activities" });
+  if (unavailable) return unavailable;
   console.error("[classroom:activities]", error);
   return NextResponse.json({ error: "Activity request failed. Please retry." }, { status: 500 });
 }

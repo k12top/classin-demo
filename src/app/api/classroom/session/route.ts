@@ -19,7 +19,7 @@ import {
   getClassroomCourseware,
   getClassroomEngagementSnapshot,
   getClassroomRuntimeSnapshot,
-  touchClassroomMember,
+  prepareClassroomMemberJoin,
 } from "@/lib/classroom/server/runtime";
 import { classroomCapabilities } from "@/lib/classroom/policy";
 import { classroomModePolicy } from "@/lib/classroom/mode";
@@ -33,6 +33,8 @@ import { getSessionFromRequest } from "@/lib/session";
 import { ensureClassroomSpaceAssignment } from "@/lib/classroom/server/spaces";
 import { classroomInterpretationAvailability } from "@/lib/classroom/server/transcription-orchestrator";
 import { casdoorUserIdCandidates } from "@/lib/course-teacher";
+import { shareClassroomEntryWork } from "@/lib/classroom/server/entry-work";
+import { withClassroomEntrySlot } from "@/lib/classroom/server/entry-gate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -75,7 +77,19 @@ function publicMessage(message: {
 
 export async function POST(request: NextRequest) {
   const bootstrapStartedAt = performance.now();
-  const diagnostic: { sessionId?: string; clientId?: string; userId?: string } = {};
+  const diagnostic: { sessionId?: string; clientId?: string; userId?: string; phase?: string } = {};
+  async function step<T>(phase: string, operation: () => Promise<T>): Promise<T> {
+    diagnostic.phase = phase;
+    if (performance.now() - bootstrapStartedAt > 8_000) {
+      throw Object.assign(new Error("Classroom bootstrap budget exceeded"), { code: "ENTRY_BUSY" });
+    }
+    const startedAt = performance.now();
+    try { return await operation(); }
+    finally {
+      const durationMs = Math.round(performance.now() - startedAt);
+      if (durationMs >= 1_000) console.warn("[classroom:entry-slow]", { ...diagnostic, durationMs });
+    }
+  }
   try {
     const body = (await request.json()) as {
       clientId?: unknown;
@@ -104,6 +118,7 @@ export async function POST(request: NextRequest) {
     if (body.deviceEntryMode !== undefined && body.deviceEntryMode !== "together" && body.deviceEntryMode !== "replace") {
       return NextResponse.json({ error: "Invalid device entry choice" }, { status: 400 });
     }
+    const deviceEntryMode = body.deviceEntryMode;
     diagnostic.sessionId = referenceId;
     diagnostic.clientId = clientId;
     const recorderToken =
@@ -119,12 +134,12 @@ export async function POST(request: NextRequest) {
 
     const access = recorder
       ? null
-      : await resolveCourseSessionAccess(referenceId, session!.userId, {
+      : await step("access", () => resolveCourseSessionAccess(referenceId, session!.userId, {
           skipCache: true,
           referenceType: suppliedSessionId ? "session" : "course",
           shareAccessToken: shareAccess || undefined,
           userIdAliases: [session!.name],
-        });
+        }));
     if (access && !access.ok) {
       return NextResponse.json(
         { error: access.reason, code: access.code, courseId: access.courseId },
@@ -132,6 +147,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // A retry can arrive while the original request still owns DB work.
+    // Coalesce only after this request independently passed access validation.
+    diagnostic.phase = "queue";
+    const entry = await shareClassroomEntryWork(!recorder && clientId ? JSON.stringify([
+      session!.userId, access!.sessionId, access!.role, clientId,
+      body.deviceId, body.deviceLabel, deviceEntryMode,
+    ]) : undefined, () => withClassroomEntrySlot(async () => {
     const resolvedLesson = recorder
       ? await prisma.courseSession.findUnique({
           where: { id: referenceId },
@@ -140,7 +162,7 @@ export async function POST(request: NextRequest) {
       : null;
     const sessionId = recorder ? referenceId : access!.sessionId;
     const courseId = recorder ? resolvedLesson?.courseId || "" : access!.courseId;
-    const lesson = await prisma.courseSession.findFirst({
+    const lesson = await step("lesson", () => prisma.courseSession.findFirst({
       where: { id: sessionId, courseId },
       select: {
         id: true,
@@ -162,7 +184,7 @@ export async function POST(request: NextRequest) {
           select: { status: true, mode: true, fallbackFrom: true },
         },
       },
-    });
+    }));
     if (!lesson) {
       return NextResponse.json(
         { error: "Course not found" },
@@ -180,18 +202,24 @@ export async function POST(request: NextRequest) {
       : session!.userId;
     diagnostic.sessionId = sessionId;
     diagnostic.userId = userId;
-    let member: Awaited<ReturnType<typeof touchClassroomMember>> | null = null;
-    if (!recorder) {
-      member = await touchClassroomMember(
+    const preparedMember = recorder ? null : await step("member-prepare", () => prepareClassroomMemberJoin(
         courseId,
         session!,
         role,
         modePolicy,
         sessionId,
         true,
-      );
-      if (modePolicy.allowBreakouts) {
-        await ensureClassroomSpaceAssignment({
+      ));
+    // Resolve device intent, member admission and the lease in one transaction.
+    const connection = !recorder && clientId ? await step("connection", () => touchClassroomConnection(sessionId, userId, clientId, true, {
+      deviceId: normalizeClassroomClientId(body.deviceId),
+      deviceLabel: typeof body.deviceLabel === "string" ? body.deviceLabel.slice(0, 80) : undefined,
+      mode: deviceEntryMode,
+      initializeMember: preparedMember?.commit,
+    })) : null;
+    const member = connection?.member ?? null;
+    if (!recorder && modePolicy.allowBreakouts) {
+        await step("spaces", () => ensureClassroomSpaceAssignment({
           courseId,
           sessionId,
           userId: session!.userId,
@@ -199,18 +227,11 @@ export async function POST(request: NextRequest) {
             session!.displayName || session!.name || session!.userId,
           avatar: session!.avatar || "",
           role,
-        });
-      }
+        }));
     }
-    // Resolve multi-device intent before issuing any RTC/RTM/whiteboard tokens.
-    const connection = !recorder && clientId ? await touchClassroomConnection(sessionId, userId, clientId, true, {
-      deviceId: normalizeClassroomClientId(body.deviceId),
-      deviceLabel: typeof body.deviceLabel === "string" ? body.deviceLabel.slice(0, 80) : undefined,
-      mode: body.deviceEntryMode,
-    }) : null;
     // A join needs a snapshot taken after its own write; only read-only polls coalesce.
-    const runtimeSnapshot = await getClassroomRuntimeSnapshot(courseId, sessionId, { ensure: false });
-    const engagementSnapshot = await getClassroomEngagementSnapshot(sessionId);
+    const runtimeSnapshot = await step("runtime", () => getClassroomRuntimeSnapshot(courseId, sessionId, { ensure: false }));
+    const engagementSnapshot = await step("engagement", () => getClassroomEngagementSnapshot(sessionId));
 
     // Leaving a teaching tab never stops the cloud recorder. If the provider
     // did stop unexpectedly while the teacher was away, rejoining the live
@@ -331,7 +352,7 @@ export async function POST(request: NextRequest) {
       spaces,
       questions,
       interpretationAvailability,
-    ] = await Promise.all([
+    ] = await step("resources", () => Promise.all([
       recorder
         ? getClassroomCourseware(courseId, "teacher", sessionId)
         : Promise.resolve([]),
@@ -357,11 +378,11 @@ export async function POST(request: NextRequest) {
       Promise.resolve([]),
       Promise.resolve([]),
       classroomInterpretationAvailability(),
-    ]);
+    ]));
 
     return NextResponse.json(
       {
-        connection: connection && "entryMode" in connection ? connection : null,
+        connection: connection ? { entryMode: connection.entryMode } : null,
         mode: modePolicy.mode,
         modePolicy,
         credential,
@@ -437,6 +458,9 @@ export async function POST(request: NextRequest) {
         },
       },
     );
+    }));
+    // Each HTTP caller consumes its own body stream.
+    return entry.clone();
   } catch (error) {
     if (error instanceof ClassroomDeviceConflictError) return NextResponse.json({
       code: "classroom_device_conflict", devices: error.devices,

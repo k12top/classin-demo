@@ -1,0 +1,64 @@
+{
+  "checkedAt": "2026-10-30T09:08:31.315Z",
+  "branch": "fix/classroom-entry-repair-20261030",
+  "baseCommit": "0b0da163dc90662ac07511a97c3accd88bb18ca2",
+  "productionMutations": false,
+  "deployed": false,
+  "changes": {
+    "poolMaxDefault": 10,
+    "entryConcurrencyPerProcess": 4,
+    "entryQueueLimitPerProcess": 32,
+    "entryQueueWaitMs": 6000,
+    "statementTimeoutMs": 4000,
+    "lockTimeoutMs": 1000,
+    "idleTransactionTimeoutMs": 15000,
+    "clientEntryAttemptTimeoutMs": 20000,
+    "bootstrapPhaseBudgetMs": 8000,
+    "prisma": "7.10.1",
+    "normalAutomaticStageAndConnectionAdmissionInteractiveTransactions": 1,
+    "inFlightDuplicateEntryCoalescing": "after independent request authentication/access checks; no completed result cache",
+    "writeRetryPolicy": "at most two retries, only when PostgreSQL confirms rollback (serialization conflict/deadlock); no replay of timeouts or uncertain connection failures"
+  },
+  "diagnosis": {
+    "productionObserved": "join pool max=3 / idle=0 / waiting up to118; P2028 transaction-start timeouts, concurrent write conflicts, and activity SQLSTATE25001 errors during the reported incident",
+    "isolatedBaselinePrisma780": "saturating one-slot pool until maxWait expires reproduces idle-in-transaction BEGIN, then the same isolation-level error on reuse",
+    "isolatedFixedPrisma7101": "discarded transaction sends ROLLBACK; connection is idle and RepeatableRead reuse succeeds",
+    "upstreamFix": "https://github.com/prisma/orm/pull/29727",
+    "remainingUncertainty": "No production pg_stat_activity/lock graph was obtained. The exact original production blocker and trigger remain unconfirmed; isolated reproduction is not a production lock graph."
+  },
+  "validation": {
+    "entryAcceptance": "entry-acceptance.json",
+    "activitiesAcceptance": "activities-acceptance.json",
+    "connectionAndDeviceRegressionChecks": 17,
+    "focusedUnitTests": 14,
+    "typescriptAndBuild": {
+      "typescript": "passed",
+      "nextProductionBuild": "passed",
+      "nodeVersion": "22.18.0",
+      "productionDatabaseUsed": false
+    },
+    "fullUnitSuite": {
+      "firstRun": {
+        "tests": 597,
+        "passed": 588,
+        "failed": 9
+      },
+      "firstRunFailureCause": "Database module mocks in five test fixtures lacked newly imported helper exports; no failed assertions remained after updating those mocks.",
+      "affectedFixtureRetest": {
+        "tests": 9,
+        "passed": 9,
+        "failed": 0
+      },
+      "remainingFailures": 0
+    },
+    "lint": "passed"
+  },
+  "boundaries": [
+    "Temporary loopback PostgreSQL16, real route functions and business SQL; identity, media credentials and external post-response services are fixtures.",
+    "24 concurrent synthetic participants are not a production capacity claim.",
+    "Real Casdoor login, RTC media, cross-region latency and production acceptance were not exercised.",
+    "No database schema migration changes, no production configuration change, no push or deployment."
+  ],
+  "deliveryBranch": "main",
+  "deliveryStatusAtValidation": "Validated locally; no push or production deployment at the time of this record"
+}

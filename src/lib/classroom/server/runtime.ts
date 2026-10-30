@@ -39,7 +39,7 @@ import {
   normalizeRecordingStartMode,
 } from "@/lib/classroom/recording-start";
 import { normalizeClassStartMode, scheduledClassStartDue } from "@/lib/classroom/class-start";
-import { prisma } from "@/lib/db";
+import { prisma, withDatabaseConflictRetry } from "@/lib/db";
 import {
   SCREEN_SHARE_REQUEST_TTL_MS,
   canShareClassroomScreen,
@@ -228,7 +228,9 @@ export async function startScheduledClassroomIfDue(
   });
 }
 
-export async function touchClassroomMember(
+// Read lifecycle and Redis before taking the admission lock. The commit can
+// then share the connection-registration transaction instead of opening its own.
+export async function prepareClassroomMemberJoin(
   courseId: string,
   session: Pick<
     SessionPayload,
@@ -302,23 +304,22 @@ export async function touchClassroomMember(
     },
   });
   if (!studentStartsOnStage) {
-    return prisma.classroomMemberState.upsert(
-      upsertInput(teachingStartsOnStage),
-    );
+    return { requiresStageAdmission: false, commit: (tx: Prisma.TransactionClient) =>
+      tx.classroomMemberState.upsert(upsertInput(teachingStartsOnStage)) };
   }
   const alreadyJoined = await prisma.classroomMemberState.findUnique({
     where: { sessionId_userId: { sessionId, userId: session.userId } },
     select: { id: true, stageState: true },
   });
   if (alreadyJoined && !(joining && ["left", "waiting"].includes(alreadyJoined.stageState))) {
-    return prisma.classroomMemberState.upsert(upsertInput(false));
+    return { requiresStageAdmission: false, commit: (tx: Prisma.TransactionClient) =>
+      tx.classroomMemberState.upsert(upsertInput(false)) };
   }
   const redisPresence = await readRedisClassroomPresence(sessionId);
   // Re-evaluate voluntary re-entry and capacity waits only on real joins.
   // Teacher removals and declined invitations survive refreshes and exits.
   // Serialize admissions so simultaneous returns cannot overbook the stage.
-  return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId"=${sessionId} FOR UPDATE`;
+  return { requiresStageAdmission: true, commit: async (tx: Prisma.TransactionClient) => {
     const settings = await tx.classroomRuntime.findUniqueOrThrow({ where: { sessionId }, select: { stageStudentLimit: true } });
     const existing = await tx.classroomMemberState.findUnique({
       where: { sessionId_userId: { sessionId, userId: session.userId } },
@@ -329,7 +330,24 @@ export async function touchClassroomMember(
     const occupiedSeats = eligible && studentLimit !== null ? await countReservedStudentSeats(tx, sessionId, redisPresence) : 0;
     const admit = eligible && (studentLimit === null || occupiedSeats < studentLimit);
     return tx.classroomMemberState.upsert(upsertInput(admit, Boolean(existing) && admit, existing?.stageState === "waiting"));
-  });
+  } };
+}
+
+export async function touchClassroomMember(
+  courseId: string,
+  session: Pick<SessionPayload, "userId" | "displayName" | "name" | "avatar">,
+  role: ClassroomRole,
+  suppliedModePolicy?: ClassroomModePolicy,
+  sessionId = courseId,
+  joining = false,
+) {
+  const prepared = await prepareClassroomMemberJoin(courseId, session, role, suppliedModePolicy, sessionId, joining);
+  return withDatabaseConflictRetry(() => prepared.requiresStageAdmission
+    ? prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId"=${sessionId} FOR UPDATE`;
+        return prepared.commit(tx);
+      })
+    : prepared.commit(prisma));
 }
 
 function publicMember(

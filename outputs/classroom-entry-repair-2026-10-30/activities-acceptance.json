@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "evidence": "production activity service against isolated PostgreSQL 16; authentication actor boundary supplied by harness",
+  "checks": [
+    "draft privacy, create idempotency and incompatible replay rejection",
+    "immutable creation replay after edits, cancelled draft privacy and scoped cursor validation",
+    "draft conflict detection, serialized start and partial unique database guard",
+    "saved answer updates, own-answer-only visibility and server role enforcement",
+    "versioned answers prevent stale overwrites; retries retain timestamps even after closing",
+    "manual grading and version conflicts, publish gate, aggregate privacy and authorized CSV",
+    "assistant teaching-role authority despite obsolete flags and session scoping",
+    "six real PostgreSQL answer-versus-close races without lost successful writes",
+    "simultaneous two-device first submissions produce one durable winner and one conflict",
+    "poll tally, written task grading, safe shared-stage projection and presentation controls",
+    "response and history pagination across page boundaries without duplicate or missing records",
+    "eight concurrent deadline readers recover serialization conflicts and close exactly once",
+    "authoritative deadlines, lesson-end closure and durable after-class results"
+  ]
+}

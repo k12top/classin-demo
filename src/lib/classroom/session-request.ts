@@ -19,7 +19,9 @@ export async function requestClassroomSession<T extends { credential: unknown }>
   wait?: (delay: number, signal: AbortSignal) => Promise<void>;
 }): Promise<T> {
   let refreshedAuth = false;
-  return retryClassroomRecovery(() => withClassroomRequestSignal(10_000, options.signal, async (signal) => {
+  // Give the server's 8s phase budget + bounded pending SQL time to settle
+  // before another attempt, instead of overlapping abandoned 10s requests.
+  return retryClassroomRecovery(() => withClassroomRequestSignal(20_000, options.signal, async (signal) => {
     let response = await options.request(signal);
     if (response.status === 401 && !refreshedAuth && options.refreshAuth) {
       refreshedAuth = true;

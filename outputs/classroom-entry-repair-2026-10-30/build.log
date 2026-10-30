@@ -1,0 +1,121 @@
+
+> classroom@0.1.0 build
+> next build --webpack
+
+▲ Next.js 16.2.6 (webpack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 63s
+  Running TypeScript ...
+  Finished TypeScript in 95s ...
+  Collecting page data using 15 workers ...
+  Generating static pages using 15 workers (0/18) ...
+  Generating static pages using 15 workers (4/18)
+  Generating static pages using 15 workers (8/18)
+  Generating static pages using 15 workers (13/18)
+✓ Generating static pages using 15 workers (18/18) in 781ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ƒ /
+├ ƒ /_not-found
+├ ƒ /access-denied
+├ ƒ /api/auth/avatar
+├ ƒ /api/auth/callback
+├ ƒ /api/auth/login
+├ ƒ /api/auth/logout
+├ ƒ /api/auth/me
+├ ƒ /api/auth/refresh
+├ ƒ /api/avatars/[filename]
+├ ƒ /api/classroom/avatar
+├ ƒ /api/classroom/connection-diagnostics
+├ ƒ /api/classroom/recorder/ready
+├ ƒ /api/classroom/recorder/state
+├ ƒ /api/classroom/session
+├ ƒ /api/classroom/session/leave
+├ ƒ /api/classroom/session/publish-credential
+├ ƒ /api/classroom/session/renew-credential
+├ ƒ /api/classroom/session/whiteboard-credential
+├ ƒ /api/courses
+├ ƒ /api/courses/[id]
+├ ƒ /api/courses/[id]/attendance
+├ ƒ /api/courses/[id]/attendance/me
+├ ƒ /api/courses/[id]/classroom/actions
+├ ƒ /api/courses/[id]/classroom/captions
+├ ƒ /api/courses/[id]/classroom/messages
+├ ƒ /api/courses/[id]/classroom/questions
+├ ƒ /api/courses/[id]/classroom/spaces
+├ ƒ /api/courses/[id]/classroom/spaces/credential
+├ ƒ /api/courses/[id]/classroom/state
+├ ƒ /api/courses/[id]/courseware
+├ ƒ /api/courses/[id]/courseware/[coursewareId]
+├ ƒ /api/courses/[id]/courseware/[coursewareId]/download
+├ ƒ /api/courses/[id]/courseware/upload-url
+├ ƒ /api/courses/[id]/join-by-passcode
+├ ƒ /api/courses/[id]/join-links
+├ ƒ /api/courses/[id]/join-links/[linkId]
+├ ƒ /api/courses/[id]/playback-progress
+├ ƒ /api/courses/[id]/recording
+├ ƒ /api/courses/[id]/recording.mp4
+├ ƒ /api/courses/[id]/reopen-room
+├ ƒ /api/courses/[id]/sessions
+├ ƒ /api/courses/[id]/sessions/[sessionId]
+├ ƒ /api/courses/[id]/sessions/[sessionId]/lifecycle
+├ ƒ /api/courses/[id]/sessions/[sessionId]/roster
+├ ƒ /api/courses/[id]/students
+├ ƒ /api/courses/[id]/verify-access
+├ ƒ /api/courses/search-by-passcode
+├ ƒ /api/cron/classroom-webhooks
+├ ƒ /api/cron/promote-course-status
+├ ƒ /api/groups
+├ ƒ /api/join-links/[token]/verify-passcode
+├ ƒ /api/public/v1/courses
+├ ƒ /api/public/v1/courses/[courseId]
+├ ƒ /api/public/v1/courses/[courseId]/sessions
+├ ƒ /api/public/v1/courses/[courseId]/sessions/[sessionId]
+├ ƒ /api/public/v1/courses/[courseId]/sessions/[sessionId]/join-links
+├ ƒ /api/sessions/[sessionId]/attendance
+├ ƒ /api/sessions/[sessionId]/classroom/actions
+├ ƒ /api/sessions/[sessionId]/classroom/activities
+├ ƒ /api/sessions/[sessionId]/classroom/activities/[activityId]
+├ ƒ /api/sessions/[sessionId]/classroom/activities/draft
+├ ƒ /api/sessions/[sessionId]/classroom/activities/presentation
+├ ƒ /api/sessions/[sessionId]/classroom/assistant
+├ ƒ /api/sessions/[sessionId]/classroom/caption-preference
+├ ƒ /api/sessions/[sessionId]/classroom/captions
+├ ƒ /api/sessions/[sessionId]/classroom/courseware/[coursewareId]/file
+├ ƒ /api/sessions/[sessionId]/classroom/images
+├ ƒ /api/sessions/[sessionId]/classroom/messages
+├ ƒ /api/sessions/[sessionId]/classroom/messages/[messageId]/image
+├ ƒ /api/sessions/[sessionId]/classroom/messages/translate
+├ ƒ /api/sessions/[sessionId]/classroom/questions
+├ ƒ /api/sessions/[sessionId]/classroom/spaces
+├ ƒ /api/sessions/[sessionId]/classroom/spaces/credential
+├ ƒ /api/sessions/[sessionId]/classroom/state
+├ ƒ /api/sessions/[sessionId]/recording
+├ ƒ /api/sessions/[sessionId]/recordings
+├ ƒ /api/sessions/[sessionId]/recordings/[recordingId]/play
+├ ƒ /api/sessions/[sessionId]/student-submission
+├ ƒ /api/sessions/[sessionId]/student-submissions
+├ ƒ /api/sessions/[sessionId]/summary
+├ ƒ /api/teachers/schedule
+├ ƒ /api/teachers/schedule/[id]
+├ ƒ /api/users/search
+├ ƒ /api/users/teachers
+├ ƒ /api/webhooks/agora/recording
+├ ƒ /classroom
+├ ƒ /classroom/recorder
+├ ƒ /course-share/[token]
+├ ƒ /courses/[id]
+├ ƒ /courses/[id]/playback
+├ ƒ /courses/create
+├ ƒ /join/[token]
+├ ƒ /login
+├ ƒ /session-expired
+└ ƒ /sessions/[sessionId]/activities
+
+
+ƒ Proxy (Middleware)
+
+ƒ  (Dynamic)  server-rendered on demand
