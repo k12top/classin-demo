@@ -43,9 +43,13 @@ export async function closeEmptyClassrooms(courseIds?: string[], now = new Date(
       await tx.$queryRaw`SELECT "id" FROM "CourseSession" WHERE "id" = ${sessionId} FOR UPDATE`;
       const lesson = await tx.courseSession.findUnique({ where: { id: sessionId }, select: { status: true, endTime: true } });
       if (lesson?.status !== CourseStatus.LIVE || lesson.endTime.getTime() > now.getTime()) return false;
-      const members = await tx.classroomMemberState.findMany({ where: { sessionId, role: { in: ["teacher", "assistant", "student"] } }, select: { userId: true } });
+      const members = await tx.classroomMemberState.findMany({ where: { sessionId, role: { in: ["teacher", "assistant", "student"] } }, select: { userId: true, role: true } });
       // Identity comes from the authenticated join path, not RTC UIDs or display names.
-      const connections = await tx.classroomConnection.findMany({ where: { sessionId, userId: { in: members.map(member => member.userId) } }, select: { lastSeenAt: true, leftAt: true } });
+      const connections = await tx.classroomConnection.findMany({ where: { sessionId, userId: { in: members.map(member => member.userId) } }, select: { userId: true, lastSeenAt: true, leftAt: true, leaveIntent: true, replacedAt: true } });
+      const teachers = new Set(members.filter(member => member.role === "teacher" || member.role === "assistant").map(member => member.userId));
+      // Explicit temporary leave reserves the room until return or the hard lesson deadline.
+      if (connections.some(connection => teachers.has(connection.userId) && !connection.replacedAt && connection.leftAt &&
+          connection.leaveIntent === "temporary" && (connection.lastSeenAt >= runtime.startedAt! || connection.leftAt >= runtime.startedAt!))) return false;
       const since = classroomEmptySince(connections, now.getTime());
       const noticeId = `classroom-empty:${sessionId}`;
       if (since === null) return false;

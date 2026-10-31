@@ -3,7 +3,7 @@ import test from "node:test";
 import { loadModule } from "./helpers/load-module";
 import * as policy from "../src/lib/classroom/empty-room-policy";
 
-type Connection={userId:string;lastSeenAt:Date;leftAt:Date|null};
+type Connection={userId:string;lastSeenAt:Date;leftAt:Date|null;leaveIntent?:string|null;replacedAt?:Date|null};
 function fixture(){
  const now=new Date(1_800_000_000_000);const runtime={status:"live",startedAt:new Date(now.getTime()-600_000)};
  const session={status:"live",endTime:new Date(now.getTime()-600_000),endedAt:null as Date|null};let events=0;
@@ -11,7 +11,7 @@ function fixture(){
  let connections:Connection[]=[{userId:"teacher",lastSeenAt:new Date(now.getTime()-500_000),leftAt:new Date(now.getTime()-180_000)}];
  let observation:unknown=null;
  const tx={classroomProviderEvent:{findUnique:async()=>observation,upsert:async({create}:{create:unknown})=>{observation=create;}},$queryRaw:async()=>[],classroomRuntime:{findUnique:async()=>runtime,update:async()=>{runtime.status="ended";}},
-  classroomMemberState:{findMany:async()=>[{userId:"teacher"},{userId:"student"}]},
+  classroomMemberState:{findMany:async()=>[{userId:"teacher",role:"teacher"},{userId:"student",role:"student"}]},
   classroomConnection:{findMany:async({where}:{where:{userId:{in:string[]}}})=>connections.filter(c=>where.userId.in.includes(c.userId))},
   courseSession:{findUnique:async()=>session,updateMany:async({data}:{data:{status:string;endedAt:Date}})=>{if(session.status!=="live")return {count:0};Object.assign(session,data);return {count:1};}}};
  let tail=Promise.resolve();const prisma={$queryRaw:async()=>[{sessionId:"session"}],classroomRuntime:{findMany:async()=>[{sessionId:"session"}]},$transaction:<T>(fn:(arg:typeof tx)=>Promise<T>)=>{const r=tail.then(()=>{beforeTransaction?.();beforeTransaction=undefined;return fn(tx);});tail=r.then(()=>undefined,()=>undefined);return r;}};
@@ -54,4 +54,16 @@ test("an observation retained across an extension cannot shorten the new post-en
  assert.equal(await f.api.closeEmptyClassrooms(undefined,new Date(f.session.endTime.getTime()+179_999)),0);
  assert.equal(await f.api.closeEmptyClassrooms(undefined,new Date(f.session.endTime.getTime()+180_000)),1);
  assert.equal(f.events,1);
+});
+
+test("teacher temporary leave survives empty-room grace even when the heartbeat predates class start",async()=>{
+ const f=fixture();f.connections=[{userId:"teacher",lastSeenAt:new Date(f.runtime.startedAt.getTime()-60_000),leftAt:new Date(f.now.getTime()-180_000),leaveIntent:"temporary"}];
+ assert.equal(await f.prime(),0);
+ assert.equal(await f.api.closeEmptyClassrooms(undefined,f.now),0);
+ assert.equal(f.runtime.status,"live");assert.equal(f.events,0);
+});
+
+test("student temporary leave cannot indefinitely reserve an empty classroom",async()=>{
+ const f=fixture();f.connections.push({userId:"student",lastSeenAt:new Date(f.now.getTime()-500_000),leftAt:new Date(f.now.getTime()-180_000),leaveIntent:"temporary"});
+ await f.prime();assert.equal(await f.api.closeEmptyClassrooms(undefined,f.now),1);assert.equal(f.events,1);
 });

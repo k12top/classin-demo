@@ -858,6 +858,7 @@ model ClassroomConnection {
   deviceLabel String?
   entryMode String?
   replacedAt DateTime?
+  leaveIntent String? // temporary | finishIfLastTeacher | disconnected; null for legacy clients
   lastSeenAt DateTime @default(now())
   leftAt DateTime?
   @@index([sessionId, userId, lastSeenAt])
