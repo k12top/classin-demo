@@ -11,6 +11,8 @@ import { normalizeClassroomComposition } from "@/lib/classroom/composition";
 import type { Prisma } from "@prisma/client";
 import { CLASSROOM_RECONNECT_WINDOW_MS } from "@/lib/classroom/presence";
 import type { ClassroomDeviceEntryMode } from "@/lib/classroom/device-admission";
+import type { ClassroomLeaveIntent } from "../overtime-leave";
+import { endOvertimeAfterTeacherLeave } from "./overtime-leave";
 export function normalizeClassroomClientId(value: unknown): string | undefined {
   return typeof value === "string" && /^[a-zA-Z0-9-]{8,64}$/.test(value) ? value : undefined;
 }
@@ -69,7 +71,7 @@ export async function touchClassroomConnection(sessionId: string, userId: string
     return { status: result?.status ?? "missing", refreshed: result?.refreshed === true,
       reason: result?.refreshed ? "refreshed" : result?.status === "ended" ? "ended" : !result?.registered ? "missing" : result.replacedAt ? "replaced" : result.leftAt ? "left" : "busy" };
   }
-  const values = { sessionId, userId, rtcUid: classroomRtcUid(identity, "camera"), screenUid: classroomRtcUid(identity, "screen"), lastSeenAt: new Date(), leftAt: null };
+  const values = { sessionId, userId, rtcUid: classroomRtcUid(identity, "camera"), screenUid: classroomRtcUid(identity, "screen"), lastSeenAt: new Date(), leftAt: null, leaveIntent: null };
   // Scope the row key to authenticated identity; a supplied tab id cannot overwrite another user.
   const joined = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SET LOCAL lock_timeout = '1s'`;
@@ -127,13 +129,28 @@ export async function touchClassroomConnection(sessionId: string, userId: string
   if (admission) await synchronizeClassroomRedis(sessionId, true);
   return joined;
 }
-export async function leaveClassroomConnection(sessionId: string, userId: string, clientId?: string, voluntary = false) {
-  await prisma.$transaction(async (tx) => {
+export async function leaveClassroomConnection(sessionId: string, userId: string, clientId?: string, voluntary = false,
+  departure?: { intent: ClassroomLeaveIntent; cycleStartedAt: string }) {
+  const ended = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SET LOCAL lock_timeout = '1s'`;
     // Match moderation's lock order before releasing a publisher's slot.
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
     await tx.$queryRaw`SELECT "id" FROM "ClassroomMemberState" WHERE "sessionId" = ${sessionId} AND "userId" = ${userId} FOR UPDATE`;
-    const runtime = await tx.classroomRuntime.findUnique({ where: { sessionId }, select: { composition: true } });
+    const runtime = await tx.classroomRuntime.findUnique({ where: { sessionId }, select: { composition: true, startedAt: true, status: true } });
+    // A delayed command from a previous class cycle cannot remove a new connection.
+    if (departure && runtime?.startedAt?.toISOString() !== departure.cycleStartedAt) return null;
+    const connectionId = clientId ? `${sessionId}:${userId}:${clientId}` : undefined;
+    const connection = connectionId ? await tx.classroomConnection.findUnique({ where: { id: connectionId } }) : null;
+    // Old replaced devices and duplicate pagehide/leave commands have no lifecycle authority.
+    if (connectionId && (!connection || connection.replacedAt)) return null;
+    if (departure && runtime?.startedAt && connection?.leftAt && connection.leftAt < runtime.startedAt) return null;
+    if (connection?.leftAt) {
+      // pagehide may overtake the explicit HTTP request during navigation/window close.
+      // Promote only that non-voluntary tombstone; never overwrite an explicit choice.
+      if (!voluntary || !departure || connection.leaveIntent !== "disconnected") return null;
+      await tx.classroomConnection.update({ where: { id: connection.id }, data: { leaveIntent: departure.intent } });
+      return departure.intent === "finishIfLastTeacher" ? endOvertimeAfterTeacherLeave(tx, sessionId, userId, new Date()) : null;
+    }
     const composition = normalizeClassroomComposition(runtime?.composition);
     if (composition.screenShares) {
       const remaining = Object.entries(composition.screenShares).filter(([, lease]) =>
@@ -146,10 +163,11 @@ export async function leaveClassroomConnection(sessionId: string, userId: string
       }
     }
     const now = new Date();
-    const departed = await tx.classroomConnection.updateMany({ where: { sessionId, userId, leftAt: null, ...(clientId ? { id: `${sessionId}:${userId}:${clientId}` } : {}) }, data: { leftAt: now } });
+    const departed = await tx.classroomConnection.updateMany({ where: { sessionId, userId, leftAt: null, replacedAt: null, ...(connectionId ? { id: connectionId } : {}) },
+      data: { leftAt: now, leaveIntent: voluntary ? departure?.intent ?? "temporary" : "disconnected" } });
     await refreshCaptionDemand(tx, sessionId);
     // A delayed pagehide after explicit leave must not reopen the grace period.
-    if (!departed.count) return;
+    if (!departed.count) return null;
     if (departed.count) {
       const member = await tx.classroomMemberState.findUnique({ where: { sessionId_userId: { sessionId, userId } }, select: { role: true } });
       await enqueueClassroomEvent(tx, sessionId, "classroom.user_left", voluntary ? "user_leave" : "pagehide", { userId, role: member?.role ?? "student" }, `${userId}:${clientId ?? "all"}:${now.toISOString()}`);
@@ -162,6 +180,12 @@ export async function leaveClassroomConnection(sessionId: string, userId: string
       await tx.classroomMemberState.updateMany({ where: { sessionId, userId }, data: { presence: voluntary ? "offline" : "reconnecting", lastSeenAt: now, ...(voluntary ? { onStage: false, stageState, handRaisedAt: null, screenShareState: "idle", whiteboardWritable: false } : {}) } });
       await tx.classroomRuntime.updateMany({ where: { sessionId }, data: { revision: { increment: 1 } } });
     }
-  }, { maxWait: 1_500, timeout: 3_500 });
-  await synchronizeClassroomRedis(sessionId, true);
+    return voluntary && departure?.intent === "finishIfLastTeacher" && connectionId
+      ? endOvertimeAfterTeacherLeave(tx, sessionId, userId, now) : null;
+  }, { maxWait: 1_500, timeout: 8_000 });
+  // An already committed departure/end must not appear to fail because Redis is unavailable.
+  await synchronizeClassroomRedis(sessionId, true).catch(() => {
+    console.warn("[classroom:leave] Redis synchronization pending", { sessionId });
+  });
+  return ended;
 }

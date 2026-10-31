@@ -1,4 +1,6 @@
 "use client";
+
+import { isClassroomOvertime } from "@/lib/classroom/overtime-leave";
 import { imageMessageContent } from "@/lib/classroom/chat-image-message";
 import { useWhiteboardShortcuts } from "@/lib/classroom/whiteboard/use-shortcuts";
 import { BoardToolsMenu } from "./board-tools-menu";
@@ -3633,6 +3635,8 @@ export function ClassroomV3({
   const [recordingFallback, setRecordingFallback] = useState<string | null>(null);
   const [recordingStopConfirming, setRecordingStopConfirming] = useState(false);
   const [endClassConfirming, setEndClassConfirming] = useState(false);
+  const [overtimeLeaveConfirming, setOvertimeLeaveConfirming] = useState(false);
+  const overtimeLeaveBusyRef = useRef(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const publishEnabledRef = useRef(false);
   const teacherCameraAutostartedRef = useRef(false);
@@ -3670,7 +3674,7 @@ export function ClassroomV3({
   }, [isRecorder]);
 
   useEffect(() => {
-    if (!endClassConfirming) return;
+    if (!endClassConfirming && !overtimeLeaveConfirming) return;
     const previous = document.activeElement as HTMLElement | null;
     const dialog = endClassDialogRef.current;
     dialog?.querySelector<HTMLButtonElement>("button")?.focus();
@@ -3684,7 +3688,7 @@ export function ClassroomV3({
     };
     dialog?.addEventListener("keydown", trap);
     return () => { dialog?.removeEventListener("keydown", trap); previous?.focus(); };
-  }, [endClassConfirming]);
+  }, [endClassConfirming, overtimeLeaveConfirming]);
 
   useEffect(() => {
     if (!recordingStopConfirming) return;
@@ -5837,9 +5841,8 @@ export function ClassroomV3({
     t,
   ]);
 
-  const leaveClassroom = useCallback(() => {
-    if (isLeaving) return;
-    emitHostEvent(sessionRef.current, "user_leave", true);
+  const leaveTemporarily = useCallback(() => {
+    if (isLeaving || overtimeLeaveBusyRef.current) return;
     if (!isRecorder && courseId && classroomRole === "student") {
       void fetch(
         `/api/sessions/${encodeURIComponent(courseId)}/attendance`,
@@ -5852,10 +5855,51 @@ export function ClassroomV3({
       );
     }
     if (!isRecorder && courseId) {
-      void fetch("/api/classroom/session/leave", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: courseId, clientId: clientId, shareAccess, voluntary: true }), keepalive: true }).catch(() => undefined);
+      void fetch("/api/classroom/session/leave", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: courseId, clientId, shareAccess, voluntary: true, ...(sessionRef.current?.runtime.startedAt ? { leaveIntent: "temporary", cycleStartedAt: sessionRef.current.runtime.startedAt } : {}) }), keepalive: true }).catch(() => undefined);
     }
+    emitHostEvent(sessionRef.current, "user_leave", true);
     exitClassroom();
   }, [clientId, shareAccess, classroomRole, courseId, emitHostEvent, exitClassroom, isLeaving, isRecorder]);
+
+  const leaveClassroom = useCallback(() => {
+    const current = sessionRef.current;
+    if (isLeaving || overtimeLeaveBusyRef.current) return;
+    if (!isRecorder && current && isClassroomTeachingRole(current.credential.role) && current.runtime.status === "live" && current.course.endTime &&
+        isClassroomOvertime(new Date(current.course.endTime), current.runtime.graceEndsAt ? new Date(current.runtime.graceEndsAt) : null,
+          new Date(Date.now() + presenceClockOffsetRef.current))) {
+      setActionError("");
+      setOvertimeLeaveConfirming(true);
+      return;
+    }
+    leaveTemporarily();
+  }, [isLeaving, isRecorder, leaveTemporarily]);
+
+  const finishOvertimeAndLeave = useCallback(async () => {
+    const current = sessionRef.current;
+    if (!current?.runtime.startedAt || !isClassroomTeachingRole(current.credential.role) || isRecorder || isLeaving || overtimeLeaveBusyRef.current) return;
+    overtimeLeaveBusyRef.current = true;
+    setActionBusy("overtimeLeave");
+    setActionError("");
+    try {
+      // Await a durable server acknowledgment before navigating or disconnecting media.
+      const response = await fetch("/api/classroom/session/leave", {
+        method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true,
+        body: JSON.stringify({ sessionId: current.course.sessionId, clientId, shareAccess, voluntary: true,
+          leaveIntent: "finishIfLastTeacher", cycleStartedAt: current.runtime.startedAt }),
+      });
+      const payload = await response.json().catch(() => ({})) as { ok?: boolean; classEnded?: boolean };
+      if (!response.ok || !payload.ok) throw new Error(t("classroom.v3.overtimeLeaveFailed"));
+      if (payload.classEnded) endingClassRef.current = true;
+      emitHostEvent(current, payload.classEnded ? "teacher_end" : "user_leave", true);
+      setOvertimeLeaveConfirming(false);
+      exitClassroom();
+    } catch {
+      setActionError(t("classroom.v3.overtimeLeaveFailed"));
+    } finally {
+      overtimeLeaveBusyRef.current = false;
+      setActionBusy(null);
+    }
+  }, [clientId, emitHostEvent, exitClassroom, isLeaving, isRecorder, shareAccess, t]);
 
   const toggleFullscreen = useCallback(() => {
     setActivePanel(null);
@@ -6611,11 +6655,7 @@ export function ClassroomV3({
               className="classroom-v3-header-leave"
               disabled={isLeaving}
               aria-busy={isLeaving}
-              title={t(
-                isClassroomTeachingRole(sessionData.credential.role)
-                  ? "classroom.v3.leaveTemporarily"
-                  : "classroom.v3.leave",
-              )}
+              title={t("classroom.v3.leave")}
               onClick={leaveClassroom}
             >
               <LogOut aria-hidden="true" />
@@ -7449,7 +7489,26 @@ export function ClassroomV3({
       </section>
 
       <AnimatePresence>
-        {endClassConfirming && !isRecorder && <div className="classroom-v3-modal-backdrop" onKeyDown={(event) => { if (event.key === "Escape" && actionBusy !== "endClass") setEndClassConfirming(false); }}><section ref={endClassDialogRef} className="classroom-v3-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="end-class-title" aria-describedby="end-class-description"><div className="classroom-v3-confirm-icon"><CircleStop /></div><div className="classroom-v3-confirm-copy"><h2 id="end-class-title">{t("classroom.v3.endClass")}</h2><p id="end-class-description">{t("classroom.v3.endClassDescription")}</p></div>{actionError && <p role="alert" className="classroom-v3-confirm-error">{actionError}</p>}<footer><button type="button" disabled={actionBusy === "endClass"} onClick={() => setEndClassConfirming(false)}>{t("common.cancel")}</button><button type="button" disabled={actionBusy === "endClass"} onClick={leaveClassroom}><LogOut />{t("classroom.v3.leaveTemporarily")}</button><button type="button" className="is-danger" disabled={actionBusy === "endClass"} onClick={() => void endClass()}>{actionBusy === "endClass" ? <Loader2 className="animate-spin" /> : <CircleStop />}{t("classroom.v3.endClass")}</button></footer></section></div>}
+        {overtimeLeaveConfirming && !isRecorder && <div className="classroom-v3-modal-backdrop"
+          onKeyDown={event => { if (event.key === "Escape" && !overtimeLeaveBusyRef.current) setOvertimeLeaveConfirming(false); }}>
+          <section ref={endClassDialogRef} className="classroom-v3-confirm-dialog" role="alertdialog" aria-modal="true"
+            aria-labelledby="overtime-leave-title" aria-describedby="overtime-leave-description">
+            <div className="classroom-v3-confirm-icon"><LogOut /></div>
+            <div className="classroom-v3-confirm-copy">
+              <h2 id="overtime-leave-title">{t("classroom.v3.overtimeLeaveTitle")}</h2>
+              <p id="overtime-leave-description">{t("classroom.v3.overtimeLeaveDescription")}</p>
+            </div>
+            {actionError && <p role="alert" className="classroom-v3-confirm-error">{actionError}</p>}
+            <footer>
+              <button type="button" disabled={actionBusy === "overtimeLeave"} onClick={() => setOvertimeLeaveConfirming(false)}>{t("common.cancel")}</button>
+              <button type="button" disabled={actionBusy === "overtimeLeave"} onClick={leaveTemporarily}><LogOut />{t("classroom.v3.leaveTemporarily")}</button>
+              <button type="button" className="is-danger" disabled={actionBusy === "overtimeLeave"} onClick={() => void finishOvertimeAndLeave()}>
+                {actionBusy === "overtimeLeave" ? <Loader2 className="animate-spin" /> : <CircleStop />}{t("classroom.v3.overtimeLeaveFinish")}
+              </button>
+            </footer>
+          </section>
+        </div>}
+        {endClassConfirming && !isRecorder && <div className="classroom-v3-modal-backdrop" onKeyDown={(event) => { if (event.key === "Escape" && actionBusy !== "endClass") setEndClassConfirming(false); }}><section ref={endClassDialogRef} className="classroom-v3-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="end-class-title" aria-describedby="end-class-description"><div className="classroom-v3-confirm-icon"><CircleStop /></div><div className="classroom-v3-confirm-copy"><h2 id="end-class-title">{t("classroom.v3.endClass")}</h2><p id="end-class-description">{t("classroom.v3.endClassDescription")}</p></div>{actionError && <p role="alert" className="classroom-v3-confirm-error">{actionError}</p>}<footer><button type="button" disabled={actionBusy === "endClass"} onClick={() => setEndClassConfirming(false)}>{t("common.cancel")}</button><button type="button" disabled={actionBusy === "endClass"} onClick={leaveTemporarily}><LogOut />{t("classroom.v3.leaveTemporarily")}</button><button type="button" className="is-danger" disabled={actionBusy === "endClass"} onClick={() => void endClass()}>{actionBusy === "endClass" ? <Loader2 className="animate-spin" /> : <CircleStop />}{t("classroom.v3.endClass")}</button></footer></section></div>}
         {recordingStopConfirming && !isRecorder && (
           <motion.div
             className="classroom-v3-modal-backdrop is-board-confirm"
