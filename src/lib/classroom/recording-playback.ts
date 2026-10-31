@@ -26,13 +26,21 @@ export function recordingReplayAssets(recording: RecordingReplayState): Recordin
   return recordingPlaybackAssets(recording.files, prefix, recording.playbackObjectKey, recording.playbackFormat);
 }
 
-/** Prefer complete MP4 clips; an HLS playlist already contains its media chunks. */
+/** Logical clips retain stable MP4 IDs; an HLS alternative does not create a second clip. */
 export function recordingPlaybackAssets(
   files: unknown,
   prefixSegments: readonly string[],
   fallbackKey?: string | null,
   fallbackFormat?: string | null,
 ): RecordingPlaybackAsset[] {
+  const unique = recordingMediaAssets(files, prefixSegments, fallbackKey, fallbackFormat);
+  const mp4s = unique.filter((asset) => asset.format === "mp4");
+  if (mp4s.length) return mp4s.sort((a, b) => a.objectKey.localeCompare(b.objectKey, "en", { numeric: true }));
+  return unique.filter((asset) => asset.format === "hls")
+    .sort((a, b) => a.objectKey.localeCompare(b.objectKey, "en", { numeric: true }));
+}
+
+function recordingMediaAssets(files: unknown, prefixSegments: readonly string[], fallbackKey?: string | null, fallbackFormat?: string | null) {
   const prefix = prefixSegments.filter(Boolean).join("/");
   const assets: RecordingPlaybackAsset[] = (Array.isArray(files) ? files : []).flatMap((value): RecordingPlaybackAsset[] => {
     if (!value || typeof value !== "object") return [];
@@ -52,9 +60,25 @@ export function recordingPlaybackAssets(
   if (fallbackKey && (fallbackFormat === "mp4" || fallbackFormat === "hls")) {
     assets.push({ objectKey: fallbackKey, format: fallbackFormat });
   }
-  const unique = [...new Map(assets.map((asset) => [asset.objectKey, asset])).values()];
-  const mp4s = unique.filter((asset) => asset.format === "mp4");
-  if (mp4s.length) return mp4s.sort((a, b) => a.objectKey.localeCompare(b.objectKey, "en", { numeric: true }));
-  return unique.filter((asset) => asset.format === "hls")
-    .sort((a, b) => a.objectKey.localeCompare(b.objectKey, "en", { numeric: true }));
+  return [...new Map(assets.map((asset) => [asset.objectKey, asset])).values()];
+}
+
+/** Pair only an unambiguous single MP4/HLS recording. Multi-file clips keep their boundaries. */
+export function recordingHlsAlternative(recording: RecordingReplayState, asset: RecordingPlaybackAsset): string | null {
+  if (asset.format !== "mp4") return null;
+  const state = recording.providerState && typeof recording.providerState === "object" ? recording.providerState as Record<string, unknown> : {};
+  const edit = state.playbackEdit;
+  if (edit && typeof edit === "object") {
+    // An edited MP4 must never silently revert to the unedited provider playlist.
+    const key = (edit as Record<string, unknown>).hlsObjectKey;
+    const directory = asset.objectKey.slice(0, asset.objectKey.lastIndexOf("/") + 1);
+    return asset.objectKey === recording.playbackObjectKey && typeof key === "string" && directory &&
+      key.startsWith(directory) && key.endsWith(".m3u8") && !key.split("/").some(part => part === "." || part === "..") ? key : null;
+  }
+  const prefix = Array.isArray(state.fileNamePrefix) ? state.fileNamePrefix.filter((part): part is string => typeof part === "string") : [];
+  const all = recordingMediaAssets(recording.files, prefix, recording.playbackObjectKey, recording.playbackFormat);
+  const mp4s = all.filter(item => item.format === "mp4"), playlists = all.filter(item => item.format === "hls");
+  if (mp4s.length !== 1 || playlists.length !== 1) return null;
+  const stem = (key: string) => key.replace(/\.(?:mp4|m3u8)$/i, "").replace(/_0$/, "");
+  return stem(asset.objectKey) === stem(playlists[0].objectKey) ? playlists[0].objectKey : null;
 }

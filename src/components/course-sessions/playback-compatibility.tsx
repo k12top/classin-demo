@@ -16,26 +16,33 @@ const fetchPlaybackSource: typeof fetch = async (input, init) => {
   return response;
 };
 
-export function usePlaybackMedia(videoRef: RefObject<HTMLVideoElement | null>, src: string, isHls: boolean) {
+export function usePlaybackMedia(videoRef: RefObject<HTMLVideoElement | null>, src: string, isHls: boolean, hlsSrc?: string | null) {
   const [issue, setIssue] = useState<PlaybackIssue | null>(null);
   const [directUrl, setDirectUrl] = useState<string | null>(null);
+  const [format, setFormat] = useState<"hls" | "mp4">(isHls ? "hls" : "mp4");
   const [revision, setRevision] = useState(0);
   const startAt = useRef(0);
+  const resume = useRef(false);
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    return connectPlaybackMedia(video, src, isHls, {
+    const cleanup = connectPlaybackMedia(video, src, isHls, {
       onIssue: setIssue, onDirectUrl: setDirectUrl, fetcher: fetchPlaybackSource,
-      startAt: startAt.current,
+      startAt: startAt.current, hlsSrc, onFormat: setFormat, resume: resume.current,
     });
-  }, [isHls, revision, src, videoRef]);
+    return () => {
+      if (video.readyState >= 1) startAt.current = video.currentTime;
+      resume.current = !video.paused && !video.ended;
+      cleanup();
+    };
+  }, [hlsSrc, isHls, revision, src, videoRef]);
   const retry = useCallback(() => {
     const video = videoRef.current;
     // A failed reload has no metadata; retain the last valid position for the next retry.
     if (video && video.readyState >= 1) startAt.current = video.currentTime;
     setRevision((value) => value + 1);
   }, [videoRef]);
-  return { issue, directUrl, retry };
+  return { issue, directUrl, retry, format };
 }
 
 export function PlaybackCompatibility({ issue, directUrl, src, isHls, sharePath, onRetry, onExternalPlay, onRecheck, recheckBusy }: {

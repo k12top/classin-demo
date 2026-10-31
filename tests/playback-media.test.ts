@@ -162,3 +162,46 @@ test("HLS fatal errors surface and the player is destroyed on retry", async () =
   cleanup();
   assert.equal(destroyed, true);
 });
+
+test("paired recordings prefer HLS; HarmonyOS and unsupported MSE go directly to MP4", async () => {
+  for (const ua of ["HarmonyOS 5", "OpenHarmony", "Chrome Desktop"]) {
+    const video = new Video();
+    const native = ua === "Chrome Desktop"; video.nativeHls = native;
+    let resolved = 0;
+    const cleanup = connectPlaybackMedia(video.asElement(), src, false, {
+      hlsSrc: "/manifest.m3u8", userAgent: ua, onIssue: () => {}, onDirectUrl: () => {},
+      fetcher: async () => { resolved++; return Response.json({url:mediaUrl,format:"mp4"}); },
+    });
+    await flush(); assert.equal(video.src,native?"/manifest.m3u8":mediaUrl); assert.equal(resolved,native?0:1); cleanup();
+  }
+  const video = new Video();
+  const cleanup = connectPlaybackMedia(video.asElement(), src, false, {
+    hlsSrc: "/manifest.m3u8", userAgent: "Chrome", onIssue: () => {}, onDirectUrl: () => {},
+    loadHls: async () => ({default:{isSupported:()=>false}}) as never,
+    fetcher: async () => Response.json({url:mediaUrl,format:"mp4"}),
+  });
+  await flush(); assert.equal(video.src,mediaUrl); cleanup();
+});
+
+test("HLS native decode failure falls back once, preserves position and resumes playback", async () => {
+  const video = new Video(); video.nativeHls = true;
+  const issues: Array<PlaybackIssue|null>=[]; let resolutions=0, plays=0;
+  Object.assign(video,{play:async()=>{plays++;video.paused=false;}});
+  const cleanup=connectPlaybackMedia(video.asElement(),src,false,{
+    hlsSrc:"/manifest.m3u8",userAgent:"Chrome",onIssue:v=>issues.push(v),onDirectUrl:()=>{},
+    fetcher:async()=>{resolutions++;return Response.json({url:mediaUrl,format:"mp4"});},
+  });
+  await flush(); video.currentTime=43;video.paused=false;video.emit("play");video.error={code:3};video.emit("error");
+  await flush(); assert.equal(video.src,mediaUrl);video.emit("loadedmetadata");
+  assert.equal(video.currentTime,43);assert.equal(plays,1);assert.equal(issues.at(-1),null);
+  video.error={code:3};video.emit("error");await flush();assert.equal(resolutions,1);assert.equal(issues.at(-1),"decode");cleanup();
+});
+
+test("HLS startup timeout abandons late imports and uses MP4 without surfacing a false error", async()=>{
+  const video=new Video();const issues:Array<PlaybackIssue|null>=[];let finish!:(v:never)=>void;
+  const cleanup=connectPlaybackMedia(video.asElement(),src,false,{hlsSrc:"/manifest.m3u8",userAgent:"Chrome",timeoutMs:15,
+    onIssue:v=>issues.push(v),onDirectUrl:()=>{},loadHls:()=>new Promise(resolve=>finish=resolve),fetcher:async()=>Response.json({url:mediaUrl,format:"mp4"})});
+  await new Promise(resolve=>setTimeout(resolve,23)); assert.equal(video.src,mediaUrl); video.emit("canplay");
+  finish({default:{isSupported:()=>{assert.fail("late HLS import must not attach")}}} as never);await flush();
+  assert(!issues.includes("timeout"));cleanup();
+});

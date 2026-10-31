@@ -68,6 +68,7 @@ type PlaybackRecording = {
   stoppedAt: string | null;
   playbackFormat: "hls" | "mp4" | null;
   playbackUrl: string | null;
+  hlsPlaybackUrl?: string | null;
   errorMessage?: string | null;
   failureStage?: string | null;
 };
@@ -804,6 +805,7 @@ export default function CoursePlaybackPage({
                   trackProgress={!isTeacher}
                   key={`${selectedSessionId}:${selectedRecording?.id || recordUrl}`}
                   src={selectedRecording?.playbackUrl || recordUrl}
+                  hlsSrc={selectedRecording?.hlsPlaybackUrl}
                   isHls={selectedRecording ? selectedRecording.playbackFormat === "hls" : canPlayHls}
                   sharePath={`/courses/${encodeURIComponent(id)}/playback?${new URLSearchParams({
                     ...(selectedSessionId ? { sessionId: selectedSessionId } : {}),
@@ -1289,6 +1291,7 @@ function PlaybackVideo({
   trackProgress,
   src,
   isHls,
+  hlsSrc,
   sharePath,
   seekRequest,
   onSeekComplete,
@@ -1308,6 +1311,7 @@ function PlaybackVideo({
   trackProgress: boolean;
   src: string;
   isHls: boolean;
+  hlsSrc?: string | null;
   sharePath: string;
   seekRequest: PlaybackSeek | null;
   onSeekComplete: () => void;
@@ -1321,7 +1325,7 @@ function PlaybackVideo({
 }) {
   const { t } = useTranslation();
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const { issue, directUrl, retry } = usePlaybackMedia(videoRef, src, isHls);
+  const { issue, directUrl, retry, format } = usePlaybackMedia(videoRef, src, isHls, hlsSrc);
   const [watchedSec, setWatchedSec] = useState(0);
   const [firstFrameReady, setFirstFrameReady] = useState(false);
   const [trackingState, setTrackingState] = useState<TrackingState>(
@@ -1561,6 +1565,7 @@ function PlaybackVideo({
       <div className="relative">
         <video
           ref={videoRef}
+          data-playback-format={format}
           className="aspect-video w-full bg-black object-contain"
           controls
           playsInline

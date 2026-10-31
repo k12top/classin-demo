@@ -8,7 +8,7 @@ import {
 import { resolveCoursewareAccess } from "@/lib/courseware-access";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
-import { recordingReplayAssets } from "@/lib/classroom/recording-playback";
+import { recordingHlsAlternative, recordingReplayAssets } from "@/lib/classroom/recording-playback";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -48,6 +48,8 @@ function rewriteHlsManifest(
   request: NextRequest,
   manifestKey: string,
   manifest: string,
+  sign: (objectKey: string) => string,
+  rootKey: string,
 ) {
   const manifestDirectory = path.posix.dirname(manifestKey);
   const rewriteReference = (reference: string) => {
@@ -62,7 +64,10 @@ function rewriteHlsManifest(
     const objectKey = path.posix.normalize(
       path.posix.join(manifestDirectory, trimmed),
     );
-    return proxiedAssetUrl(request, objectKey);
+    if (!resolveRecordingAsset(rootKey, objectKey)) throw new Error("Invalid HLS reference");
+    // Nested manifests still pass authentication; immutable media segments use
+    // short-lived storage URLs instead of a DB lookup + function proxy per segment.
+    return objectKey.toLowerCase().endsWith(".m3u8") ? proxiedAssetUrl(request, objectKey) : sign(objectKey);
   };
   return manifest
     .split(/\r?\n/)
@@ -116,13 +121,17 @@ export async function GET(request: NextRequest, context: Context) {
   try {
     const assets = recordingReplayAssets(recording);
     if (!assets.length) return NextResponse.json({ error: "Recording is not ready" }, { status: 404 });
+    const hlsAlternatives = assets.flatMap(asset => {
+      const key = recordingHlsAlternative(recording, asset);
+      return key ? [{ objectKey: key, format: "hls" as const }] : [];
+    });
     const requestedAsset = request.nextUrl.searchParams.get("asset");
     const legacyHlsAsset = requestedAsset && recording.playbackObjectKey && recording.playbackFormat === "hls" &&
       !assets.some((asset) => asset.objectKey === requestedAsset) &&
       resolveRecordingAsset(recording.playbackObjectKey, requestedAsset)
       ? requestedAsset : null;
     const selected = requestedAsset
-      ? assets.find((asset) => asset.objectKey === requestedAsset) ||
+      ? [...assets, ...hlsAlternatives].find((asset) => asset.objectKey === requestedAsset) ||
         (legacyHlsAsset && recording.playbackObjectKey ? { objectKey: recording.playbackObjectKey, format: "hls" as const } : null)
       : assets[0];
     if (!selected) {
@@ -153,6 +162,8 @@ export async function GET(request: NextRequest, context: Context) {
           request,
           objectKey,
           content.toString("utf8"),
+          key => client.signatureUrl(key, { expires: 6 * 60 * 60 }),
+          selected.objectKey,
         );
         return new NextResponse(manifest, {
           headers: {
@@ -192,7 +203,7 @@ export async function GET(request: NextRequest, context: Context) {
         { status: 503 },
       );
     }
-    console.error("[classroom:recording] playback URL failed", error);
+    console.error("[classroom:recording] playback URL failed", { recordingId, sessionId, name: error instanceof Error ? error.name : "UnknownError" });
     return NextResponse.json(
       { error: "Failed to create playback URL" },
       { status: 500 },

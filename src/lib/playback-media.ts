@@ -48,101 +48,115 @@ type PlaybackMediaOptions = {
   loadHls?: () => Promise<{ default: typeof Hls }>;
   timeoutMs?: number;
   startAt?: number;
+  hlsSrc?: string | null;
+  userAgent?: string;
+  onFormat?: (format: "hls" | "mp4") => void;
+  resume?: boolean;
 };
 
-/** Own the media lifecycle so retries release old requests, decoders and timers. */
+/** Explicit HarmonyOS signatures use the known-compatible MP4 route. Capability/error fallback covers hidden UAs. */
+export function prefersMp4Playback(userAgent: string): boolean {
+  return /HarmonyOS|OpenHarmony/i.test(userAgent);
+}
+
+/** Own both formats as one media lifecycle; a failed HLS attempt falls back only once. */
 export function connectPlaybackMedia(video: HTMLVideoElement, src: string, isHls: boolean, options: PlaybackMediaOptions): () => void {
   const controller = new AbortController();
-  let disposed = false;
+  let disposed = false, changingSource = false, fallbackAttempted = false;
+  let generation = 0;
+  let format: "mp4" | "hls" = "mp4";
+  let position = options.startAt || 0;
+  let wantsPlayback = Boolean(options.resume), resume = Boolean(options.resume);
   let hls: Hls | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const clearTimer = () => {
-    clearTimeout(timer);
-    timer = undefined;
+  const clearTimer = () => { clearTimeout(timer); timer = undefined; };
+  const report = (issue: PlaybackIssue | null) => { if (!disposed) options.onIssue(issue); };
+  const fallback = () => {
+    if (disposed || format !== "hls" || isHls || !options.hlsSrc || fallbackAttempted) return false;
+    fallbackAttempted = true;
+    if (Number.isFinite(video.currentTime) && video.currentTime > 0) position = video.currentTime;
+    resume = wantsPlayback || !video.paused;
+    void attach("mp4", src);
+    return true;
   };
-  const report = (issue: PlaybackIssue | null) => {
-    if (!disposed) options.onIssue(issue);
-  };
+  const issue = (value: PlaybackIssue) => { if (!fallback()) report(value); };
   const wait = () => {
-    // Repeated stalled/waiting events must not postpone the timeout forever.
-    if (timer !== undefined) return;
-    timer = setTimeout(() => {
-      timer = undefined;
-      report("timeout");
-    }, options.timeoutMs ?? 12_000);
+    // Repeated stalled/waiting events must not postpone recovery forever.
+    if (changingSource || timer !== undefined) return;
+    timer = setTimeout(() => { timer = undefined; issue("timeout"); }, options.timeoutMs ?? 12_000);
   };
-  const healthy = () => {
-    clearTimer();
-    report(null);
-  };
-  const stalled = () => { if (!video.paused) wait(); };
+  const healthy = () => { clearTimer(); report(null); };
+  const stalled = () => { if (!video.paused || wantsPlayback) wait(); };
   const failed = () => {
-    clearTimer();
-    report(playbackMediaIssue(video.error?.code));
+    if (changingSource || !video.error) return;
+    const value = playbackMediaIssue(video.error.code);
+    if (value) { clearTimer(); issue(value); }
   };
   const metadata = () => {
     clearTimer();
-    if (options.startAt && Number.isFinite(options.startAt)) {
-      const end = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.1) : options.startAt;
-      video.currentTime = Math.min(options.startAt, end);
+    if (position && Number.isFinite(position)) {
+      const end = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.1) : position;
+      video.currentTime = Math.min(position, end);
     }
+    if (resume) { resume = false; void video.play().catch(() => {}); }
   };
+  const play = () => { if (!changingSource) { wantsPlayback = true; wait(); } };
+  const pause = () => { if (!changingSource) { wantsPlayback = false; clearTimer(); } };
   const events: Array<[string, () => void]> = [
-    ["loadstart", wait], ["play", wait], ["waiting", stalled], ["stalled", stalled],
+    ["loadstart", wait], ["play", play], ["waiting", stalled], ["stalled", stalled],
     ["seeking", stalled], ["playing", healthy], ["canplay", healthy],
-    ["loadedmetadata", metadata], ["pause", clearTimer], ["ended", clearTimer], ["error", failed],
+    ["loadedmetadata", metadata], ["pause", pause], ["ended", clearTimer], ["error", failed],
   ];
   for (const [name, listener] of events) video.addEventListener(name, listener);
 
-  void Promise.resolve().then(async () => {
-    if (disposed) return;
-    report(null);
-    options.onDirectUrl(null);
-    wait();
-    if (!isHls) {
-      // Give the native player the final URL instead of a cross-origin 307.
-      const url = await resolvePlaybackSource(src, options.fetcher ?? fetch, controller.signal);
-      if (disposed) return;
-      options.onDirectUrl(url);
-      video.src = url;
-      video.load();
-      return;
-    }
-    if (video.canPlayType("application/vnd.apple.mpegurl") || video.canPlayType("application/x-mpegURL")) {
-      video.src = src;
-      video.load();
-      return;
-    }
-    const { default: HlsPlayer } = await (options.loadHls ?? (() => import("hls.js")))();
-    if (disposed) return;
-    if (!HlsPlayer.isSupported()) {
-      clearTimer();
-      report("unsupported");
-      return;
-    }
-    hls = new HlsPlayer();
-    hls.on(HlsPlayer.Events.ERROR, (_event, data) => {
-      if (!data.fatal) return;
-      clearTimer();
-      report(data.type === HlsPlayer.ErrorTypes.NETWORK_ERROR ? "network"
-        : data.type === HlsPlayer.ErrorTypes.MEDIA_ERROR ? "decode" : "unsupported");
-    });
-    hls.loadSource(src);
-    hls.attachMedia(video);
-  }).catch((error: unknown) => {
-    if (disposed) return;
+  async function attach(nextFormat: "mp4" | "hls", source: string) {
+    const epoch = ++generation;
+    format = nextFormat;
     clearTimer();
-    report(error instanceof PlaybackSourceError ? error.issue : "network");
+    changingSource = true;
+    hls?.destroy(); hls = null;
+    video.pause(); video.removeAttribute("src"); video.load();
+    changingSource = false;
+    if (disposed) return;
+    options.onFormat?.(format);
+    report(null); options.onDirectUrl(null); wait();
+    try {
+      if (format === "mp4") {
+        const url = await resolvePlaybackSource(source, options.fetcher ?? fetch, controller.signal);
+        if (disposed || epoch !== generation) return;
+        options.onDirectUrl(url); video.src = url; video.load();
+        return;
+      }
+      if (video.canPlayType("application/vnd.apple.mpegurl") || video.canPlayType("application/x-mpegURL")) {
+        video.src = source; video.load(); return;
+      }
+      const { default: HlsPlayer } = await (options.loadHls ?? (() => import("hls.js")))();
+      if (disposed || epoch !== generation) return;
+      if (!HlsPlayer.isSupported()) { clearTimer(); issue("unsupported"); return; }
+      const player = new HlsPlayer({ backBufferLength: 30, maxBufferLength: 20, maxMaxBufferLength: 60 });
+      hls = player;
+      player.on(HlsPlayer.Events.ERROR, (_event, data) => {
+        if (disposed || epoch !== generation || !data.fatal) return;
+        clearTimer();
+        issue(data.type === HlsPlayer.ErrorTypes.NETWORK_ERROR ? "network"
+          : data.type === HlsPlayer.ErrorTypes.MEDIA_ERROR ? "decode" : "unsupported");
+      });
+      player.loadSource(source);
+      if (!disposed && epoch === generation) player.attachMedia(video);
+    } catch (error: unknown) {
+      if (disposed || epoch !== generation) return;
+      clearTimer(); issue(error instanceof PlaybackSourceError ? error.issue : "network");
+    }
+  }
+  void Promise.resolve().then(() => {
+    if (disposed) return;
+    const ua = options.userAgent ?? (typeof navigator !== "undefined" ? navigator.userAgent : "");
+    const preferredHls = !isHls && options.hlsSrc && !prefersMp4Playback(ua);
+    return attach(isHls || preferredHls ? "hls" : "mp4", preferredHls ? options.hlsSrc! : src);
   });
-
   return () => {
-    disposed = true;
-    clearTimer();
-    controller.abort();
+    disposed = true; generation++; clearTimer(); controller.abort();
     for (const [name, listener] of events) video.removeEventListener(name, listener);
-    hls?.destroy();
-    video.pause();
-    video.removeAttribute("src");
-    video.load();
+    hls?.destroy(); video.pause(); video.removeAttribute("src"); video.load();
   };
 }

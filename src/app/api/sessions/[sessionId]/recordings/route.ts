@@ -6,7 +6,7 @@ import { resolveCoursewareAccess } from "@/lib/courseware-access";
 import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
 import { reconcileRecordingAttempt } from "@/lib/classroom/server/recording-orchestrator";
-import { recordingReplayAssets } from "@/lib/classroom/recording-playback";
+import { recordingHlsAlternative, recordingReplayAssets } from "@/lib/classroom/recording-playback";
 import { recordingNeedsReconciliation } from "@/lib/classroom/recording-reconciliation";
 import { recordingAssetDiscoveryDue, recordingAssetDiscoveryPollMs } from "@/lib/classroom/recording-asset-discovery";
 import { discoverRecordingPlaybackAssets } from "@/lib/classroom/server/recording-asset-discovery";
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest, context: Context) {
       id: string; segment: number; provider: string; status: string;
       mode: string; fallbackFrom: string | null; startedAt: string | null;
       stoppedAt: string | null; playbackFormat: string | null;
-      playbackUrl: string | null; errorMessage: string | null;
+      playbackUrl: string | null; hlsPlaybackUrl?: string | null; errorMessage: string | null;
       failureStage: string | null;
       verification?: ReturnType<typeof recordingVerification>;
     }> => {
@@ -103,6 +103,8 @@ export async function GET(request: NextRequest, context: Context) {
         startedAt: assets.length === 1 ? recording.startedAt?.toISOString() ?? null : null,
         stoppedAt: assets.length === 1 ? recording.stoppedAt?.toISOString() ?? null : null,
         playbackFormat: asset.format,
+        hlsPlaybackUrl: recordingHlsAlternative(recording, asset)
+          ? `/api/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recording.id)}/play?asset=${encodeURIComponent(recordingHlsAlternative(recording, asset)!)}` : null,
         playbackUrl: `/api/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recording.id)}/play?asset=${encodeURIComponent(asset.objectKey)}`,
         errorMessage: access.teaching ? recording.errorMessage : null,
         failureStage: access.teaching ? recording.failureStage : null,

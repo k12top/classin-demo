@@ -35,3 +35,14 @@ test("HLS and legacy playback keys remain available when no MP4 exists", () => {
     { objectKey: "legacy/video.mp4", format: "mp4" },
   ]);
 });
+
+test("paired HLS keeps logical MP4 clip IDs and edited videos cannot select the original tail", async()=>{
+  const {recordingHlsAlternative}=await import("../src/lib/classroom/recording-playback");
+  const mp4={objectKey:"recordings/lesson/task/rec_0.mp4",format:"mp4" as const};
+  const recording={status:"completed",playbackObjectKey:mp4.objectKey,playbackFormat:"mp4",files:[{fileName:mp4.objectKey},{fileName:"recordings/lesson/task/rec.m3u8"}]};
+  assert.equal(recordingHlsAlternative(recording,mp4),"recordings/lesson/task/rec.m3u8");
+  assert.equal(recordingPlaybackAssets(recording.files,[]).length,1);
+  assert.equal(recordingHlsAlternative({...recording,files:[...recording.files,{fileName:"recordings/lesson/task/rec_1.mp4"}]},mp4),null);
+  for(const edit of [{},{hlsObjectKey:"another/task/index.m3u8"},{hlsObjectKey:"recordings/lesson/task/../other.m3u8"}])assert.equal(recordingHlsAlternative({...recording,providerState:{playbackEdit:edit}},mp4),null);
+  assert.equal(recordingHlsAlternative({...recording,providerState:{playbackEdit:{hlsObjectKey:"recordings/lesson/task/edited/index.m3u8"}}},mp4),"recordings/lesson/task/edited/index.m3u8");
+});
