@@ -7404,7 +7404,8 @@ html[lang="de"] .classroom-v3-dock button > span {
 @media (hover: hover) and (pointer: fine) {
   .classroom-v3-seat > footer,
   .is-classin-layout .classroom-v3-seat > footer,
-  .classroom-v3-seat.has-video .classroom-v3-seat-media-state {
+  .classroom-v3-seat.has-video .classroom-v3-seat-media-state,
+  .classroom-v3-seat.has-video .classroom-v3-seat-reward {
     opacity: 0;
     pointer-events: none;
     transform: translateY(2px);
@@ -7414,7 +7415,9 @@ html[lang="de"] .classroom-v3-dock button > span {
   .classroom-v3-seat:hover > footer,
   .classroom-v3-seat:focus-within > footer,
   .classroom-v3-seat.has-video:hover .classroom-v3-seat-media-state,
-  .classroom-v3-seat.has-video:focus-within .classroom-v3-seat-media-state {
+  .classroom-v3-seat.has-video:focus-within .classroom-v3-seat-media-state,
+  .classroom-v3-seat.has-video:hover .classroom-v3-seat-reward,
+  .classroom-v3-seat.has-video:focus-within .classroom-v3-seat-reward {
     opacity: 1;
     pointer-events: auto;
     transform: translateY(0);
@@ -7424,7 +7427,8 @@ html[lang="de"] .classroom-v3-dock button > span {
 @media (prefers-reduced-motion: reduce) {
   .classroom-v3-seat > footer,
   .is-classin-layout .classroom-v3-seat > footer,
-  .classroom-v3-seat.has-video .classroom-v3-seat-media-state {
+  .classroom-v3-seat.has-video .classroom-v3-seat-media-state,
+  .classroom-v3-seat.has-video .classroom-v3-seat-reward {
     transition: none;
   }
 }

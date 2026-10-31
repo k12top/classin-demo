@@ -335,7 +335,8 @@
 
 @media (hover: none) {
   .is-classin-layout .classroom-v3-seat > footer,
-  .is-classin-layout .classroom-v3-seat.has-video .classroom-v3-seat-media-state {
+  .is-classin-layout .classroom-v3-seat.has-video .classroom-v3-seat-media-state,
+  .is-classin-layout .classroom-v3-seat.has-video .classroom-v3-seat-reward {
     opacity: 0;
     pointer-events: none;
     transform: translateY(2px);
@@ -343,7 +344,8 @@
   }
 
   .is-classin-layout .classroom-v3-seat.is-touch-active > footer,
-  .is-classin-layout .classroom-v3-seat.is-touch-active .classroom-v3-seat-media-state {
+  .is-classin-layout .classroom-v3-seat.is-touch-active .classroom-v3-seat-media-state,
+  .is-classin-layout .classroom-v3-seat.is-touch-active .classroom-v3-seat-reward {
     opacity: 1;
     pointer-events: auto;
     transform: translateY(0);
