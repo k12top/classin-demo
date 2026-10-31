@@ -44,5 +44,5 @@ test("paired HLS keeps logical MP4 clip IDs and edited videos cannot select the 
   assert.equal(recordingPlaybackAssets(recording.files,[]).length,1);
   assert.equal(recordingHlsAlternative({...recording,files:[...recording.files,{fileName:"recordings/lesson/task/rec_1.mp4"}]},mp4),null);
   for(const edit of [{},{hlsObjectKey:"another/task/index.m3u8"},{hlsObjectKey:"recordings/lesson/task/../other.m3u8"}])assert.equal(recordingHlsAlternative({...recording,providerState:{playbackEdit:edit}},mp4),null);
-  assert.equal(recordingHlsAlternative({...recording,providerState:{playbackEdit:{hlsObjectKey:"recordings/lesson/task/edited/index.m3u8"}}},mp4),"recordings/lesson/task/edited/index.m3u8");
+  assert.equal(recordingHlsAlternative({...recording,providerState:{playbackEdit:{editedObjectKey:"recording-edits/lesson/task/edit/trimmed.mp4",hlsObjectKey:"recording-edits/lesson/task/edit/hls/index.m3u8"}}},mp4),"recording-edits/lesson/task/edit/hls/index.m3u8");
 });

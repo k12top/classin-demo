@@ -70,8 +70,14 @@ export function recordingHlsAlternative(recording: RecordingReplayState, asset: 
   const edit = state.playbackEdit;
   if (edit && typeof edit === "object") {
     // An edited MP4 must never silently revert to the unedited provider playlist.
-    const key = (edit as Record<string, unknown>).hlsObjectKey;
-    const directory = asset.objectKey.slice(0, asset.objectKey.lastIndexOf("/") + 1);
+    const metadata = edit as Record<string, unknown>;
+    const key = metadata.hlsObjectKey;
+    const editedKey = metadata.editedObjectKey;
+    // Derived files stay outside the provider prefix so future discovery cannot
+    // mistake an fMP4 initialization object for another recorded clip.
+    const directory = typeof editedKey === "string" && editedKey.startsWith("recording-edits/") &&
+      !editedKey.split("/").some(part => part === "." || part === "..")
+      ? editedKey.slice(0, editedKey.lastIndexOf("/") + 1) : "";
     return asset.objectKey === recording.playbackObjectKey && typeof key === "string" && directory &&
       key.startsWith(directory) && key.endsWith(".m3u8") && !key.split("/").some(part => part === "." || part === "..") ? key : null;
   }

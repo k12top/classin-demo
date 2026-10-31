@@ -21,3 +21,5 @@ Session `0237942b-6502-4aa1-88fc-423f95531aed`, recording `1393f5cc-5b34-49b5-a2
 - Local first-frame observations were about 1.1 seconds for both formats, without network throttling. This does not establish a production speedup or represent a slow mobile network. The measured architectural change is that HLS fragments no longer traverse the application API.
 - Physical HarmonyOS and Safari hardware were not available for acceptance. HarmonyOS coverage uses a simulated user agent and real MP4 decoding; native HLS uses a unit fixture.
 - Existing clip IDs, captions, watch-time tracking and manual MP4 entry remain in place. No live lesson is ended or restarted for verification or deployment.
+
+Derived HLS files live beside the edited MP4 under `recording-edits/`, outside Agora's recording-discovery prefix. Their manifest is selected only through the matching recording's verified edit metadata. This prevents initialization objects from being rediscovered as extra recorded MP4 clips.
