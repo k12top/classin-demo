@@ -328,7 +328,7 @@ html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-dock>.cl
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-dock>button:has(.lucide-hand) { display:inline-flex!important;min-width:44px;width:44px;height:44px;padding:0;align-items:center;justify-content:center; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-dock>.classroom-v3-dock-divider { display:none; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-dock>button:has(.lucide-hand)>span { display:none; }
-@media(max-width:760px){html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-dock>button:is([data-dock-action="share"]:not([data-sharing="true"]),[data-dock-action="whiteboard"],[data-dock-action="captions"]){display:none!important}}
+@media(max-width:760px){html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-dock>button:is([data-dock-action="share"],[data-dock-action="whiteboard"],[data-dock-action="captions"]){display:none!important}}
 @media(max-width:359px){html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-dock{gap:1px;padding:4px}html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-dock>:is(button[data-dock-action],.classroom-header-more,button:has(.lucide-hand)){min-width:40px;width:40px}}
 .classroom-board-tools-anchor { display:inline-flex;flex:0 0 auto;align-items:center; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-board-tools-trigger { width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;color:var(--classroom-frost); }
