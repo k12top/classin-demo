@@ -120,3 +120,19 @@ test("compact course timing control does not look hovered by default", async () 
     /@media\s*\(max-width:1024px\)[^{]*\{[^}]*\.rowActions\s*>\s*:global\(\.classroom-v3-class-controls--compact\)[^{]*\{[^}]*min-width\s*:\s*44px[^}]*\}/s,
   );
 });
+
+test("light theme row actions have visible hover feedback without changing the danger action", async () => {
+  const css = await readFile(
+    new URL("../src/components/course-sessions/course-session-manager.module.css", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    css,
+    /\.rowActions\s*>\s*button:not\(\.enterButton\):not\(\.detailsButton\):is\(:hover,:focus-visible\)[^{]*\{[^}]*background\s*:\s*hsl\(var\(--muted\)\/\.65\)[^}]*\}/s,
+  );
+  assert.match(
+    css,
+    /\.rowActions\s*>\s*button\.endAction:hover[^{]*\{[^}]*background\s*:\s*rgb\(255 94 105\/\.07\)[^}]*\}/s,
+  );
+});

@@ -63,3 +63,36 @@ Run the local app, inspect a live session row at desktop and responsive widths, 
 - [x] **Step 6: Commit only the UI repair**
 
 Stage the component, CSS, test, spec, and plan files without staging unrelated database changes. Commit with `fix(courses): keep extend action compact`.
+
+---
+
+### Task 2: Light-theme hover feedback
+
+**Files:**
+- Modify: `src/components/course-sessions/course-session-manager.module.css`
+- Modify: `tests/class-timing-controls.test.ts`
+
+**Interfaces:**
+- Consumes: existing `.rowActions` compact icon buttons and theme color tokens.
+- Produces: a visible light-gray hover state without changing the red end-session state.
+
+- [x] **Step 1: Write the failing style regression test**
+
+Assert that the ordinary row-action hover rule uses a muted theme background rather than the page background, while the dedicated `endAction:hover` rule remains red.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run: `node --import tsx --test tests/class-timing-controls.test.ts`
+Expected: FAIL because ordinary hover currently uses `hsl(var(--background))`.
+
+- [x] **Step 3: Implement the scoped hover style**
+
+Use the existing muted theme token for ordinary compact icon hover/focus-visible feedback. Preserve the later red `endAction:hover` override and all primary text buttons.
+
+- [x] **Step 4: Verify tests, lint, and the real page**
+
+Run the targeted test and lint, then inspect computed light-theme colors for copy and extend buttons on the local course page.
+
+- [x] **Step 5: Commit the hover refinement**
+
+Stage only the CSS, regression test, updated spec, and plan. Do not stage unrelated database changes.
