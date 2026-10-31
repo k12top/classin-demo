@@ -6801,7 +6801,7 @@ export function ClassroomV3({
         </section>
       )}
 
-      <section className="classroom-v3-workspace" data-panel-open={Boolean(activePanel || studentSharesOpen)} data-conversation-open={conversationOpen}>
+      <section className="classroom-v3-workspace" data-panel-open={Boolean(activePanel && !studentSharesOpen)} data-conversation-open={conversationOpen}>
         {classinLayout && liveRail}
         {!isRecorder && sessionData.credential.role === "student" && !classEnded && sessionData.mode !== "publicLive" && <StudentActivityOverlay sessionId={courseId} shareAccess={shareAccess} currentUserId={currentUserId} onChanged={revision => publishInvalidation(revision, "activities")} />}
         {!isRecorder && <ConversationResizer open={conversationOpen} />}
@@ -6814,6 +6814,13 @@ export function ClassroomV3({
           ref={stageElementRef}
           transition={{ type: "spring", stiffness: 320, damping: 32 }}
         >
+          {!isRecorder && !classEnded && sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage && <div className="classroom-stage-share-controls">
+            <div className="classroom-stage-share-actions">
+              <button type="button" className={studentSharesOpen ? "is-active" : ""} aria-expanded={studentSharesOpen} onClick={() => setStudentSharesOpen(value => !value)}><Users /><span>{t("classroomMultiShare.title")} · {mainScreenShareCandidates(screenLeases).length}</span></button>
+              <button type="button" aria-expanded={activePanel === "members"} onClick={() => setActivePanel(current => current === "members" ? null : "members")}><Settings2 /><span>{t("classroomMultiShare.stageManagement")}</span></button>
+            </div>
+            {studentSharesOpen && <div className="classroom-stage-share-popover"><StudentScreenShares members={classroomMembers} shares={screenLeases || {}} busy={Boolean(actionBusy)} onAction={performAction} onClose={() => setStudentSharesOpen(false)} /></div>}
+          </div>}
           <header className="classroom-v3-stage-bar">
             <div>
               <span className="classroom-v3-stage-signal" />
@@ -7303,7 +7310,7 @@ export function ClassroomV3({
           )}
         </section>
         <AnimatePresence initial={false}>
-            {(activePanel || studentSharesOpen) && (
+            {activePanel && !studentSharesOpen && (
               <motion.aside
                 key={conversationOpen ? "conversation" : activePanel}
                 className="classroom-v3-drawer"
@@ -7326,7 +7333,6 @@ export function ClassroomV3({
                     <PanelRightClose />
                   </button>
                 )}
-                {studentSharesOpen && sessionData.capabilities.canManageMembers && <StudentScreenShares members={classroomMembers} shares={screenLeases || {}} busy={Boolean(actionBusy)} onAction={performAction} onClose={() => setStudentSharesOpen(false)} />}
                 {activePanel === "members" && sessionData.capabilities.canManageMembers && (
                   <MemberPanel
                     members={classroomMembers}

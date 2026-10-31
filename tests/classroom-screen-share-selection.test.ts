@@ -43,3 +43,12 @@ test('900p sharing leaves room for twelve thumbnail cameras within Full HD', () 
   assert.equal(plan.get('screen'), 0);
   assert.ok(1600 * 900 + cameras.length * 160 * 120 < 1920 * 1080);
 });
+
+
+test('automatic presentation metadata survives layout normalization without accepting malformed targets', () => {
+  const pending={userId:'alice',requestedAt:new Date().toISOString()};
+  assert.deepEqual(normalizeClassroomComposition({screenShareAutoDisplay:pending}).screenShareAutoDisplay,pending);
+  for(const value of [null,[],{userId:'',requestedAt:pending.requestedAt},{userId:'alice',requestedAt:'invalid'}, {userId:'a'.repeat(257),requestedAt:pending.requestedAt}]) {
+    assert.equal(normalizeClassroomComposition({screenShareAutoDisplay:value}).screenShareAutoDisplay,undefined);
+  }
+});

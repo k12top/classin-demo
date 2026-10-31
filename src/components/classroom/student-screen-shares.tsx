@@ -26,7 +26,7 @@ export function StudentScreenShares({ members, shares, busy, onAction, onClose }
     const remaining = [...selected];
     try {
       for (const userId of selected) {
-        if (!await onAction({ type: "requestScreenShare", targetUserId: userId })) break;
+        if (!await onAction({ type: "requestScreenShare", targetUserId: userId, autoDisplay: selected.length === 1 })) break;
         remaining.splice(remaining.indexOf(userId), 1);
       }
       setSelected(remaining);
@@ -35,7 +35,7 @@ export function StudentScreenShares({ members, shares, busy, onAction, onClose }
   };
   return <section className={styles.panel} aria-label={t("classroomMultiShare.title")}>
     <header><h2>{t("classroomMultiShare.title")}</h2><Button variant="ghost" size="icon" onClick={onClose} aria-label={t("classroom.v3.collapsePanel")}><X className="h-4 w-4" /></Button></header>
-    <p>{t("classroomMultiShare.follows")}</p>
+    <p>{t("classroomMultiShare.follows")}<br />{t("classroomMultiShare.autoDisplayHint")}</p>
     <Button variant="outline" disabled={unavailable} onClick={() => setInviting(!inviting)}><MonitorUp className="mr-2 h-4 w-4" />{t("classroomMultiShare.invite")}</Button>
     {inviting && <fieldset disabled={unavailable} className={styles.invite}>
       <legend>{t("classroomMultiShare.choose")}</legend>

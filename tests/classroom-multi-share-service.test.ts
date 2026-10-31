@@ -10,12 +10,13 @@ import type { ClassroomAction } from '../src/lib/classroom/types';
 function fixture() {
   const startTime = new Date(Date.now() - 60000), endTime = new Date(Date.now() + 3600000);
   const runtime: any = { id: 'runtime', revision: 1, status: 'live', graceEndsAt: classroomGraceEndAt(endTime), composition: emptyClassroomComposition(), session: { startTime, endTime }, members: [] };
-  const members = new Map(['alice', 'bob'].map(userId => [userId, { userId, role: 'student', screenShareState: 'accepted', onStage: true, stageState: 'accepted' }]));
+  const members = new Map(['alice', 'bob'].map(userId => [userId, { userId, role: 'student', screenShareState: 'accepted', screenShareRequestedAt: null as Date | null, onStage: true, stageState: 'accepted' }]));
   const db: any = {
     courseSession: { findFirst: async () => ({ id: 'lesson', roomType: 2, status: 'live', startTime, endTime, course: { autoStudentOnStage: false } }) },
     classroomRuntime: { findUnique: async () => runtime, findUniqueOrThrow: async () => runtime, update: async ({data}: any) => { if (data.composition) runtime.composition = data.composition; if (data.revision) runtime.revision += data.revision.increment; if (data.stageMode) runtime.stageMode = data.stageMode; return runtime; } },
     classroomMemberState: {
       findUnique: async ({where}: any) => members.get(where.sessionId_userId.userId),
+      findUniqueOrThrow: async ({where}: any) => { const value=members.get(where.sessionId_userId.userId);if(!value)throw new Error("Member not found");return value; },
       upsert: async () => ({}), update: async ({where,data}: any) => Object.assign(members.get(where.sessionId_userId.userId)!, data), updateMany: async () => ({count:0}),
     },
     classroomRewardEvent: { groupBy: async () => [] }, classroomConnection: { findMany: async () => [] }, $queryRaw: async () => [],
@@ -59,4 +60,56 @@ test('actual service rejects unauthorized capture and released selections; white
   await f.apply({type:'setStage',mode:'whiteboard',locked:false});
   assert.equal(f.runtime.composition.screenShares.main,undefined);
   assert.equal(mainScreenShareCandidates(f.runtime.composition.screenShares).length,1);
+});
+
+
+test('a single teacher invitation auto-selects only that accepted capture and consumes the intent once', async () => {
+  const f=fixture();
+  await f.apply({type:'requestScreenShare',targetUserId:'alice'});
+  assert.equal(f.runtime.composition.screenShares?.main,undefined,'an invitation alone cannot display a screen');
+  const pending=f.runtime.composition.screenShareAutoDisplay;
+  assert.equal(pending.userId,'alice');
+  await assert.rejects(f.apply({type:'startScreenShare',claimId:'claim-alice'},'alice','student'),{status:403});
+  await f.apply({type:'startScreenShare',claimId:'claim-bob'},'bob','student');
+  assert.equal(f.runtime.composition.screenShares.main,undefined,'another student cannot consume this invitation');
+  await f.apply({type:'acceptScreenShare'},'alice','student');
+  assert.deepEqual(f.runtime.composition.screenShareAutoDisplay,pending,'acceptance preserves the exact grant across normalization');
+  await f.apply({type:'startScreenShare',claimId:'claim-alice'},'alice','student');
+  assert.equal(f.runtime.composition.screenShares.main.userId,'alice');
+  assert.equal(f.runtime.stageMode,'screen');
+  assert.equal(f.runtime.composition.screenShareAutoDisplay,undefined);
+  await f.apply({type:'selectScreenShare',claimId:null});
+  await f.apply({type:'startScreenShare',claimId:'claim-alice-new'},'alice','student');
+  assert.equal(f.runtime.composition.screenShares.main,undefined,'a new capture cannot replay a consumed auto-display intent');
+});
+
+test('batch invitations stay manual and a later teacher choice cancels a pending automatic selection', async () => {
+  const f=fixture();
+  for(const userId of ['alice','bob']) {
+    await f.apply({type:'requestScreenShare',targetUserId:userId,autoDisplay:false});
+    await f.apply({type:'acceptScreenShare'},userId,'student');
+    await f.apply({type:'startScreenShare',claimId:'claim-'+userId},userId,'student');
+  }
+  assert.equal(f.runtime.composition.screenShares.main,undefined);
+  await f.apply({type:'requestScreenShare',targetUserId:'alice'});
+  await f.apply({type:'selectScreenShare',claimId:'claim-bob'});
+  await f.apply({type:'acceptScreenShare'},'alice','student');
+  await f.apply({type:'startScreenShare',claimId:'claim-alice-new'},'alice','student');
+  assert.equal(f.runtime.composition.screenShares.main.userId,'bob','late capture cannot overwrite a deliberate teacher selection');
+});
+
+test('revocation, decline, whiteboard selection and stale grant timestamps cannot auto-display a screen', async () => {
+  for(const cancel of ['stop','decline','whiteboard','stale'] as const) {
+    const f=fixture();
+    await f.apply({type:'requestScreenShare',targetUserId:'alice'});
+    await f.apply({type:'acceptScreenShare'},'alice','student');
+    if(cancel==='stop') await f.apply({type:'stopScreenShare',targetUserId:'alice'});
+    if(cancel==='decline') await f.apply({type:'declineScreenShare'},'alice','student');
+    if(cancel==='whiteboard') await f.apply({type:'setStage',mode:'whiteboard',locked:false});
+    if(cancel==='stale') f.members.get('alice')!.screenShareRequestedAt=new Date(0);
+    if(cancel==='stop'||cancel==='decline') await assert.rejects(f.apply({type:'startScreenShare',claimId:'claim-alice'},'alice','student'),{status:403});
+    else { await f.apply({type:'startScreenShare',claimId:'claim-alice'},'alice','student');assert.equal(f.runtime.composition.screenShares.main,undefined,cancel); }
+  }
+  const f=fixture();
+  await assert.rejects(f.apply({type:'requestScreenShare',targetUserId:'alice',autoDisplay:'yes'} as unknown as ClassroomAction),{status:400});
 });

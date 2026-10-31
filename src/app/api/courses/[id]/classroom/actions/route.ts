@@ -173,7 +173,7 @@ export async function POST(
     if (body.compactScreenShareRequest === true && body.action.type === "requestScreenShare") {
       const screenShareRequest = await requestClassroomScreenShare({
         courseId: resolvedCourseId, sessionId, actorId: resolved.session.userId,
-        role: resolved.access.role, clientId, commandId, targetUserId: body.action.targetUserId,
+        role: resolved.access.role, clientId, commandId, targetUserId: body.action.targetUserId, autoDisplay: body.action.autoDisplay,
       });
       await synchronizeClassroomRedis(sessionId, true);
       return NextResponse.json({ screenShareRequest });

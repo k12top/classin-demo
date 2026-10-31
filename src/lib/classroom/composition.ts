@@ -156,6 +156,11 @@ export function normalizeClassroomComposition(
         Number.isInteger(lease.rtcUid) && lease.rtcUid >= 1_000_000_001 && lease.rtcUid <= 2_000_000_000,
       ).map(([scope, lease]) => [scope, { userId: lease.userId, clientId: lease.clientId, rtcUid: lease.rtcUid, claimId: lease.claimId }]))
     : undefined;
+  const pending = source.screenShareAutoDisplay;
+  const screenShareAutoDisplay = pending && typeof pending === "object" && !Array.isArray(pending) &&
+    typeof pending.userId === "string" && pending.userId.length > 0 && pending.userId.length <= 256 &&
+    typeof pending.requestedAt === "string" && pending.requestedAt.length <= 64 && Number.isFinite(Date.parse(pending.requestedAt))
+    ? { userId: pending.userId, requestedAt: new Date(pending.requestedAt).toISOString() } : undefined;
   const seen = new Set<string>();
   const boardItems = (Array.isArray(source.boardItems) ? source.boardItems : [])
     .map(boardItem)
@@ -175,6 +180,7 @@ export function normalizeClassroomComposition(
     updatedBy: text(source.updatedBy),
     updatedAt: text(source.updatedAt, 64),
     ...(screenShares && { screenShares }),
+    ...(screenShareAutoDisplay && { screenShareAutoDisplay }),
   };
 }
 

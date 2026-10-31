@@ -15,7 +15,7 @@ async function main() {
     "server-only": "",
     "next/server": "export const after=()=>{};export const NextResponse=Response;",
     "@/lib/classroom/server/request-access": "export const resolveClassroomRequestAccess=async()=>globalThis.invitationActor.allowed===false?{ok:false,status:401,error:'Unauthorized'}:{ok:true,session:{userId:globalThis.invitationActor.userId},access:globalThis.invitationActor};",
-    "@/lib/classroom/server/runtime": "export class ClassroomActionError extends Error{constructor(message,status){super(message);this.status=status}};export class ClassroomRevisionConflictError extends Error{};export const applyClassroomAction=async()=>{globalThis.invitationHeavyCalls=(globalThis.invitationHeavyCalls||0)+1;return {revision:999};};export const getClassroomRuntimeSnapshot=async()=>{throw new Error('Invitation queried the full roster')};export const getClassroomEngagementSnapshot=async()=>{globalThis.invitationHeavyCalls=(globalThis.invitationHeavyCalls||0)+1;return {};};",
+    "@/lib/classroom/server/runtime": "export class ClassroomActionError extends Error{constructor(message,status){super(message);this.status=status}};export class ClassroomRevisionConflictError extends Error{};export const countReservedStudentSeats=async()=>{throw new Error('Invitation counted the roster')};export const applyClassroomAction=async()=>{globalThis.invitationHeavyCalls=(globalThis.invitationHeavyCalls||0)+1;return {revision:999};};export const getClassroomRuntimeSnapshot=async()=>{throw new Error('Invitation queried the full roster')};export const getClassroomEngagementSnapshot=async()=>{globalThis.invitationHeavyCalls=(globalThis.invitationHeavyCalls||0)+1;return {};};",
     "@/lib/classroom/server/integration-events": "export const deliverClassroomEvents=async()=>{};",
     "@/lib/classroom/server/transcription-orchestrator": "export const ensureClassroomTranscriptionForLiveSession=async()=>{};export const syncClassroomTranscription=async()=>{};",
     "@/lib/classroom/server/recording-orchestrator": "export const requestRecordingStop=async()=>{};export const processRecordingStop=async()=>{};",
@@ -36,7 +36,7 @@ async function main() {
   }
   const teacher = { courseId: course.id, sessionId: lesson.id, userId: "teacher", role: "teacher" };
   globalThis.invitationActor = teacher;
-  const request = (targetUserId = "student", compactScreenShareRequest = true) => POST(new Request("http://localhost/api/actions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: { type: "requestScreenShare", targetUserId }, clientId: "teacher-client", expectedRevision: -1, compactScreenShareRequest }) }), { params: Promise.resolve({ id: lesson.id }) });
+  const request = (targetUserId = "student", compactScreenShareRequest = true, autoDisplay = true) => POST(new Request("http://localhost/api/actions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: { type: "requestScreenShare", targetUserId, autoDisplay }, clientId: "teacher-client", expectedRevision: -1, compactScreenShareRequest }) }), { params: Promise.resolve({ id: lesson.id }) });
   const student = () => db.classroomMemberState.findUnique({ where: { sessionId_userId: { sessionId: lesson.id, userId: "student" } } });
   const before = await student();
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
@@ -56,14 +56,16 @@ async function main() {
     assert.equal(invited.screenShareRequestedAt.toISOString(), payload.screenShareRequest.requestedAt);
     for (const key of ["onStage", "stageState", "microphoneAllowed", "cameraAllowed", "whiteboardWritable", "chatMuted"]) assert.equal(invited[key], before[key]);
     assert.equal(globalThis.invitationHeavyCalls, undefined);
+    const invitedRuntime = await db.classroomRuntime.findUnique({ where: { id: runtime.id } });
+    assert.deepEqual(invitedRuntime.composition.screenShareAutoDisplay, { userId: "student", requestedAt: payload.screenShareRequest.requestedAt });
     console.log("PASS invitation commits without roster, reward or engagement reads and grants no capture permission");
 
-    for (const [userId, role] of [["student", "student"], ["assistant", "assistant"]]) {
+    for (const [userId, role] of [["student", "student"]]) {
       globalThis.invitationActor = { ...teacher, userId, role };
       assert.equal((await request()).status, 403);
     }
-    await db.classroomRuntime.update({ where: { id: runtime.id }, data: { assistantPermissions: { assistant: true } } });
-    assert.equal((await request()).status, 200);
+    globalThis.invitationActor = { ...teacher, userId: "assistant", role: "assistant" };
+    assert.equal((await request()).status, 200, "the current assistant role grants classroom management");
     globalThis.invitationActor = { ...teacher, allowed: false };
     assert.equal((await request()).status, 401);
     globalThis.invitationActor = teacher;
@@ -78,6 +80,11 @@ async function main() {
     assert.deepEqual(updates.map(item => item.revision).sort((a, b) => a - b), [revision + 1, revision + 2, revision + 3]);
     assert.equal((await student()).screenShareRequestedAt.toISOString(), updates.sort((a, b) => b.revision - a.revision)[0].requestedAt);
     console.log("PASS simultaneous invitations commit ordered revisions despite an unrelated stale UI revision");
+
+    assert.equal((await request("student", true, false)).status, 200);
+    assert.equal((await db.classroomRuntime.findUnique({ where: { id: runtime.id } })).composition.screenShareAutoDisplay, undefined);
+    assert.equal((await request("student", true, "yes")).status, 400);
+    console.log("PASS multi-invitation clears automatic display and malformed presentation flags are rejected");
 
     const legacy = await request("student", false);
     assert.equal(legacy.status, 200);

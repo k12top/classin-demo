@@ -1,4 +1,4 @@
-import type { ClassroomScreenShareLease } from './types';
+import type { ClassroomCompositionSnapshot, ClassroomScreenShareLease } from './types';
 
 export type ScreenShareLeases = Record<string, ClassroomScreenShareLease>;
 // main is the displayed publisher; main:<rtcUid> retains prepared publishers.
@@ -32,4 +32,14 @@ export function selectMainScreenShare(shares: ScreenShareLeases = {}, claimId: s
 export function releaseMainScreenShare(shares: ScreenShareLeases = {}, userId: string, clientId: string, claimId: string) {
   return Object.fromEntries(Object.entries(shares).filter(([scope, lease]) =>
     !(scope === 'main' || scope.startsWith('main:')) || lease.userId !== userId || lease.clientId !== clientId || lease.claimId !== claimId));
+}
+
+/** Persist teacher intent with the exact invitation, rather than a browser tab. */
+export function withScreenShareInvitation(composition: ClassroomCompositionSnapshot, userId: string, requestedAt: Date, autoDisplay = true): ClassroomCompositionSnapshot {
+  return { ...composition, screenShareAutoDisplay: autoDisplay ? { userId, requestedAt: requestedAt.toISOString() } : undefined };
+}
+
+export function shouldAutoDisplayScreenShare(composition: ClassroomCompositionSnapshot, userId: string, requestedAt: Date | null | undefined) {
+  const pending = composition.screenShareAutoDisplay;
+  return Boolean(pending && pending.userId === userId && requestedAt && pending.requestedAt === requestedAt.toISOString());
 }

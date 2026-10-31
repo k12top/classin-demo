@@ -205,6 +205,8 @@ export type ClassroomCompositionSnapshot = {
   updatedAt: string;
   /** main selects the displayed share; main:<rtcUid> retains prepared shares. Other keys are breakout channels. */
   screenShares?: Record<string, ClassroomScreenShareLease>;
+  /** A teacher-issued single invitation may select this exact grant once. */
+  screenShareAutoDisplay?: { userId: string; requestedAt: string };
 };
 
 export type ClassroomScreenShareLease = {
@@ -480,7 +482,7 @@ export type ClassroomAction =
   | { type: "acceptStage" }
   | { type: "declineStage" }
   | { type: "removeStage"; targetUserId: string }
-  | { type: "requestScreenShare"; targetUserId: string }
+  | { type: "requestScreenShare"; targetUserId: string; autoDisplay?: boolean }
   | { type: "acceptScreenShare" }
   | { type: "declineScreenShare" }
   | { type: "stopScreenShare"; targetUserId: string }

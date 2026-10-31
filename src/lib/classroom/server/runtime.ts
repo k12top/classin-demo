@@ -1,4 +1,4 @@
-import { mainScreenShareCandidates, prepareMainScreenShare, selectMainScreenShare, releaseMainScreenShare } from "@/lib/classroom/screen-share-selection";
+import { mainScreenShareCandidates, prepareMainScreenShare, selectMainScreenShare, releaseMainScreenShare, withScreenShareInvitation, shouldAutoDisplayScreenShare } from "@/lib/classroom/screen-share-selection";
 import { automaticCaptionServiceEnabled, captionStartPreferences, validateCaptionStartPreferences } from "../caption-start-preferences";
 import { readClassroomCommand, saveClassroomCommand } from "./command-receipt";
 import { classroomAuxiliaryRtcUid, classroomRtcUid } from "@/lib/classroom/rtc-uid";
@@ -995,6 +995,7 @@ export async function applyClassroomAction(input: {
         });
         await writeComposition({
           ...currentComposition,
+          screenShareAutoDisplay: currentComposition.screenShareAutoDisplay?.userId === action.targetUserId ? undefined : currentComposition.screenShareAutoDisplay,
           screenShares: withoutScreenShares(new Set([action.targetUserId])),
           seatOrder: currentComposition.seatOrder.filter(
             (userId) => userId !== action.targetUserId,
@@ -1015,6 +1016,7 @@ export async function applyClassroomAction(input: {
           throw new ClassroomActionError("共享连接无效", 400);
         }
         const scope = action.spaceId || "main";
+        let autoDisplay = false;
         if (action.spaceId) {
           const space = await tx.classroomSpace.findFirst({
             where: { id: action.spaceId, sessionId, status: "open" },
@@ -1029,6 +1031,7 @@ export async function applyClassroomAction(input: {
             assistantManagementAllowed: true })) {
             throw new ClassroomActionError("老师尚未授予屏幕共享权限", 403);
           }
+          autoDisplay = role === "student" && shouldAutoDisplayScreenShare(currentComposition, session.userId, member?.screenShareRequestedAt);
         }
         if (scope === "main" && mainScreenShareCandidates(currentComposition.screenShares).some(lease => lease.claimId === action.claimId && !ownsScreenShare(lease, session.userId, input.clientId!))) {
           throw new ClassroomActionError("共享标识已被使用", 409);
@@ -1039,8 +1042,10 @@ export async function applyClassroomAction(input: {
         }
         const lease = { userId: session.userId, clientId: input.clientId,
           rtcUid: classroomRtcUid(`${session.userId}:${input.clientId}`, "screen"), claimId: action.claimId };
-        const next = { ...currentComposition, screenShares: scope === "main"
-          ? prepareMainScreenShare(currentComposition.screenShares, lease, role === "teacher" || role === "assistant")
+        const next = { ...currentComposition,
+          screenShareAutoDisplay: scope === "main" && (autoDisplay || role === "teacher" || role === "assistant") ? undefined : currentComposition.screenShareAutoDisplay,
+          screenShares: scope === "main"
+          ? prepareMainScreenShare(currentComposition.screenShares, lease, autoDisplay || role === "teacher" || role === "assistant")
           : { ...currentComposition.screenShares, [scope]: lease } };
         await writeComposition(scope === "main" ? placeClassroomBoardItem({ ...next,
           boardItems: next.boardItems.filter(item => item.kind !== "screen" || item.sourceId === session.userId),
@@ -1073,12 +1078,13 @@ export async function applyClassroomAction(input: {
         let screenShares;
         try { screenShares = selectMainScreenShare(currentComposition.screenShares, action.claimId); }
         catch { throw new ClassroomActionError("该学生已停止共享，请重新选择", 409); }
-        await writeComposition({ ...currentComposition, screenShares });
+        await writeComposition({ ...currentComposition, screenShares, screenShareAutoDisplay: undefined });
         await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { stageMode: action.claimId ? "screen" : "whiteboard", stageLocked: false } });
         break;
       }
       case "requestScreenShare": {
         requireTeachingRole(role);
+        if (action.autoDisplay !== undefined && typeof action.autoDisplay !== "boolean") throw new ClassroomActionError("共享展示方式无效", 400);
         if (!mode.studentCanShareWhenOnStage) {
           throw new ClassroomActionError("当前课堂模式不支持学生屏幕共享", 409);
         }
@@ -1094,6 +1100,7 @@ export async function applyClassroomAction(input: {
         if (!target || target.role !== "student") {
           throw new ClassroomActionError("只能向当前课堂的学生发起共享请求", 409);
         }
+        const requestedAt = new Date();
         await tx.classroomMemberState.update({
           where: {
             sessionId_userId: {
@@ -1103,9 +1110,10 @@ export async function applyClassroomAction(input: {
           },
           data: {
             screenShareState: screenShareStateAfter("idle", "request"),
-            screenShareRequestedAt: new Date(),
+            screenShareRequestedAt: requestedAt,
           },
         });
+        await writeComposition(withScreenShareInvitation(currentComposition, action.targetUserId, requestedAt, action.autoDisplay));
         break;
       }
       case "acceptScreenShare": {
@@ -1177,6 +1185,7 @@ export async function applyClassroomAction(input: {
         });
         await writeComposition({
           ...currentComposition,
+          screenShareAutoDisplay: currentComposition.screenShareAutoDisplay?.userId === session.userId ? undefined : currentComposition.screenShareAutoDisplay,
           screenShares: withoutScreenShares(new Set([session.userId])),
           boardItems: currentComposition.boardItems.filter(
             (item) => !(item.kind === "screen" && item.sourceId === session.userId),
@@ -1202,6 +1211,7 @@ export async function applyClassroomAction(input: {
         });
         await writeComposition({
           ...currentComposition,
+          screenShareAutoDisplay: currentComposition.screenShareAutoDisplay?.userId === action.targetUserId ? undefined : currentComposition.screenShareAutoDisplay,
           screenShares: withoutScreenShares(new Set([action.targetUserId])),
           boardItems: currentComposition.boardItems.filter(
             (item) => !(item.kind === "screen" && item.sourceId === action.targetUserId),
@@ -1498,7 +1508,7 @@ export async function applyClassroomAction(input: {
         break;
       case "setStage":
         requireTeachingRole(role);
-        if (action.mode !== "screen") await writeComposition({ ...currentComposition, screenShares: selectMainScreenShare(currentComposition.screenShares, null) });
+        await writeComposition({ ...currentComposition, screenShareAutoDisplay: undefined, ...(action.mode !== "screen" && { screenShares: selectMainScreenShare(currentComposition.screenShares, null) }) });
         await tx.classroomRuntime.update({
           where: { id: runtime.id },
           data: {
