@@ -205,7 +205,7 @@ export function ClassroomChatPanel({
         {activityFeed.hasMore && scope === "classroom" && <button type="button" disabled={activityFeed.loading} onClick={activityFeed.loadMore}>{t("classroomChat.moreActivities")}</button>}
         {activityFeed.error && scope === "classroom" && <button type="button" onClick={() => { void activityFeed.reload().catch(() => undefined); }}>{t("classroomChat.activityRetry")}</button>}
         {[...visibleMessages.map(message => ({ type: "message" as const, createdAt: message.createdAt, message })), ...(scope === "classroom" ? activityFeed.activities.map(activity => ({ type: "activity" as const, createdAt: activity.startedAt || activity.createdAt, activity })) : [])].sort((a,b)=>Date.parse(a.createdAt)-Date.parse(b.createdAt)).map(entry => {
-          if (entry.type === "activity") return <ActivityChatCard key={"activity:"+entry.activity.id} activity={entry.activity} sessionId={sessionId} shareAccess={shareAccess} student={role === "student"} onChanged={onActivityChanged} onManage={() => setActivityEditorOpen(true)} />;
+          if (entry.type === "activity") return <ActivityChatCard visible={visible && scope === "classroom"} key={"activity:"+entry.activity.id} activity={entry.activity} sessionId={sessionId} shareAccess={shareAccess} student={role === "student"} onChanged={onActivityChanged} onManage={() => setActivityEditorOpen(true)} />;
           const message = entry.message;
           const pending = message.id.startsWith(OPTIMISTIC_MESSAGE_PREFIX);
           return (

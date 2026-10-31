@@ -14,6 +14,18 @@ export function classroomMemberVisible(member: ClassroomMemberSnapshot): boolean
   return member.online || member.connectionStatus === "reconnecting";
 }
 
+/** Count people in the room, including offstage learners; reconnecting seats stay separate. */
+export function classroomPresenceSummary(members: ClassroomMemberSnapshot[]) {
+  const online = members.filter(member => member.online);
+  return {
+    online: online.length,
+    students: online.filter(member => member.role === "student").length,
+    teachers: online.filter(member => member.role === "teacher").length,
+    assistants: online.filter(member => member.role === "assistant").length,
+    reconnecting: members.filter(member => !member.online && member.connectionStatus === "reconnecting").length,
+  };
+}
+
 export function classroomConnectionPresence(input: {
   lastSeenAt: Date | null;
   online: boolean;

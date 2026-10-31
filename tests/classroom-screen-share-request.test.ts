@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyClassroomScreenShareRequest } from "../src/lib/classroom/screen-share-request";
+import { applyClassroomScreenShareRequest, verifiedScreenShareInvitation } from "../src/lib/classroom/screen-share-request";
 import { requestClassroomAction } from "../src/lib/classroom/action-request";
 import { emptyClassroomComposition } from "../src/lib/classroom/composition";
 import type { ClassroomMemberSnapshot, ClassroomRuntimeSnapshot } from "../src/lib/classroom/types";
@@ -65,4 +65,13 @@ test("sharing requests opt into a compact response while retaining server confir
   assert.equal("expectedRevision" in body, false);
   assert.deepEqual(result.payload.screenShareRequest, invitation);
   assert.equal(result.payload.runtime, undefined);
+});
+
+test("a verified invitation behind caption versions requests reconciliation without reopening a stale dialog", () => {
+  const newer = { ...runtime, revision: 50 };
+  assert.equal(apply(invitation, "teacher:tab", newer), null);
+  assert.equal(verifiedScreenShareInvitation(newer, invitation, "teacher:tab", now), true);
+  assert.equal(verifiedScreenShareInvitation(newer, invitation, "student:tab", now), false);
+  assert.equal(verifiedScreenShareInvitation(newer, { ...invitation, actorId: "student" }, "student:tab", now), false);
+  assert.equal(verifiedScreenShareInvitation(newer, { ...invitation, requestedAt: new Date(now - 120001).toISOString() }, "teacher:tab", now), false);
 });

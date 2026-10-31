@@ -35,6 +35,10 @@ export function ownsScreenShare(lease: ClassroomScreenShareLease | undefined, us
   return lease?.userId === userId && lease.clientId === clientId;
 }
 
+export function studentScreenShareReady(input: { publishing: boolean; screenCredential: boolean; permitted: boolean; mayClaim: boolean }) {
+  return input.publishing && input.screenCredential && input.permitted && input.mayClaim;
+}
+
 export function screenShareStateAfter(
   current: ScreenShareRequestState,
   event: "request" | "accept" | "decline" | "stop",
