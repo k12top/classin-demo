@@ -486,6 +486,9 @@ export const zhTW = {
       unmuteAllMicrophones: "全體恢復發言",
       unmuteAllChat: "全體解除禁言",
       awardReceived: "獲得獎盃",
+      awardForYou: "你獲得了獎盃",
+      awardFromTeacher: "來自老師的課堂獎勵",
+      awardTotal: "累計 {count} 個獎盃",
       interpretationSaved: "設定已儲存，同傳連線狀態見上方。",
       interpretationSaveFailed: "設定未儲存，已保留選擇，請重試。",
 

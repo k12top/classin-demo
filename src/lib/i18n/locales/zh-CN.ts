@@ -362,6 +362,9 @@ export const zhCN = {
       unmuteAllMicrophones: "全体恢复发言",
       unmuteAllChat: "全体解除禁言",
       awardReceived: "获得奖杯",
+      awardForYou: "你获得了奖杯",
+      awardFromTeacher: "来自老师的课堂奖励",
+      awardTotal: "累计 {count} 个奖杯",
       interpretationSaved: "设置已保存，同传连接状态见上方。",
       interpretationSaveFailed: "设置未保存，已保留选择，请重试。",
 

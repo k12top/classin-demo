@@ -335,8 +335,7 @@
 
 @media (hover: none) {
   .is-classin-layout .classroom-v3-seat > footer,
-  .is-classin-layout .classroom-v3-seat.has-video .classroom-v3-seat-media-state,
-  .is-classin-layout .classroom-v3-seat.has-video .classroom-v3-seat-reward {
+  .is-classin-layout .classroom-v3-seat.has-video .classroom-v3-seat-media-state {
     opacity: 0;
     pointer-events: none;
     transform: translateY(2px);
@@ -344,8 +343,7 @@
   }
 
   .is-classin-layout .classroom-v3-seat.is-touch-active > footer,
-  .is-classin-layout .classroom-v3-seat.is-touch-active .classroom-v3-seat-media-state,
-  .is-classin-layout .classroom-v3-seat.is-touch-active .classroom-v3-seat-reward {
+  .is-classin-layout .classroom-v3-seat.is-touch-active .classroom-v3-seat-media-state {
     opacity: 1;
     pointer-events: auto;
     transform: translateY(0);
@@ -1350,19 +1348,6 @@ html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-dock > .is-dock-m
   opacity: 1; color: var(--classroom-frost); pointer-events: auto;
 }
 html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-dock > .is-dock-more.is-active { color: var(--classroom-iris, #a99ff9); background: var(--classroom-panel-raised); }
-.classroom-v3-award-notice {
-  position: fixed; z-index: 95; inset: 35% auto auto 50%; translate: -50% 0;
-  display: grid; justify-items: center; gap: 8px; width: min(320px, calc(100vw - 32px));
-  padding: 24px; border-radius: 16px; color: var(--classroom-frost);
-  background: var(--classroom-panel); box-shadow: 0 14px 40px rgb(0 0 0 / 0.24); pointer-events: none;
-}
-.classroom-v3-award-notice > strong { font-size: 22px; }
-.classroom-v3-award-notice > span { max-width: 100%; text-align: center; overflow-wrap: anywhere; }
-.classroom-v3-award-symbol { position: relative; width: 96px; height: 96px; display: grid; place-items: center; color: #d99c23; }
-.classroom-v3-award-symbol > svg { width: 64px; height: 64px; animation: classroom-award-trophy 650ms cubic-bezier(0.16, 1, 0.3, 1); }
-.classroom-v3-award-symbol > i { position: absolute; width: 5px; height: 12px; border-radius: 2px; background: #d99c23; animation: classroom-award-burst 850ms cubic-bezier(0.16, 1, 0.3, 1) both; transform: rotate(var(--award-angle)) translateY(-44px); }
-@keyframes classroom-award-trophy { from { transform: rotate(-14deg) scale(0.55); } 60% { transform: rotate(8deg) scale(1.1); } to { transform: rotate(0) scale(1); } }
-@keyframes classroom-award-burst { from { opacity: 0; transform: rotate(var(--award-angle)) translateY(-20px) scale(0.2); } 40% { opacity: 1; } to { opacity: 0; transform: rotate(var(--award-angle)) translateY(-65px) scale(0.8); } }
 @media (max-width: 1024px) {
   html[lang] .classroom-v3-shell.is-classin-layout.is-rail-collapsed:not(.is-mode-publicLive):not(.is-recorder) { grid-template-rows: 44px 32px minmax(0, 1fr) calc(66px + env(safe-area-inset-bottom)); }
   html[lang] .is-classin-layout .classroom-v3-live-rail[data-collapsed="true"] { height: 32px; min-height: 32px; }
@@ -1395,7 +1380,6 @@ html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-dock > .is-dock-m
   .is-classin-layout .classroom-v3-invite.is-screen-share p { display: block; font-size: 12px; line-height: 1.5; }
   .is-classin-layout .classroom-v3-invite.is-screen-share > button { min-height: 44px; }
 }
-@media (prefers-reduced-motion: reduce) { .classroom-v3-award-symbol > :is(svg, i) { animation: none; } .classroom-v3-award-symbol > i { display: none; } }
 html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-tool-popover-close {
   position: absolute; inset: 6px 6px auto auto; margin: 0;
 }
@@ -1734,7 +1718,5 @@ html.light .classroom-v3-device-dialog fieldset.classroom-v3-start-policy p {
 html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-top-actions > .classroom-v3-class-controls { width: auto; min-width: 44px; flex: 0 0 auto; white-space: nowrap; }
 @media(max-width:640px) { .classroom-v3-caption-local-settings select { font-size: 16px; } }
 
-.classroom-screen-prepared { position: fixed; z-index: 50; left: 50%; transform: translateX(-50%); bottom: 96px; width: min(90vw, 560px); display: flex; align-items: center; gap: 16px; padding: 12px 16px; background: hsl(var(--card)); color: hsl(var(--foreground)); border: 1px solid hsl(var(--border)); border-radius: 12px; font-size: 13px; line-height: 1.5; }
-.classroom-screen-prepared button { flex-shrink: 0; color: hsl(var(--primary)); min-height: 44px; }
 .classroom-student-share-trigger { position: relative; flex-shrink: 0; }
 .classroom-student-share-trigger span { font-size: 11px; }
