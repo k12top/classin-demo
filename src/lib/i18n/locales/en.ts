@@ -391,7 +391,7 @@ export const en: typeof zhCN = {
       loginExpired: "Your login expired. Sign in again to stop recording.",
       recordingForbidden: "Only this lesson’s lead teacher can control recording.",
       overtimeLeaveTitle: "Leave during overtime",
-      overtimeLeaveDescription: "Leave after teaching ends the class and saves the recording when no other teacher is present or reconnecting. If you or another teacher will return, choose Leave temporarily to keep the class open until the overtime limit.",
+      overtimeLeaveDescription: "Leave after teaching ends the class and saves the recording when no other teacher is present or reconnecting. If you or another teacher will return, choose Leave temporarily to keep the class open until the overtime limit. To end the class for everyone now, choose End class and stop recording.",
       overtimeLeaveFinish: "Leave after teaching",
       overtimeLeaveFailed: "Your departure was not confirmed. Retry, or choose Leave temporarily if you plan to return.",
       endClassDescription: "Ending the class leaves the room for everyone and saves the recording. To return later, choose Leave temporarily.",

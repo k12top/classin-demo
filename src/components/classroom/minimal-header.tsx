@@ -43,6 +43,7 @@ export function MinimalHeader({ course, runtime, now, roleName, memberCount, mem
         {(canStart || canExtend || canEnd) && <DropdownMenuSeparator />}
         {canStart && <DropdownMenuItem disabled={busy} onSelect={onStart}><Radio />{t("classroom.v3.startClass")}</DropdownMenuItem>}
         {canExtend && <ClassTimingControls inMenu courseId={course.id} sessionId={course.sessionId} ended={runtime.status === "ended"} onExtended={onExtended} onRestarted={onRestarted} />}
+        {canEnd && <DropdownMenuItem className="is-danger" disabled={busy} onSelect={onEnd}><CircleStop />{t("classroom.v3.endClassAndStopRecording")}</DropdownMenuItem>}
       </DropdownMenuContent>
     </DropdownMenu>
     <DropdownMenu modal={false}>

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Standalone Node/Electron verification uses CommonJS. */
 /** Creates ONLY a disposable local DB; never reads the configured DATABASE_URL. */
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
@@ -44,6 +45,12 @@ INSERT INTO "Courseware" ("id", "courseId", "name", "ext", "url", "updatedAt", "
   const reportDir = path.join(root, "clients/desktop/dist/verification"); await fsp.mkdir(reportDir, { recursive: true });
   await fsp.writeFile(path.join(reportDir, "activities-migrations.json"), JSON.stringify({ passed: true, database: "isolated PostgreSQL16", checks: ["empty database full migration chain", "no Prisma schema drift", "guarded baseline preserves existing course and courseware rows, dates, permissions and conversion metadata"], productionDatabaseChanged: false }, null, 2));
   run(process.execPath, ["tests/integration/classroom-activities.cjs"], { env, stdio: "inherit" });
+  run(process.execPath, ["tests/integration/classroom-activity-interactions.cjs"], { env, stdio: "inherit" });
+  run(process.execPath, ["tests/integration/classroom-activity-ai-review.cjs"], { env, stdio: "inherit" });
+  if (process.argv.includes("--feedback-only")) {
+    run(path.join(root, "clients/desktop/node_modules/.bin/electron"), ["tests/integration/classroom-activity-feedback-ui.cjs"], { env, stdio: "inherit" });
+    return;
+  }
   run(process.execPath, ["tests/integration/classroom-chat-images.cjs"], { env, stdio: "inherit" });
   if (!process.argv.includes("--database-only")) {
     run(path.join(root, "clients/desktop/node_modules/.bin/electron"), ["tests/integration/classroom-chat-ui.cjs"], { env, stdio: "inherit" });

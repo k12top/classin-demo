@@ -136,3 +136,35 @@ export function activityCsv(definition: ActivityDefinition, rows: ActivityRespon
     return [Array.isArray(value) ? value.map(id => q.options.find(o => o.id === id)?.text || id).join("; ") : value, row.grading?.[q.id] ?? "Pending"];
   }), row.grading && Object.values(row.grading).every(x => x !== null) ? Object.values(row.grading).reduce<number>((a, b) => a + (b || 0), 0) : "Pending", row.feedback])].map(r => r.map(csvCell).join(",")).join("\r\n");
 }
+
+/** Only fully auto-graded objective quizzes can release with the teacher's end action. */
+export function isObjectiveActivity(kind: ActivityKind, definition: ActivityDefinition): boolean {
+  return kind === "quiz" && definition.questions.length > 0 && definition.questions.every(q =>
+    ["single", "multiple", "boolean"].includes(q.type) && !!q.correct?.length && q.correct.every(id => q.options.some(o => o.id === id)));
+}
+export function objectiveResultsReady(kind: ActivityKind, definition: ActivityDefinition, grades: Array<ActivityGrade | null>): boolean {
+  return isObjectiveActivity(kind, definition) && grades.every(grade => definition.questions.every(q => {
+    const value = grade?.[q.id];
+    return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= q.points;
+  }));
+}
+export type ActivityJudgment = "correct" | "incorrect" | "partial" | "pending" | "unanswered";
+export function activityQuestionJudgment(q: ActivityQuestion, response: ActivityResponse | null): ActivityJudgment {
+  if (!response || response.answers[q.id] === undefined) return "unanswered";
+  const score = response.grading?.[q.id];
+  if (typeof score !== "number" || !Number.isFinite(score)) return "pending";
+  const review = response.aiReview?.[q.id];
+  if (review?.status !== "manual" && q.options.length && q.correct?.length) {
+    const answer = response.answers[q.id];
+    return Array.isArray(answer) && answer.length === q.correct.length && q.correct.every(id => answer.includes(id)) ? "correct" : "incorrect";
+  }
+  if (score > 0 && score < q.points) return "partial";
+  if ((review?.status === "complete" || review?.status === "manual") && typeof review.correct === "boolean") return review.correct ? "correct" : "incorrect";
+  return q.points > 0 ? score === q.points ? "correct" : "incorrect" : "pending";
+}
+export function activityAnswerText(q: ActivityQuestion, value: string | string[] | undefined): string {
+  return Array.isArray(value) ? value.map(id => {
+    const index = q.options.findIndex(option => option.id === id);
+    return index >= 0 ? `${String.fromCharCode(65 + index)} · ${q.options[index].text}` : id;
+  }).join(" / ") : value || "";
+}

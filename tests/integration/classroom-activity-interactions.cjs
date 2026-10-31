@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Standalone Node/Electron verification uses CommonJS. */
 const assert=require('node:assert/strict');
 const {openHarness}=require('./activity-harness.cjs');
 (async()=>{const h=await openHarness(),{api,db,actor}=h;const teacher=actor('teacher'),student=actor('student'),peer=actor('student2');const checks=[];
@@ -30,12 +31,22 @@ try{
  const released=await api.activityDetail(student,made.id);assert.equal(released.status,'published');assert.equal(released.definition.questions[0].explanation,'A is the correct reasoning.');assert.deepEqual(released.definition.questions[0].correct,['a']);assert.equal(released.ownResponse.grading.q1,0);
  await assert.rejects(api.commandActivity(student,made.id,{action:'answer',expectedVersion:2,answers:{q1:['a']}}),{status:409});
  checks.push('Explicit teacher release atomically ends response window and reveals answers/reason/grade');
+ const auto=await api.createActivity(teacher,{...quiz,title:'End and release'},crypto.randomUUID(),true);
+ await api.commandActivity(student,auto.id,{action:'answer',expectedVersion:0,answers:{q1:['b']}});
+ await assert.rejects(api.commandActivity(student,auto.id,{action:'close'}),{status:403});
+ const hidden=await api.activityDetail(student,auto.id);assert.equal(hidden.ownResponse.grading,null);assert.equal(hidden.definition.questions[0].correct,undefined);
+ await api.commandActivity(teacher,auto.id,{action:'close'});
+ const judged=await api.activityDetail(student,auto.id);assert.equal(judged.status,'published');assert.equal(judged.ownResponse.grading.q1,0);assert.deepEqual(judged.definition.questions[0].correct,['a']);assert.equal(judged.responses.length,0);
+ const publishedAt=(await db.classroomActivity.findUnique({where:{id:auto.id}})).publishedAt;await api.commandActivity(teacher,auto.id,{action:'close'});assert.equal((await db.classroomActivity.findUnique({where:{id:auto.id}})).publishedAt.getTime(),publishedAt.getTime());
+ await assert.rejects(api.commandActivity(student,auto.id,{action:'answer',expectedVersion:1,answers:{q1:['a']}}),{status:409});
+ checks.push('Teacher end atomically publishes objective key and wrong result; duplicate end is stable and later answers rejected');
  const next=await api.createActivity(teacher,quiz,crypto.randomUUID(),true);const replacement=await api.createActivity(teacher,{...quiz,title:'Replacement'},crypto.randomUUID(),true);
  assert.equal((await api.activityDetail(teacher,next.id)).status,'closed');assert.equal((await api.activityDetail(teacher,replacement.id)).status,'active');
  const essay=await api.createActivity(teacher,{...quiz,definition:{questions:[{id:'e',type:'essay',prompt:'Explain',points:10,options:[],referenceAnswer:'Expected',explanation:'Reasoning'}]}},crypto.randomUUID(),true);
  await api.commandActivity(student,essay.id,{action:'answer',expectedVersion:0,answers:{e:'Student answer'}});
  const e=await api.activityDetail(teacher,essay.id);assert.equal(e.responses[0].aiReview.e.status,'pending');assert.equal((await api.activityDetail(student,essay.id)).ownResponse.aiReview,undefined);await assert.rejects(api.commandActivity(teacher,essay.id,{action:'release'}),{status:409});
  assert.equal((await api.activityDetail(teacher,essay.id)).status,'active');
+ await api.commandActivity(teacher,essay.id,{action:'close'});assert.equal((await api.activityDetail(student,essay.id)).status,'closed');assert.equal((await api.activityDetail(student,essay.id)).ownResponse.grading,null);
  checks.push('Replacement closes prior question; essay AI pending remains private, incomplete release rejected without closing');
  console.log(JSON.stringify({passed:checks.length,checks},null,2));
 }finally{await h.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

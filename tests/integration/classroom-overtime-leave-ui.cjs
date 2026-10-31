@@ -90,6 +90,20 @@ if (!process.versions.electron) {
  checks.push({width,endAcknowledgedBeforeNavigation:true,transientFailureRetried:true});
  }
 
+ for(const [width,height]of [[1440,900],[390,844]]){
+ await enter(width,height);
+ await run('document.querySelector(".classroom-minimal-header button[aria-label=返回课程]").click()');await wait('document.querySelector("#overtime-leave-title")');
+ await clickButton('结束课堂并停止录制');await wait('document.querySelector("#end-class-title")');
+ assert.equal(await run('(window.fixtureEnds||[]).length'),0,'opening end confirmation cannot close a lesson');
+ await capture('overtime-explicit-end-'+width+'.png');
+ await run('window.fixtureHoldEnd=true');await clickButton('结束课堂并停止录制');await wait('typeof fixtureReleaseEnd==="function"');
+ assert.equal(await run('Boolean(window.fixtureNavigation)'),false);await run('fixtureReleaseEnd()');await wait('Boolean(window.fixtureNavigation)');
+ assert.equal(await run('(window.fixtureLeaves||[]).length'),0);checks.push({width,overtimeExplicitEndRequiresConfirmationAndAck:true});
+ await enter(width,height,'');
+ await run('document.querySelector(".classroom-minimal-course").dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}))');
+ await wait('[...document.querySelectorAll("[role=menuitem]")].some(e=>e.textContent.includes("结束课堂并停止录制"))');
+ await capture('course-menu-end-'+width+'.png');checks.push({width,endVisibleInCourseMenu:true});
+ }
  await enter(1440,900);
  await run('window.fixtureBeacons=[];navigator.sendBeacon=(url,blob)=>{fixtureBeacons.push({url,blob});return true};window.dispatchEvent(new PageTransitionEvent("pagehide",{persisted:false}))');
  assert.equal(await run('(window.fixtureLeaves||[]).length'),0);

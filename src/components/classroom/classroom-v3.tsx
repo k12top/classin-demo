@@ -7564,9 +7564,10 @@ export function ClassroomV3({
             <footer>
               <button type="button" disabled={actionBusy === "overtimeLeave"} onClick={() => setOvertimeLeaveConfirming(false)}>{t("common.cancel")}</button>
               <button type="button" disabled={actionBusy === "overtimeLeave"} onClick={leaveTemporarily}><LogOut />{t("classroom.v3.leaveTemporarily")}</button>
-              <button type="button" className="is-danger" disabled={actionBusy === "overtimeLeave"} onClick={() => void finishOvertimeAndLeave()}>
+              <button type="button" disabled={actionBusy === "overtimeLeave"} onClick={() => void finishOvertimeAndLeave()}>
                 {actionBusy === "overtimeLeave" ? <Loader2 className="animate-spin" /> : <CircleStop />}{t("classroom.v3.overtimeLeaveFinish")}
               </button>
+              {sessionData.capabilities.canEndClass && <button type="button" className="is-danger" disabled={Boolean(actionBusy)} onClick={() => { setOvertimeLeaveConfirming(false); setActionError(""); setEndClassConfirming("end"); }}><CircleStop />{t("classroom.v3.endClassAndStopRecording")}</button>}
             </footer>
           </section>
         </div>}

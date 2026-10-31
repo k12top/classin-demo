@@ -7,7 +7,7 @@ import { casdoorUserIdCandidates } from "@/lib/course-teacher";
 import { prisma } from "@/lib/db";
 import type { ClassroomRole } from "@/lib/classroom/types";
 import {
-  ActivityError, activityCsv, answersMatch, gradeAnswers, publicDefinition, validateActivity, validateAnswers,
+  ActivityError, objectiveResultsReady, activityCsv, answersMatch, gradeAnswers, publicDefinition, validateActivity, validateAnswers,
   type ActivityAnswers, type ActivityDefinition, type ActivityDetail, type ActivityGrade,
   type ActivityPresentation, type ActivityKind, type ActivityResponse, type ActivityStatus, type ActivitySummary,
 } from "@/lib/classroom/activities";
@@ -235,7 +235,11 @@ export async function commandActivity(actor: ActivityActor, id: string, command:
     } else if (action === "close") {
       if (row.status === "closed" || row.status === "published") return { id, revision: ctx.runtime.revision };
       if (row.status !== "active") throw new ActivityError("Activity is not active", 409);
-      await tx.classroomActivity.update({ where: { id }, data: { version: { increment: 1 }, status: "closed", closedAt: new Date() } });
+      const definition = row.definition as ActivityDefinition;
+      const submissions = await tx.classroomActivitySubmission.findMany({ where: { activityId: id }, select: { grading: true } });
+      const publish = objectiveResultsReady(row.kind as ActivityKind, definition, submissions.map(s => s.grading as ActivityGrade | null));
+      const now = new Date();
+      await tx.classroomActivity.update({ where: { id }, data: { version: { increment: 1 }, status: publish ? "published" : "closed", closedAt: now, ...(publish ? { publishedAt: now } : {}) } });
     } else if (action === "cancel") {
       if (row.status === "cancelled") return { id, revision: ctx.runtime.revision };
       if (!["draft", "active", "closed"].includes(row.status)) throw new ActivityError("Published results cannot be cancelled", 409);
