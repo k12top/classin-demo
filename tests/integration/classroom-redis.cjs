@@ -21,7 +21,7 @@ async function main() {
     '@/lib/session':'export const getSessionFromRequest=async()=>globalThis.redisActor;',
     '@/lib/classroom/server/transcription-orchestrator':'export const ensureClassroomTranscriptionForLiveSession=async()=>{};export const syncClassroomTranscription=async()=>{};',
     '@/lib/classroom/server/recording-orchestrator':'export const requestRecordingStop=async()=>{};export const processRecordingStop=async()=>{};',
-    '@/lib/classroom/translation/wordly':'export const ensureWordlyRoom=async()=>{};export const translateCaptionWithWordly=async(_,x)=>x;',
+    '@/lib/classroom/translation/wordly':'export const ensureWordlyRoom=async()=>{};export const translateCaptionWithWordly=async(_,x)=>x;export const wordlyTranslationCapabilities=async()=>({});',
     'next/server':`export const NextResponse={json:(...args)=>Response.json(...args)};export const after=cb=>globalThis.redisBackground.push(cb);`,
   };
   const options={bundle:true,format:'cjs',platform:'node',packages:'external',tsconfig:path.join(root,'tsconfig.json'),plugins:[{name:'isolated-services',setup(build){
@@ -147,13 +147,14 @@ async function main() {
     pass('explicit leave and classroom end reject delayed heartbeats; closed checkpoints are discarded');
 
     const goodUrl=process.env.CLASSROOM_REDIS_URL;
+    const savedTimeout=process.env.CLASSROOM_REDIS_TIMEOUT_MS;process.env.CLASSROOM_REDIS_TIMEOUT_MS='100';
     await cmd(['CLIENT','PAUSE','1500','ALL']);
     await db.classroomRuntime.update({where:{sessionId:sid},data:{chatEnabled:true,revision:{increment:1}}});assert.equal(await api.synchronizeClassroomRedis(sid,true),false);
     const pending=await db.classroomRedisSync.findUnique({where:{sessionId:sid}});assert.equal(pending.processedAt,null);
     globalThis.redisAccessReads=0;
     const fallback=await api.heartbeat(request(),ctx);assert.equal(fallback.status,503);assert.equal(globalThis.redisAccessReads,0);
     let cacheFallback=false;
-    await assert.rejects(api.classroomSharedRead(sid,'redis-down',async()=>{cacheFallback=true;return ['pg-roster'];}),{code:'P2024'});
+    await assert.rejects(api.classroomSharedRead(sid,'redis-down',async()=>{cacheFallback=true;return ['pg-roster'];}),{code:'CLASSROOM_CACHE_UNAVAILABLE'});
     assert.equal(cacheFallback,false);
     assert.equal(api.classroomRedisDiagnostics().circuitOpen,true);
     pass('real Redis outage returns retryable errors without per-student PG reads; business synchronization remains pending');
@@ -176,14 +177,16 @@ async function main() {
     pass('unset Redis configuration preserves the existing PG path');
 
     await cmd(['CLIENT','PAUSE','1000','ALL']);const timeoutStart=Date.now();assert.equal(await cmd(['SET',key('timeout-test'),'value','PX','1000']),undefined);
-    assert.ok(Date.now()-timeoutStart<800);assert.equal(api.classroomRedisDiagnostics().circuitOpen,true);await sleep(1100);await api.closeClassroomRedis();
+    assert.ok(Date.now()-timeoutStart<800);assert.equal(api.classroomRedisDiagnostics().circuitOpen,false);
+    assert.equal(await cmd(['PING']),undefined);assert.equal(await cmd(['PING']),undefined);assert.equal(api.classroomRedisDiagnostics().circuitOpen,true);await sleep(1100);await api.closeClassroomRedis();
     assert.equal(await cmd(['PING']),'PONG');
-    pass('real Redis command timeout opens the circuit promptly and allows later recovery');
+    if(savedTimeout===undefined)delete process.env.CLASSROOM_REDIS_TIMEOUT_MS;else process.env.CLASSROOM_REDIS_TIMEOUT_MS=savedTimeout;
+    pass('isolated timeout preserves the shared connection; repeated timeouts open a bounded circuit and recover');
 
     let active=0,maxActive=0;const fallbacks=await Promise.allSettled(Array.from({length:16},(_,i)=>api.classroomPgFallback(`limit-${i}`,async()=>{
       active++;maxActive=Math.max(maxActive,active);await sleep(120);active--;return 'PG';
     })));
-    assert.equal(maxActive,2);assert.ok(fallbacks.some(r=>r.status==='rejected'&&r.reason.code==='P2024'));
+    assert.equal(maxActive,2);assert.ok(fallbacks.some(r=>r.status==='rejected'&&r.reason.code==='CLASSROOM_CACHE_UNAVAILABLE'));
     assert.ok(fallbacks.filter(r=>r.status==='fulfilled').every(r=>r.value==='PG'));
     pass('PG fallback concurrency stays at two and queue exhaustion produces a retryable error');
     console.log(`PASS ${passed} Redis/PG integration scenarios with PG pool max=3`);

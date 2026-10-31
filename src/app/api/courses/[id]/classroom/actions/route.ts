@@ -3,7 +3,7 @@ import { ClassroomCommandConflict, validClassroomCommandId } from "@/lib/classro
 import { classroomConnectionReplaced, normalizeClassroomClientId, touchClassroomConnection } from "@/lib/classroom/server/connections";
 import { requestClassroomScreenShare } from "@/lib/classroom/server/screen-share-request";
 import { after, NextRequest, NextResponse } from "next/server";
-import { classroomRedisEnabled } from "@/lib/classroom/server/redis";
+import { classroomRedisDiagnostics, classroomRedisEnabled } from "@/lib/classroom/server/redis";
 import { getSessionFromRequest } from "@/lib/session";
 import { redisClassroomHeartbeat, type RedisHeartbeat } from "@/lib/classroom/server/redis-presence";
 import { flushClassroomRedisPresence, refreshClassroomRedisControl, requestClassroomRedisRefresh, synchronizeClassroomRedis } from "@/lib/classroom/server/redis-sync";
@@ -126,12 +126,18 @@ export async function POST(
     if (cached) {
       scheduleRedisHeartbeatWork(courseId, cached);
       if (cached.status === "ended") return NextResponse.json({ code: "classroom_ended", error: "课堂已结束" }, { status: 409 });
-      if (cached.reason === "busy") return NextResponse.json({ code: "heartbeat_busy", refreshed: false, retryable: true }, { status: 503, headers: { "Retry-After": "2" } });
+      if (cached.reason === "busy") {
+        console.warn("[classroom:heartbeat]", { sessionId: courseId, code: "heartbeat_busy", durationMs: Math.round(performance.now() - startedAt) });
+        return NextResponse.json({ code: "heartbeat_busy", refreshed: false, retryable: true }, { status: 503, headers: { "Retry-After": "2" } });
+      }
       if (cached.reason === "replaced") return NextResponse.json({ code: "classroom_connection_replaced", refreshed: false }, { status: 409 });
       if (!cached.refreshed) return NextResponse.json({ code: "classroom_connection_closed", refreshed: false }, { status: 409 });
       return NextResponse.json({ ok: true, status: cached.status, refreshed: true });
     }
     // An unverified/missing cache must not amplify into one PG fallback per student.
+    console.warn("[classroom:heartbeat]", { sessionId: courseId, code: "presence_unavailable",
+      reason: cached === undefined ? "redis_unavailable" : "control_or_lease_unverified",
+      durationMs: Math.round(performance.now() - startedAt), region: process.env.VERCEL_REGION || "unknown", redis: classroomRedisDiagnostics() });
     after(() => requestClassroomRedisRefresh(courseId));
     return NextResponse.json({ code: "presence_unavailable", refreshed: false, retryable: true }, { status: 503, headers: { "Retry-After": "3" } });
   }

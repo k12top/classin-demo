@@ -1,9 +1,15 @@
+import { ClassroomCacheUnavailableError } from "@/lib/classroom/cache-error";
 import { NextResponse } from "next/server";
 import { databasePoolSnapshot, isTransientDatabaseError } from "@/lib/db";
 
 export function databaseUnavailableResponse(error: unknown, context: {
   route?: string; operation?: string; sessionId?: string; userId?: string; clientId?: string | null; durationMs?: number; phase?: string;
 } = {}) {
+  if (error instanceof ClassroomCacheUnavailableError) {
+    console.warn("[classroom:cache-unavailable]", { ...context, reason: error.reason, region: process.env.VERCEL_REGION || "unknown" });
+    return NextResponse.json({ error: "Classroom cache temporarily unavailable", code: "classroom_cache_unavailable", retryable: true },
+      { status: 503, headers: { "Retry-After": "2" } });
+  }
   if (!isTransientDatabaseError(error)) return null;
   const code = error && typeof error === "object" && "code" in error ? String(error.code) : "unknown";
   console.warn("[database:unavailable]", {

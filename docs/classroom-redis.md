@@ -30,3 +30,16 @@ PG 是入退课、课堂权限、课件、字幕、聊天、录制和其他业�
 同时运行 `npm test`、`npx tsc --noEmit`、相关 ESLint、`node scripts/verify-classroom-resilience.cjs` 和生产构建。自动化验证不等于线上域名切换及真实多设备上课验收。
 
 2026-10-11 本次提交范围的独立副本验证：242 项单元测试通过；20 项真实 Redis/PG 场景通过（含 80 个并发心跳零 PG 读写）；原有连接恢复 13 项、并发压力 8 项及课堂生命周期集成通过；TypeScript、相关 ESLint、Next.js 16.2.6 生产构建通过。测试数据库与 Redis 均为临时容器，已清理；未进行线上 Redis 配置、线上迁移或域名切换。
+
+## 心跳超时与熔断（2026-10-31）
+
+`CLASSROOM_REDIS_TIMEOUT_MS` 默认 1500ms，允许 100–3000ms；连接建立使用同一预算。
+发布时应核对实际环境值，旧的 350ms 显式配置不会被代码默认值覆盖。
+单次命令失败保留共享连接，连续三次失败才熔断。连接建立失败直接熔断。
+恢复等待从 500ms 指数退避到最多 4 秒，半开时仅放行一个请求；仅成功执行 Redis 命令后报告 recovered。
+不自动重放超时命令，因为写入可能已经在 Redis 执行。
+
+Redis 日志记录 operation、phase、errorKind、durationMs、timeoutMs、consecutiveFailures、retryAfterMs、region；不记录 URL、命令参数、键或原始异常消息。
+心跳 503 另外记录 presence_unavailable 以及 redis_unavailable / control_or_lease_unverified 原因。
+缓存不可用、重建繁忙和缓存回退限流返回 classroom_cache_unavailable，不再伪装为 Prisma P2024 / database_unavailable；真实数据库故障仍使用原分类。
+本变更不修改键前缀、租约结构、RTC 身份、成员权限或课堂生命周期，不需要迁移或清空缓存。

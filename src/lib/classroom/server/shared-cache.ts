@@ -1,3 +1,4 @@
+import { ClassroomCacheUnavailableError } from "../cache-error";
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { coalesceClassroomRead } from "./read-coalescing";
@@ -29,7 +30,7 @@ export function classroomSharedRead<T>(sessionId: string, scope: string, load: (
     };
     let result = await read();
     if (result.hit) return result.value as T;
-    if (result.unavailable || !result.control) throw Object.assign(new Error("Classroom cache is unavailable"), { code: "P2024" });
+    if (result.unavailable || !result.control) throw new ClassroomCacheUnavailableError("unavailable");
     const token = randomUUID();
     const acquired = await classroomRedisCommand(["SET", lockKey, token, "NX", "PX", "5000"]);
     if (acquired !== "OK") {
@@ -42,7 +43,7 @@ export function classroomSharedRead<T>(sessionId: string, scope: string, load: (
         if (result.hit) return result.value as T;
         if (result.unavailable) break;
       }
-      throw Object.assign(new Error("Classroom cache rebuild is busy"), { code: "P2024" });
+      throw new ClassroomCacheUnavailableError("rebuild_busy");
     }
     try {
       const value = await classroomPgFallback(`read:${sessionId}:${scope}`, load);
