@@ -62,6 +62,7 @@ export function prefersMp4Playback(userAgent: string): boolean {
 /** Own both formats as one media lifecycle; a failed HLS attempt falls back only once. */
 export function connectPlaybackMedia(video: HTMLVideoElement, src: string, isHls: boolean, options: PlaybackMediaOptions): () => void {
   const controller = new AbortController();
+  const ua = options.userAgent ?? (typeof navigator !== "undefined" ? navigator.userAgent : "");
   let disposed = false, changingSource = false, fallbackAttempted = false;
   let generation = 0;
   let format: "mp4" | "hls" = "mp4";
@@ -127,13 +128,21 @@ export function connectPlaybackMedia(video: HTMLVideoElement, src: string, isHls
         options.onDirectUrl(url); video.src = url; video.load();
         return;
       }
-      if (video.canPlayType("application/vnd.apple.mpegurl") || video.canPlayType("application/x-mpegURL")) {
+      const nativeHls = Boolean(video.canPlayType("application/vnd.apple.mpegurl") || video.canPlayType("application/x-mpegURL"));
+      // Chromium can advertise native HLS yet stall at metadata preload. Prefer
+      // its mature MSE path; Safari/WebKit retain native playback.
+      if (nativeHls && !/(?:Chrome|Chromium|Edg|OPR)\//i.test(ua)) {
         video.src = source; video.load(); return;
       }
       const { default: HlsPlayer } = await (options.loadHls ?? (() => import("hls.js")))();
       if (disposed || epoch !== generation) return;
-      if (!HlsPlayer.isSupported()) { clearTimer(); issue("unsupported"); return; }
-      const player = new HlsPlayer({ backBufferLength: 30, maxBufferLength: 20, maxMaxBufferLength: 60 });
+      if (!HlsPlayer.isSupported()) {
+        if (nativeHls) { video.src = source; video.load(); return; }
+        clearTimer(); issue("unsupported"); return;
+      }
+      // hls.js 1.1's bundled worker throws internalException on real Agora fMP4.
+      // Inline demuxing keeps small buffered fragments on the verified path.
+      const player = new HlsPlayer({ enableWorker: false, backBufferLength: 30, maxBufferLength: 20, maxMaxBufferLength: 60 });
       hls = player;
       player.on(HlsPlayer.Events.ERROR, (_event, data) => {
         if (disposed || epoch !== generation || !data.fatal) return;
@@ -150,7 +159,6 @@ export function connectPlaybackMedia(video: HTMLVideoElement, src: string, isHls
   }
   void Promise.resolve().then(() => {
     if (disposed) return;
-    const ua = options.userAgent ?? (typeof navigator !== "undefined" ? navigator.userAgent : "");
     const preferredHls = !isHls && options.hlsSrc && !prefersMp4Playback(ua);
     return attach(isHls || preferredHls ? "hls" : "mp4", preferredHls ? options.hlsSrc! : src);
   });

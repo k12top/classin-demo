@@ -2,7 +2,7 @@
 
 ## Behavior
 
-Logical recording clips retain their existing `recordingId:index` values and MP4 links. When a single MP4 has a matching HLS playlist, the recording list additionally returns `hlsPlaybackUrl`. The player prefers native HLS, then lazy-loaded hls.js. Explicit HarmonyOS/OpenHarmony user agents use MP4 directly. Unknown/hidden user agents are handled by capability detection and runtime recovery.
+Logical recording clips retain their existing `recordingId:index` values and MP4 links. When a single MP4 has a matching HLS playlist, the recording list additionally returns `hlsPlaybackUrl`. The player uses native HLS on Safari/WebKit and prefers lazy-loaded hls.js/MSE on Chromium; native playback remains available when MSE is unsupported. Explicit HarmonyOS/OpenHarmony user agents use MP4 directly. Unknown/hidden user agents are handled by capability detection and runtime recovery.
 
 Unsupported HLS, fatal network/media errors and the 12-second startup/buffering watchdog fall back to MP4 at most once. Current position and playback intent survive the switch. A stale HLS import/error cannot reattach after fallback, retry or clip change. If MP4 also fails, the existing localized help and manual retry remain available. Native HLS-only and legacy MP4-only recordings retain their existing paths. Ambiguous multi-MP4 recordings retain clip boundaries rather than pairing every clip with one full-length playlist.
 
@@ -23,3 +23,7 @@ Session `0237942b-6502-4aa1-88fc-423f95531aed`, recording `1393f5cc-5b34-49b5-a2
 - Existing clip IDs, captions, watch-time tracking and manual MP4 entry remain in place. No live lesson is ended or restarted for verification or deployment.
 
 Derived HLS files live beside the edited MP4 under `recording-edits/`, outside Agora's recording-discovery prefix. Their manifest is selected only through the matching recording's verified edit metadata. This prevents initialization objects from being rediscovered as extra recorded MP4 clips.
+
+Production browser verification found Chromium advertising native HLS but remaining at readyState 0 after successful manifest/fragment responses, until the startup watchdog selected MP4. Chromium now prefers hls.js/MSE when available, while Safari/WebKit retains native playback. Native HLS remains a fallback when MSE is unavailable. A regression fixture explicitly advertises native support on a Chromium UA and verifies MSE selection.
+
+A real archived-media smoke test also exposed an internalException in the installed hls.js 1.1 worker bundle. Inline demuxing (enableWorker: false) decoded the same fMP4 recording successfully, with a MediaSource URL, readyState 4 and advancing playback. Forward/back buffers remain bounded. This supplements the synthetic media fixture; it is not a physical HarmonyOS/Safari test.

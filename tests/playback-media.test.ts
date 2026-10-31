@@ -205,3 +205,14 @@ test("HLS startup timeout abandons late imports and uses MP4 without surfacing a
   finish({default:{isSupported:()=>{assert.fail("late HLS import must not attach")}}} as never);await flush();
   assert(!issues.includes("timeout"));cleanup();
 });
+
+test("Chromium uses MSE even when native HLS is advertised but metadata preloading can stall", async()=>{
+  const video=new Video();video.nativeHls=true;let attached=false;
+  class MseHls{
+    static isSupported(){return true}static Events={ERROR:"error"};static ErrorTypes={NETWORK_ERROR:"network",MEDIA_ERROR:"media"};
+    on(){} loadSource(value:string){assert.equal(value,"/manifest.m3u8")} attachMedia(){attached=true;video.src="blob:mse"} destroy(){}
+  }
+  const cleanup=connectPlaybackMedia(video.asElement(),src,false,{hlsSrc:"/manifest.m3u8",userAgent:"Mozilla/5.0 Chrome/156.0 Safari/537.36",
+    onIssue:()=>{},onDirectUrl:()=>{},loadHls:async()=>({default:MseHls}) as never,fetcher:async()=>assert.fail("MSE HLS should not resolve MP4")});
+  await flush();assert.equal(attached,true);assert.equal(video.src,"blob:mse");cleanup();
+});
