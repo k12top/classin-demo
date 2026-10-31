@@ -65,9 +65,9 @@ async function main(){
 
  const ready=async(invitedOnly=false)=>{await run(`fixturePayload.runtime.members.filter(m=>m.role==='student'&&(!${invitedOnly}||m.screenShareState==='requested')).forEach((m,i)=>{m.screenShareState='accepted';const composition=fixturePayload.runtime.composition;const auto=fixtureAutoShare(composition,m.userId,m.screenShareRequestedAt?new Date(m.screenShareRequestedAt):null);composition.screenShares=fixturePrepareShare(composition.screenShares,{userId:m.userId,clientId:'client-fixture-'+i,claimId:'claim-fixture-'+i,rtcUid:1500000001+i},auto);if(auto)delete composition.screenShareAutoDisplay;});fixturePayload.runtime.revision++;typeof fixtureReceive==='function'&&fixtureReceive({courseId:'fixture-session',topic:'runtime',revision:fixturePayload.runtime.revision},'teacher:tab')`)};
  const textButton=async(label)=>{assert.equal(await run(`(()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(label)});if(!button)return false;button.click();return true})()`),true,label);await settle()};
- win.setContentSize(1440,900);await win.loadURL(url+'&role=teacher');await wait(`document.querySelector('.classroom-student-share-trigger')&&typeof fixtureReceive==='function'`);
- await run(`document.querySelector('.classroom-stage-share-actions button').click()`);await wait(`document.querySelector('section[aria-label="学生共享"]')`);
- await textButton('邀请学生');await wait(`document.querySelectorAll('input[type="checkbox"]').length===2`);
+ win.setContentSize(1440,900);await win.loadURL(url+'&role=teacher');await wait(`document.querySelector('[data-dock-action="share"]')&&typeof fixtureReceive==='function'`);
+ assert.equal(await run(`!!document.querySelector('.classroom-stage-share-controls')`),false,'idle stage has no floating controls');
+ await run(`document.querySelector('[data-dock-action="share"]').click()`);await wait(`document.querySelector('.classroom-share-menu')`);await textButton('邀请学生');await wait(`document.querySelectorAll('input[type="checkbox"]').length===2`);
  await run(`document.querySelector('input[type="checkbox"]').click()`);await textButton('邀请 1 人');
  await wait(`fixturePayload.runtime.composition.screenShareAutoDisplay?.userId==='student'`);
  assert.equal(await run(`fixtureLastAction.autoDisplay`),true,'single invitation carries teacher automatic-presentation intent');
@@ -77,11 +77,9 @@ async function main(){
  await capture('single-auto-display.png');await textButton('停止展示');await wait(`fixtureSelected===null`);
  console.log('PASS single invitation automatically presents when ready without a teacher selection click');
  for(const [width,height] of [[1440,900],[390,844],[320,740]]){
-  win.setContentSize(width,height);await win.loadURL(url+'&role=teacher');await wait(`document.querySelector('.classroom-student-share-trigger')&&typeof fixtureReceive==='function'`);
-  assert.ok(await run(`(()=>{const stage=document.querySelector('.classroom-v3-stage').getBoundingClientRect(), buttons=[...document.querySelectorAll('.classroom-stage-share-actions button')];return buttons.length===2&&buttons.every(b=>{const r=b.getBoundingClientRect();return r.width>=44&&r.height>=44&&r.left>=stage.left&&r.right<=stage.right+1})})()`),'stage controls fit '+width);
-  await run(`document.querySelectorAll('.classroom-stage-share-actions button')[1].click()`);await wait(`document.body.innerText.includes('课堂成员')`);
-  await run(`document.querySelector('.classroom-stage-share-actions button').click()`);await wait(`document.querySelector('section[aria-label="学生共享"]')`);
-  await textButton('邀请学生');await wait(`document.querySelectorAll('input[type="checkbox"]').length===2`);
+  win.setContentSize(width,height);await win.loadURL(url+'&role=teacher');await wait(`document.querySelector('[data-dock-action="share"]')&&typeof fixtureReceive==='function'`);
+  assert.equal(await run(`!!document.querySelector('.classroom-stage-share-controls')`),false,'idle stage has no floating controls');
+  await run(`document.querySelector('[data-dock-action="share"]').click()`);await wait(`document.querySelector('.classroom-share-menu')`);await textButton('邀请学生');await wait(`document.querySelectorAll('input[type="checkbox"]').length===2`);
   await run(`[...document.querySelectorAll('input[type="checkbox"]')].forEach(input=>input.click())`);await textButton('邀请 2 人');
   await wait(`fixtureActions.filter(a=>a==='requestScreenShare').length===2`);assert.equal(await run('fixtureLastAction.autoDisplay'),false,'batch invitations remain teacher-selected');
   await ready();await wait(`document.querySelectorAll('section[aria-label="学生共享"] article').length===2&&[...document.querySelectorAll('section[aria-label="学生共享"] button')].filter(b=>b.textContent.trim()==='全班展示').length===2`);await capture('ready-'+width+'.png');
@@ -93,6 +91,7 @@ async function main(){
   await capture('showing-'+width+'.png');await textButton('停止展示');await wait(`fixtureSelected===null&&!document.querySelector('.classroom-v3-stage-layer.is-screen-share')`);
   assert.equal(await run(`[...document.querySelectorAll('button')].filter(b=>b.textContent.trim()==='全班展示').length`),2,'ready candidates survive pause');
   await run(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='结束共享').click()`);await wait(`document.querySelectorAll('section[aria-label="学生共享"] article').length===1`);
+  await run(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='结束共享').click()`);await wait(`!document.querySelector('.classroom-stage-share-controls')`);
   console.log('PASS multi-share teacher invitations, ready list, global selection, pause/end and layout',width);
  }
  for(const suffix of ['&role=student','&role=student&is_recorder=1&recordingId=fixture&recorderToken=fixture']){

@@ -113,3 +113,18 @@ test('revocation, decline, whiteboard selection and stale grant timestamps canno
   const f=fixture();
   await assert.rejects(f.apply({type:'requestScreenShare',targetUserId:'alice',autoDisplay:'yes'} as unknown as ClassroomAction),{status:400});
 });
+
+
+test('releasing the last capture closes the invitation while retaining permission to share again', async () => {
+  const f=fixture();
+  await f.apply({type:'requestScreenShare',targetUserId:'alice'});
+  await f.apply({type:'acceptScreenShare'},'alice','student');
+  await f.apply({type:'startScreenShare',claimId:'claim-alice'},'alice','student');
+  await f.apply({type:'releaseScreenShare',claimId:'wrong-claim'},'alice','student');
+  assert.ok(f.members.get('alice')!.screenShareRequestedAt);
+  await f.apply({type:'releaseScreenShare',claimId:'claim-alice'},'alice','student');
+  assert.equal(f.members.get('alice')!.screenShareRequestedAt,null);
+  assert.equal(f.members.get('alice')!.screenShareState,'accepted');
+  await f.apply({type:'startScreenShare',claimId:'claim-again'},'alice','student');
+  assert.equal(f.runtime.composition.screenShares.main,undefined,'retained permission does not repeat auto-presentation');
+});

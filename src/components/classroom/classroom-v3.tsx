@@ -6219,7 +6219,17 @@ export function ClassroomV3({
   };
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
   const studentSharesOpen = activePanel === "screens";
+  const [studentInviteOpen, setStudentInviteOpen] = useState(false);
+  const preparedStudentIds = new Set(mainScreenShareCandidates(screenLeases).map(lease => lease.userId));
+  const studentShareCount = classroomMembers.filter(member => member.role === "student" && (preparedStudentIds.has(member.userId) || member.screenShareState === "requested" || (member.screenShareState === "accepted" && Boolean(member.screenShareRequestedAt)))).length;
+  const hasStudentShares = studentShareCount > 0;
+  const previousStudentShares = useRef(false);
+  useEffect(() => {
+    if (previousStudentShares.current && !hasStudentShares) { setActivePanel(current => current === "screens" ? null : current); setStudentInviteOpen(false); }
+    previousStudentShares.current = hasStudentShares;
+  }, [hasStudentShares]);
   const setStudentSharesOpen = useCallback((value: boolean | ((current: boolean) => boolean)) => {
+    setStudentInviteOpen(false);
     setActivePanel(current => (typeof value === "function" ? value(current === "screens") : value) ? "screens" : null);
   }, []);
   const closeShareMenu = useCallback(() => setShareMenuOpen(false), []);
@@ -6501,7 +6511,7 @@ export function ClassroomV3({
       data-recorder-cameras={isRecorder && recorderCameras.length > 0}
     >
       {classinLayout && !isRecorder ? <MinimalHeader
-        screenShareControl={!classEnded && sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage ? <button type="button" className="classroom-minimal-icon classroom-student-share-trigger" aria-label={t("classroomMultiShare.title")} title={t("classroomMultiShare.title")} aria-expanded={studentSharesOpen} onClick={() => { setStudentSharesOpen(value => !value); }}><MonitorUp /><span>{mainScreenShareCandidates(screenLeases).length}</span></button> : undefined}
+        screenShareControl={hasStudentShares && !classEnded && sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage ? <button type="button" className="classroom-minimal-icon classroom-student-share-trigger" aria-label={t("classroomMultiShare.title")} title={t("classroomMultiShare.title")} aria-expanded={studentSharesOpen} onClick={() => { setStudentSharesOpen(value => !value); }}><MonitorUp /><span>{studentShareCount}</span></button> : undefined}
         course={sessionData.course} runtime={sessionData.runtime} now={now + presenceClockOffset}
         roleName={roleLabel(sessionData.credential.role, t)} memberCount={classroomPresenceSummary(classroomMembers).online} membersOpen={activePanel === "members"}
         connectionState={media.connectionState} presenceHealthy={presenceHealthy && !sessionData.runtime.presenceUncertain}
@@ -6806,7 +6816,7 @@ export function ClassroomV3({
         {!isRecorder && sessionData.credential.role === "student" && !classEnded && sessionData.mode !== "publicLive" && <StudentActivityOverlay sessionId={courseId} shareAccess={shareAccess} currentUserId={currentUserId} onChanged={revision => publishInvalidation(revision, "activities")} />}
         {!isRecorder && <ConversationResizer open={conversationOpen} />}
         {!isRecorder && controlMedia.local.screenSharing && <div className="classroom-screen-prepared" role="status"><span>{t(ownsScreenShare(screenLease, currentUserId, clientId) ? "classroomMultiShare.live" : "classroomMultiShare.waiting")}</span><button type="button" onClick={stopLocalSharing}>{t("classroomMultiShare.exit")}</button></div>}
-        {!isRecorder && <ScreenShareMenu open={shareMenuOpen} sharing={controlMedia.local.screenSharing} supported={Boolean((controlsRoomMedia ? roomProvider : mediaProvider)?.supportsSharePortrait?.())} options={{ ...controlMedia.local.screenShareOptions, mode: controlMedia.local.screenShareMode ?? "portrait", corner: controlMedia.local.screenShareCorner ?? "br" }} busy={Boolean(actionBusy)} onClose={closeShareMenu} onStop={stopLocalSharing} onOptionsChange={options => { const provider = controlsRoomMedia ? roomProvider : mediaProvider; void provider?.setScreenShareOptions?.(options).catch(error => setActionError(error instanceof Error ? error.message : t("classroom.v3.mediaActionFailed"))); }} onSelect={options => toggleScreenShare(options)} />}
+        {!isRecorder && <ScreenShareMenu screenSupported={screenShareSupported} onInviteStudents={sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage && !classEnded ? () => { setShareMenuOpen(false); setStudentInviteOpen(true); setActivePanel("screens"); } : undefined} open={shareMenuOpen} sharing={controlMedia.local.screenSharing} supported={Boolean((controlsRoomMedia ? roomProvider : mediaProvider)?.supportsSharePortrait?.())} options={{ ...controlMedia.local.screenShareOptions, mode: controlMedia.local.screenShareMode ?? "portrait", corner: controlMedia.local.screenShareCorner ?? "br" }} busy={Boolean(actionBusy)} onClose={closeShareMenu} onStop={stopLocalSharing} onOptionsChange={options => { const provider = controlsRoomMedia ? roomProvider : mediaProvider; void provider?.setScreenShareOptions?.(options).catch(error => setActionError(error instanceof Error ? error.message : t("classroom.v3.mediaActionFailed"))); }} onSelect={options => toggleScreenShare(options)} />}
         <motion.section
           layout
           className="classroom-v3-stage"
@@ -6814,12 +6824,12 @@ export function ClassroomV3({
           ref={stageElementRef}
           transition={{ type: "spring", stiffness: 320, damping: 32 }}
         >
-          {!isRecorder && !classEnded && sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage && <div className="classroom-stage-share-controls">
+          {!isRecorder && !classEnded && sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage && (hasStudentShares || studentSharesOpen) && <div className="classroom-stage-share-controls">
             <div className="classroom-stage-share-actions">
-              <button type="button" className={studentSharesOpen ? "is-active" : ""} aria-expanded={studentSharesOpen} onClick={() => setStudentSharesOpen(value => !value)}><Users /><span>{t("classroomMultiShare.title")} · {mainScreenShareCandidates(screenLeases).length}</span></button>
+              <button type="button" className={studentSharesOpen ? "is-active" : ""} aria-expanded={studentSharesOpen} onClick={() => setStudentSharesOpen(value => !value)}><Users /><span>{t("classroomMultiShare.title")} · {studentShareCount}</span></button>
               <button type="button" aria-expanded={activePanel === "members"} onClick={() => setActivePanel(current => current === "members" ? null : "members")}><Settings2 /><span>{t("classroomMultiShare.stageManagement")}</span></button>
             </div>
-            {studentSharesOpen && <div className="classroom-stage-share-popover"><StudentScreenShares members={classroomMembers} shares={screenLeases || {}} busy={Boolean(actionBusy)} onAction={performAction} onClose={() => setStudentSharesOpen(false)} /></div>}
+            {studentSharesOpen && <div className="classroom-stage-share-popover"><StudentScreenShares inviteInitially={studentInviteOpen} members={classroomMembers} shares={screenLeases || {}} busy={Boolean(actionBusy)} onAction={performAction} onClose={() => setStudentSharesOpen(false)} /></div>}
           </div>}
           <header className="classroom-v3-stage-bar">
             <div>
@@ -6834,7 +6844,7 @@ export function ClassroomV3({
               </span>
             </div>
             <div>
-              {!isRecorder && !classEnded && sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage && <button type="button" aria-expanded={studentSharesOpen} onClick={() => { setStudentSharesOpen(value => !value); }}><MonitorUp /><span>{t("classroomMultiShare.title")} · {mainScreenShareCandidates(screenLeases).length}</span></button>}
+              {!isRecorder && !classEnded && sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage && hasStudentShares && <button type="button" aria-expanded={studentSharesOpen} onClick={() => { setStudentSharesOpen(value => !value); }}><MonitorUp /><span>{t("classroomMultiShare.title")} · {studentShareCount}</span></button>}
               {!isRecorder && !classEnded && sessionData.mode !== "publicLive" && <ActivityNotice sessionId={courseId} shareAccess={shareAccess} onOpen={openActivityTools} />}
               {!isRecorder &&
                 !screenParticipant &&
@@ -7671,12 +7681,12 @@ export function ClassroomV3({
             {sessionData.capabilities.canManageStage && sessionData.modePolicy.showHandRaise && <HandRaiseQueue
               members={classroomMembers} busy={Boolean(actionBusy)} onAction={performAction}
               onViewMembers={() => setActivePanel("members")} />}
-            {isScreenShareAllowed && (screenShareSupported || controlMedia.local.screenSharing) && (
+            {((isScreenShareAllowed && (screenShareSupported || controlMedia.local.screenSharing)) || (sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage)) && (
               <button
                 type="button"
                 disabled={Boolean(actionBusy)}
                 data-dock-action="share" className={`is-dock-secondary ${controlMedia.local.screenSharing ? "is-active" : ""}`}
-                onClick={() => screenShareSupported
+                onClick={() => screenShareSupported || sessionData.capabilities.canManageMembers
                   ? toggleScreenShare()
                   : setActionError(t("classroom.v3.screenShareBrowserUnsupported"))}
                 title={screenShareSupported

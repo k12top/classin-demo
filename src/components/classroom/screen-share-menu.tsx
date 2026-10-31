@@ -2,12 +2,14 @@
 import { ClassroomIconButton } from "./icon-button";
 
 import { useEffect, useRef } from "react";
-import { MonitorUp, PanelsTopLeft, CircleStop, X, Check } from "lucide-react";
+import { MonitorUp, PanelsTopLeft, CircleStop, X, Check, Users } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
 import { PORTRAIT_BORDER_COLORS, PORTRAIT_DEFAULT_SIZE, PORTRAIT_MIN_SIZE } from "@/lib/classroom/share-portrait";
 import type { ClassroomScreenShareOptions } from "@/lib/classroom/types";
 
-export function ScreenShareMenu({ open, sharing, supported, options, busy, onSelect, onOptionsChange, onStop, onClose }: {
+export function ScreenShareMenu({ open, sharing, supported, options, busy, onSelect, onOptionsChange, onStop, onClose, onInviteStudents, screenSupported = true }: {
+  screenSupported?: boolean;
+  onInviteStudents?: () => void;
   open: boolean; sharing: boolean; supported: boolean; options: ClassroomScreenShareOptions; busy: boolean;
   onSelect: (options: ClassroomScreenShareOptions) => void; onOptionsChange: (options: ClassroomScreenShareOptions) => void; onStop: () => void; onClose: () => void;
 }) {
@@ -25,9 +27,10 @@ export function ScreenShareMenu({ open, sharing, supported, options, busy, onSel
   if (!open) return null;
   return <div ref={root} className="classroom-share-menu" role="dialog" aria-label={t("classroomSharing.title")}>
     <header><span>{t("classroomSharing.title")}</span><ClassroomIconButton type="button" aria-label={t("classroom.v3.collapsePanel")} onClick={onClose}><X /></ClassroomIconButton></header>
-    {(["screen", "portrait"] as const).map(mode => <ClassroomIconButton type="button" key={mode} disabled={busy || (mode === "portrait" && !supported)} aria-pressed={sharing && options.mode === mode} onClick={() => onSelect({ ...options, mode })}>
+    {(["screen", "portrait"] as const).map(mode => <ClassroomIconButton type="button" key={mode} disabled={busy || !screenSupported || (mode === "portrait" && !supported)} aria-pressed={sharing && options.mode === mode} onClick={() => onSelect({ ...options, mode })}>
       {mode === "screen" ? <MonitorUp /> : <PanelsTopLeft />}<span>{t(mode === "screen" ? "classroomSharing.screen" : "classroomSharing.portrait")}</span>{sharing && options.mode === mode && <Check />}
     </ClassroomIconButton>)}
+    {onInviteStudents && <ClassroomIconButton type="button" disabled={busy} onClick={onInviteStudents}><Users /><span>{t("classroomMultiShare.invite")}</span></ClassroomIconButton>}
     {!supported && <p>{t("classroomSharing.unsupported")}</p>}
     {sharing && options.mode === "portrait" && <><span className="classroom-share-corner-label">{t("classroomSharing.position")}</span><div className="classroom-share-corners">{(["tl", "tr", "bl", "br"] as const).map(corner => <ClassroomIconButton key={corner} type="button" disabled={busy} aria-pressed={(options.corner ?? "br") === corner} aria-label={t(`classroomSharing.${corner}`)} title={t(`classroomSharing.${corner}`)} onClick={() => onOptionsChange({ ...options, corner })}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2" /><circle cx={corner.endsWith("r") ? 17 : 7} cy={corner.startsWith("t") ? 9 : 15} r="2.5" fill="currentColor" /></svg></ClassroomIconButton>)}</div><div className="classroom-share-appearance">
       <label><span>{t("classroomSharing.size")}</span><input type="range" aria-label={t("classroomSharing.size")} min={PORTRAIT_MIN_SIZE} max={PORTRAIT_DEFAULT_SIZE} step={4} value={options.portraitSize ?? PORTRAIT_DEFAULT_SIZE} disabled={busy} onChange={event => onOptionsChange({ ...options, portraitSize: Number(event.target.value) })} /><output>{Math.round((options.portraitSize ?? PORTRAIT_DEFAULT_SIZE) / PORTRAIT_DEFAULT_SIZE * 100)}%</output></label>

@@ -1066,6 +1066,10 @@ export async function applyClassroomAction(input: {
           delete screenShares[scope];
         }
         await writeComposition({ ...currentComposition, screenShares });
+        if (scope === "main" && mainScreenShareCandidates(currentComposition.screenShares).some(candidate => candidate.userId === session.userId && candidate.clientId === input.clientId && candidate.claimId === action.claimId) && !mainScreenShareCandidates(screenShares).some(candidate => candidate.userId === session.userId)) {
+          // Close the invitation lifecycle while retaining the publishing grant.
+          await tx.classroomMemberState.update({ where: actorWhere, data: { screenShareRequestedAt: null } });
+        }
         // Releasing a capture (including a failed join) does not revoke the
         // teacher's grant. Explicit stop/revoke actions still remove it.
         break;
