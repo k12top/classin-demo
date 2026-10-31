@@ -364,6 +364,9 @@ export const en: typeof zhCN = {
       unmuteAllMicrophones: "Allow all students to speak",
       unmuteAllChat: "Unmute all chat",
       awardReceived: "Trophy awarded",
+      awardForYou: "You earned a trophy",
+      awardFromTeacher: "A classroom award from your teacher",
+      awardTotal: "{count} trophies earned",
       interpretationSaved: "Settings saved. Check the interpretation status above.",
       interpretationSaveFailed: "Settings were not saved. Your selections are kept; try again.",
 
