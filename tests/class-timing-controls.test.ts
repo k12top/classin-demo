@@ -136,3 +136,15 @@ test("light theme row actions have visible hover feedback without changing the d
     /\.rowActions\s*>\s*button\.endAction:is\(:hover,:focus-visible\)[^{]*\{[^}]*background\s*:\s*rgb\(255 94 105\/\.07\)[^}]*\}/s,
   );
 });
+
+test("compact timing control uses the row focus treatment without the global purple outline", async () => {
+  const css = await readFile(
+    new URL("../src/components/course-sessions/course-session-manager.module.css", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    css,
+    /\.rowActions\s*>\s*:global\(\.classroom-v3-class-controls--compact\):focus-visible[^{]*\{[^}]*outline\s*:\s*none[^}]*\}/s,
+  );
+});
