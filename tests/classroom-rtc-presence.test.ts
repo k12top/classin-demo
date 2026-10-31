@@ -42,8 +42,8 @@ test("attendance counts offstage people once and separates reconnecting and depa
     { ...student, userId: "reconnecting", connectionStatus: "reconnecting" },
     { ...student, userId: "departed", connectionStatus: "offline" },
   ];
-  assert.deepEqual(classroomPresenceSummary(roster), { online: 3, students: 1, teachers: 1, assistants: 1, reconnecting: 1 });
+  assert.deepEqual(classroomPresenceSummary(roster), { online: 3, students: 1, teachers: 1, assistants: 1, away: 1, reconnecting: 1 });
   const rejoined = roster.map(member => member.userId === "reconnecting" ? { ...member, online: true, connectionStatus: "online" as const } : member);
-  assert.deepEqual(classroomPresenceSummary(rejoined), { online: 4, students: 2, teachers: 1, assistants: 1, reconnecting: 0 });
-  assert.deepEqual(classroomPresenceSummary([]), { online: 0, students: 0, teachers: 0, assistants: 0, reconnecting: 0 });
+  assert.deepEqual(classroomPresenceSummary(rejoined), { online: 4, students: 2, teachers: 1, assistants: 1, away: 1, reconnecting: 0 });
+  assert.deepEqual(classroomPresenceSummary([]), { online: 0, students: 0, teachers: 0, assistants: 0, away: 0, reconnecting: 0 });
 });

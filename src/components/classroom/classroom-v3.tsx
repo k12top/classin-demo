@@ -66,7 +66,7 @@ import { deliverClassroomCaption } from "@/lib/classroom/caption-delivery";
 import { useClassroomSyncOwner, ClassroomSyncProvider } from "@/lib/classroom/use-classroom-sync";
 import { requestClassroomHeartbeat } from "@/lib/classroom/heartbeat-request";
 import { withClassroomRequestSignal } from "@/lib/classroom/request-signal";
-import { classroomMemberVisible, classroomPresenceSummary, classroomPresenceClockOffset } from "@/lib/classroom/presence";
+import { classroomMemberAway, classroomMemberVisible, classroomPresenceSummary, classroomPresenceClockOffset } from "@/lib/classroom/presence";
 import { requestClassroomSession, ClassroomSessionRequestError } from "@/lib/classroom/session-request";
 import { reconcileClassroomRtcPresence } from "@/lib/classroom/rtc-presence";
 
@@ -2013,7 +2013,8 @@ function MemberPanel({
     idle: "requestScreenShare", declined: "requestScreenShare", requested: "cancelScreenShareRequest",
     ready: "revokeScreenSharePermission", starting: "stopStudentScreenShare", sharing: "stopStudentScreenShare",
   })[shareStatus(member)];
-  const sorted = members.filter(classroomMemberVisible).sort((a, b) => {
+  const sorted = members.filter(member => classroomMemberVisible(member) || classroomMemberAway(member)).sort((a, b) => {
+    if (classroomMemberAway(a) !== classroomMemberAway(b)) return classroomMemberAway(a) ? 1 : -1;
     if (a.role !== b.role) {
       const order = { teacher: 0, assistant: 1, student: 2 };
       return order[a.role] - order[b.role];
@@ -2039,6 +2040,7 @@ function MemberPanel({
           <span>{t("classroomRoster.teachers", { count: summary.teachers })}</span>
           <span>{t("classroomRoster.assistants", { count: summary.assistants })}</span>
           {summary.reconnecting > 0 && <span>{t("classroomRoster.reconnecting", { count: summary.reconnecting })}</span>}
+          {summary.away > 0 && <span>{t("classroomRoster.awayCount", { count: summary.away })}</span>}
         </> : t("classroomRoster.syncingHint")}
       </p>
       {canManage && <div className="classroom-v3-bulk-actions">
@@ -2049,9 +2051,9 @@ function MemberPanel({
         {sorted.map((member) => (
           <article
             key={member.userId}
-            draggable={canManage && member.role === "student" && !member.onStage}
+            draggable={!classroomMemberAway(member) && canManage && member.role === "student" && !member.onStage}
             onDragStart={(event) => {
-              if (!canManage || member.role !== "student" || member.onStage) return;
+              if (classroomMemberAway(member) || !canManage || member.role !== "student" || member.onStage) return;
               event.dataTransfer.effectAllowed = "move";
               event.dataTransfer.setData(
                 "application/x-classroom-member",
@@ -2068,15 +2070,15 @@ function MemberPanel({
               <strong>{member.displayName}</strong>
               <small>
                 {roleLabel(member.role, t)}
-                {member.connectionStatus === "reconnecting" ? ` · ${t("classroom.v3.reconnecting")}` : ""}
-                {member.handRaisedAt
+                {classroomMemberAway(member) ? ` · ${t("classroomRoster.away")}` : member.connectionStatus === "reconnecting" ? ` · ${t("classroom.v3.reconnecting")}` : ""}
+                {!classroomMemberAway(member) && member.handRaisedAt
                   ? ` · ${t("classroom.v3.handRaised")}`
                   : ""}
-                {member.role === "student" ? ` · ${t(member.onStage ? "classroom.v3.onStage" : member.stageState === "invited" ? "classroom.v3.stageInvitationPending" : "classroom.v3.offStage")}` : ""}
-                {shareLabel(member) ? ` · ${t(`classroom.v3.${shareLabel(member)}`)}` : ""}
+                {!classroomMemberAway(member) && member.role === "student" ? ` · ${t(member.onStage ? "classroom.v3.onStage" : member.stageState === "invited" ? "classroom.v3.stageInvitationPending" : "classroom.v3.offStage")}` : ""}
+                {!classroomMemberAway(member) && shareLabel(member) ? ` · ${t(`classroom.v3.${shareLabel(member)}`)}` : ""}
               </small>
             </span>
-            {member.role === "student" && canManage && (
+            {member.role === "student" && canManage && !classroomMemberAway(member) && (
               <span className="classroom-v3-member-actions">
                 {!member.onStage && (
                   <button

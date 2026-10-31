@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classroomConnectionPresence, classroomMemberVisible, classroomPresenceClockOffset } from "../src/lib/classroom/presence";
+import { classroomConnectionPresence, classroomMemberAway, classroomMemberVisible, classroomPresenceClockOffset } from "../src/lib/classroom/presence";
 import { reconcileClassroomRtcPresence } from "../src/lib/classroom/rtc-presence";
 import { requestClassroomSession } from "../src/lib/classroom/session-request";
 import { requestClassroomHeartbeat, classroomPollDelay } from "../src/lib/classroom/heartbeat-request";
@@ -23,6 +23,11 @@ test("missed heartbeats retain a visible seat only through the reconnect deadlin
   const expired = reconcileClassroomRtcPresence([seat], disconnected, now + 60_000)[0];
   assert.equal(expired.connectionStatus, "offline");
   assert.equal(classroomMemberVisible(expired), false);
+  assert.equal(classroomMemberAway(expired), true);
+  assert.equal(classroomMemberAway(seat), false);
+  const recovered = { ...expired, ...classroomConnectionPresence({ online: true, mayReconnect: true, lastSeenAt: new Date(now + 61_000) }, now + 61_000) };
+  assert.equal(classroomMemberAway(recovered), false);
+  assert.equal(classroomMemberVisible(recovered), true);
   assert.equal(expired.onStage, true);
   assert.equal(expired.microphoneAllowed, false);
   assert.equal(expired.whiteboardWritable, false);
