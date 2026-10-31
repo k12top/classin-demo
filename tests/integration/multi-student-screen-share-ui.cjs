@@ -70,7 +70,7 @@ async function main(){
   await textButton('邀请学生');await wait(`document.querySelectorAll('input[type="checkbox"]').length===2`);
   await run(`[...document.querySelectorAll('input[type="checkbox"]')].forEach(input=>input.click())`);await textButton('邀请 2 人');
   await wait(`fixtureActions.filter(a=>a==='requestScreenShare').length===2`);
-  await ready();await wait(`document.querySelectorAll('section[aria-label="学生共享"] article').length===2`);await capture('ready-'+width+'.png');
+  await ready();await wait(`document.querySelectorAll('section[aria-label="学生共享"] article').length===2&&[...document.querySelectorAll('section[aria-label="学生共享"] button')].filter(b=>b.textContent.trim()==='全班展示').length===2`);await capture('ready-'+width+'.png');
   await run(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='全班展示').click()`);await wait(`fixtureSelected==='1500000001'&&document.querySelector('.classroom-v3-stage-layer.is-screen-share [data-participant-id="1500000001"]')`);
   await run(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='全班展示').click()`);await wait(`fixtureSelected==='1500000002'&&document.querySelector('.classroom-v3-stage-layer.is-screen-share [data-participant-id="1500000002"]')`);await settle();
   assert.equal(await run(`document.querySelectorAll('.classroom-v3-stage-layer.is-screen-share').length`),1);

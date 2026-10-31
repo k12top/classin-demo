@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { classroomPresenceSummary } from "../src/lib/classroom/presence";
 import { reconcileClassroomRtcPresence } from "../src/lib/classroom/rtc-presence";
 import type { ClassroomMediaSnapshot, ClassroomMemberSnapshot } from "../src/lib/classroom/types";
 
@@ -29,4 +30,20 @@ test("presence service uncertainty preserves last-known presence without grantin
   assert.equal(unknown[0].cameraAllowed, false);
   assert.equal(unknown[0].onStage, false);
   assert.equal(reconcileClassroomRtcPresence(cached, noRtc, 600000)[0].connectionStatus, "offline");
+});
+
+
+test("attendance counts offstage people once and separates reconnecting and departed seats", () => {
+  const student = members[0];
+  const roster: ClassroomMemberSnapshot[] = [
+    { ...student, userId: "teacher", role: "teacher", online: true },
+    { ...student, userId: "assistant", role: "assistant", online: true },
+    { ...student, userId: "offstage", online: true, rtcUids: [123, 124] },
+    { ...student, userId: "reconnecting", connectionStatus: "reconnecting" },
+    { ...student, userId: "departed", connectionStatus: "offline" },
+  ];
+  assert.deepEqual(classroomPresenceSummary(roster), { online: 3, students: 1, teachers: 1, assistants: 1, reconnecting: 1 });
+  const rejoined = roster.map(member => member.userId === "reconnecting" ? { ...member, online: true, connectionStatus: "online" as const } : member);
+  assert.deepEqual(classroomPresenceSummary(rejoined), { online: 4, students: 2, teachers: 1, assistants: 1, reconnecting: 0 });
+  assert.deepEqual(classroomPresenceSummary([]), { online: 0, students: 0, teachers: 0, assistants: 0, reconnecting: 0 });
 });

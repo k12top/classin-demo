@@ -4,6 +4,7 @@ import { ActivityDraftControls } from "./activity-draft-controls";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, BarChart3, Check, ClipboardList, Download, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
+import { useClassroomSyncTask, useClassroomJsonRead } from "@/lib/classroom/use-classroom-sync";
 import { ACTIVITY_REFRESH_EVENT, answersMatch } from "@/lib/classroom/activities";
 import type { ActivityAnswers, ActivityDefinition, ActivityDetail, ActivityGrade, ActivityKind, ActivityList, ActivityPresentation, ActivityQuestion, ActivityResponse, QuestionKind } from "@/lib/classroom/activities";
 import styles from "./activity-workspace.module.css";
@@ -14,19 +15,6 @@ function query(url: string, shareAccess?: string | null, extra?: Record<string, 
   const params = new URLSearchParams(extra);
   if (shareAccess) params.set("shareAccess", shareAccess);
   return url + (params.size ? `?${params}` : "");
-}
-async function read<T>(url: string, init?: RequestInit): Promise<T> {
-  const timeout = AbortSignal.timeout(30_000);
-  try {
-    const res = await fetch(url, { cache: "no-store", ...init, signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout });
-    const data = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-    if (!data) throw new Error("Invalid server response");
-    return data as T;
-  } catch (error) {
-    if (timeout.aborted) throw new Error("Request timed out. Refresh before retrying");
-    throw error;
-  }
 }
 
 function activityErrorText(message: string, t: (key: string) => string) {
@@ -62,22 +50,10 @@ function activityErrorText(message: string, t: (key: string) => string) {
 export function ActivityNotice({ sessionId, shareAccess, onOpen }: Props & { onOpen: () => void }) {
   const { t } = useTranslation();
   const [active, setActive] = useState<ActivityList["active"]>(null);
-  useEffect(() => {
-    let disposed = false, inFlight = false, timer: ReturnType<typeof setTimeout>;
-    const controller = new AbortController();
-    async function poll() {
-      if (inFlight || disposed) return;
-      inFlight = true;
-      try { const data = await read<ActivityList>(query(endpoint(sessionId), shareAccess), { signal: controller.signal }); if (!disposed) setActive(data.active); }
-      catch { /* The full panel provides retry and offline feedback. */ }
-      inFlight = false;
-      if (!disposed) timer = setTimeout(poll, 5000);
-    }
-    const update = (event: Event) => { if ((event as CustomEvent).detail?.sessionId === sessionId) { clearTimeout(timer); void poll(); } };
-    window.addEventListener(ACTIVITY_REFRESH_EVENT, update);
-    void poll();
-    return () => { disposed = true; controller.abort(); clearTimeout(timer); window.removeEventListener(ACTIVITY_REFRESH_EVENT, update); };
-  }, [sessionId, shareAccess]);
+  const read=useClassroomJsonRead(sessionId);
+  useClassroomSyncTask({sessionId,taskKey:`activity-notice:${shareAccess||""}`,topics:["activities","resume"],wakeAt:active?.deadlineAt?Date.parse(active.deadlineAt):undefined,run:async signal=>{
+    const data=await read<ActivityList>(query(endpoint(sessionId),shareAccess),{signal});setActive(data.active);
+  }});
   return <button type="button" className={`${styles.notice} ${active ? styles.open : ""}`} onClick={onOpen}
     title={active ? t("activities.current", { title: active.title }) : t("activities.title")} aria-live="polite">
     <ClipboardList /><span>{active ? t(`activities.${active.kind}`) : t("activities.title")}</span>{active && <strong>{t("activities.active")}</strong>}
@@ -90,6 +66,7 @@ export function ActivityWorkspace(props: Props) {
 export type AnswerDraft = { answers: ActivityAnswers; expectedVersion: number };
 function ActivityWorkspaceSession({ sessionId, shareAccess, review = false, onChanged }: Props) {
   const { t } = useTranslation();
+  const read=useClassroomJsonRead(sessionId);
   const [list, setList] = useState<ActivityList | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<ActivityDetail | null>(null);
@@ -105,34 +82,25 @@ function ActivityWorkspaceSession({ sessionId, shareAccess, review = false, onCh
   const responsePages = useRef(1);
   const [answerDrafts, setAnswerDrafts] = useState(() => new Map<string, AnswerDraft>());
   const invalidate = useCallback(() => { generation.current++; }, []);
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (signal?: AbortSignal) => {
     const request = ++generation.current;
     try {
-      const [data, nextDetail] = await Promise.all([read<ActivityList>(query(endpoint(sessionId), shareAccess)), selected ? read<ActivityDetail>(query(endpoint(sessionId, selected), shareAccess)) : Promise.resolve(null)]);
+      const [data, nextDetail] = await Promise.all([read<ActivityList>(query(endpoint(sessionId), shareAccess),{signal}), selected ? read<ActivityDetail>(query(endpoint(sessionId, selected), shareAccess),{signal}) : Promise.resolve(null)]);
       for (let page = 1; page < listPages.current && data.nextCursor; page++) {
-        const more = await read<ActivityList>(query(endpoint(sessionId), shareAccess, { cursor: data.nextCursor }));
+        const more = await read<ActivityList>(query(endpoint(sessionId), shareAccess, { cursor: data.nextCursor }),{signal});
         data.activities.push(...more.activities); data.nextCursor = more.nextCursor;
       }
       if (nextDetail) for (let page = 1; page < responsePages.current && nextDetail.responseCursor; page++) {
-        const more = await read<ActivityDetail>(query(endpoint(sessionId, selected!), shareAccess, { cursor: nextDetail.responseCursor }));
+        const more = await read<ActivityDetail>(query(endpoint(sessionId, selected!), shareAccess, { cursor: nextDetail.responseCursor }),{signal});
         nextDetail.responses.push(...more.responses); nextDetail.responseCursor = more.responseCursor;
       }
-      if (request !== generation.current) return;
+      if (signal?.aborted || request !== generation.current) return;
       setList(data); setDetail(nextDetail); setRefreshError("");
       return { data, nextDetail };
     } catch (e) { if (request === generation.current) setRefreshError(e instanceof Error ? e.message : t("activities.failed")); }
-  }, [sessionId, shareAccess, selected, t]);
-  useEffect(() => {
-    let stopped = false, timer: ReturnType<typeof setTimeout>;
-    async function poll() { if (!mutation.current) await reload(); if (!stopped) timer = setTimeout(poll, 5000); }
-    void poll();
-    return () => { stopped = true; invalidate(); clearTimeout(timer); };
-  }, [reload, invalidate]);
-  useEffect(() => {
-    const update = (event: Event) => { if ((event as CustomEvent).detail?.sessionId === sessionId && !mutation.current) void reload(); };
-    window.addEventListener(ACTIVITY_REFRESH_EVENT, update);
-    return () => window.removeEventListener(ACTIVITY_REFRESH_EVENT, update);
-  }, [sessionId, reload]);
+  }, [sessionId, shareAccess, selected, t, read]);
+  useClassroomSyncTask({sessionId,taskKey:`activity-workspace:${selected||""}:${shareAccess||""}`,topics:["activities","resume"],wakeAt:list?.active?.deadlineAt?Date.parse(list.active.deadlineAt):undefined,run:async signal=>{if(!mutation.current&&!await reload(signal))throw new Error("activities_unavailable");}});
+  useEffect(()=>()=>invalidate(),[invalidate,reload]);
   const announce = (revision: number) => { window.dispatchEvent(new CustomEvent(ACTIVITY_REFRESH_EVENT, { detail: { sessionId } })); onChanged?.(revision); };
   const command = async (body: Record<string, unknown>, id = selected) => {
     if (!id || mutation.current) return false;
@@ -351,26 +319,13 @@ function ResponseGrader({ response, definition, canGrade, busy, onSave }: { resp
 export function ActivityStagePresentation({ sessionId, shareAccess, recorderToken, recordingId }: Props & { recorderToken?: string; recordingId?: string }) {
   const { t } = useTranslation();
   const [presentation, setPresentation] = useState<ActivityPresentation | null>(null);
-  useEffect(() => {
-    let disposed = false, inFlight = false, timer: ReturnType<typeof setTimeout>;
-    const controller = new AbortController();
-    async function poll() {
-      if (inFlight || disposed) return;
-      inFlight = true;
-      try {
-        const data = await read<{ presentation: ActivityPresentation | null }>(query(endpoint(sessionId) + "/presentation", shareAccess), {
-          signal: controller.signal, headers: recorderToken ? { "X-Classroom-Recorder": recorderToken, "X-Classroom-Recording": recordingId || "" } : undefined,
-        });
-        if (!disposed) setPresentation(data.presentation);
-      } catch { if (!disposed) setPresentation(null); }
-      inFlight = false;
-      if (!disposed) timer = setTimeout(poll, 2000);
-    }
-    const update = (event: Event) => { if ((event as CustomEvent).detail?.sessionId === sessionId) { clearTimeout(timer); void poll(); } };
-    window.addEventListener(ACTIVITY_REFRESH_EVENT, update);
-    void poll();
-    return () => { disposed = true; controller.abort(); clearTimeout(timer); window.removeEventListener(ACTIVITY_REFRESH_EVENT, update); };
-  }, [sessionId, shareAccess, recorderToken, recordingId]);
+  const read=useClassroomJsonRead(sessionId);
+  useClassroomSyncTask({sessionId,taskKey:`activity-presentation:${recordingId||""}:${shareAccess||""}`,topics:["activities","resume"],
+    realtimeMs:recorderToken?2000:60000,fallbackMs:recorderToken?2000:5000,background:Boolean(recorderToken),run:async signal=>{
+      const data=await read<{presentation:ActivityPresentation|null}>(query(endpoint(sessionId)+"/presentation",shareAccess),{
+        signal,headers:recorderToken?{"X-Classroom-Recorder":recorderToken,"X-Classroom-Recording":recordingId||""}:undefined});
+      if(!signal.aborted)setPresentation(data.presentation);
+    }});
   if (!presentation) return null;
   const q = presentation.question;
   return <section className={styles.stagePresentation} aria-label={t("activities.title")} data-activity-presentation>

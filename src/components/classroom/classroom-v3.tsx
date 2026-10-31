@@ -34,6 +34,7 @@ import { LiveCaptionOverlay } from "@/components/classroom/live-caption-overlay"
 import { useLiveCaptions } from "@/lib/classroom/use-live-captions";
 import { HandRaiseButton, HandRaiseQueue, HandRaiseVideoBadge } from "@/components/classroom/hand-raise-controls";
 import { applyClassroomHandRaiseUpdate, raisedClassroomHands } from "@/lib/classroom/hand-raise";
+import { createCaptionSyncState, type CaptionSyncResponse } from "@/lib/classroom/caption-sync";
 import { useCaptionSubscription } from "@/lib/classroom/use-caption-subscription";
 import { supportedCaptionTranslationCodes } from "@/lib/classroom/translation-capabilities";
 import { TeacherAssistant } from "@/components/classroom/teacher-assistant";
@@ -53,15 +54,17 @@ import { isEndedClassroomResponse } from "@/lib/classroom/session-lifecycle";
 import { applyMicrophonePermission } from "@/lib/classroom/media-permissions";
 import { applyClassroomMemberPermissionUpdate } from "@/lib/classroom/member-permissions";
 import { applyClassroomCompositionPreview } from "@/lib/classroom/composition-preview";
-import { applyClassroomScreenShareRequest } from "@/lib/classroom/screen-share-request";
+import { requestClassroomPublishingCredential } from "@/lib/classroom/publishing-credential";
+import { applyClassroomScreenShareRequest, verifiedScreenShareInvitation } from "@/lib/classroom/screen-share-request";
 import { canRetryClassroomRecovery, ClassroomRecoveryError, retryClassroomRecovery } from "@/lib/classroom/credential-recovery";
 import { reportClassroomDiagnostic, type ClassroomConnectionDiagnostic } from "@/lib/classroom/connection-diagnostics";
 import { createCaptionPersistenceQueue } from "@/lib/classroom/caption-persistence";
 import { createCaptionOutbox } from "@/lib/classroom/caption-outbox";
 import { deliverClassroomCaption } from "@/lib/classroom/caption-delivery";
-import { requestClassroomHeartbeat, classroomPollDelay } from "@/lib/classroom/heartbeat-request";
+import { useClassroomSyncOwner, ClassroomSyncProvider } from "@/lib/classroom/use-classroom-sync";
+import { requestClassroomHeartbeat } from "@/lib/classroom/heartbeat-request";
 import { withClassroomRequestSignal } from "@/lib/classroom/request-signal";
-import { classroomMemberVisible, classroomPresenceClockOffset } from "@/lib/classroom/presence";
+import { classroomMemberVisible, classroomPresenceSummary, classroomPresenceClockOffset } from "@/lib/classroom/presence";
 import { requestClassroomSession, ClassroomSessionRequestError } from "@/lib/classroom/session-request";
 import { reconcileClassroomRtcPresence } from "@/lib/classroom/rtc-presence";
 
@@ -78,7 +81,7 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { StudentActivityOverlay } from "./student-activity-overlay";
-import { ACTIVITY_OPEN_EVENT, ACTIVITY_REFRESH_EVENT } from "@/lib/classroom/activities";
+import { ACTIVITY_OPEN_EVENT } from "@/lib/classroom/activities";
 import { ActivityNotice, ActivityWorkspace, ActivityStagePresentation } from "@/components/classroom/activity-workspace";
 import { DesktopRecordingControl } from "@/components/classroom/desktop-recording-control";
 import { requestClassroomAction } from "@/lib/classroom/action-request";
@@ -217,7 +220,7 @@ import {
   shouldHideLocalScreenSharePreview,
 } from "@/lib/classroom/media-routing";
 import { ScreenShareReleaseQueue } from "@/lib/classroom/screen-share-release";
-import { canShareClassroomScreen, ownsScreenShare, memberScreenShareStatus } from "@/lib/classroom/screen-share-state";
+import { canShareClassroomScreen, studentScreenShareReady, ownsScreenShare, memberScreenShareStatus } from "@/lib/classroom/screen-share-state";
 import { shouldApplyClassroomRevision } from "@/lib/classroom/runtime-revision";
 import {
   shouldAutoStartRecordingAfterWhiteboard,
@@ -1976,6 +1979,7 @@ function DrawerNavigation({
 
 function MemberPanel({
   members,
+  presenceHealthy,
   screenLease,
   screenParticipants,
   canManage,
@@ -1984,6 +1988,7 @@ function MemberPanel({
   onAction,
 }: {
   members: ClassroomMemberSnapshot[];
+  presenceHealthy: boolean;
   screenLease?: import("@/lib/classroom/types").ClassroomScreenShareLease;
   screenParticipants: import("@/lib/classroom/types").ClassroomParticipant[];
   canManage: boolean;
@@ -1992,6 +1997,7 @@ function MemberPanel({
   onAction: (action: ClassroomAction) => void;
 }) {
   const { t } = useTranslation();
+  const summary = classroomPresenceSummary(members);
   const shareStatus = (member: ClassroomMemberSnapshot) => memberScreenShareStatus(member, screenLease, screenParticipants);
   const shareLabel = (member: ClassroomMemberSnapshot) => ({
     idle: "", requested: "screenShareRequested", ready: "screenShareAuthorizedIdle",
@@ -2015,15 +2021,20 @@ function MemberPanel({
     <div className="classroom-v3-panel-body">
       <div className="classroom-v3-panel-heading">
         <div>
-          <small>{t("classroom.v3.rosterEyebrow")}</small>
           <h2>{t("classroom.v3.memberTitle")}</h2>
         </div>
         <span>
-          {t("classroom.v3.onlineCount", {
-            count: members.filter((member) => member.online).length,
-          })}
+          {presenceHealthy ? t("classroom.v3.onlineCount", { count: summary.online }) : t("classroomRoster.syncing")}
         </span>
       </div>
+      <p className="classroom-roster-summary" role="status">
+        {presenceHealthy ? <>
+          <span>{t("classroomRoster.students", { count: summary.students })}</span>
+          <span>{t("classroomRoster.teachers", { count: summary.teachers })}</span>
+          <span>{t("classroomRoster.assistants", { count: summary.assistants })}</span>
+          {summary.reconnecting > 0 && <span>{t("classroomRoster.reconnecting", { count: summary.reconnecting })}</span>}
+        </> : t("classroomRoster.syncingHint")}
+      </p>
       {canManage && <div className="classroom-v3-bulk-actions">
         <button type="button" disabled={Boolean(busy)} aria-busy={busy === "muteAllMicrophones"} onClick={() => onAction({ type: "muteAllMicrophones" })}>{busy === "muteAllMicrophones" ? <Loader2 className="animate-spin" /> : <MicOff />}{t("classroom.v3.muteAllMicrophones")}</button>
         <button type="button" disabled={Boolean(busy)} aria-busy={busy === "unmuteAllMicrophones"} onClick={() => onAction({ type: "unmuteAllMicrophones" })}>{busy === "unmuteAllMicrophones" ? <Loader2 className="animate-spin" /> : <Mic />}{t("classroom.v3.unmuteAllMicrophones")}</button>
@@ -3421,7 +3432,9 @@ export function ClassroomV3({
   const [sessionData, setSessionData] =
     useState<ClassroomSessionResponse | null>(null);
   const sessionRef = useRef<ClassroomSessionResponse | null>(null);
+  const captionSyncRef = useRef(createCaptionSyncState());
   const classEnded = sessionData?.runtime.status === "ended";
+  const sync = useClassroomSyncOwner(courseId || "", loadingState === "ready" && !classEnded);
   const liveRequestsRef = useRef<AbortController | null>(null);
   const captionQueueRef = useRef<ReturnType<typeof createCaptionPersistenceQueue> | null>(null);
   const [clientId, setClientId] = useState(() => crypto.randomUUID());
@@ -3616,6 +3629,10 @@ export function ClassroomV3({
   const endClassDialogRef = useRef<HTMLElement>(null);
   const recordingStopCancelRef = useRef<HTMLButtonElement>(null);
   const [studentPublishReady, setStudentPublishReady] = useState(false);
+  const [publishingPreparing, setPublishingPreparing] = useState(false);
+  const [publishingError, setPublishingError] = useState<{key:string;message:string}|null>(null);
+  const publishingTaskRef = useRef(false);
+  const publishingAbortRef = useRef<AbortController|null>(null);
   const now = useNow();
   const prefersReducedMotion = useReducedMotion();
 
@@ -4151,6 +4168,7 @@ export function ClassroomV3({
         }
         setEntryPhase("media");
         setLayoutMode(payload.mode === "oneToOne" ? "split" : "focus");
+        captionSyncRef.current.reset();
         sessionRef.current = payload;
         presenceClockOffsetRef.current = classroomPresenceClockOffset(payload.runtime.presenceObservedAt);
         setPresenceClockOffset(presenceClockOffsetRef.current);
@@ -4389,15 +4407,9 @@ export function ClassroomV3({
   }, [courseId, isRecorder, shareAccess, stopEndedSession, updateSession]);
   useEffect(() => {
     if (classEnded || loadingState !== "ready" || isRecorder) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      await refreshMessages();
-      if (!cancelled) timer = setTimeout(poll, classroomPollDelay(signalingReadyRef.current ? 15_000 : 5_000, messagesFailuresRef.current, document.visibilityState === "hidden") + Math.random() * 500);
-    };
-    void poll();
-    return () => { cancelled = true; clearTimeout(timer); messagesAbortRef.current?.abort(); messagesAbortRef.current = null; };
-  }, [classEnded, loadingState, isRecorder, refreshMessages]);
+    const remove=sync.scheduler.register({topics:["messages","transport"],run:()=>refreshMessages(),interval:ready=>messagesFailuresRef.current?Math.min(60_000,5_000*2**Math.min(messagesFailuresRef.current,4)):ready?60_000:5_000});
+    return()=>{remove();messagesAbortRef.current?.abort();messagesAbortRef.current=null;};
+  }, [classEnded,loadingState,isRecorder,refreshMessages,sync]);
 
   const refreshState = useCallback(async function refreshSnapshot(): Promise<void> {
     if (!courseId || !sessionRef.current || sessionRef.current.runtime.status === "ended") return;
@@ -4439,10 +4451,11 @@ export function ClassroomV3({
         setRecordingFallback(payload.recording.fallbackFrom);
         return;
       }
-      const query = shareAccess
-        ? `?shareAccess=${encodeURIComponent(shareAccess)}`
-        : "";
-      const stateResponse = await fetch(`/api/sessions/${encodeURIComponent(courseId)}/classroom/state${query}`, {
+      const query = new URLSearchParams();
+      if (shareAccess) query.set("shareAccess", shareAccess);
+      const captionContext = `${courseId}:${shareAccess || ""}`;
+      captionSyncRef.current.query(captionContext, query);
+      const stateResponse = await fetch(`/api/sessions/${encodeURIComponent(courseId)}/classroom/state?${query}`, {
         cache: "no-store", signal: controller.signal,
       });
       if (controller.signal.aborted || requestId !== refreshRequestIdRef.current) return;
@@ -4453,12 +4466,16 @@ export function ClassroomV3({
           engagement: ClassroomSessionResponse["engagement"];
           courseware: ClassroomCoursewareSnapshot[];
           captions: ClassroomCaptionSnapshot[];
+          captionSync?: CaptionSyncResponse["captionSync"];
           spaces: ClassroomSpaceSnapshot[];
           questions: ClassroomQuestionSnapshot[];
           recording: ClassroomSessionResponse["recording"];
         };
         if (controller.signal.aborted || requestId !== refreshRequestIdRef.current) return;
-        const { runtime: refreshedRuntime, ...refreshedDetails } = payload;
+        captionSyncRef.current.accept(captionContext, payload, captions => updateSession({ captions }));
+        const refreshedRuntime = payload.runtime;
+        const refreshedDetails = { engagement: payload.engagement, courseware: payload.courseware,
+          spaces: payload.spaces, questions: payload.questions, recording: payload.recording };
         updateSession(pendingRuntimeActionRef.current && refreshedRuntime.status !== "ended" ? refreshedDetails : { ...refreshedDetails, runtime: refreshedRuntime });
         setRecordingStatus(payload.recording.status);
         setRecordingFallback(payload.recording.fallbackFrom);
@@ -4507,50 +4524,18 @@ export function ClassroomV3({
   }, []);
 
   useEffect(() => {
-    if (classEnded || loadingState !== "ready") return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let cancelled = false;
-    let lastRecovery = 0;
-    const refreshWhenActive = () => {
-      if (sessionRef.current?.runtime.status === "ended" || document.visibilityState !== "visible" || !navigator.onLine) return;
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        if (Date.now() - lastRecovery < 2_000) return;
-        lastRecovery = Date.now();
-        // Suspended fetches/timers must not block the first fresh snapshot.
-        messagesAbortRef.current?.abort();
-        messagesAbortRef.current = null;
-        messagesFailuresRef.current = 0;
-        refreshRequestIdRef.current += 1;
-        refreshAbortRef.current?.abort();
-        refreshAbortRef.current = null;
-        stateFailuresRef.current = 0;
-        void refreshMessages();
-        void refreshState();
-        void renewClassroomCredentials().catch(() => undefined).finally(() => {
-          if (!cancelled) setSignalingAttempt(attempt => attempt + 1);
-        });
-        void roomRecoveryRef.current?.().catch(() => undefined);
-      }, 300);
-    };
-    // pageshow includes back/forward cache restoration. NetworkInformation
-    // catches Wi-Fi/cellular changes that never fire the browser's online event.
-    const connection = (navigator as Navigator & { connection?: EventTarget }).connection;
-    document.addEventListener("visibilitychange", refreshWhenActive);
-    window.addEventListener("online", refreshWhenActive);
-    window.addEventListener("pageshow", refreshWhenActive);
-    window.addEventListener("focus", refreshWhenActive);
-    connection?.addEventListener("change", refreshWhenActive);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-      document.removeEventListener("visibilitychange", refreshWhenActive);
-      window.removeEventListener("online", refreshWhenActive);
-      window.removeEventListener("pageshow", refreshWhenActive);
-      window.removeEventListener("focus", refreshWhenActive);
-      connection?.removeEventListener("change", refreshWhenActive);
-    };
-  }, [classEnded, loadingState, refreshMessages, refreshState, renewClassroomCredentials]);
+    if(classEnded||loadingState!=="ready")return;
+    let lastRecovery=0;
+    return sync.scheduler.register({topics:["resume"],initialDelay:null,interval:()=>null,run:async signal=>{
+      if(Date.now()-lastRecovery<2_000)return;lastRecovery=Date.now();
+      messagesAbortRef.current?.abort();messagesAbortRef.current=null;messagesFailuresRef.current=0;
+      refreshRequestIdRef.current++;refreshAbortRef.current?.abort();refreshAbortRef.current=null;stateFailuresRef.current=0;
+      await renewClassroomCredentials().catch(()=>undefined);
+      if(signal.aborted)return;
+      setSignalingAttempt(attempt=>attempt+1);
+      await roomRecoveryRef.current?.().catch(()=>undefined);
+    }});
+  },[classEnded,loadingState,renewClassroomCredentials,sync]);
 
   useEffect(() => {
     if (sessionData?.runtime.status !== "live" || !mediaProvider || isRecorder) return;
@@ -4619,17 +4604,11 @@ export function ClassroomV3({
   }, [activeSpaceId, disconnectRoom, isRecorder, loadingState, sessionData]);
 
   useEffect(() => {
-    if (classEnded || loadingState !== "ready") return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      if (document.visibilityState === "visible" || media.local.screenSharing || roomMedia.local.screenSharing) await refreshState();
-      const base = !signalingReadyRef.current || ["starting", "stopping", "processing"].includes(recordingStatus || "") ? 5_000 : 15_000;
-      if (!cancelled) timer = setTimeout(poll, classroomPollDelay(base, stateFailuresRef.current, document.visibilityState === "hidden") + Math.random() * 500);
-    };
-    timer = setTimeout(poll, 2_500 + Math.random() * 500);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [classEnded, loadingState, media.local.screenSharing, recordingStatus, refreshState, roomMedia.local.screenSharing]);
+    if(classEnded||loadingState!=="ready")return;
+    return sync.scheduler.register({topics:["recording","engagement","transport"],initialDelay:2500,
+      background:isRecorder||media.local.screenSharing||roomMedia.local.screenSharing,
+      run:()=>refreshState(),interval:ready=>stateFailuresRef.current?Math.min(60_000,5_000*2**Math.min(stateFailuresRef.current,4)):isRecorder||["starting","stopping","processing"].includes(recordingStatus||"")?5_000:ready?60_000:5_000});
+  },[classEnded,loadingState,isRecorder,media.local.screenSharing,roomMedia.local.screenSharing,recordingStatus,refreshState,sync]);
 
   const deviceTrackerRef = useRef(createDeviceAckTracker());
   const deviceRepliesRef = useRef(new Map<string, Promise<ClassroomDeviceAck>>());
@@ -4640,7 +4619,7 @@ export function ClassroomV3({
     return () => clearTimeout(timer);
   }, [classEnded, courseId]);
   const sectionReadsRef = useRef(new Map<string, { controller: AbortController; queued: boolean }>());
-  const refreshSection = useCallback(async function readSection(scope: "captions" | "courseware"): Promise<void> {
+  const refreshSection = useCallback(async function readSection(scope: "captions" | "courseware" | "runtime"): Promise<void> {
     if (isRecorder || !sessionRef.current || sessionRef.current.runtime.status === "ended") return;
     const existing = sectionReadsRef.current.get(scope);
     if (existing) { existing.queued = true; return; }
@@ -4650,13 +4629,16 @@ export function ClassroomV3({
     try {
       const query = new URLSearchParams({ scope });
       if (shareAccess) query.set("shareAccess", shareAccess);
+      const captionContext = `${courseId}:${shareAccess || ""}`;
+      if (scope === "captions") captionSyncRef.current.query(captionContext, query);
       const response = await fetch(`/api/sessions/${encodeURIComponent(courseId)}/classroom/state?${query}`, { cache: "no-store", signal: entry.controller.signal });
       if (!response.ok) { await refreshState(); return; }
-      const payload = await response.json() as Pick<ClassroomSessionResponse, "captions" | "courseware">;
+      const payload = await response.json() as Pick<ClassroomSessionResponse, "captions" | "courseware" | "runtime"> & CaptionSyncResponse;
       if (entry.controller.signal.aborted) return;
-      // Section replies never advance the global runtime revision. Only the
-      // authorized HTTP response contributes content; RTM supplies no authority.
-      if (scope === "captions" && Array.isArray(payload.captions)) updateSession({ captions: payload.captions });
+      // Only the authorized runtime section advances its control revision.
+      // Captions/courseware remain independent; RTM supplies no content authority.
+      if(scope === "runtime" && payload.runtime && !pendingRuntimeActionRef.current) updateSession({runtime:payload.runtime});
+      if (scope === "captions") captionSyncRef.current.accept(captionContext, payload, captions => updateSession({ captions }));
       if (scope === "courseware" && Array.isArray(payload.courseware)) {
         const current = new Map(sessionRef.current?.courseware.map(item => [item.id, item]));
         updateSession({ courseware: payload.courseware.map(item => {
@@ -4676,12 +4658,13 @@ export function ClassroomV3({
     return () => { for (const entry of reads.values()) entry.controller.abort(); reads.clear(); };
   }, [classEnded, courseId, isRecorder, shareAccess]);
   const hasPendingConversion = sessionData?.courseware.some(item => item.whiteboardEnabled && ["Pending", "Converting"].includes(item.taskStatus));
-  useEffect(() => {
-    if (!hasPendingConversion || classEnded || isRecorder) return;
-    const timer = setInterval(() => { if (document.visibilityState === "visible") void refreshSection("courseware"); }, 5_000);
-    const initial = setTimeout(() => void refreshSection("courseware"), 0);
-    return () => { clearTimeout(initial); clearInterval(timer); };
-  }, [classEnded, hasPendingConversion, isRecorder, refreshSection]);
+  useEffect(()=>{
+    if(classEnded||isRecorder||loadingState!=="ready")return;
+    const runtime=sync.scheduler.register({topics:["runtime","members"],initialDelay:null,interval:()=>null,run:()=>refreshSection("runtime")});
+    const captions=sync.scheduler.register({topics:["captions"],initialDelay:null,interval:()=>null,run:()=>refreshSection("captions")});
+    const courseware=sync.scheduler.register({topics:["courseware"],initialDelay:hasPendingConversion?50:null,interval:()=>hasPendingConversion?5000:null,run:()=>refreshSection("courseware")});
+    return()=>{runtime();captions();courseware();};
+  },[classEnded,isRecorder,loadingState,hasPendingConversion,refreshSection,sync]);
 
   useEffect(() => {
     const signaling = sessionData?.signaling;
@@ -4716,7 +4699,7 @@ export function ClassroomV3({
         if (updated) {
           handRaiseRevisionsRef.current.set(key, event.revision);
           updateSession({ runtime: updated }, false);
-          void refreshState();
+          sync.scheduler.invalidate("runtime");
         }
         return;
       }
@@ -4725,7 +4708,7 @@ export function ClassroomV3({
         if (!current) return;
         const updated = applyClassroomScreenShareRequest(current.runtime, event, publisherId, false, Date.now() + presenceClockOffsetRef.current);
         if (updated) updateSession({ runtime: updated });
-        if (event.revision > current.runtime.revision + 1 || (!updated && event.revision > current.runtime.revision)) void refreshState();
+        if (verifiedScreenShareInvitation(current.runtime,event,publisherId,Date.now()+presenceClockOffsetRef.current)) sync.scheduler.invalidate("runtime");
         return;
       }
       if (event.topic === "member-permissions") {
@@ -4762,7 +4745,7 @@ export function ClassroomV3({
         if (updated) {
           const missedUpdates = event.revision > current.runtime.revision + 1;
           updateSession({ runtime: updated });
-          if (missedUpdates) void refreshState();
+          if (missedUpdates) sync.scheduler.invalidate("runtime");
         }
         return;
       }
@@ -4780,15 +4763,14 @@ export function ClassroomV3({
         });
         return;
       }
-      if (event.topic === "activities") window.dispatchEvent(new CustomEvent(ACTIVITY_REFRESH_EVENT, { detail: { sessionId: courseId } }));
-      if (event.topic === "messages") { void refreshMessages(); return; }
-      if (event.topic === "captions") { void refreshSection("captions"); return; }
-      if (event.topic === "courseware") { void refreshSection("courseware"); return; }
+      if (event.topic === "activities") { sync.scheduler.invalidate("activities"); if(event.revision>(sessionRef.current?.runtime.revision??0))sync.scheduler.invalidate("runtime"); return; }
+      if (event.topic === "messages" || event.topic === "captions" || event.topic === "courseware") { sync.scheduler.invalidate(event.topic); return; }
       if (event.topic === "recording" || event.revision > (sessionRef.current?.runtime.revision ?? 0)) {
-        void refreshState();
+        sync.scheduler.invalidate(event.topic);
       }
     };
     signalingReadyRef.current = false;
+    sync.scheduler.setRealtime(false);
     retrySignaling();
     void signalingTeardownRef.current.catch(() => undefined).then(() => {
       if (cancelled) return;
@@ -4797,14 +4779,15 @@ export function ClassroomV3({
       const wasReady = signalingReadyRef.current;
       const recovered = ready && !wasReady;
       signalingReadyRef.current = ready;
+      sync.scheduler.setRealtime(ready);
       if (ready) { clearTimeout(retryTimer); retryTimer = undefined; }
       else retrySignaling();
       if (recovered) {
-        void refreshState(); void refreshMessages();
+        sync.scheduler.invalidate("caption-preference");
         const current = sessionRef.current;
         if (current) void provider.publish({ courseId, topic: "runtime", revision: current.runtime.revision }).catch(() => undefined);
       }
-      else if (!ready && wasReady) void refreshState();
+      // The scheduler's transport invalidation already restores data reads.
       });
     }).catch((error) => {
       if (!cancelled) {
@@ -4828,6 +4811,7 @@ export function ClassroomV3({
     sessionData?.signaling,
     loadingState,
     signalingAttempt,
+    sync,
     renewClassroomCredentials,
     user?.userId,
     updateSession,
@@ -4839,10 +4823,8 @@ export function ClassroomV3({
     let inFlight = false;
     let failures = 0;
     let lastSuccessAt = Date.now();
-    let timer: ReturnType<typeof setTimeout>;
     const heartbeat = async () => {
       if (inFlight || controller.signal.aborted || sessionRef.current?.runtime.status === "ended") return;
-      clearTimeout(timer);
       inFlight = true;
       const startedAt = performance.now();
       try {
@@ -4855,6 +4837,7 @@ export function ClassroomV3({
           onResponse: (status, payload) => stopEndedSession(status, payload),
         });
         if (!refreshed || controller.signal.aborted) return;
+        if(failures)sync.scheduler.invalidate("caption-preference");
         if (failures) reportConnectionDiagnostic({ event: "heartbeat-recovered", occurredAt: new Date().toISOString(), failures,
           durationMs: performance.now() - startedAt, lastSuccessAgeMs: Date.now() - lastSuccessAt });
         failures = 0;
@@ -4872,19 +4855,12 @@ export function ClassroomV3({
         }
       } finally {
         inFlight = false;
-        if (!controller.signal.aborted) timer = setTimeout(heartbeat, Math.min(30_000, 15_000 * 2 ** Math.min(failures, 1)) + Math.random() * 1_000);
       }
     };
-    timer = setTimeout(heartbeat, 5_000 + Math.random() * 1_000);
-    const heartbeatWhenActive = () => { if (document.visibilityState === "visible" && navigator.onLine) void heartbeat(); };
-    document.addEventListener("visibilitychange", heartbeatWhenActive);
-    window.addEventListener("online", heartbeatWhenActive);
-    return () => {
-      controller.abort(); clearTimeout(timer);
-      document.removeEventListener("visibilitychange", heartbeatWhenActive);
-      window.removeEventListener("online", heartbeatWhenActive);
-    };
-  }, [classEnded, clientId, courseId, isRecorder, loadingState, shareAccess, stopEndedSession, reportConnectionDiagnostic]);
+    const remove=sync.scheduler.register({topics:["presence"],background:true,initialDelay:5000+Math.random()*1000,
+      run:heartbeat,interval:()=>Math.min(30_000,15_000*2**Math.min(failures,1))+Math.random()*1000});
+    return()=>{controller.abort();remove();};
+  }, [classEnded,clientId,courseId,isRecorder,loadingState,shareAccess,stopEndedSession,reportConnectionDiagnostic,sync]);
 
   const currentUserId = isRecorder
     ? sessionData?.credential.userId || ""
@@ -5011,6 +4987,9 @@ export function ClassroomV3({
     });
   }, [classEnded, currentMember?.cameraAllowed, isRecorder, media.local.auxiliaryCameraOn, media.local.auxiliaryCameraStarting, mediaProvider, renewClassroomCredentials, sessionData?.credential.auxiliaryCamera, sessionData?.credential.publishAllowed, t]);
 
+  const publishingKey = `${courseId}:${currentMember?.onStage}:${currentMember?.stageState}:${currentMember?.screenShareState}:${currentMember?.screenShareRequestedAt||""}`;
+  const publishingBlocked = publishingError?.key === publishingKey;
+  useEffect(()=>()=>{publishingAbortRef.current?.abort();},[publishingKey]);
   useEffect(() => {
     if (
       isRecorder ||
@@ -5023,51 +5002,38 @@ export function ClassroomV3({
     }
     const shouldPublish =
       currentMember?.onStage && currentMember.stageState === "accepted";
-    if (shouldPublish && !publishEnabledRef.current) {
+    const needsScreen = currentMember?.screenShareState === "accepted" && !sessionData.credential.screenShare;
+    if (shouldPublish && (!publishEnabledRef.current || needsScreen) && !publishingTaskRef.current && !publishingBlocked && liveRequestsRef.current) {
       publishEnabledRef.current = true;
-      void fetch("/api/classroom/session/publish-credential", {
-        signal: liveRequestsRef.current?.signal,
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId: clientId,
-          sessionId: courseId,
-          ...(shareAccess && { shareAccess }),
-        }),
-      })
-        .then(async (response) => {
-          const payload = (await response.json()) as {
-            credential?: ClassroomJoinCredential;
-            error?: string;
-            code?: string;
-          };
-          if (stopEndedSession(response.status, payload)) return;
+      publishingTaskRef.current = true;
+      setPublishingPreparing(true);
+      const requestedKey = publishingKey;
+      const preparationController = new AbortController();
+      publishingAbortRef.current = preparationController;
+      const preparationSignal = AbortSignal.any([liveRequestsRef.current.signal,preparationController.signal]);
+      void requestClassroomPublishingCredential({sessionId:courseId,clientId,shareAccess,screen:needsScreen,
+        signal:preparationSignal,onResponse:stopEndedSession,refreshAuth:tryOAuthRefresh})
+        .then(async (credential) => {
           const member = sessionRef.current?.runtime.members.find((candidate) => candidate.userId === currentUserId);
-          if (!publishEnabledRef.current || sessionRef.current?.runtime.status === "ended" || !member?.onStage || member.stageState !== "accepted") return;
-          if (!response.ok || !payload.credential) {
-            throw new Error(
-              payload.error || t("classroom.v3.stageCredentialFailed"),
-            );
-          }
-          await mediaProvider.setPublishingCredential(payload.credential);
-          if (liveRequestsRef.current?.signal.aborted) return;
+          if (preparationSignal.aborted || providerRef.current !== mediaProvider || !publishEnabledRef.current || sessionRef.current?.runtime.status === "ended" || !member?.onStage || member.stageState !== "accepted") return;
+          if(needsScreen && member.screenShareState!=="accepted"){publishEnabledRef.current=Boolean(sessionRef.current?.credential.publishAllowed);return;}
+          await mediaProvider.setPublishingCredential(credential);
+          if (preparationSignal.aborted || providerRef.current !== mediaProvider) return;
           if (!publishEnabledRef.current) {
             await mediaProvider.setPublishingCredential(null);
             return;
           }
-          updateSession({ credential: payload.credential });
+          updateSession({ credential });
           setStudentPublishReady(true);
         })
         .catch((error) => {
-          if (sessionRef.current?.runtime.status === "ended") return;
-          publishEnabledRef.current = false;
-          setStudentPublishReady(false);
-          setActionError(
-            error instanceof Error
-              ? error.message
-              : t("classroom.v3.stageCredentialFailed"),
-          );
-        });
+          if (preparationSignal.aborted || providerRef.current !== mediaProvider || sessionRef.current?.runtime.status === "ended") return;
+          const retained=Boolean(sessionRef.current?.credential.publishAllowed);
+          publishEnabledRef.current = retained;
+          setStudentPublishReady(retained);
+          const message=error instanceof ClassroomRecoveryError?t("classroom.v3.stageCredentialFailed"):error instanceof Error?error.message:t("classroom.v3.stageCredentialFailed");
+          setPublishingError({key:requestedKey,message});setActionError(message);
+        }).finally(()=>{publishingTaskRef.current=false;setPublishingPreparing(false);});
     }
     if (!shouldPublish && publishEnabledRef.current) {
       publishEnabledRef.current = false;
@@ -5105,6 +5071,9 @@ export function ClassroomV3({
     shareAccess,
     stopEndedSession,
     studentPublishReady,
+    publishingBlocked,
+    publishingKey,
+    publishingPreparing,
     t,
     updateSession,
   ]);
@@ -5303,7 +5272,7 @@ export function ClassroomV3({
           if (updated) updateSession({ runtime: updated });
           void signalingRef.current?.publish(payload.screenShareRequest).catch(() => undefined);
           publishInvalidation(payload.screenShareRequest.revision, "runtime");
-          if (payload.screenShareRequest.revision > current.revision + 1) void refreshState();
+          sync.scheduler.invalidate("runtime");
         }
         if (payload.memberPermissions && sessionRef.current) {
           const current = sessionRef.current.runtime;
@@ -5341,6 +5310,7 @@ export function ClassroomV3({
       isRecorder,
       publishInvalidation,
       refreshState,
+      sync.scheduler,
       shareAccess,
       stopEndedSession,
       t,
@@ -6183,9 +6153,10 @@ export function ClassroomV3({
   }, [mediaProvider, selectedMainScreenUid, t]);
   const selectedRoomScreenUid = activeSpaceId && screenLeases?.[activeSpaceId] ? String(screenLeases[activeSpaceId].rtcUid) : null;
   useEffect(() => { void roomProvider?.setScreenShareSelection?.(selectedRoomScreenUid).catch(() => undefined); }, [roomProvider, selectedRoomScreenUid]);
+  const studentShareReady = studentScreenShareReady({publishing:studentPublishReady,screenCredential:Boolean(sessionData?.credential.screenShare),permitted:screenPermission,mayClaim:mayClaimScreen});
   const screenCredentialRefreshRef = useRef(false);
   useEffect(() => {
-    if (!mainScreenPermission || sessionData?.credential.screenShare || !canUseMedia || controlsRoomMedia || isRecorder || classEnded) {
+    if (sessionData?.credential.role === "student" || !mainScreenPermission || sessionData?.credential.screenShare || !canUseMedia || controlsRoomMedia || isRecorder || classEnded) {
       screenCredentialRefreshRef.current = false;
       return;
     }
@@ -6195,7 +6166,7 @@ export function ClassroomV3({
       screenCredentialRefreshRef.current = false;
       setActionError(error instanceof Error ? error.message : t("classroom.v3.mediaActionFailed"));
     });
-  }, [canUseMedia, classEnded, controlsRoomMedia, isRecorder, mainScreenPermission, renewClassroomCredentials, sessionData?.credential.screenShare, t]);
+  }, [canUseMedia, classEnded, controlsRoomMedia, isRecorder, mainScreenPermission, renewClassroomCredentials, sessionData?.credential.screenShare, sessionData?.credential.role, t]);
   useEffect(() => {
     if (isRecorder || !controlMedia.local.screenSharing) return;
     if (!screenPermission || (screenLeases && !(screenScope === "main" ? mainScreenShareCandidates(screenLeases).some(lease => ownsScreenShare(lease, currentUserId, clientId)) : ownsScreenShare(screenLease, currentUserId, clientId)))) {
@@ -6214,12 +6185,8 @@ export function ClassroomV3({
   const localScreenClaimRef = useRef<{ claimId: string; spaceId?: string; provider: ClassroomMediaProvider; started: boolean } | null>(null);
   const screenReleaseQueue = useRef(new ScreenShareReleaseQueue());
   const flushScreenReleases = useCallback(() => screenReleaseQueue.current.flush(requestScreenShareAction), [requestScreenShareAction]);
-  useEffect(() => {
-    const flush = () => { void flushScreenReleases().catch(() => undefined); };
-    const timer = window.setInterval(flush, 5_000);
-    window.addEventListener("online", flush);
-    return () => { window.clearInterval(timer); window.removeEventListener("online", flush); };
-  }, [flushScreenReleases]);
+  useEffect(()=>sync.scheduler.register({topics:["screen-release"],background:true,interval:()=>5000,run:()=>flushScreenReleases()}),[flushScreenReleases,sync]);
+
   const releaseLocalScreenShare = useCallback(async () => {
     const claim = localScreenClaimRef.current;
     if (!claim) return;
@@ -6407,6 +6374,7 @@ export function ClassroomV3({
   const openActivityTools = () => { setActivePanel("chat"); if (sessionData.credential.role === "student") window.dispatchEvent(new CustomEvent(ACTIVITY_OPEN_EVENT, { detail: { sessionId: courseId } })); else setActivityCreateRequest(value => value + 1); };
   const minimalFunctionActions: ClassroomHeaderMenuAction[] = [
     ...(!classEnded && sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage ? [{ id: "student-screens", label: t("classroomMultiShare.title"), icon: <MonitorUp />, onSelect: () => { setStudentSharesOpen(true); } }] : []),
+          ...(sessionData.capabilities.canManageMembers ? [{ id: "members", label: t("classroomRoster.openMembers"), icon: <Users />, onSelect: () => setActivePanel("members") }] : []),
           { id: "settings", compactOnly: true, label: t("classroom.v3.deviceSettings"), icon: <Settings2 />, onSelect: () => setSettingsOpen(true) },
           ...(!classEnded ? [
             { id: "assistant", label: t(assistantVisible ? "classroomWorkspace.hideAssistant" : "classroomWorkspace.showAssistant"), icon: <Sparkles />, checked: assistantVisible, onSelect: () => setAssistantVisible(value => !value) },
@@ -6524,7 +6492,7 @@ export function ClassroomV3({
       ));
 
   return (
-    <main
+    <ClassroomSyncProvider value={sync}><main
       className={`classroom-v3-shell is-mode-${sessionData.mode} ${classinLayout ? "is-classin-layout" : ""} ${isRecorder ? "is-recorder" : ""} ${stageExpanded ? "is-stage-expanded" : ""} ${(sessionData.modePolicy.showLiveRail || (classinLayout && sessionData.mode !== "publicLive")) && liveRailCollapsed ? "is-rail-collapsed" : ""}`}
       data-responsive-workspace={classinLayout || undefined}
       data-runtime-status={sessionData.runtime.status}
@@ -6535,7 +6503,7 @@ export function ClassroomV3({
       {classinLayout && !isRecorder ? <MinimalHeader
         screenShareControl={!classEnded && sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage ? <button type="button" className="classroom-minimal-icon classroom-student-share-trigger" aria-label={t("classroomMultiShare.title")} title={t("classroomMultiShare.title")} aria-expanded={studentSharesOpen} onClick={() => { setStudentSharesOpen(value => !value); }}><MonitorUp /><span>{mainScreenShareCandidates(screenLeases).length}</span></button> : undefined}
         course={sessionData.course} runtime={sessionData.runtime} now={now + presenceClockOffset}
-        roleName={roleLabel(sessionData.credential.role, t)} memberCount={classroomMembers.filter(classroomMemberVisible).length}
+        roleName={roleLabel(sessionData.credential.role, t)} memberCount={classroomPresenceSummary(classroomMembers).online} membersOpen={activePanel === "members"}
         connectionState={media.connectionState} presenceHealthy={presenceHealthy && !sessionData.runtime.presenceUncertain}
         recording={["starting", "recording"].includes(recordingStatus || "")} recordingStatus={recordingStatus} canRecord={sessionData.capabilities.canControlRecording && !classEnded} onRecording={onRecordingControl} onFullscreen={toggleFullscreen} expanded={stageExpanded} busy={Boolean(actionBusy)}
         canStart={isClassroomTeachingRole(sessionData.credential.role) && sessionData.runtime.status === "waiting"}
@@ -6544,8 +6512,8 @@ export function ClassroomV3({
         onBack={leaveClassroom} onStart={() => void performAction({ type: "startClass" })}
         onEnd={() => setEndClassConfirming(true)} onRestarted={() => void refreshState()}
         onExtended={timing => { updateSession({ course: { ...sessionData.course, endTime: timing.endTime }, runtime: { ...sessionData.runtime, scheduledEndAt: timing.endTime, scheduledStartAt: timing.startTime, revision: timing.revision } }); publishInvalidation(timing.revision, "runtime"); void refreshState(); }}
-        onMembers={sessionData.capabilities.canManageMembers ? () => setActivePanel("members") : undefined}
         status={<StatusPill inMenu media={media} recording={recordingStatus} presenceHealthy={presenceHealthy && !sessionData.runtime.presenceUncertain} />}
+        onMembers={sessionData.capabilities.canManageMembers ? () => setActivePanel(current => current === "members" ? null : "members") : undefined}
         settings={<ClassroomQuickSettings provider={controlsRoomMedia && roomProvider ? roomProvider : mediaProvider} dark={theme !== "light"}
           onTheme={() => setClientTheme(theme === "light" ? "dark" : "light")} onCaptions={() => setActivePanel("captions")} onAdvanced={() => setSettingsOpen(true)} />}
         actions={minimalFunctionActions}
@@ -7362,6 +7330,7 @@ export function ClassroomV3({
                 {activePanel === "members" && sessionData.capabilities.canManageMembers && (
                   <MemberPanel
                     members={classroomMembers}
+                    presenceHealthy={presenceHealthy && !sessionData.runtime.presenceUncertain}
                     screenLease={sessionData.runtime.composition.screenShares?.main}
                     screenParticipants={media.participants}
                     canManage={sessionData.capabilities.canManageMembers}
@@ -7628,6 +7597,7 @@ export function ClassroomV3({
         >
           <AlertCircle />
           <span>{actionError}</span>
+          {publishingBlocked&&!publishingPreparing&&<ClassroomIconButton type="button" title={t("classroomRoster.retrySharePreparation")} onClick={()=>{setPublishingError(null);setActionError("");}}><RefreshCw/></ClassroomIconButton>}
           <button type="button" onClick={() => setActionError("")}>
             <X />
           </button>
@@ -7918,7 +7888,7 @@ export function ClassroomV3({
               <span><MonitorUp /></span>
               <div>
                 <strong>{t("classroomWorkspace.shareReady")}</strong>
-                <p>{t("classroomWorkspace.chooseShareSource")}</p>
+                <p>{publishingBlocked?publishingError?.message:t(!mayClaimScreen?"classroomRoster.shareOccupied":"classroomWorkspace.chooseShareSource")}</p>
               </div>
               <button
                 type="button"
@@ -7929,12 +7899,11 @@ export function ClassroomV3({
               <button
                 type="button"
                 className="is-accept"
-                disabled={!studentPublishReady}
-                onClick={() => toggleScreenShare()}
+                disabled={publishingPreparing || (!publishingBlocked && !studentShareReady)}
+                aria-busy={publishingPreparing}
+                onClick={() => {if(publishingBlocked){setPublishingError(null);setActionError("");}else toggleScreenShare();}}
               >
-                {studentPublishReady
-                  ? t("classroom.v3.startScreenShareNow")
-                  : t("classroom.v3.preparing")}
+                {publishingBlocked?t("classroomRoster.retrySharePreparation"):t(studentShareReady?"classroom.v3.startScreenShareNow":"classroom.v3.preparing")}
               </button>
             </motion.div>
           )}
@@ -7962,6 +7931,6 @@ export function ClassroomV3({
         onOpenCaptions={() => setActivePanel("captions")}
         onClose={() => setSettingsOpen(false)}
       />
-    </main>
+    </main></ClassroomSyncProvider>
   );
 }

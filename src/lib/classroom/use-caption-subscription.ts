@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useClassroomSyncTask } from "./use-classroom-sync";
 import type { CaptionDisplayMode } from "./caption-preferences";
 
 /** Keep per-tab demand alive after reconnection without refreshing presence. */
@@ -53,16 +54,10 @@ export function useCaptionSubscription(input: {
     return request;
   }, [active, clientId, sessionId, shareAccess, sourceLanguage]);
 
-  useEffect(() => {
-    if (!active) return;
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const sync = async () => {
-      await save(language, mode, false);
-      if (!stopped) timer = setTimeout(sync, 20_000);
-    };
-    void sync();
-    return () => { stopped = true; clearTimeout(timer); };
-  }, [active, language, mode, provider, save]);
+  // captionLanguage is persisted on the connection; the one presence heartbeat
+  // keeps its lease alive. Re-save on configuration changes and reconnection.
+  useClassroomSyncTask({sessionId,taskKey:`caption-preference:${clientId}:${language}:${mode}:${provider}:${sourceLanguage}`,
+    topics:["resume","caption-preference"],active,realtimeMs:null,fallbackMs:null,background:true,
+    run:async()=>{if(!await save(language,mode,false))throw new Error("caption_preference_failed");}});
   return { save, busy, error, lastIntent };
 }

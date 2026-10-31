@@ -16,6 +16,7 @@ import { getRecordingProvider } from "@/lib/classroom/server/provider-factory";
 import { classroomSharedRead } from "@/lib/classroom/server/shared-cache";
 import { databaseUnavailableResponse } from "@/lib/database-response";
 import { prisma } from "@/lib/db";
+import { classroomCaptionDelta } from "@/lib/classroom/server/caption-delta";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -44,11 +45,14 @@ async function getState(
 
   // Channel payloads are hints only: every section still resolves viewer access.
   const scope = request.nextUrl.searchParams.get("scope");
+  const readCaptions = async () => classroomCaptionDelta(sessionId,
+    await classroomSharedRead(sessionId, "captions:100", () => getClassroomCaptions(resolvedCourseId, 100, sessionId)),
+    request.nextUrl.searchParams.get("captionCursor"));
   if (scope === "runtime" || scope === "captions" || scope === "courseware") {
     const section = scope === "runtime"
       ? { runtime: await getClassroomRuntimeSnapshot(resolvedCourseId, sessionId, { ensure: false, coalesce: true }) }
       : scope === "captions"
-        ? { captions: await classroomSharedRead(sessionId, "captions:100", () => getClassroomCaptions(resolvedCourseId, 100, sessionId)) }
+        ? await readCaptions()
         : { courseware: await classroomSharedRead(sessionId, `conversion-courseware:${resolved.access.role}`, () => getClassroomCourseware(resolvedCourseId, resolved.access.role, sessionId, true)) };
     return NextResponse.json(section, { headers: { "Cache-Control": "no-store" } });
   }
@@ -78,9 +82,9 @@ async function getState(
   // data still load from PG, and courseware caches are isolated by role.
   const runtimeSnapshot = await getClassroomRuntimeSnapshot(resolvedCourseId, sessionId, { ensure: false, coalesce: true });
   const engagement = await classroomSharedRead(sessionId, "engagement", () => getClassroomEngagementSnapshot(sessionId));
-  const [courseware, captions] = await Promise.all([
+  const [courseware, captionDelta] = await Promise.all([
     classroomSharedRead(sessionId, `courseware:${resolved.access.role}`, () => getClassroomCourseware(resolvedCourseId, resolved.access.role, sessionId)),
-    classroomSharedRead(sessionId, "captions:100", () => getClassroomCaptions(resolvedCourseId, 100, sessionId)),
+    readCaptions(),
   ]);
   const [spaces, questions] = await Promise.all([
     mode.allowBreakouts ? getClassroomSpaces({ courseId: resolvedCourseId, sessionId, viewerId: resolved.session.userId, role: resolved.access.role }) : Promise.resolve([]),
@@ -107,7 +111,7 @@ async function getState(
       runtime: runtimeSnapshot,
       engagement,
       courseware,
-      captions,
+      ...captionDelta,
       spaces,
       questions,
       recording,
