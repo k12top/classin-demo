@@ -33,7 +33,7 @@
 - Modify: `src/components/classroom/class-timing-controls.tsx`
 - Modify: `src/components/course-sessions/course-session-manager.tsx`
 - Modify: `src/components/course-sessions/course-session-manager.module.css`
-- Test: `tests/class-timing-controls.test.tsx`
+- Test: `tests/class-timing-controls.test.ts`
 
 **Interfaces:**
 - Consumes: existing `ClassTimingControls` props and translations.
@@ -45,7 +45,7 @@ Assert that compact mode exposes action-specific `title` and `aria-label`, hides
 
 - [x] **Step 2: Run the test to verify it fails**
 
-Run: `node --import tsx --test tests/class-timing-controls.test.tsx`
+Run: `node --import tsx --test tests/class-timing-controls.test.ts`
 Expected: FAIL because `compact` behavior is not implemented.
 
 - [x] **Step 3: Implement the minimal compact mode**

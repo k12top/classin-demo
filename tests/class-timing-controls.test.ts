@@ -129,10 +129,10 @@ test("light theme row actions have visible hover feedback without changing the d
 
   assert.match(
     css,
-    /\.rowActions\s*>\s*button:not\(\.enterButton\):not\(\.detailsButton\):is\(:hover,:focus-visible\)[^{]*\{[^}]*background\s*:\s*hsl\(var\(--muted\)\/\.65\)[^}]*\}/s,
+    /\.rowActions\s*>\s*button:where\(:not\(\.enterButton\):not\(\.detailsButton\)\):is\(:hover,:focus-visible\):not\(:disabled\)[^{]*\{[^}]*background\s*:\s*hsl\(var\(--muted\)\/\.65\)[^}]*\}/s,
   );
   assert.match(
     css,
-    /\.rowActions\s*>\s*button\.endAction:hover[^{]*\{[^}]*background\s*:\s*rgb\(255 94 105\/\.07\)[^}]*\}/s,
+    /\.rowActions\s*>\s*button\.endAction:is\(:hover,:focus-visible\)[^{]*\{[^}]*background\s*:\s*rgb\(255 94 105\/\.07\)[^}]*\}/s,
   );
 });
