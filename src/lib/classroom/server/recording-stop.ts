@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { ClassroomRecording, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getRecordingProvider } from "./provider-factory";
-import { newRecordingStopControl, recordingProviderExited, recordingProviderStatus,
+import { newRecordingStopControl, recordingOperationFailure, recordingProviderExited, recordingProviderStatus,
   recordingState, recordingStopBackoff, recordingStopControl, recordingUploadComplete,
   RECORDING_RESOURCE_GONE_WINDOW_MS,
   RECORDING_QUERY_LIMIT, RECORDING_STOP_LEASE_MS, RECORDING_STOP_LIMIT,
@@ -96,10 +96,15 @@ export async function reconcileDurableRecordingStop(id: string) {
   const provider = getRecordingProvider(row.provider);
   let result: Awaited<ReturnType<typeof provider.query>> | Awaited<ReturnType<typeof provider.stop>> | null = null;
   let failure: string | null = null;
+  let failureEvidence: ReturnType<typeof recordingOperationFailure> | undefined;
   try {
     result = await provider[operation]({ channelName: row.channelName, recorderUserId: row.recorderUserId,
-      resourceId: row.resourceId!, providerSessionId: row.providerSessionId!, providerState: recordingState(row.providerState) });
-  } catch (error) { failure = error instanceof Error ? error.message.slice(0, 1000) : "Provider operation failed"; }
+      resourceId: row.resourceId!, providerSessionId: row.providerSessionId!, providerState: { ...recordingState(row.providerState), ...(row.stopRequestedAt && { stopRequestedAt: row.stopRequestedAt.toISOString() }) } });
+  } catch (error) {
+    failureEvidence = recordingOperationFailure(error);
+    failure = `Provider ${operation} failed (${failureEvidence.kind}; HTTP ${failureEvidence.httpStatus ?? "unknown"}; code ${failureEvidence.code ?? "unknown"})`;
+    console.warn("[classroom:recording]", { event: "provider_operation_failed", recordingId: id, operation, ...failureEvidence });
+  }
   await locked(id, async (tx, current) => {
     const currentState = recordingState(current.providerState);
     const latest = recordingStopControl(currentState);
@@ -155,7 +160,8 @@ export async function reconcileDurableRecordingStop(id: string) {
     const completed = Boolean(next.confirmedAt && objectKey);
     await tx.classroomRecording.update({ where: { id }, data: {
       status: completed ? "completed" : "processing",
-      providerState: json({ ...currentState, ...(result ? { [operation === "stop" ? "lastStop" : "lastQuery"]: result.providerState } : {}), stopControl: next }),
+      providerState: json({ ...currentState, ...(result ? { [operation === "stop" ? "lastStop" : "lastQuery"]: result.providerState } : {}),
+        ...(failureEvidence ? { [operation === "stop" ? "lastStopFailure" : "lastQueryFailure"]: { ...failureEvidence, at: completedAt.toISOString() } } : {}), stopControl: next }),
       ...(result?.files.length ? { files: json(result.files) } : {}),
       playbackObjectKey: objectKey, playbackFormat: result?.playbackFormat || current.playbackFormat,
       stoppedAt: next.confirmedAt ? new Date(next.confirmedAt) : null,

@@ -58,8 +58,8 @@ async function main() {
     return lesson;
   };
   const context = (lesson) => ({ params: Promise.resolve({ id: course.id, sessionId: lesson.id }) });
-  const lifecycle = async (lesson, action) => {
-    const response = await api.lifecycle(new Request("http://localhost/api/lifecycle", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ action }) }), context(lesson));
+  const lifecycle = async (lesson, action, extra = {}) => {
+    const response = await api.lifecycle(new Request("http://localhost/api/lifecycle", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ action, ...extra }) }), context(lesson));
     assert.equal(response.status, 200, await response.clone().text());
     return response.json();
   };
@@ -69,8 +69,16 @@ async function main() {
     const start = () => api.applyClassroomAction({ courseId: course.id, sessionId: lesson.id, session: teacher, role: "teacher", action: { type: "startClass" } });
     await Promise.all([start(), start()]);
     assert.equal(await db.classroomIntegrationEvent.count({ where: { sessionId: lesson.id } }), 1, "concurrent starts deduplicate");
-    await lifecycle(lesson, "end");
-    await lifecycle(lesson, "end");
+    const cycle = (await db.classroomRuntime.findUniqueOrThrow({where:{sessionId:lesson.id}})).startedAt.toISOString();
+    for(const state of [{status:"processing"},{status:"failed",failureStage:"start-unknown"}]) await db.classroomRecording.create({data:{courseId:course.id,sessionId:lesson.id,provider:"fixture",channelName:"fixture",recorderUserId:"pending",...state}});
+    await lifecycle(lesson, "end", {cycleStartedAt:cycle});
+    const firstEnd=(await db.courseSession.findUniqueOrThrow({where:{id:lesson.id}})).endedAt;
+    const stopped=await db.classroomRecording.findMany({where:{sessionId:lesson.id}});
+    assert.ok(stopped.every(row=>row.status==="stopping"&&row.stopRequestedAt));
+    await lifecycle(lesson, "end", {cycleStartedAt:cycle});
+    assert.equal((await db.courseSession.findUniqueOrThrow({where:{id:lesson.id}})).endedAt.getTime(),firstEnd.getTime());
+    const repeated=await db.classroomRecording.findMany({where:{sessionId:lesson.id}});for(const row of stopped)assert.equal(repeated.find(x=>x.id===row.id).stopRequestedAt.getTime(),row.stopRequestedAt.getTime());
+    assert.equal(await db.classroomProviderEvent.count({where:{recordingId:null,provider:"classroom-lifecycle",noticeId:{startsWith:`classroom-end:${lesson.id}:`}}}),1);
     assert.equal(await db.classroomIntegrationEvent.count({ where: { sessionId: lesson.id } }), 2, "repeated manual end deduplicates");
     const end = await db.classroomIntegrationEvent.findFirst({ where: { sessionId: lesson.id, payload: { path: ["type"], equals: "classroom.ended" } } });
     assert.equal(end.payload.ended, true);
@@ -91,6 +99,8 @@ async function main() {
     assert.equal(await db.classroomIntegrationEvent.count({ where: { deliveredAt: null } }), 0);
 
     await lifecycle(lesson, "reopen");
+    const staleEnd=await api.lifecycle(new Request("http://localhost/api/lifecycle",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"end",cycleStartedAt:cycle})}),context(lesson));
+    assert.equal(staleEnd.status,409);assert.equal((await db.classroomRuntime.findUniqueOrThrow({where:{sessionId:lesson.id}})).status,"live");
     await lifecycle(lesson, "end");
     assert.equal(await db.classroomIntegrationEvent.count({ where: { sessionId: lesson.id } }), 4, "reopen creates a new cycle");
 

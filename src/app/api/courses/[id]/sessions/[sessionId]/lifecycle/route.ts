@@ -37,6 +37,8 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+class ClassroomEndCycleConflict extends Error {}
+
 type Context = {
   params: Promise<{ id: string; sessionId: string }>;
 };
@@ -93,6 +95,7 @@ async function handlePost(request: NextRequest, context: Context) {
     action?: unknown;
     minutes?: unknown;
     commandId?: unknown;
+    cycleStartedAt?: unknown;
   } | null;
   if (
     body?.action !== "extend" &&
@@ -211,8 +214,16 @@ async function handlePost(request: NextRequest, context: Context) {
         { status: 409 },
       );
     }
+    console.info("[classroom:lifecycle]", { event: "end_requested", sessionId: resolved.sessionId, userId: resolved.identity.userId });
     const updated = await prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${resolved.sessionId} FOR UPDATE`;
+      await transaction.$queryRaw`SELECT "id" FROM "CourseSession" WHERE "id" = ${resolved.sessionId} FOR UPDATE`;
+      const runtime = await transaction.classroomRuntime.findUnique({ where: { sessionId: resolved.sessionId } });
+      if (body.cycleStartedAt !== undefined && body.cycleStartedAt !== null && body.cycleStartedAt !== runtime?.startedAt?.toISOString()) throw new ClassroomEndCycleConflict();
+      const existing = await transaction.courseSession.findUniqueOrThrow({ where: { id: resolved.sessionId },
+        include: { series: true, teachers: true, students: true, groupLinks: true, _count: { select: { attendances: true, recordings: true } } } });
+      // A retried response cannot move the original end/stop time or end a reopened cycle.
+      if (existing.endedAt && runtime?.status === "ended") return existing;
       await closeAllOpenAttendanceForLesson(resolved.sessionId, now, transaction);
       await transaction.classroomRuntime.updateMany({
         where: { sessionId: resolved.sessionId },
@@ -225,7 +236,9 @@ async function handlePost(request: NextRequest, context: Context) {
       await transaction.classroomRecording.updateMany({
         where: {
           sessionId: resolved.sessionId,
-          status: { in: ["starting", "recording", "stopping"] },
+          stopRequestedAt: null,
+          OR: [{ status: { in: ["starting", "recording", "stopping", "processing"] } },
+            { status: "failed", failureStage: "start-unknown" }],
         },
         data: {
           status: "stopping",
@@ -249,9 +262,15 @@ async function handlePost(request: NextRequest, context: Context) {
           _count: { select: { attendances: true, recordings: true } },
         },
       });
+      // Audit exists even when outbound lifecycle webhooks are not configured.
+      const noticeId = `classroom-end:${resolved.sessionId}:${runtime?.startedAt?.toISOString() || "unstarted"}`;
+      await transaction.classroomProviderEvent.upsert({ where: { noticeId },
+        create: { noticeId, provider: "classroom-lifecycle", category: "classroom.ended",
+          payload: { reason: "teacher_end", userId: resolved.identity.userId, endedAt: now.toISOString(), cycleStartedAt: runtime?.startedAt?.toISOString() ?? null } }, update: {} });
       await enqueueClassroomEvent(transaction, resolved.sessionId, "classroom.ended", "teacher_end", { userId: resolved.identity.userId, role: resolved.classroomRole });
       return lesson;
     });
+    console.info("[classroom:lifecycle]", { event: "end_committed", sessionId: resolved.sessionId, userId: resolved.identity.userId, endedAt: updated.endedAt?.toISOString() });
     clearCourseSessionAccessCache();
     let courseStatusSynced = false;
     try {
@@ -287,8 +306,8 @@ async function handlePost(request: NextRequest, context: Context) {
         }
       }
       const results = await Promise.allSettled([
-        stopActiveRecordingsForCourse(resolved.courseId, resolved.sessionId, now),
-        stopClassroomTranscription(resolved.courseId, resolved.sessionId, { endedBefore: now }),
+        stopActiveRecordingsForCourse(resolved.courseId, resolved.sessionId, updated.endedAt ?? now),
+        stopClassroomTranscription(resolved.courseId, resolved.sessionId, { endedBefore: updated.endedAt ?? now }),
       ]);
       for (const result of results) {
         if (result.status === "rejected") {
@@ -330,7 +349,8 @@ export async function POST(request: NextRequest, context: Context) {
   try {
     return await handlePost(request, context);
   } catch (error) {
-    const unavailable = databaseUnavailableResponse(error);
+    if (error instanceof ClassroomEndCycleConflict) return NextResponse.json({ error: "课堂已重新开课，请刷新状态后再操作", code: "classroom_cycle_changed" }, { status: 409 });
+    const unavailable = databaseUnavailableResponse(error, { route: "classroom/lifecycle", operation: "lifecycle" });
     if (unavailable) return unavailable;
     throw error;
   }

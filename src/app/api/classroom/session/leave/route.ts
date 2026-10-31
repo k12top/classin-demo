@@ -31,6 +31,8 @@ async function handlePost(request: NextRequest) {
   const { courseId, sessionId } = resolved.access;
   const ended = await leaveClassroomConnection(sessionId, resolved.session.userId, clientId, body.voluntary === true,
     explicit ? { intent: body.leaveIntent, cycleStartedAt: body.cycleStartedAt } : undefined);
+  console.info("[classroom:leave]", { event: "departure_committed", sessionId, userId: resolved.session.userId,
+    intent: explicit ? body.leaveIntent : body.voluntary === true ? "temporary" : "disconnected", classEnded: Boolean(ended) });
   if (ended) clearCourseSessionAccessCache();
   // Cloud cleanup is independent of cache/webhook/summary availability.
   after(async () => {

@@ -78,3 +78,15 @@ export function recordingVerification(value: unknown) {
     attention: control?.attention ?? null,
   };
 }
+
+/** Preserve useful failure categories without provider payloads, URLs or credentials. */
+export function recordingOperationFailure(error: unknown) {
+  const outer = recordingState(error);
+  const cause = recordingState(outer.causeValue);
+  const detail = outer.causeValue && typeof outer.causeValue === "object" ? cause : outer;
+  const response = recordingState(detail.response);
+  const status = typeof detail.status === "number" ? detail.status : null;
+  const code = typeof response.code === "number" ? response.code : typeof detail.code === "number" ? detail.code : null;
+  const name = typeof detail.name === "string" ? detail.name : "";
+  return { kind: /Timeout|Abort/.test(name) ? "timeout" : status !== null || code !== null ? "provider_error" : "transport_error", httpStatus: status, code };
+}

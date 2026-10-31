@@ -58,6 +58,15 @@ test("real provider adapter retains typed authenticated 404 and a stable full as
   assert.equal(first.providerState.storageFingerprint, second.providerState.storageFingerprint);
   assert.equal(first.playbackFormat, "mp4");
 });
+test("a persisted stop request recovers storage even when the stop response was lost", async () => {
+  const provider = providerFixture(async () => Response.json({ code: 404 }, { status: 404 }));
+  const result = await provider.query({ ...input, providerState: {
+    mode: "web", stopRequestedAt: "2026-10-23T00:00:00Z", fileNamePrefix: ["recordings", "lesson", "attempt"],
+  } });
+  assert.equal(result.playbackFormat, "mp4");
+  assert.equal(typeof result.providerState.storageFingerprint, "string");
+  assert.equal(recordingProviderExited(result.providerState), false);
+});
 test("real adapter never treats auth/server errors as missing-task evidence", async () => {
   for (const status of [401, 403, 500]) {
     const provider = providerFixture(async () => Response.json({ code: 404 }, { status }));

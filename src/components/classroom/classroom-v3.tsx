@@ -1,4 +1,5 @@
 "use client";
+import { requestClassroomEnd } from "@/lib/classroom/end-request";
 import { CaptionStartSettings } from "./caption-start-settings";
 import { initialCaptionStartView, newCaptionStartPreferences, type CaptionStartPreferences } from "@/lib/classroom/caption-start-preferences";
 
@@ -3610,7 +3611,7 @@ export function ClassroomV3({
   const [recordingStatus, setRecordingStatus] = useState<string | null>(null);
   const [recordingFallback, setRecordingFallback] = useState<string | null>(null);
   const [recordingStopConfirming, setRecordingStopConfirming] = useState(false);
-  const [endClassConfirming, setEndClassConfirming] = useState(false);
+  const [endClassConfirming, setEndClassConfirming] = useState<false | "end" | "leave">(false);
   const [overtimeLeaveConfirming, setOvertimeLeaveConfirming] = useState(false);
   const overtimeLeaveBusyRef = useRef(false);
   const [isLeaving, setIsLeaving] = useState(false);
@@ -5782,24 +5783,14 @@ export function ClassroomV3({
         await Promise.race([queue.flush(), new Promise<void>(resolve => { timeout = setTimeout(resolve, 1_000); })]);
         clearTimeout(timeout);
       }
-      const response = await fetch(
-        `/api/courses/${encodeURIComponent(current.course.id)}/sessions/${encodeURIComponent(courseId)}/lifecycle`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "end" }),
-        },
-      );
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        session?: { status?: string };
-        runtime?: ClassroomRuntimeSnapshot;
-      };
-      if (!response.ok || !payload.session?.status) {
-        throw new Error(
-          payload.error || t("classroom.v3.classroomActionFailed"),
-        );
-      }
+      const payload = await requestClassroomEnd({
+        signal: new AbortController().signal,
+        request: signal => fetch(
+          `/api/courses/${encodeURIComponent(current.course.id)}/sessions/${encodeURIComponent(courseId)}/lifecycle`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, signal,
+            body: JSON.stringify({ action: "end", cycleStartedAt: current.runtime.startedAt }) },
+        ),
+      });
       const endedSession = {
         ...current,
         runtime: payload.runtime || { ...current.runtime, status: "ended" as const },
@@ -5868,6 +5859,11 @@ export function ClassroomV3({
           new Date(Date.now() + presenceClockOffsetRef.current))) {
       setActionError("");
       setOvertimeLeaveConfirming(true);
+      return;
+    }
+    if (!isRecorder && current && isClassroomTeachingRole(current.credential.role) && current.runtime.status === "live") {
+      setActionError("");
+      setEndClassConfirming("leave");
       return;
     }
     leaveTemporarily();
@@ -6561,7 +6557,7 @@ export function ClassroomV3({
         canEnd={sessionData.capabilities.canEndClass && sessionData.runtime.status === "live"}
         canExtend={sessionData.capabilities.canEndClass}
         onBack={leaveClassroom} onStart={() => void performAction({ type: "startClass" })}
-        onEnd={() => setEndClassConfirming(true)} onRestarted={() => void refreshState()}
+        onEnd={() => setEndClassConfirming("end")} onRestarted={() => void refreshState()}
         onExtended={timing => { updateSession({ course: { ...sessionData.course, endTime: timing.endTime }, runtime: { ...sessionData.runtime, scheduledEndAt: timing.endTime, scheduledStartAt: timing.startTime, revision: timing.revision } }); publishInvalidation(timing.revision, "runtime"); void refreshState(); }}
         status={<StatusPill inMenu media={media} recording={recordingStatus} presenceHealthy={presenceHealthy && !sessionData.runtime.presenceUncertain} />}
         onMembers={sessionData.capabilities.canManageMembers ? () => setActivePanel(current => current === "members" ? null : "members") : undefined}
@@ -6739,7 +6735,7 @@ export function ClassroomV3({
                     aria-label={t("classroom.v3.endClass")}
                     disabled={Boolean(actionBusy)}
                     onClick={() => {
-                      setEndClassConfirming(true);
+                      setEndClassConfirming("end");
                     }}
                   >
                     {actionBusy === "endClass" ? <Loader2 /> : <CircleStop />}
@@ -7574,7 +7570,7 @@ export function ClassroomV3({
             </footer>
           </section>
         </div>}
-        {endClassConfirming && !isRecorder && <div className="classroom-v3-modal-backdrop" onKeyDown={(event) => { if (event.key === "Escape" && actionBusy !== "endClass") setEndClassConfirming(false); }}><section ref={endClassDialogRef} className="classroom-v3-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="end-class-title" aria-describedby="end-class-description"><div className="classroom-v3-confirm-icon"><CircleStop /></div><div className="classroom-v3-confirm-copy"><h2 id="end-class-title">{t("classroom.v3.endClass")}</h2><p id="end-class-description">{t("classroom.v3.endClassDescription")}</p></div>{actionError && <p role="alert" className="classroom-v3-confirm-error">{actionError}</p>}<footer><button type="button" disabled={actionBusy === "endClass"} onClick={() => setEndClassConfirming(false)}>{t("common.cancel")}</button><button type="button" disabled={actionBusy === "endClass"} onClick={leaveTemporarily}><LogOut />{t("classroom.v3.leaveTemporarily")}</button><button type="button" className="is-danger" disabled={actionBusy === "endClass"} onClick={() => void endClass()}>{actionBusy === "endClass" ? <Loader2 className="animate-spin" /> : <CircleStop />}{t("classroom.v3.endClass")}</button></footer></section></div>}
+        {endClassConfirming && !isRecorder && <div className="classroom-v3-modal-backdrop" onKeyDown={(event) => { if (event.key === "Escape" && actionBusy !== "endClass") setEndClassConfirming(false); }}><section ref={endClassDialogRef} className="classroom-v3-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="end-class-title" aria-describedby="end-class-description"><div className="classroom-v3-confirm-icon"><CircleStop /></div><div className="classroom-v3-confirm-copy"><h2 id="end-class-title">{t(endClassConfirming === "leave" ? "classroom.v3.leaveTeachingTitle" : "classroom.v3.endClassAndStopRecording")}</h2><p id="end-class-description">{t("classroom.v3.endClassDescription")}</p></div>{actionError && <p role="alert" className="classroom-v3-confirm-error">{actionError}</p>}<footer><button type="button" disabled={actionBusy === "endClass"} onClick={() => setEndClassConfirming(false)}>{t("common.cancel")}</button>{endClassConfirming === "leave" && <button type="button" disabled={actionBusy === "endClass"} onClick={leaveTemporarily}><LogOut />{t(["starting", "recording", "stopping"].includes(recordingStatus || "") ? "classroom.v3.leaveKeepRecording" : "classroom.v3.leaveKeepClass")}</button>}<button type="button" className="is-danger" disabled={actionBusy === "endClass"} onClick={() => void endClass()}>{actionBusy === "endClass" ? <Loader2 className="animate-spin" /> : <CircleStop />}{t("classroom.v3.endClassAndStopRecording")}</button></footer></section></div>}
         {recordingStopConfirming && !isRecorder && (
           <motion.div
             className="classroom-v3-modal-backdrop is-board-confirm"

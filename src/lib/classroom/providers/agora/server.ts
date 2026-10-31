@@ -734,7 +734,7 @@ export class AgoraCloudRecordingProvider implements RecordingProvider {
     const providerFiles = responseFiles(payload);
     let files = providerFiles;
     let playback = selectAgoraRecordingPlayback(files, prefixSegments);
-    const postStop = Boolean(input.providerState?.lastStop);
+    const postStop = Boolean(input.providerState?.lastStop || input.providerState?.stopRequestedAt);
     // Only the authenticated response for the persisted SID is absence evidence.
     // Transport errors and arbitrary HTTP errors must never masquerade as exit.
     const taskMatches = (!payload.sid || payload.sid === input.providerSessionId) &&

@@ -28,7 +28,7 @@ function fixture(overrides: Row = {}) {
   class Clock extends Date {constructor(value?:any){super(value ?? now);} static now(){return now;}}
   const stops=loadModule<typeof import("../src/lib/classroom/server/recording-stop")>("src/lib/classroom/server/recording-stop.ts",{
     "server-only":{},"node:crypto":crypto,"@/lib/db":{prisma},"./provider-factory":{getRecordingProvider:()=>provider},"../recording-stop-state":stopState,
-  },{Date:Clock,console:{error:()=>{}}});
+  },{Date:Clock,console:{error:()=>{},warn:()=>{}}});
   const api=loadModule<typeof import("../src/lib/classroom/server/recording-orchestrator")>("src/lib/classroom/server/recording-orchestrator.ts",{
     "server-only":{},"@/lib/classroom/config":{},"@/lib/classroom/recording-continuity":{},"@/lib/classroom/recording-provider-state":{appendRecordingProviderState:(base:any,key:string,value:any)=>({...base,[key]:value})},
     "@/lib/classroom/server/provider-factory":{getRecordingProvider:()=>provider},"@/lib/classroom/server/recorder-token":{createRecorderPageUrl:async()=>null},"@/lib/course-room":{},"@/lib/course-status":{CourseStatus:{FINISHED:"finished",AFTER_CLASS:"afterClass",CANCELLED:"cancelled"}},

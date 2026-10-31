@@ -19,7 +19,14 @@ if (!process.versions.electron) {
     const output = path.join(root, 'outputs/classroom-overtime-leave-2026-10-31/ui');
     fixture = await createClassroomBrowserFixture({ outputDirectory: output, transformSource(source) {
       source=source.replace('end=new Date(Date.now()+3600000).toISOString()', "end=new Date(Date.now()+(new URLSearchParams(location.search).has('overtime')?-60000:3600000)).toISOString()");
-      return source.replace("  if(url.pathname==='/api/classroom/session')", `  if(url.pathname==='/api/classroom/session/leave'){
+      return source.replace("  if(url.pathname==='/api/classroom/session')", `  if(url.pathname.endsWith('/lifecycle')&&body.action==='end'){
+        (window.fixtureEnds??=[]).push(body);
+        if(window.fixtureEndFailOnce){window.fixtureEndFailOnce=false;return Response.json({error:'transient end failure'},{status:503})}
+        if(window.fixtureHoldEnd)await new Promise(resolve=>window.fixtureReleaseEnd=resolve);
+        payload.runtime.status='ended';payload.runtime.revision++;
+        return Response.json({session:{status:'afterClass'},runtime:payload.runtime});
+      }
+      if(url.pathname==='/api/classroom/session/leave'){
         (window.fixtureLeaves??=[]).push(body);
         if(window.fixtureLeaveFailure)return Response.json({error:'simulated failure'},{status:503});
         if(window.fixtureHoldLeave)await new Promise(resolve=>window.fixtureReleaseLeave=resolve);
@@ -65,10 +72,23 @@ if (!process.versions.electron) {
  checks.push({failedLeaveRetainsClassroom:true,retry:true});
 
  await enter(1440,900,'');
- await run('document.querySelector(".classroom-minimal-header button[aria-label=返回课程]").click()');await wait('Boolean(window.fixtureNavigation)');
+ await run('document.querySelector(".classroom-minimal-header button[aria-label=返回课程]").click()');await wait('document.querySelector("#end-class-title")');
+ assert.equal(await run('Boolean(window.fixtureNavigation)'),false);
+ await clickButton('暂时离开（课堂继续）');await wait('Boolean(window.fixtureNavigation)');
  assert.equal(await run('fixtureLeaves[0].leaveIntent'),'temporary');
  assert.equal(await run('Boolean(document.querySelector("#overtime-leave-title"))'),false);
- checks.push({normalTimeLeaveIsTemporary:true});
+ checks.push({normalTimeLeaveRequiresExplicitChoice:true});
+ for(const [width,height]of [[1440,900],[390,844]]){
+ await enter(width,height,'');
+ await run('document.querySelector(".classroom-minimal-header button[aria-label=返回课程]").click()');await wait('document.querySelector("#end-class-title")');
+ await capture('normal-leave-'+width+'.png');
+ await run('window.fixtureHoldEnd=true;window.fixtureEndFailOnce=true');await clickButton('结束课堂并停止录制');
+ await wait('typeof fixtureReleaseEnd==="function"');assert.equal(await run('Boolean(window.fixtureNavigation)'),false);
+ assert.equal(await run('fixtureEnds.length'),2);assert.equal(await run('fixtureEnds[0].cycleStartedAt===fixturePayload.runtime.startedAt'),true);
+ await run('fixtureReleaseEnd()');await wait('Boolean(window.fixtureNavigation)');
+ assert.equal(await run('(window.fixtureLeaves||[]).length'),0);
+ checks.push({width,endAcknowledgedBeforeNavigation:true,transientFailureRetried:true});
+ }
 
  await enter(1440,900);
  await run('window.fixtureBeacons=[];navigator.sendBeacon=(url,blob)=>{fixtureBeacons.push({url,blob});return true};window.dispatchEvent(new PageTransitionEvent("pagehide",{persisted:false}))');
