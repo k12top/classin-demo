@@ -11,6 +11,7 @@ import { ConversationPanelTabs } from "./conversation-panel-tabs";
 import { StudentScreenShares } from "./student-screen-shares";
 import { mainScreenShareCandidates } from "@/lib/classroom/screen-share-selection";
 import { ScreenShareMenu } from "./screen-share-menu";
+import { ScreenShareDockButton } from "./screen-share-dock-button";
 import { ConversationResizer } from "./conversation-resizer";
 import type { ClassroomScreenShareOptions } from "@/lib/classroom/types";
 import { ClassroomHeaderMenu, type ClassroomHeaderMenuAction } from "./classroom-header-menu";
@@ -6815,7 +6816,6 @@ export function ClassroomV3({
         {classinLayout && liveRail}
         {!isRecorder && sessionData.credential.role === "student" && !classEnded && sessionData.mode !== "publicLive" && <StudentActivityOverlay sessionId={courseId} shareAccess={shareAccess} currentUserId={currentUserId} onChanged={revision => publishInvalidation(revision, "activities")} />}
         {!isRecorder && <ConversationResizer open={conversationOpen} />}
-        {!isRecorder && controlMedia.local.screenSharing && <div className="classroom-screen-prepared" role="status"><span>{t(ownsScreenShare(screenLease, currentUserId, clientId) ? "classroomMultiShare.live" : "classroomMultiShare.waiting")}</span><button type="button" onClick={stopLocalSharing}>{t("classroomMultiShare.exit")}</button></div>}
         {!isRecorder && <ScreenShareMenu screenSupported={screenShareSupported} onInviteStudents={sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage && !classEnded ? () => { setShareMenuOpen(false); setStudentInviteOpen(true); setActivePanel("screens"); } : undefined} open={shareMenuOpen} sharing={controlMedia.local.screenSharing} supported={Boolean((controlsRoomMedia ? roomProvider : mediaProvider)?.supportsSharePortrait?.())} options={{ ...controlMedia.local.screenShareOptions, mode: controlMedia.local.screenShareMode ?? "portrait", corner: controlMedia.local.screenShareCorner ?? "br" }} busy={Boolean(actionBusy)} onClose={closeShareMenu} onStop={stopLocalSharing} onOptionsChange={options => { const provider = controlsRoomMedia ? roomProvider : mediaProvider; void provider?.setScreenShareOptions?.(options).catch(error => setActionError(error instanceof Error ? error.message : t("classroom.v3.mediaActionFailed"))); }} onSelect={options => toggleScreenShare(options)} />}
         <motion.section
           layout
@@ -7682,24 +7682,17 @@ export function ClassroomV3({
               members={classroomMembers} busy={Boolean(actionBusy)} onAction={performAction}
               onViewMembers={() => setActivePanel("members")} />}
             {((isScreenShareAllowed && (screenShareSupported || controlMedia.local.screenSharing)) || (sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage)) && (
-              <button
-                type="button"
+              <ScreenShareDockButton
+                sharing={controlMedia.local.screenSharing}
                 disabled={Boolean(actionBusy)}
-                data-dock-action="share" className={`is-dock-secondary ${controlMedia.local.screenSharing ? "is-active" : ""}`}
-                onClick={() => screenShareSupported || sessionData.capabilities.canManageMembers
+                shareLabel={t("classroom.v3.screenShare")}
+                exitLabel={t("classroomMultiShare.exit")}
+                activeTitle={t("classroomMultiShare.exitHint")}
+                onStop={stopLocalSharing}
+                onShare={() => screenShareSupported || sessionData.capabilities.canManageMembers
                   ? toggleScreenShare()
                   : setActionError(t("classroom.v3.screenShareBrowserUnsupported"))}
-                title={screenShareSupported
-                  ? t(controlMedia.local.screenSharing ? "classroomSharing.title" : "classroom.v3.screenShare")
-                  : t("classroom.v3.screenShareBrowserUnsupported")}
-              >
-                {controlMedia.local.screenSharing ? <Settings2 /> : <MonitorUp />}
-                <span>
-                  {controlMedia.local.screenSharing
-                    ? t("classroomSharing.title")
-                    : t("classroom.v3.screenShare")}
-                </span>
-              </button>
+              />
             )}
             {classinLayout && canUseWhiteboard ? <BoardToolsMenu screenAnnotation={Boolean(screenParticipant)} controller={screenParticipant ? screenAnnotationController : whiteboardController} tool={whiteboardTool} onTool={setWhiteboardTool} onOpen={() => { if (!screenParticipant && !whiteboardReady) openWhiteboard(); }} /> : (canUseWhiteboard && <button
               type="button"
