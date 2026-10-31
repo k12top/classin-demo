@@ -148,3 +148,15 @@ test("compact timing control uses the row focus treatment without the global pur
     /\.rowActions\s*>\s*:global\(\.classroom-v3-class-controls--compact\):focus-visible[^{]*\{[^}]*outline\s*:\s*none[^}]*\}/s,
   );
 });
+
+test("compact timing control stays visible while its menu is open", async () => {
+  const css = await readFile(
+    new URL("../src/components/course-sessions/course-session-manager.module.css", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    css,
+    /\.rowActions\s*>\s*:global\(\.classroom-v3-class-controls--compact\)\[data-state=["']open["']\][^{]*\{[^}]*opacity\s*:\s*1[^}]*transform\s*:\s*none[^}]*pointer-events\s*:\s*auto[^}]*\}/s,
+  );
+});
