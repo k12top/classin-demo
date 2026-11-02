@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import {
   Activity,
@@ -37,6 +37,7 @@ import { LessonSummaryReport } from "@/components/course-sessions/lesson-summary
 import { summaryGenerationActive, watchCourseSessionSummary } from "@/lib/course-session-summary-watch";
 import type { SummaryGenerationState } from "@/lib/course-session-summary-generation";
 import { PlaybackCompatibility, usePlaybackMedia } from "@/components/course-sessions/playback-compatibility";
+import { applyPlaybackSeek, requestPlayback, scrollToPlayback, updatePlaybackBuffering } from "@/lib/playback-navigation";
 import {
   PortalShell,
   type PortalPage,
@@ -182,6 +183,8 @@ export default function CoursePlaybackPage({
   const [mediaTime, setMediaTime] = useState(0);
   const [seekRequest, setSeekRequest] = useState<PlaybackSeek | null>(null);
   const [lessonReviewTab, setLessonReviewTab] = useState("summary");
+  const playbackRef = useRef<HTMLDivElement>(null);
+  const playbackVideoRef = useRef<HTMLVideoElement>(null);
   const reviewContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -631,8 +634,10 @@ export default function CoursePlaybackPage({
   const seekToCaption = (caption: LessonCaption) => {
     const position = captionPositionFor(caption);
     if (!position) return;
+    requestPlayback(playbackVideoRef.current);
+    scrollToPlayback(playbackRef.current);
     setSelectedRecordingId(position.recordingId);
-    setContinuePlaybackId("");
+    setContinuePlaybackId(position.recordingId);
     setSeekRequest({ ...captionSeekPosition(position), captionId: caption.id });
   };
   const playNextRecording = () => {
@@ -763,7 +768,7 @@ export default function CoursePlaybackPage({
             </a>
           </div>
         </div>}
-        <Card className="overflow-hidden rounded-[22px] border border-border/70 bg-card shadow-[0_24px_70px_rgba(21,23,28,0.08)]">
+        <Card ref={playbackRef} className="scroll-mt-3 overflow-hidden rounded-[22px] border border-border/70 bg-card shadow-[0_24px_70px_rgba(21,23,28,0.08)]">
           <CardContent className="p-0">
             {selectedSessionId && recordingsError && canPlayInApp && <div role="status" className="flex items-center justify-between gap-3 border-b border-border p-3 text-sm text-muted-foreground">
               <span>{t("replayExtras.statusRefreshFailed")}</span>
@@ -798,7 +803,6 @@ export default function CoursePlaybackPage({
                   </div>
                   <span className="hidden text-xs text-white/50 lg:inline">{t("replayExtras.timelineSeekHint")}</span>
                 </div>}
-                  title={selectedSession?.title || course?.name || t("playback.title")}
                   onRecheck={isTeacher && attentionRecording ? () => void retryRecordingVerification() : undefined}
                   recheckBusy={verificationBusy}
                   courseId={id}
@@ -813,6 +817,7 @@ export default function CoursePlaybackPage({
                     lang: locale,
                   })}`}
                   seekRequest={seekRequest}
+                  videoRef={playbackVideoRef}
                   onSeekComplete={() => setSeekRequest(null)}
                   onTimeUpdate={setMediaTime}
                   onEnded={playNextRecording}
@@ -1284,7 +1289,6 @@ function formatDuration(totalSeconds: number): string {
 
 function PlaybackVideo({
   controls,
-  title,
   onRecheck,
   recheckBusy,
   courseId,
@@ -1294,6 +1298,7 @@ function PlaybackVideo({
   hlsSrc,
   sharePath,
   seekRequest,
+  videoRef,
   onSeekComplete,
   onTimeUpdate,
   onEnded,
@@ -1304,7 +1309,6 @@ function PlaybackVideo({
   captionAppearance,
 }: {
   controls: ReactNode;
-  title: string;
   onRecheck?: () => void;
   recheckBusy?: boolean;
   courseId: string;
@@ -1314,6 +1318,7 @@ function PlaybackVideo({
   hlsSrc?: string | null;
   sharePath: string;
   seekRequest: PlaybackSeek | null;
+  videoRef: RefObject<HTMLVideoElement | null>;
   onSeekComplete: () => void;
   onTimeUpdate: (time: number) => void;
   onEnded: () => void;
@@ -1324,10 +1329,9 @@ function PlaybackVideo({
   captionAppearance: CaptionAppearance;
 }) {
   const { t } = useTranslation();
-  const videoRef = useRef<HTMLVideoElement | null>(null);
   const { issue, directUrl, retry, format } = usePlaybackMedia(videoRef, src, isHls, hlsSrc);
+  const [buffering, setBuffering] = useState(true);
   const [watchedSec, setWatchedSec] = useState(0);
-  const [firstFrameReady, setFirstFrameReady] = useState(false);
   const [trackingState, setTrackingState] = useState<TrackingState>(
     trackProgress ? "idle" : "teacher"
   );
@@ -1397,7 +1401,7 @@ function PlaybackVideo({
       setWatchedSec(data.totalDurationSec);
     }
     setStateIfMounted("recording");
-  }, [requestTracking, setStateIfMounted, trackProgress]);
+  }, [requestTracking, setStateIfMounted, trackProgress, videoRef]);
 
   const sendHeartbeat = useCallback(
     async (
@@ -1435,7 +1439,7 @@ function PlaybackVideo({
         : { sessionId: tracking.sessionId, challenge: data.challenge };
       setStateIfMounted(terminal ? "paused" : "recording");
     },
-    [requestTracking, setStateIfMounted, trackProgress]
+    [requestTracking, setStateIfMounted, trackProgress, videoRef]
   );
 
   const queueStart = useCallback(() => {
@@ -1455,15 +1459,15 @@ function PlaybackVideo({
     if (!video) return;
     const applySeek = () => {
       if (video.readyState < HTMLMediaElement.HAVE_METADATA) return;
-      const maxTime = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.1) : seekRequest.seconds;
-      video.currentTime = Math.min(seekRequest.seconds, maxTime);
-      onTimeUpdate(video.currentTime);
-      onSeekComplete();
+      void applyPlaybackSeek(video, seekRequest.seconds).then((position) => {
+        onTimeUpdate(position);
+        onSeekComplete();
+      });
     };
     video.addEventListener("loadedmetadata", applySeek);
     applySeek();
     return () => video.removeEventListener("loadedmetadata", applySeek);
-  }, [onSeekComplete, onTimeUpdate, seekRequest]);
+  }, [onSeekComplete, onTimeUpdate, seekRequest, videoRef]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -1544,7 +1548,7 @@ function PlaybackVideo({
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("pagehide", onPageHide);
     };
-  }, [enqueue, queueHeartbeat, queueStart, requestTracking, sendHeartbeat, startSession, trackProgress]);
+  }, [enqueue, queueHeartbeat, queueStart, requestTracking, sendHeartbeat, startSession, trackProgress, videoRef]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -1567,25 +1571,37 @@ function PlaybackVideo({
           ref={videoRef}
           data-playback-format={format}
           className="aspect-video w-full bg-black object-contain"
-          controls
+          controls={!buffering}
           playsInline
           poster="/classroom/replay-placeholder.svg"
           preload="metadata"
-          onLoadedData={() => setFirstFrameReady(true)}
+          onLoadStart={(event) => updatePlaybackBuffering(setBuffering, "loadstart", event.currentTarget)}
+          onLoadedData={(event) => updatePlaybackBuffering(setBuffering, "loadeddata", event.currentTarget)}
           onTimeUpdate={(event) => onTimeUpdate(event.currentTarget.currentTime)}
-          onSeeking={(event) => onTimeUpdate(event.currentTarget.currentTime)}
-          onEnded={onEnded}
+          onSeeking={(event) => {
+            onTimeUpdate(event.currentTarget.currentTime);
+            updatePlaybackBuffering(setBuffering, "seeking", event.currentTarget);
+          }}
+          onWaiting={(event) => updatePlaybackBuffering(setBuffering, "waiting", event.currentTarget)}
+          onPlaying={(event) => updatePlaybackBuffering(setBuffering, "playing", event.currentTarget)}
+          onPause={(event) => updatePlaybackBuffering(setBuffering, "pause", event.currentTarget)}
+          onEnded={(event) => {
+            updatePlaybackBuffering(setBuffering, "ended", event.currentTarget);
+            onEnded();
+          }}
+          onError={(event) => updatePlaybackBuffering(setBuffering, "error", event.currentTarget)}
           onCanPlay={(event) => {
-            setFirstFrameReady(true);
+            updatePlaybackBuffering(setBuffering, "canplay", event.currentTarget);
             if (autoStart) void event.currentTarget.play().catch(() => {});
           }}
         />
-        {!firstFrameReady && <div role="status" className="pointer-events-none absolute inset-x-6 bottom-[18%] flex flex-col items-center gap-2 text-center text-slate-700">
-          <p className="max-w-[90%] truncate text-sm font-semibold sm:text-lg">{title}</p>
-          <p className="flex items-center gap-2 text-xs sm:text-sm">
-            {!issue && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
-            {t(issue ? "portalUpdates.replayUnavailable" : "portalUpdates.replayPreparing")}
-          </p>
+        {buffering && !issue && <div role="status" aria-label={t("portalUpdates.replayPreparing")} className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <span className="rounded-full bg-black/65 p-3 shadow-lg backdrop-blur-sm">
+            <Loader2 className="h-7 w-7 animate-spin text-white motion-reduce:animate-none" aria-hidden="true" />
+          </span>
+        </div>}
+        {issue && <div role="status" className="pointer-events-none absolute inset-x-6 bottom-[18%] text-center text-sm text-slate-700">
+          {t("portalUpdates.replayUnavailable")}
         </div>}
         {captionMode !== "off" && hasVisibleText && (
           <div className={`pointer-events-none absolute inset-x-4 flex justify-start ${captionAppearance.position === "top" ? "top-4" : "bottom-16"}`}>

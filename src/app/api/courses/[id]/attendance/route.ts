@@ -5,6 +5,7 @@ import { getSessionFromRequest } from "@/lib/session";
 import { resolveCourseSessionAccess } from "@/lib/course-session-access";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { assertCanTeachCourse } from "@/lib/course-teacher";
+import { buildAttendanceCsv } from "@/lib/attendance-export";
 
 export const dynamic = "force-dynamic";
 
@@ -102,11 +103,6 @@ async function withDatabaseRetry<T>(operation: () => Promise<T>): Promise<T> {
   throw lastError;
 }
 
-function csvEscape(value: string | number | null | undefined): string {
-  const text = value === null || value === undefined ? "" : String(value);
-  return `"${text.replace(/"/g, '""')}"`;
-}
-
 function attendanceEndTime(
   row: AttendanceRow,
   courseEndTime: Date | null | undefined,
@@ -133,15 +129,6 @@ function effectiveDurationSec(
     row.durationSec,
     Math.floor((now.getTime() - row.enteredAt.getTime()) / 1000)
   );
-}
-
-function formatDuration(totalSeconds: number): string {
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return [hours, minutes, seconds]
-    .map((part) => String(part).padStart(2, "0"))
-    .join(":");
 }
 
 function summarizeAttendanceRows(
@@ -303,42 +290,7 @@ export async function GET(
     });
 
     if (request.nextUrl.searchParams.get("format") === "csv") {
-      const header = [
-        "studentId",
-        "studentName",
-        "sessionCount",
-        "firstEnteredAt",
-        "latestEnteredAt",
-        "lastActivityAt",
-        "totalDurationSec",
-        "totalDuration",
-        "online",
-        "closedByCourseEnd",
-        "status",
-        "leaveReason",
-      ];
-      const lines = [
-        header.map(csvEscape).join(","),
-        ...attendance.map((row) =>
-          [
-            row.studentId,
-            row.studentName,
-            row.sessionCount,
-            row.firstEnteredAt?.toISOString() ?? "",
-            row.latestEnteredAt?.toISOString() ?? "",
-            row.lastActivityAt?.toISOString() ?? "",
-            row.totalDurationSec,
-            formatDuration(row.totalDurationSec),
-            row.online ? "true" : "false",
-            row.closedByCourseEnd ? "true" : "false",
-            row.status,
-            row.leaveReason,
-          ]
-            .map(csvEscape)
-            .join(",")
-        ),
-      ];
-      return new NextResponse(lines.join("\n"), {
+      return new NextResponse(buildAttendanceCsv(attendance), {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
           "Content-Disposition": `attachment; filename="attendance-${lesson.id}.csv"`,

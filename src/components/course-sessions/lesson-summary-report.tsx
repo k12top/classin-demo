@@ -50,7 +50,7 @@ export function LessonSummaryReport({ report, locale, onChange, evidenceLink }: 
       </ReportCard>)}
     </ReportSection>
     <ReportSection title={copy.participants} count={report.participantSummaries.length}>
-      {report.participantSummaries.map((item, index) => <ReportCard key={item.speakerId}>
+      {report.participantSummaries.map((item, index) => <ReportCard key={`${item.speakerId}:${index}`}>
         {removeButton("participantSummaries", index)}
         <h5 className="mb-2 text-sm font-semibold text-foreground">{item.speakerName}</h5>
         <ReportField label={copy.summary} value={item.summary} editing={editing} onChange={(summary) => update("participantSummaries", index, { summary })} />
