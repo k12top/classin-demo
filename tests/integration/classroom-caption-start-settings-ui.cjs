@@ -96,6 +96,12 @@ async function main() {
     await run(`${settings}.scrollIntoView({block:'end'})`);
     await pause(100);
     assert.equal(await run(`${settings}.scrollWidth > ${settings}.clientWidth`), false, 'new controls fit original form');
+    await run(`${settings}.querySelector('.classroom-v3-caption-select-trigger').click()`);
+    await wait(`!!document.querySelector('.classroom-v3-caption-language-content')`);
+    assert.equal(await run(`getComputedStyle(document.querySelector('.classroom-v3-caption-language-content')).backgroundColor !== 'rgba(0, 0, 0, 0)'`), true,
+      'language popup remains opaque outside the classroom shell');
+    await run(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+    await wait(`!document.querySelector('.classroom-v3-caption-language-content')`);
     await fs.writeFile(path.join(output, `original-create-${width}-${theme}-settings.png`), (await win.webContents.capturePage()).toPNG());
     await run(`${switchFor('autoInterpretation')}.click()`);
     await wait(`!${settings}.querySelector('[class*="targets"]')`);

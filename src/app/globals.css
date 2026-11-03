@@ -4507,7 +4507,7 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
 
 .is-captions :is(button, select):focus-visible,
 .classroom-v3-caption-select-option:focus-visible {
-  outline: 2px solid var(--classroom-iris);
+  outline: 2px solid var(--classroom-iris, hsl(var(--primary)));
   outline-offset: 2px;
 }
 
@@ -4515,7 +4515,7 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
   display: grid;
   min-width: 0;
   gap: 6px;
-  color: var(--classroom-mist);
+  color: var(--classroom-mist, hsl(var(--muted-foreground)));
   font-size: 12px;
 }
 
@@ -4528,10 +4528,10 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
   justify-content: space-between;
   gap: 8px;
   padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--classroom-mist) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--classroom-mist, hsl(var(--muted-foreground))) 30%, transparent);
   border-radius: 8px;
-  color: var(--classroom-frost);
-  background: var(--classroom-panel);
+  color: var(--classroom-frost, hsl(var(--popover-foreground)));
+  background: var(--classroom-panel, hsl(var(--popover)));
   text-align: start;
   font-size: 13px;
   cursor: pointer;
@@ -4557,8 +4557,8 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
   max-height: var(--radix-select-content-available-height);
   overflow: hidden;
   border-radius: 10px;
-  color: var(--classroom-frost);
-  background: var(--classroom-panel);
+  color: var(--classroom-frost, hsl(var(--popover-foreground)));
+  background: var(--classroom-panel, hsl(var(--popover)));
   box-shadow: 0 8px 28px rgb(0 0 0 / 0.24);
   font-size: 14px;
   line-height: 1.5;
@@ -4588,25 +4588,25 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
   align-items: center;
   gap: 8px;
   padding: 0 10px;
-  border: 1px solid color-mix(in srgb, var(--classroom-mist) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--classroom-mist, hsl(var(--muted-foreground))) 30%, transparent);
   border-radius: 8px;
-  color: var(--classroom-mist);
-  background: var(--classroom-panel-raised);
+  color: var(--classroom-mist, hsl(var(--muted-foreground)));
+  background: var(--classroom-panel-raised, hsl(var(--muted)));
 }
 
-.classroom-v3-caption-language-search:focus-within { border-color: var(--classroom-iris); outline: 2px solid color-mix(in srgb, var(--classroom-iris) 18%, transparent); }
+.classroom-v3-caption-language-search:focus-within { border-color: var(--classroom-iris, hsl(var(--primary))); outline: 2px solid color-mix(in srgb, var(--classroom-iris, hsl(var(--primary))) 18%, transparent); }
 .classroom-v3-caption-language-search input {
   width: 100%;
   min-width: 0;
   padding: 8px 0;
   border: 0;
   outline: none;
-  color: var(--classroom-frost);
+  color: var(--classroom-frost, hsl(var(--popover-foreground)));
   background: transparent;
   font: inherit;
-  caret-color: var(--classroom-iris);
+  caret-color: var(--classroom-iris, hsl(var(--primary)));
 }
-.classroom-v3-caption-language-search input::placeholder { color: var(--classroom-mist); opacity: 1; }
+.classroom-v3-caption-language-search input::placeholder { color: var(--classroom-mist, hsl(var(--muted-foreground))); opacity: 1; }
 .classroom-v3-caption-language-search > button {
   display: grid;
   width: 28px;
@@ -4616,24 +4616,24 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
   padding: 0;
   border: 0;
   border-radius: 5px;
-  color: var(--classroom-mist);
+  color: var(--classroom-mist, hsl(var(--muted-foreground)));
   background: transparent;
   cursor: pointer;
 }
-.classroom-v3-caption-language-search > button:hover { color: var(--classroom-iris); background: var(--classroom-panel); }
-.classroom-v3-caption-language-meta { display: flex; flex-shrink: 0; justify-content: space-between; gap: 8px; padding: 10px 6px 6px; color: var(--classroom-mist); font-size: 11px; }
+.classroom-v3-caption-language-search > button:hover { color: var(--classroom-iris, hsl(var(--primary))); background: var(--classroom-panel, hsl(var(--popover))); }
+.classroom-v3-caption-language-meta { display: flex; flex-shrink: 0; justify-content: space-between; gap: 8px; padding: 10px 6px 6px; color: var(--classroom-mist, hsl(var(--muted-foreground))); font-size: 11px; }
 .classroom-v3-caption-language-content .classroom-v3-caption-select-viewport { min-height: 0; overflow: auto; }
 .classroom-v3-caption-language-content .classroom-v3-caption-select-option { width: 100%; border: 0; color: inherit; background: transparent; text-align: start; font: inherit; }
-.classroom-v3-caption-language-content .classroom-v3-caption-select-option:is([data-highlighted], [aria-selected="true"]) { color: var(--classroom-iris); background: var(--classroom-panel-raised); }
-.classroom-v3-caption-language-empty { padding: 24px 12px; color: var(--classroom-mist); text-align: center; font-size: 13px; }
-.classroom-v3-caption-language-content :is(input, button):focus-visible { outline: 2px solid var(--classroom-iris); outline-offset: 2px; }
-.classroom-v3-caption-language-content ::selection { color: var(--classroom-panel); background: var(--classroom-iris); }
+.classroom-v3-caption-language-content .classroom-v3-caption-select-option:is([data-highlighted], [aria-selected="true"]) { color: var(--classroom-iris, hsl(var(--primary))); background: var(--classroom-panel-raised, hsl(var(--muted))); }
+.classroom-v3-caption-language-empty { padding: 24px 12px; color: var(--classroom-mist, hsl(var(--muted-foreground))); text-align: center; font-size: 13px; }
+.classroom-v3-caption-language-content :is(input, button):focus-visible { outline: 2px solid var(--classroom-iris, hsl(var(--primary))); outline-offset: 2px; }
+.classroom-v3-caption-language-content ::selection { color: var(--classroom-panel, hsl(var(--popover))); background: var(--classroom-iris, hsl(var(--primary))); }
 
 .classroom-v3-caption-select-viewport {
   padding: 4px;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: var(--classroom-mist) transparent;
+  scrollbar-color: var(--classroom-mist, hsl(var(--muted-foreground))) transparent;
 }
 
 .classroom-v3-caption-select-option {
@@ -4654,8 +4654,8 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
 }
 
 .classroom-v3-caption-select-option[data-highlighted] {
-  color: var(--classroom-iris);
-  background: var(--classroom-panel-raised);
+  color: var(--classroom-iris, hsl(var(--primary)));
+  background: var(--classroom-panel-raised, hsl(var(--muted)));
 }
 
 .classroom-v3-caption-select-scroll {
@@ -4663,8 +4663,8 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
   height: 28px;
   align-items: center;
   justify-content: center;
-  color: var(--classroom-mist);
-  background: var(--classroom-panel);
+  color: var(--classroom-mist, hsl(var(--muted-foreground)));
+  background: var(--classroom-panel, hsl(var(--popover)));
 }
 
 .is-captions button:disabled {
