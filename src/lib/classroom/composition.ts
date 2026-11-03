@@ -184,6 +184,16 @@ export function normalizeClassroomComposition(
   };
 }
 
+/** Compare layout state independently of captions, presence and media revisions. */
+export function classroomCompositionKey(value: unknown) {
+  const composition = normalizeClassroomComposition(value);
+  return JSON.stringify({
+    ...composition,
+    // PostgreSQL JSON objects and browser objects may enumerate scopes differently.
+    screenShares: Object.entries(composition.screenShares || {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0),
+  });
+}
+
 export function touchComposition(
   composition: ClassroomCompositionSnapshot,
   userId: string,

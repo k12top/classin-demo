@@ -58,6 +58,7 @@ import {
   arrangeClassroomVideoGallery,
   MAX_CLASSROOM_BOARD_ITEMS,
   bringClassroomBoardItemToFront,
+  classroomCompositionKey,
   defaultBoardRect,
   emptyClassroomComposition,
   normalizeClassroomComposition,
@@ -712,6 +713,7 @@ export async function applyClassroomAction(input: {
   role: ClassroomRole;
   clientId?: string;
   expectedRevision?: number;
+  expectedCompositionKey?: string;
   commandId?: string;
   onReplay?: () => void;
   action: ClassroomAction;
@@ -763,10 +765,13 @@ export async function applyClassroomAction(input: {
     });
     const command = { sessionId, actorId: session.userId, clientId: input.clientId, role, commandId: input.commandId, action };
     if (await readClassroomCommand(tx, command)) { input.onReplay?.(); return; }
+    // New clients guard the observed layout under this lock. Legacy clients
+    // retain the global revision check until their classroom page is refreshed.
     if (
       classroomActionRequiresRevision(action) &&
-      input.expectedRevision !== undefined &&
-      input.expectedRevision !== runtime.revision
+      (input.expectedCompositionKey !== undefined
+        ? input.expectedCompositionKey !== classroomCompositionKey(runtime.composition)
+        : input.expectedRevision !== undefined && input.expectedRevision !== runtime.revision)
     ) {
       throw new ClassroomRevisionConflictError(runtime.revision);
     }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { loadModule } from "./helpers/load-module";
-import { emptyClassroomComposition } from "../src/lib/classroom/composition";
+import { classroomCompositionKey, defaultBoardRect, emptyClassroomComposition } from "../src/lib/classroom/composition";
 import { classroomGraceEndAt } from "../src/lib/classroom/policy";
 import type { ClassroomAction } from "../src/lib/classroom/types";
 
@@ -24,7 +24,7 @@ function fixture(count = 4) {
         return runtime;
       },
     },
-    classroomMemberState: { upsert: async () => ({}), findMany: async (query: unknown) => { selection = query; return members; } },
+    classroomMemberState: { upsert: async () => ({}), findUnique: async () => members[0], findMany: async (query: unknown) => { selection = query; return members; } },
     classroomRewardEvent: { groupBy: async () => [] },
     classroomConnection: { findMany: async () => [] },
     $queryRaw: async () => [],
@@ -38,7 +38,7 @@ function fixture(count = 4) {
     "./redis-presence": { readRedisClassroomPresence: async () => null, overlayRedisClassroomPresence: (value: unknown) => value },
     "./redis-sync": { refreshClassroomRedisControl: async () => {} },
   });
-  const apply = (action: ClassroomAction, role: "teacher" | "student" = "teacher", expectedRevision = runtime.revision) => api.applyClassroomAction({ courseId: "course", sessionId: "lesson", session: { userId: "teacher", displayName: "Teacher", name: "Teacher", avatar: "" }, role, action, expectedRevision });
+  const apply = (action: ClassroomAction, role: "teacher" | "student" = "teacher", expectedRevision = runtime.revision, expectedCompositionKey?: string) => api.applyClassroomAction({ courseId: "course", sessionId: "lesson", session: { userId: "teacher", displayName: "Teacher", name: "Teacher", avatar: "" }, role, action, expectedRevision, expectedCompositionKey });
   return { apply, runtime, api, get selection() { return selection; }, get writes() { return writes; } };
 }
 
@@ -53,6 +53,34 @@ test("actual layout service persists a 16-person grid and restores only camera w
   assert.equal(rail.composition.boardItems.length, 0);
   assert.equal(rail.revision, 5);
   assert.equal(f.writes, 4);
+});
+
+test("camera placement survives unrelated revisions and still rejects changed layouts", async () => {
+  const f = fixture();
+  const action: ClassroomAction = { type: "placeBoardItem", item: { id: "camera:member-0", kind: "camera", sourceId: "member-0", rect: defaultBoardRect("camera"), locked: false, visible: true } };
+  const observedRevision = f.runtime.revision;
+  const observedLayout = classroomCompositionKey(f.runtime.composition);
+  f.runtime.revision += 50; // Captions, member changes or reconnection, without a layout edit.
+  const placed = await f.apply(action, "teacher", observedRevision, observedLayout);
+  assert.equal(placed.composition.boardItems[0].id, action.item.id);
+  assert.equal(placed.revision, observedRevision + 51);
+  const writes = f.writes;
+  // Even a current global revision cannot authorize an obsolete layout snapshot.
+  await assert.rejects(f.apply(action, "teacher", placed.revision, observedLayout), f.api.ClassroomRevisionConflictError);
+  assert.equal(f.writes, writes);
+  await assert.rejects(f.apply(action, "student", placed.revision, classroomCompositionKey(placed.composition)), { status: 403 });
+  assert.equal(f.writes, writes);
+});
+
+test("gallery and seat operations use layout state while legacy clients retain revision checks", async () => {
+  for (const action of [{ type: "arrangeVideoGallery", layout: "grid" }, { type: "reorderSeats", seatOrder: ["member-1", "member-0"] }] as ClassroomAction[]) {
+    const f = fixture();
+    const key = classroomCompositionKey(f.runtime.composition);
+    await assert.rejects(f.apply(action, "teacher", 1), f.api.ClassroomRevisionConflictError);
+    await f.apply(action, "teacher", 1, key);
+    assert.equal(f.runtime.revision, 4);
+    await assert.rejects(f.apply(action, "teacher", 4, key), f.api.ClassroomRevisionConflictError);
+  }
 });
 
 test("actual layout service rejects students, stale writes, invalid layout and overcapacity", async () => {

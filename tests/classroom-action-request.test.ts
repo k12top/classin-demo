@@ -2,11 +2,23 @@ import { scheduledClassStartDue } from "../src/lib/classroom/class-start";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { classroomActionRequiresRevision, requestClassroomAction } from "../src/lib/classroom/action-request";
+import { classroomCompositionKey, emptyClassroomComposition } from "../src/lib/classroom/composition";
 import { formatTimeUntilClass } from "../src/lib/classroom/countdown";
 import { canAutoStartRecordingAtStatus, normalizeRecordingStartMode } from "../src/lib/classroom/recording-start";
 import type { ClassroomAction } from "../src/lib/classroom/types";
 
 const reply = (status: number, payload: unknown) => new Response(JSON.stringify(payload), { status });
+test("layout requests carry the observed composition and retain the legacy revision", async () => {
+  const key = classroomCompositionKey(emptyClassroomComposition());
+  for (const action of [{ type: "arrangeVideoGallery" }, { type: "muteAllMicrophones" }] as ClassroomAction[]) {
+    await requestClassroomAction("/actions", { action, clientId: "tab", expectedRevision: 7, expectedCompositionKey: key }, async (_, init) => {
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.expectedCompositionKey, action.type === "arrangeVideoGallery" ? key : undefined);
+      assert.equal(body.expectedRevision, action.type === "arrangeVideoGallery" ? 7 : undefined);
+      return reply(200, {});
+    });
+  }
+});
 test("frequent caption revisions do not reject independent mute and interpretation settings", async () => {
   for (const action of [{ type: "muteAllMicrophones" }, { type: "unmuteAllMicrophones" }, { type: "setInterpretation", enabled: true, provider: "shengwang", sourceLanguage: "zh-CN", targetLanguages: ["en-US", "th-TH", "vi-VN", "id-ID"] }] as ClassroomAction[]) {
     let received: Record<string, unknown> = {};

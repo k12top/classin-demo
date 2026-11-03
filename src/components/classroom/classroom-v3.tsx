@@ -213,6 +213,7 @@ import type {
 } from "@/lib/classroom/types";
 import {
   circleBoardGeometry,
+  classroomCompositionKey,
   defaultBoardRect,
   normalizeBoardRect,
   placeClassroomBoardItem,
@@ -5218,7 +5219,7 @@ export function ClassroomV3({
       try {
         const { response, payload } = await requestClassroomAction(
           `/api/sessions/${encodeURIComponent(courseId)}/classroom/actions`,
-          { clientId, action, expectedRevision: originalRuntime.revision, ...(shareAccess && { shareAccess }) },
+          { clientId, action, expectedRevision: originalRuntime.revision, expectedCompositionKey: classroomCompositionKey(originalRuntime.composition), ...(shareAccess && { shareAccess }) },
           fetch,
           undefined,
           liveRequestsRef.current?.signal,

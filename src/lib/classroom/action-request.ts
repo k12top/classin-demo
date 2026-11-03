@@ -39,6 +39,7 @@ export async function requestClassroomAction(
   body: {
     action: ClassroomAction;
     expectedRevision?: number;
+    expectedCompositionKey?: string;
     clientId: string;
     commandId?: string;
     shareAccess?: string;
@@ -48,7 +49,7 @@ export async function requestClassroomAction(
     new Promise((resolve) => setTimeout(resolve, ms)),
   signal?: AbortSignal,
 ) {
-  const { expectedRevision, ...rest } = body;
+  const { expectedRevision, expectedCompositionKey, ...rest } = body;
   const requestBody = {
     ...rest,
     commandId: body.commandId || globalThis.crypto.randomUUID(),
@@ -57,6 +58,8 @@ export async function requestClassroomAction(
     ...(["raiseHand", "lowerHand"].includes(body.action.type) && { compactHandRaise: true }),
     ...(classroomActionRequiresRevision(body.action) &&
       expectedRevision !== undefined ? { expectedRevision } : {}),
+    ...(classroomActionRequiresRevision(body.action) &&
+      expectedCompositionKey !== undefined ? { expectedCompositionKey } : {}),
   };
   for (let attempt = 0; ; attempt++) {
     signal?.throwIfAborted();

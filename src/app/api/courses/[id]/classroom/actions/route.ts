@@ -101,6 +101,7 @@ export async function POST(
     commandId?: unknown;
     action?: ClassroomAction;
     expectedRevision?: unknown;
+    expectedCompositionKey?: unknown;
     shareAccess?: unknown;
     presenceOnly?: unknown;
     compactMemberPermissions?: unknown;
@@ -234,6 +235,10 @@ export async function POST(
       expectedRevision:
         typeof body.expectedRevision === "number"
           ? body.expectedRevision
+          : undefined,
+      expectedCompositionKey:
+        typeof body.expectedCompositionKey === "string"
+          ? body.expectedCompositionKey
           : undefined,
       action: body.action,
     });

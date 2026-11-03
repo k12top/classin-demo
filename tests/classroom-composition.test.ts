@@ -5,6 +5,7 @@ import {
   arrangeClassroomVideoGallery,
   boardItemUpdateConfirmed,
   circleBoardGeometry,
+  classroomCompositionKey,
   bringClassroomBoardItemToFront,
   emptyClassroomComposition,
   normalizeBoardRect,
@@ -15,6 +16,16 @@ import {
   translateBoardRectByPixels,
   updateClassroomBoardItem,
 } from "../src/lib/classroom/composition";
+
+test("composition keys ignore object property order and detect layout and sharing edits", () => {
+  const lease = { userId: "teacher", clientId: "client-123", claimId: "claim-123", rtcUid: 1000000001 };
+  const composition = { ...emptyClassroomComposition(), screenShares: { main: lease, breakout: { ...lease, rtcUid: 1000000002 } } };
+  const reordered = { screenShares: { breakout: composition.screenShares.breakout, main: { rtcUid: lease.rtcUid, claimId: lease.claimId, clientId: lease.clientId, userId: lease.userId } }, ...emptyClassroomComposition() };
+  assert.equal(classroomCompositionKey(composition), classroomCompositionKey(reordered));
+  assert.notEqual(classroomCompositionKey(composition), classroomCompositionKey({ ...composition, videoLayout: "grid" }));
+  assert.notEqual(classroomCompositionKey(composition), classroomCompositionKey({ ...composition, screenShares: { main: composition.screenShares.breakout } }));
+  assert.notEqual(classroomCompositionKey(composition), classroomCompositionKey({ ...composition, seatOrder: ["student"] }));
+});
 
 test("onstage grid retains all 24 seats, respects seat order and fits every window", () => {
   const members = Array.from({ length: 24 }, (_, index) => ({ userId: `member-${index}`, role: index ? "student" as const : "teacher" as const }));
