@@ -4626,7 +4626,7 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
 .classroom-v3-caption-language-content .classroom-v3-caption-select-option { width: 100%; border: 0; color: inherit; background: transparent; text-align: start; font: inherit; }
 .classroom-v3-caption-language-content .classroom-v3-caption-select-option:is([data-highlighted], [aria-selected="true"]) { color: var(--classroom-iris, hsl(var(--primary))); background: var(--classroom-panel-raised, hsl(var(--muted))); }
 .classroom-v3-caption-language-empty { padding: 24px 12px; color: var(--classroom-mist, hsl(var(--muted-foreground))); text-align: center; font-size: 13px; }
-.classroom-v3-caption-language-content :is(input, button):focus-visible { outline: 2px solid var(--classroom-iris, hsl(var(--primary))); outline-offset: 2px; }
+.classroom-v3-caption-language-content button:focus-visible { outline: 2px solid var(--classroom-iris, hsl(var(--primary))); outline-offset: 2px; }
 .classroom-v3-caption-language-content ::selection { color: var(--classroom-panel, hsl(var(--popover))); background: var(--classroom-iris, hsl(var(--primary))); }
 
 .classroom-v3-caption-select-viewport {

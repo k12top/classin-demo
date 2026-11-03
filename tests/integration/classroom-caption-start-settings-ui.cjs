@@ -100,6 +100,10 @@ async function main() {
     await wait(`!!document.querySelector('.classroom-v3-caption-language-content')`);
     assert.equal(await run(`getComputedStyle(document.querySelector('.classroom-v3-caption-language-content')).backgroundColor !== 'rgba(0, 0, 0, 0)'`), true,
       'language popup remains opaque outside the classroom shell');
+    assert.equal(await run(`getComputedStyle(document.querySelector('.classroom-v3-caption-language-search')).outlineStyle !== 'none'`), true,
+      'search field keeps one rounded focus indicator');
+    assert.equal(await run(`getComputedStyle(document.querySelector('.classroom-v3-caption-language-search input')).outlineStyle`), 'none',
+      'search input does not draw a second rectangular focus indicator');
     await run(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
     await wait(`!document.querySelector('.classroom-v3-caption-language-content')`);
     await fs.writeFile(path.join(output, `original-create-${width}-${theme}-settings.png`), (await win.webContents.capturePage()).toPNG());
