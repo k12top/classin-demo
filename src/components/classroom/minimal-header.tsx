@@ -10,12 +10,12 @@ import TimeDisplay from "@/components/TimeDisplay";
 import { ClassTimingControls, type ClassTiming } from "./class-timing-controls";
 import { ClassroomHeaderMenu, type ClassroomHeaderMenuAction } from "./classroom-header-menu";
 
-export function MinimalHeader({ course, runtime, now, roleName, memberCount, membersOpen = false, recording, recordingStatus, canRecord, onRecording, onFullscreen, expanded = false, connectionState, presenceHealthy, canStart, canEnd, canExtend, busy, status, settings, notices, actions, onBack, onStart, onEnd, onExtended, onRestarted, onMembers }: {
+export function MinimalHeader({ course, runtime, now, roleName, memberCount, membersOpen = false, recording, recordingStatus, canRecord, onRecording, onFullscreen, expanded = false, connectionState, presenceHealthy, canStart, canEnd, canExtend, busy, status, network, settings, notices, actions, onBack, onStart, onEnd, onExtended, onRestarted, onMembers }: {
   course: { id: string; sessionId: string; name: string; startTime: string | null; endTime: string | null };
   runtime: { status: "waiting" | "live" | "ended"; startedAt: string | null; graceEndsAt: string | null };
   connectionState: string; presenceHealthy: boolean; now: number; roleName: string; memberCount: number; membersOpen?: boolean; recording: boolean; canStart: boolean; canEnd: boolean; canExtend: boolean; busy: boolean;
   recordingStatus?: string | null; canRecord?: boolean; onRecording?: () => void; onFullscreen: () => void; expanded?: boolean;
-  status: ReactNode; settings: ReactNode; notices?: ReactNode; actions: ClassroomHeaderMenuAction[];
+  status: ReactNode; network?: ReactNode; settings: ReactNode; notices?: ReactNode; actions: ClassroomHeaderMenuAction[];
   onBack: () => void; onStart: () => void; onEnd: () => void; onExtended: (timing: ClassTiming) => void; onRestarted: () => void; onMembers?: () => void;
 }) {
   const { t } = useTranslation();
@@ -53,6 +53,7 @@ export function MinimalHeader({ course, runtime, now, roleName, memberCount, mem
       </DropdownMenuContent>
     </DropdownMenu>
     {runtime.status !== "ended" && (connectionState !== "connected" || !presenceHealthy) && <span className="classroom-minimal-connection-warning" role="status" title={t(connectionState === "disconnected" ? "classroomMinimal.offline" : "classroom.v3.reconnecting")} aria-label={t(connectionState === "disconnected" ? "classroomMinimal.offline" : "classroom.v3.reconnecting")}>{connectionState === "disconnected" ? <WifiOff/> : <Loader2 className="animate-spin"/>}</span>}
+    {runtime.status !== "ended" && network}
     {!canRecord && recording && <span className="classroom-minimal-recording" title={t("classroomMinimal.recording")} aria-label={t("classroomMinimal.recording")}><CircleDot /></span>}
     {canStart && <ClassroomIconButton type="button" className="classroom-minimal-icon classroom-minimal-start" disabled={busy} aria-label={t("classroom.v3.startClass")} title={t("classroom.v3.startClass")} onClick={onStart}><Radio /></ClassroomIconButton>}
     {onMembers && <ClassroomIconButton type="button" className="classroom-header-members" title={t("classroomRoster.openMembers")} aria-label={`${t("classroomRoster.openMembers")} · ${presenceHealthy ? t("classroom.v3.onlineCount", { count: memberCount }) : t("classroomRoster.syncing")}`} aria-expanded={membersOpen} onClick={onMembers}><Users /><span><span>{t("classroomMinimal.online")}</span><strong>{presenceHealthy ? memberCount : "—"}</strong></span></ClassroomIconButton>}

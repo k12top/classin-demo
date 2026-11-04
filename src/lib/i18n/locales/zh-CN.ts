@@ -1,4 +1,16 @@
 export const zhCN = {
+  classroomNetwork: {
+    title: "网络质量", checking: "检测中", good: "良好", weak: "不稳定", poor: "较差", offline: "未连接",
+    explanation: "根据课堂音视频连接评估，不是 Wi-Fi 信号强度。",
+    upload: "上传", download: "接收", latency: "延迟",
+    automatic: "网络变化时自动调整视频，优先保留语音。",
+    reduced: "已减少视频接收，稳定后自动恢复。",
+    paused: "已暂停接收视频，保留音频和字幕连接。",
+    uploadReduced: "已降低本机视频码率，麦克风保持连接。",
+    weakNotice: "网络不稳定，已减少视频接收，优先保留语音。网络稳定后自动恢复。",
+    pausedNotice: "网络较差，已暂停接收视频，优先保留音频和字幕。网络稳定后自动恢复。",
+    dismiss: "关闭提示，本节课不再自动显示",
+  },
   classroomChat: {removeImage: "移除图片",
     moreActivities: "更早的课堂题目","withdrawMessageConfirm": "撤回这条消息？所有成员将看到撤回提示。","useDraft": "采用这份草稿", "copyFailed": "复制失败，请手动选择内容复制。","answered": "{count} 人已提交", "manageActivity": "查看与管理", "newActivity": "发起互动", "activityRetry": "互动暂未加载，点击重试", "scope": "消息发送范围", "image": "发送图片", "imageAlt": "课堂图片", "imageInvalid": "请选择不超过5MB的PNG、JPEG或WebP图片", "imageUploading": "正在上传图片…", "imageFailed": "图片发送失败，内容已保留", "withdrawMember": "撤回该成员的全部消息", "withdrawMemberConfirm": "撤回该成员在本课的全部消息？", "muteMember": "禁止该成员聊天", "unmuteMember": "允许该成员聊天", "copy": "复制内容", "polish": "AI 润色", "generate": "AI 生成", "seed": "粘贴题目或描述出题要求", "previewDraft": "生成草稿供确认", "aiUnavailable": "AI 暂不可用，可继续手动编辑。"},
   classroomRoster: {"shareOccupied": "已有成员正在共享，请老师先结束当前共享", "retrySharePreparation": "重新准备共享", "openMembers": "查看课堂成员", "students": "学生 {count}", "teachers": "教师 {count}", "assistants": "助教 {count}", "reconnecting": "重连中 {count}", "syncing": "人数同步中", "syncingHint": "连接恢复后更新在线人数与名单"},

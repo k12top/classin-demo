@@ -3,6 +3,7 @@
 import { createSharePortrait, normalizeScreenShareOptions, screenShareProfile, supportsSharePortrait } from "@/lib/classroom/share-portrait";
 import type { ClassroomScreenShareOptions } from "@/lib/classroom/types";
 import { screenVideoPlan } from "@/lib/classroom/screen-video-plan";
+import { classroomScreenLowStream, createNetworkDirectionPolicy, networkVideoEncoder, worseVideoMode, type NetworkVideoMode } from "@/lib/classroom/network-adaptation";
 
 
 import AgoraRTC, {
@@ -13,6 +14,7 @@ import AgoraRTC, {
   type ILocalAudioTrack,
   type IMicrophoneAudioTrack,
   type UID,
+  type VideoEncoderConfiguration,
 } from "agora-rtc-sdk-ng";
 import VirtualBackgroundExtension, {
   type IVirtualBackgroundProcessor,
@@ -124,6 +126,14 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   private remoteObservedPixels = new Map<string, number>();
   private remoteVideoUpdate: Promise<void> = Promise.resolve();
   private remoteVideoUpdateScheduled = false;
+  private uplinkPolicy = createNetworkDirectionPolicy();
+  private downlinkPolicy = createNetworkDirectionPolicy();
+  private networkSamples = new Map<IAgoraRTCClient, { uplink: number; at: number }>();
+  private networkVideoUpdate: Promise<void> = Promise.resolve();
+  private networkVideoUpdateScheduled = false;
+  private networkVideoModes = new WeakMap<ILocalVideoTrack, NetworkVideoMode>();
+  private networkVideoProfiles = new WeakMap<ILocalVideoTrack, VideoEncoderConfiguration>();
+  private networkVideoErrors = new WeakMap<ILocalVideoTrack, unknown>();
   private listeners = new Set<ClassroomMediaListener>();
   private captionListeners = new Set<ClassroomCaptionListener>();
   private tokenExpiryListeners = new Set<() => void>();
@@ -334,6 +344,8 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   }
 
   private remoteVideoPlan(): Map<string, 0 | 1> {
+    // Never unsubscribe audio or data messages when conserving video bandwidth.
+    if (this.snapshot.network.receiveMode === "minimal") return new Map();
     const visible = Array.from(this.remoteUsers.entries()).flatMap(([id, user]) => {
       if (!user.hasVideo || this.isLocalParticipant(id)) return [];
       let area = 0;
@@ -354,7 +366,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     const pixels = new Map(this.remoteObservedPixels);
     for (const { id } of visible) if (this.isScreen(id) && !pixels.has(id)) pixels.set(id, 1920 * 1080);
     const sharingPlan = screenVideoPlan(visible, id => this.isScreen(id), pixels);
-    if (sharingPlan) return sharingPlan;
+    if (sharingPlan) return this.limitRemoteVideoPlan(sharingPlan);
     const low = classroomMediaProfile.camera.low;
     const high = classroomMediaProfile.camera.high;
     const lowPixels = low.width * low.height;
@@ -372,7 +384,95 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         remaining -= extra;
       }
     }
+    return this.limitRemoteVideoPlan(plan);
+  }
+
+  private limitRemoteVideoPlan(plan: Map<string, 0 | 1>) {
+    if (this.snapshot.network.receiveMode === "low") {
+      for (const id of plan.keys()) plan.set(id, 1);
+    }
     return plan;
+  }
+
+  private videoEncoder(normal: VideoEncoderConfiguration, screen = false): VideoEncoderConfiguration {
+    return networkVideoEncoder(this.snapshot.network.publishMode ?? "normal", screen) ?? normal;
+  }
+
+  private cameraEncoder(): VideoEncoderConfiguration {
+    const high = classroomMediaProfile.camera.high;
+    return this.videoEncoder({ width: high.width, height: high.height, frameRate: high.frameRate,
+      bitrateMin: Math.round(high.bitrateKbps * 0.65), bitrateMax: high.bitrateKbps });
+  }
+
+  private async setVideoEncoder(track: ILocalVideoTrack, normal: VideoEncoderConfiguration): Promise<void> {
+    this.networkVideoProfiles.set(track, normal);
+    this.networkVideoModes.delete(track);
+    this.networkVideoErrors.delete(track);
+    await this.updateNetworkVideo();
+    // Explicit layout changes must retain their original failure/cleanup path.
+    if (this.networkVideoErrors.has(track)) throw this.networkVideoErrors.get(track);
+  }
+
+  private updateNetworkVideo(): Promise<void> {
+    if (this.networkVideoUpdateScheduled) return this.networkVideoUpdate;
+    this.networkVideoUpdateScheduled = true;
+    const generation = this.connectionGeneration;
+    this.networkVideoUpdate = this.networkVideoUpdate.catch(() => undefined).then(async () => {
+      if (generation !== this.connectionGeneration) return;
+      this.networkVideoUpdateScheduled = false;
+      const mode = this.snapshot.network.publishMode ?? "normal";
+      const tracks = [this.cameraTrack, this.auxiliaryTrack, this.screenTrack];
+      for (const track of tracks) {
+        if (!track || !this.client || generation !== this.connectionGeneration) continue;
+        if (mode !== (this.snapshot.network.publishMode ?? "normal")) return;
+        if (![this.cameraTrack, this.auxiliaryTrack, this.screenTrack].includes(track)) continue;
+        if (this.networkVideoModes.get(track) === mode) continue;
+        const screen = track === this.screenTrack;
+        try {
+          const normal = this.networkVideoProfiles.get(track);
+          await track.setEncoderConfiguration(normal ? this.videoEncoder(normal, screen) : this.cameraEncoder());
+          if (generation !== this.connectionGeneration) return;
+          this.networkVideoErrors.delete(track);
+          if (normal === this.networkVideoProfiles.get(track) && mode === (this.snapshot.network.publishMode ?? "normal")) {
+            this.networkVideoModes.set(track, mode);
+          }
+        } catch (error) {
+          // One encoder must not block the microphone or other publishers.
+          this.networkVideoErrors.set(track, error);
+          console.warn("[classroom:rtc] network video configuration failed", error);
+        }
+      }
+    });
+    return this.networkVideoUpdate;
+  }
+
+  private watchNetwork(client: IAgoraRTCClient, primary = false) {
+    client.on("network-quality", quality => {
+      if (!this.client || ![this.client, this.screenClient, this.auxiliaryClient].includes(client)) return;
+      const now = Date.now();
+      this.networkSamples.set(client, { uplink: quality.uplinkNetworkQuality, at: now });
+      // The main connection is the single policy clock, so simultaneous camera
+      // and screen callbacks cannot accidentally accelerate fallback/recovery.
+      if (!primary) return;
+      let uplinkQuality: number = quality.uplinkNetworkQuality;
+      for (const [publisher, sample] of this.networkSamples) {
+        if (![this.client, this.screenClient, this.auxiliaryClient].includes(publisher) || now - sample.at > 6_000) {
+          this.networkSamples.delete(publisher);
+        } else uplinkQuality = Math.max(uplinkQuality, sample.uplink);
+      }
+      const publishMode = this.uplinkPolicy.sample(uplinkQuality, now);
+      const downlinkMode = this.downlinkPolicy.sample(quality.downlinkNetworkQuality, now);
+      // A shared Wi-Fi link can be congested in both directions. Reduce receipt
+      // under upload pressure too, while separately reducing published video.
+      const receiveMode = worseVideoMode(publishMode, downlinkMode);
+      const changed = receiveMode !== (this.snapshot.network.receiveMode ?? "normal");
+      const publishChanged = publishMode !== (this.snapshot.network.publishMode ?? "normal");
+      this.snapshot.network = { ...this.snapshot.network, uplinkQuality, receiveMode, publishMode };
+      if (changed || (receiveMode === "minimal" && this.remoteVideoStreamTypes.size > 0)) void this.updateRemoteVideos();
+      if (publishChanged || [this.cameraTrack, this.auxiliaryTrack, this.screenTrack].some(track =>
+        track && this.networkVideoModes.get(track) !== publishMode)) void this.updateNetworkVideo();
+      this.emit();
+    });
   }
 
   private updateRemoteVideos(): Promise<void> {
@@ -393,7 +493,8 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         if (!user || !current(id, user)) continue;
         const next = plan.get(id);
         if (next === undefined) {
-          await client.unsubscribe(user, "video");
+          try { await client.unsubscribe(user, "video"); }
+          catch (error) { console.warn("[ClassroomRTC] Failed to pause remote video", error); continue; }
           if (!current(id, user)) continue;
           this.remoteVideoStreamTypes.delete(id);
           this.clearVideoTargets(id);
@@ -509,6 +610,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       const audioLoss = client.getLocalAudioStats().currentPacketLossRate;
       const videoLoss = client.getLocalVideoStats().currentPacketLossRate;
       this.snapshot.network = {
+        ...this.snapshot.network,
         uplinkQuality: quality.uplinkNetworkQuality,
         downlinkQuality: quality.downlinkNetworkQuality,
         latencyMs: Number.isFinite(rtcStats.RTT) ? rtcStats.RTT : null,
@@ -516,8 +618,8 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
           ? Math.max(audioLoss, videoLoss)
           : null,
       };
-      this.emit();
     });
+    this.watchNetwork(client, true);
     client.on("user-joined", (user) => {
       if (this.client !== client) return;
       const id = participantId(user.uid);
@@ -939,17 +1041,18 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       // Flexible upper bounds let mobile cameras negotiate a supported size
       // without bypassing the classroom capture limit.
       const touchCamera = window.matchMedia("(pointer: coarse)").matches;
+      const cameraNetworkMode = this.snapshot.network.publishMode ?? "normal";
       const cameraOptions = {
         ...(this.preferredCameraId && {
           cameraId: this.preferredCameraId,
         }),
-        encoderConfig: {
+        encoderConfig: this.videoEncoder({
           width: touchCamera ? { ideal: high.width, max: high.width } : high.width,
           height: touchCamera ? { ideal: high.height, max: high.height } : high.height,
           frameRate: high.frameRate,
           bitrateMin: Math.round(high.bitrateKbps * 0.65),
           bitrateMax: high.bitrateKbps,
-        },
+        }),
         optimizationMode: "balanced" as const,
       };
       let cameraTrack: ICameraVideoTrack;
@@ -978,7 +1081,9 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       }
       this.snapshot.local.cameraDeviceId = capturedDeviceId || this.preferredCameraId;
       this.cameraTrack = cameraTrack;
+      this.networkVideoModes.set(cameraTrack, cameraNetworkMode);
       try {
+        await this.updateNetworkVideo();
         if (this.virtualBackgroundEffect.type !== "none") {
           await this.applyVirtualBackground();
         }
@@ -1057,12 +1162,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     let track: ICameraVideoTrack | null = null;
     let client: IAgoraRTCClient | null = null;
     try {
-      const high = classroomMediaProfile.camera.high;
       // Capture on the initiating click; join and publication follow asynchronously.
       track = await AgoraRTC.createCameraVideoTrack({
         cameraId: deviceId,
-        encoderConfig: { width: high.width, height: high.height, frameRate: high.frameRate,
-          bitrateMin: Math.round(high.bitrateKbps * 0.65), bitrateMax: high.bitrateKbps },
+        encoderConfig: this.cameraEncoder(),
         optimizationMode: "detail",
       });
       if (!current()) { track.close(); return; }
@@ -1078,6 +1181,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       this.auxiliaryTrack = track;
       this.auxiliaryPendingTrack = null;
       this.auxiliaryClient = client;
+      this.watchNetwork(client);
       this.snapshot.local.auxiliaryCameraDeviceId = capturedId;
       this.watchTokenExpiry(client);
       const capturedTrack = track;
@@ -1089,6 +1193,8 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       void client.enableDualStream().catch((error: unknown) => {
         console.warn("[ClassroomRTC] Failed to enable auxiliary dual stream", error);
       });
+      await this.updateNetworkVideo();
+      if (!current()) { track.close(); await client.leave().catch(() => undefined); return; }
       await client.publish(track);
       if (!current()) { await client.unpublish(track).catch(() => undefined); await client.leave().catch(() => undefined); track.close(); return; }
       this.snapshot.local.auxiliaryCameraOn = true;
@@ -1201,7 +1307,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
           await client.unpublish(this.screenTrack);
           if (!active()) return;
           this.screenTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: composite.track, width: 1920, height: 1080, frameRate: 15, optimizationMode: "detail" });
-          await this.screenTrack.setEncoderConfiguration(screenShareProfile("portrait"));
+          await this.setVideoEncoder(this.screenTrack, screenShareProfile("portrait"));
           if (!active()) return;
           await client.publish(this.screenTrack);
         } else if (this.sharePortrait) {
@@ -1211,7 +1317,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
           if (changedMode) await client.unpublish(this.screenTrack);
           if (!active()) return;
           this.sharePortrait.setOptions(options);
-          if (changedMode) await this.screenTrack.setEncoderConfiguration(screenShareProfile(options.mode));
+          if (changedMode) await this.setVideoEncoder(this.screenTrack, screenShareProfile(options.mode));
           if (!active()) return;
           if (changedMode) await client.publish(this.screenTrack);
         }
@@ -1249,13 +1355,13 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     const screen = options.mode === "portrait" ? { ...screenShareProfile("portrait"), bitrateKbps: 2600, optimizationMode: "detail" as const } : classroomMediaProfile.screen;
     const capturedTracks = await AgoraRTC.createScreenVideoTrack(
       {
-        encoderConfig: {
+        encoderConfig: this.videoEncoder({
           width: screen.width,
           height: screen.height,
           frameRate: screen.frameRate,
           bitrateMin: Math.round(screen.bitrateKbps * 0.65),
           bitrateMax: screen.bitrateKbps,
-        },
+        }, true),
         optimizationMode: screen.optimizationMode,
       },
       "auto",
@@ -1270,6 +1376,8 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     }
     this.screenCaptureTrack = screenTrack;
     this.screenTrack = screenTrack;
+    this.networkVideoProfiles.set(screenTrack, { width: screen.width, height: screen.height,
+      frameRate: screen.frameRate, bitrateMin: Math.round(screen.bitrateKbps * 0.65), bitrateMax: screen.bitrateKbps });
     this.screenAudioTrack = screenAudioTrack;
 
     const screenClient = AgoraRTC.createClient({
@@ -1281,6 +1389,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       }),
     });
     this.screenClient = screenClient;
+    this.watchNetwork(screenClient);
     this.watchTokenExpiry(screenClient);
     screenTrack.on("track-ended", () => {
       if (this.screenCaptureTrack === screenTrack) void this.stopScreenShare().catch(error => console.warn("[classroom:rtc] camera restoration deferred after capture ended", error));
@@ -1303,18 +1412,26 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         this.credential.screenShare.rtcUid,
       );
       assertActive();
+      screenClient.setLowStreamParameter({ ...classroomScreenLowStream });
+      // Screen sharing has its own publisher connection, so camera dual-stream
+      // setup does not provide a lower-resolution share to weak students.
+      void screenClient.enableDualStream().catch((error: unknown) => {
+        console.warn("[ClassroomRTC] Failed to enable screen dual stream", error);
+      });
       if (options.mode === "portrait") {
         const composite = await createSharePortrait(screenTrack.getMediaStreamTrack(), () => this.snapshot.local.cameraOn ? this.cameraTrack?.getMediaStreamTrack() ?? null : null, options);
         try { assertActive(); } catch (error) { composite.dispose(); throw error; }
         this.sharePortrait = composite;
         this.screenTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: composite.track, width: 1920, height: 1080, frameRate: 15, optimizationMode: "detail" });
-        await this.screenTrack.setEncoderConfiguration(screenShareProfile("portrait"));
+        await this.setVideoEncoder(this.screenTrack, screenShareProfile("portrait"));
         assertActive();
         this.portraitCameraSuppressed = true;
         await this.syncCameraPublication();
         assertActive();
       }
       const output = this.screenTrack!;
+      await this.updateNetworkVideo();
+      assertActive();
       await screenClient.publish(screenAudioTrack ? [output, screenAudioTrack] : output);
       assertActive();
       this.snapshot.local.screenSharing = true;
@@ -1675,6 +1792,14 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.microphoneToggleTail = Promise.resolve();
     this.microphoneControlTail = Promise.resolve();
     this.connectionGeneration++;
+    this.uplinkPolicy = createNetworkDirectionPolicy();
+    this.downlinkPolicy = createNetworkDirectionPolicy();
+    this.networkSamples.clear();
+    this.networkVideoModes = new WeakMap();
+    this.networkVideoProfiles = new WeakMap();
+    this.networkVideoErrors = new WeakMap();
+    this.networkVideoUpdate = Promise.resolve();
+    this.networkVideoUpdateScheduled = false;
     ++this.microphoneControlVersion;
     this.microphoneRequestedOn = false;
     this.microphonePublished = false;

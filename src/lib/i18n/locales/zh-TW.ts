@@ -4,6 +4,18 @@ import type { DeepPartial } from "../types";
 export const zhTW = {
 
   ...zhCN,
+  classroomNetwork: {
+    title: "網路品質", checking: "偵測中", good: "良好", weak: "不穩定", poor: "較差", offline: "未連線",
+    explanation: "根據課堂影音連線評估，並非 Wi-Fi 訊號強度。",
+    upload: "上傳", download: "接收", latency: "延遲",
+    automatic: "隨網路變化自動調整影片，優先保留語音。",
+    reduced: "已減少影片接收，穩定後自動恢復。",
+    paused: "已暫停接收影片，保留音訊和字幕連線。",
+    uploadReduced: "已降低本機影片位元率，麥克風保持連線。",
+    weakNotice: "網路不穩定，已減少影片接收，優先保留語音。網路穩定後自動恢復。",
+    pausedNotice: "網路較差，已暫停接收影片，優先保留音訊和字幕。網路穩定後自動恢復。",
+    dismiss: "關閉提示，本節課不再自動顯示",
+  },
   classroomChat: {removeImage: "移除圖片",
     moreActivities: "更早的課堂題目","withdrawMessageConfirm": "撤回這則訊息？所有成員將看到撤回提示。","useDraft": "採用這份草稿", "copyFailed": "複製失敗，請手動選取內容複製。","answered": "{count} 人已提交", "manageActivity": "查看與管理", "newActivity": "發起互動", "activityRetry": "互動暫未載入，點擊重試", "scope": "訊息傳送範圍", "image": "傳送圖片", "imageAlt": "課堂圖片", "imageInvalid": "請選擇不超過5MB的PNG、JPEG或WebP圖片", "imageUploading": "正在上傳圖片…", "imageFailed": "圖片傳送失敗，內容已保留", "withdrawMember": "撤回該成員的全部訊息", "withdrawMemberConfirm": "撤回該成員在本課的全部訊息？", "muteMember": "禁止該成員聊天", "unmuteMember": "允許該成員聊天", "copy": "複製內容", "polish": "AI 潤飾", "generate": "AI 生成", "seed": "貼上題目或描述出題要求", "previewDraft": "生成草稿供確認", "aiUnavailable": "AI 暫不可用，可繼續手動編輯。"},
   classroomRoster: {"shareOccupied": "已有成員正在分享，請老師先結束目前分享", "retrySharePreparation": "重新準備分享", "openMembers": "查看課堂成員", "students": "學生 {count}", "teachers": "教師 {count}", "assistants": "助教 {count}", "reconnecting": "重新連線中 {count}", "syncing": "人數同步中", "syncingHint": "連線恢復後更新在線人數與名單"},

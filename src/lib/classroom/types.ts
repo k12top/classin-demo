@@ -62,7 +62,7 @@ export type ClassroomParticipant = {
   kind: "camera" | "screen" | "auxiliary-camera";
   hasAudio: boolean;
   hasVideo: boolean;
-  /** Published video is temporarily suspended by the receiver budget. Audio continues. */
+  /** Video receipt is suspended by the receive budget or weak-network policy. Audio continues. */
   videoSubscriptionPaused?: boolean;
 };
 
@@ -81,6 +81,9 @@ export type ClassroomMediaSnapshot = {
     downlinkQuality: number;
     latencyMs: number | null;
     packetLossPercent: number | null;
+    /** Applied application policy; audio and subtitle subscriptions stay active. */
+    receiveMode?: import("./network-adaptation").NetworkVideoMode;
+    publishMode?: import("./network-adaptation").NetworkVideoMode;
   };
   local: {
     microphoneOn: boolean;

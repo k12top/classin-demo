@@ -5,6 +5,7 @@ import { imageMessageContent } from "@/lib/classroom/chat-image-message";
 import { useWhiteboardShortcuts } from "@/lib/classroom/whiteboard/use-shortcuts";
 import { BoardToolsMenu } from "./board-tools-menu";
 import { MinimalHeader } from "./minimal-header";
+import { ClassroomNetworkStatus } from "./network-status";
 import { ClassroomIconButton } from "./icon-button";
 import { ClassroomQuickSettings } from "./quick-settings";
 import { ConversationPanelTabs } from "./conversation-panel-tabs";
@@ -6509,6 +6510,7 @@ export function ClassroomV3({
         course={sessionData.course} runtime={sessionData.runtime} now={now + presenceClockOffset}
         roleName={roleLabel(sessionData.credential.role, t)} memberCount={classroomPresenceSummary(classroomMembers).online} membersOpen={activePanel === "members"}
         connectionState={media.connectionState} presenceHealthy={presenceHealthy && !sessionData.runtime.presenceUncertain}
+        network={<ClassroomNetworkStatus key={courseId} media={media} sessionId={courseId} />}
         recording={["starting", "recording"].includes(recordingStatus || "")} recordingStatus={recordingStatus} canRecord={sessionData.capabilities.canControlRecording && !classEnded} onRecording={onRecordingControl} onFullscreen={toggleFullscreen} expanded={stageExpanded} busy={Boolean(actionBusy)}
         canStart={isClassroomTeachingRole(sessionData.credential.role) && sessionData.runtime.status === "waiting"}
         canEnd={sessionData.capabilities.canEndClass && sessionData.runtime.status === "live"}

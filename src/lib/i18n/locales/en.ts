@@ -1,6 +1,18 @@
 import { zhCN } from "./zh-CN";
 
 export const en: typeof zhCN = {
+  classroomNetwork: {
+    title: "Connection quality", checking: "Checking", good: "Good", weak: "Unstable", poor: "Poor", offline: "Offline",
+    explanation: "Based on the classroom media connection, not Wi-Fi signal strength.",
+    upload: "Upload", download: "Receive", latency: "Latency",
+    automatic: "Video adapts to your connection to prioritize speech.",
+    reduced: "Receiving less video. It will recover when the connection is stable.",
+    paused: "Video reception is paused. Audio and captions stay connected.",
+    uploadReduced: "Local video bitrate is reduced. Your microphone stays connected.",
+    weakNotice: "Your connection is unstable. Receiving less video to prioritize speech. Video will recover automatically.",
+    pausedNotice: "Your connection is poor. Video reception is paused to prioritize audio and captions. Video will recover automatically.",
+    dismiss: "Dismiss for this lesson",
+  },
   classroomChat: {removeImage: "Remove image",
     moreActivities: "Earlier questions","withdrawMessageConfirm": "Withdraw this message for everyone?","useDraft": "Use this draft", "copyFailed": "Copy failed. Select the content and copy manually.","answered": "{count} submitted", "manageActivity": "View and manage", "newActivity": "Create activity", "activityRetry": "Activities unavailable. Retry", "scope": "Message audience", "image": "Send image", "imageAlt": "Classroom image", "imageInvalid": "Choose a PNG, JPEG or WebP image up to 5 MB", "imageUploading": "Uploading image…", "imageFailed": "Image could not be sent. Your draft is saved.", "withdrawMember": "Withdraw all messages from this member", "withdrawMemberConfirm": "Withdraw all messages from this member in this lesson?", "muteMember": "Mute this member in chat", "unmuteMember": "Unmute this member in chat", "copy": "Copy content", "polish": "Polish with AI", "generate": "Generate with AI", "seed": "Paste a question or describe what to create", "previewDraft": "Generate draft for review", "aiUnavailable": "AI is unavailable. You can continue editing manually."},
   classroomRoster: {"shareOccupied": "Someone is sharing. Ask the teacher to end the current share first.", "retrySharePreparation": "Retry share setup", "openMembers": "View class members", "students": "Students {count}", "teachers": "Teachers {count}", "assistants": "Assistants {count}", "reconnecting": "Reconnecting {count}", "syncing": "Syncing attendance", "syncingHint": "Online counts and members will update when the connection recovers"},
