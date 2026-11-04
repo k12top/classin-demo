@@ -1,4 +1,16 @@
 export const zhCN = {
+  classroomNetwork: {
+    title: "网络质量", checking: "检测中", good: "良好", weak: "不稳定", poor: "较差", offline: "未连接",
+    explanation: "根据课堂音视频连接评估，不是 Wi-Fi 信号强度。",
+    upload: "上传", download: "接收", latency: "延迟",
+    automatic: "网络变化时自动调整视频，优先保留语音。",
+    reduced: "已减少视频接收，稳定后自动恢复。",
+    paused: "已暂停接收视频，保留音频和字幕连接。",
+    uploadReduced: "已降低本机视频码率，麦克风保持连接。",
+    weakNotice: "网络不稳定，已减少视频接收，优先保留语音。网络稳定后自动恢复。",
+    pausedNotice: "网络较差，已暂停接收视频，优先保留音频和字幕。网络稳定后自动恢复。",
+    dismiss: "关闭提示，本节课不再自动显示",
+  },
   classroomMultiShare: {"stageManagement": "上台管理","autoDisplayHint": "仅邀请 1 人时，学生准备好后自动展示；多人邀请由老师选择。","title": "学生共享", "follows": "全班及录制跟随老师展示的画面。", "invite": "邀请学生", "choose": "选择要邀请的学生", "send": "邀请 {count} 人", "presenting": "正在展示", "ready": "已准备，等待展示", "pause": "停止展示", "show": "全班展示", "end": "结束共享", "invited": "等待接受", "preparing": "等待选择共享窗口", "cancel": "取消", "empty": "邀请学生准备共享，再选择一人向全班展示。", "waiting": "已准备，等待老师展示。浏览器仍在采集，画面尚未向课堂发送。", "live": "你的屏幕正在向全班展示", "exit": "退出共享", "connecting": "正在连接共享画面…", "failed": "共享连接失败，已返回白板，请重新选择。", "timeout": "该学生的共享未能连接，已返回白板。"},
   captionStart: {"title": "开课字幕与同传", "autoCaptions": "自动开启字幕", "autoInterpretation": "自动开启同传", "languages": "同传语言", "addLanguage": "添加语言", "chooseLanguage": "请选择至少一种同传语言", "hint": "开课后自动开启，课中可调整。", "saved": "已保存", "saving": "保存中…"},
   timeZones: {

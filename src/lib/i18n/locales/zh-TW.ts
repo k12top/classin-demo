@@ -4,6 +4,18 @@ import type { DeepPartial } from "../types";
 export const zhTW = {
 
   ...zhCN,
+  classroomNetwork: {
+    title: "網路品質", checking: "偵測中", good: "良好", weak: "不穩定", poor: "較差", offline: "未連線",
+    explanation: "根據課堂影音連線評估，並非 Wi-Fi 訊號強度。",
+    upload: "上傳", download: "接收", latency: "延遲",
+    automatic: "隨網路變化自動調整影片，優先保留語音。",
+    reduced: "已減少影片接收，穩定後自動恢復。",
+    paused: "已暫停接收影片，保留音訊和字幕連線。",
+    uploadReduced: "已降低本機影片位元率，麥克風保持連線。",
+    weakNotice: "網路不穩定，已減少影片接收，優先保留語音。網路穩定後自動恢復。",
+    pausedNotice: "網路較差，已暫停接收影片，優先保留音訊和字幕。網路穩定後自動恢復。",
+    dismiss: "關閉提示，本節課不再自動顯示",
+  },
   classroomMultiShare: {"stageManagement": "上台管理","autoDisplayHint": "僅邀請 1 人時，學生準備好後自動展示；多人邀請由老師選擇。","title": "學生共享", "follows": "全班及录制跟随老师展示的画面。", "invite": "邀請學生", "choose": "选择要邀请的学生", "send": "邀请 {count} 人", "presenting": "正在展示", "ready": "已准备，等待展示", "pause": "停止展示", "show": "全班展示", "end": "结束共享", "invited": "等待接受", "preparing": "等待选择共享窗口", "cancel": "取消", "empty": "邀请学生准备共享，再选择一人向全班展示。", "waiting": "已準備，等待老師展示。瀏覽器仍在擷取，畫面尚未向課堂傳送。", "live": "你的屏幕正在向全班展示", "exit": "退出共享", "connecting": "正在连接共享画面…", "failed": "共享连接失败，已返回白板，请重新选择。", "timeout": "该学生的共享未能连接，已返回白板。"},
   captionStart: {"title": "開課字幕與同傳", "autoCaptions": "自動開啟字幕", "autoInterpretation": "自動開啟同傳", "languages": "同傳語言", "addLanguage": "新增語言", "chooseLanguage": "請選擇至少一種同傳語言", "hint": "開課後自動開啟，課中可調整。", "saved": "已儲存", "saving": "儲存中…"},
 

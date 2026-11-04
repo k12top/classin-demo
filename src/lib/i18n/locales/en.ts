@@ -1,6 +1,18 @@
 import { zhCN } from "./zh-CN";
 
 export const en: typeof zhCN = {
+  classroomNetwork: {
+    title: "Connection quality", checking: "Checking", good: "Good", weak: "Unstable", poor: "Poor", offline: "Offline",
+    explanation: "Based on the classroom media connection, not Wi-Fi signal strength.",
+    upload: "Upload", download: "Receive", latency: "Latency",
+    automatic: "Video adapts to your connection to prioritize speech.",
+    reduced: "Receiving less video. It will recover when the connection is stable.",
+    paused: "Video reception is paused. Audio and captions stay connected.",
+    uploadReduced: "Local video bitrate is reduced. Your microphone stays connected.",
+    weakNotice: "Your connection is unstable. Receiving less video to prioritize speech. Video will recover automatically.",
+    pausedNotice: "Your connection is poor. Video reception is paused to prioritize audio and captions. Video will recover automatically.",
+    dismiss: "Dismiss for this lesson",
+  },
   classroomMultiShare: {"stageManagement": "Stage management","autoDisplayHint": "Invite one student to present automatically when ready. For multiple invitations, choose who presents.","title": "Student screens", "follows": "The class and recording follow the teacher’s selection.", "invite": "Invite students", "choose": "Choose students to invite", "send": "Invite {count}", "presenting": "Presenting", "ready": "Ready, waiting to present", "pause": "Stop presenting", "show": "Show to class", "end": "End sharing", "invited": "Awaiting acceptance", "preparing": "Awaiting screen selection", "cancel": "Cancel", "empty": "Invite students to prepare, then choose one screen to present.", "waiting": "Ready, waiting for the teacher. Your browser is still capturing; your screen is not being sent to the class.", "live": "Your screen is being shown to the class", "exit": "Exit sharing", "connecting": "Connecting to the shared screen…", "failed": "Screen connection failed. Returned to the whiteboard; choose again.", "timeout": "The selected screen could not connect. Returned to the whiteboard."},
   captionStart: {"title": "Captions at class start", "autoCaptions": "Automatically show captions", "autoInterpretation": "Automatically start interpretation", "languages": "Interpretation languages", "addLanguage": "Add language", "chooseLanguage": "Choose at least one interpretation language", "hint": "Starts with the lesson. You can change it during class.", "saved": "Saved", "saving": "Saving\u2026"},
   timeZones: {
