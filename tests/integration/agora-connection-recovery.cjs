@@ -8,6 +8,8 @@ const vm = require("node:vm");
 const ts = require("../../node_modules/typescript");
 
 function fixture(touch = false) {
+  let networkNow = 0;
+  class FixtureDate extends Date { static now() { return networkNow; } }
   const clients = [], tracks = [], subscriptions = [], streamTypes = [], observers = [];
   class ResizeObserver {
     constructor(callback) { this.callback = callback; observers.push(this); }
@@ -45,7 +47,9 @@ function fixture(touch = false) {
         unsubscribe: async (user, kind) => { client.unsubscriptions ??= []; client.unsubscriptions.push([user.uid, kind]); },
         setRemoteVideoStreamType: async (uid, type) => { streamTypes.push([uid, type]); },
         setClientRole: async (role) => { client.role = role; },
-        setLowStreamParameter: () => undefined, enableDualStream: async () => undefined,
+        setLowStreamParameter: config => { client.lowStream = config; }, enableDualStream: async () => { client.dualStream = true; },
+        getRTCStats: () => ({ RTT: 100 }), getLocalAudioStats: () => ({currentPacketLossRate: 0}),
+        getLocalVideoStats: () => ({currentPacketLossRate: 0}),
       });
       clients.push(client); return client;
     },
@@ -58,8 +62,13 @@ function fixture(touch = false) {
   const portraitHelpers = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/share-portrait.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: portraitHelpers });
   const profile = { width: 1280, height: 720, frameRate: 30, bitrateKbps: 1200 };
-  vm.runInNewContext(source, { exports, console, DOMException, Error, ResizeObserver, window: { matchMedia: () => ({ matches: touch }) },
+  vm.runInNewContext(source, { exports, console, DOMException, Error, ResizeObserver, Date: FixtureDate, window: { matchMedia: () => ({ matches: touch }) },
     require(name) {
+      if (name.endsWith("/network-adaptation")) {
+        const policy = {};
+        vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/network-adaptation.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: policy });
+        return policy;
+      }
       if (name === "agora-rtc-sdk-ng") return sdk;
       if (name === "agora-extension-virtual-background") return class {};
       if (name.endsWith("/share-portrait")) return {
@@ -82,7 +91,13 @@ function fixture(touch = false) {
       throw new Error("Unexpected import: " + name);
     },
   }, { filename });
-  return { provider: new exports.AgoraRtcMediaProvider(), clients, tracks, sdk, makeTrack, subscriptions, streamTypes, observers, composites };
+  return { provider: new exports.AgoraRtcMediaProvider(), clients, tracks, sdk, makeTrack, subscriptions, streamTypes, observers, composites,
+    async network(at, up, down, index = 0) {
+      networkNow = at;
+      clients[index].emit("network-quality", {uplinkNetworkQuality:up, downlinkNetworkQuality:down});
+      await tick(); await tick();
+    },
+  };
 }
 const credential = { appId: "test", channelName: "lesson", rtcUid: 1, userId: "teacher", role: "teacher", scenario: "communication", token: "main",
  screenShare: { rtcUid: 1_000_000_001, token: "screen", userId: "teacher::screen" } };
@@ -396,6 +411,126 @@ test("unchanged video target measurements do not broadcast new classroom snapsho
   assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, false);
   assert.equal(subscriptions.filter(([, kind]) => kind === "video").length, 2, "visible camera resubscribes after being hidden");
   unsubscribe(); await provider.disconnect();
+});
+
+test("weak downlink progressively reduces and pauses video without touching audio or local publication", async () => {
+  const f = fixture();
+  await f.provider.connect(credential, "Teacher");
+  await f.provider.toggleMicrophone();
+  await f.provider.toggleCamera();
+  const microphone = f.tracks.find(track => track.deviceId === "microphone");
+  const camera = { uid: 2, hasVideo: true, hasAudio: true, audioTrack: {play() {}} };
+  const screen = { uid: 1_000_000_002, hasVideo: true, hasAudio: true, audioTrack: {play() {}} };
+  for (const user of [camera, screen]) {
+    f.clients[0].remoteUsers.push(user);
+    f.clients[0].emit("user-published", user, "audio");
+    f.clients[0].emit("user-published", user, "video");
+    f.provider.attachVideo(String(user.uid), videoSurface(640, 360));
+  }
+  await tick(); await tick();
+  // Give both receive-budget implementations a real share size before the
+  // weak-network transition; layout budgets are independent of this policy.
+  f.clients[0].getRemoteVideoStats = () => ({ [screen.uid]: { receiveResolutionWidth: 1280, receiveResolutionHeight: 720 } });
+  await f.network(0, 1, 1);
+  assert.ok(f.subscriptions.some(([uid, type]) => uid === screen.uid && type === "video"));
+  for (let at = 0; at <= 4_000; at += 2_000) await f.network(at, 1, 5);
+  assert.equal(f.provider.getSnapshot().network.receiveMode, "low");
+  assert.ok(f.streamTypes.some(([uid, type]) => uid === camera.uid && type === 1));
+  assert.ok(f.streamTypes.some(([uid, type]) => uid === screen.uid && type === 1), "weak students request the separate screen low stream too");
+  for (let at = 6_000; at <= 12_000; at += 2_000) await f.network(at, 1, 5);
+  assert.equal(f.provider.getSnapshot().network.receiveMode, "minimal");
+  assert.deepEqual(f.clients[0].unsubscriptions.sort(), [[2, "video"], [screen.uid, "video"]].sort());
+  assert.equal(f.provider.getSnapshot().network.publishMode, "normal");
+  assert.equal(microphone.mediaTrack.enabled, true);
+  assert.equal(microphone.closed, undefined);
+  assert.equal(f.provider.getSnapshot().local.cameraOn, true);
+  assert.equal(f.clients[0].unpublished, undefined, "receiver fallback must not unpublish the microphone or camera");
+  const videoCount = f.subscriptions.filter(([,kind]) => kind === "video").length;
+  await f.provider.recoverMedia();
+  assert.equal(f.subscriptions.filter(([,kind]) => kind === "video").length, videoCount);
+  for (let at = 14_000; at <= 32_000; at += 2_000) await f.network(at, 1, 1);
+  assert.equal(f.provider.getSnapshot().network.receiveMode, "minimal");
+  await f.network(34_000, 1, 1);
+  assert.equal(f.provider.getSnapshot().network.receiveMode, "normal");
+  assert.ok(f.subscriptions.filter(([,kind]) => kind === "video").length > videoCount);
+  await f.provider.disconnect();
+});
+
+test("screen publisher congestion constrains all local video while preserving the microphone and share capture", async () => {
+  const f = fixture();
+  await f.provider.connect(credential, "Teacher");
+  await f.provider.toggleMicrophone(); await f.provider.toggleCamera(); await f.provider.startScreenShare();
+  for (let at = 0; at <= 12_000; at += 2_000) {
+    await f.network(at, 5, 0, 1);
+    await f.network(at, 1, 1);
+  }
+  const state = f.provider.getSnapshot();
+  assert.equal(state.network.uplinkQuality, 5);
+  assert.equal(state.network.publishMode, "minimal");
+  assert.equal(state.network.receiveMode, "minimal");
+  assert.equal(f.tracks.find(track => track.deviceId === "main").encoder.bitrateMax, 120);
+  assert.equal(f.tracks.find(track => track.deviceId === "composite-output").encoder.bitrateMax, 220);
+  assert.equal(f.tracks.find(track => track.deviceId === "microphone").mediaTrack.enabled, true);
+  assert.ok(f.tracks.every(track => !track.closed));
+  assert.equal(state.local.screenSharing, true);
+  assert.equal(f.clients[1].dualStream, true);
+  assert.equal(f.clients[1].lowStream.width, 640);
+  await f.provider.setScreenShareSelection(null);
+  assert.equal(f.clients[1].left, true);
+  assert.equal(f.tracks.find(track => track.deviceId === "composite-output").closed, undefined);
+  await f.provider.setScreenShareSelection(String(credential.screenShare.rtcUid));
+  assert.equal(f.clients[2].dualStream, true, "resumed screen publishers retain dual stream");
+  assert.equal(f.clients[2].lowStream.height, 360);
+  assert.equal(f.tracks.find(track => track.deviceId === "composite-output").encoder.bitrateMax, 220);
+  await f.provider.stopScreenShare();
+  for (let at = 14_000; at <= 34_000; at += 2_000) await f.network(at, 1, 1);
+  assert.equal(f.provider.getSnapshot().network.publishMode, "normal");
+  assert.equal(f.tracks.find(track => track.deviceId === "main").encoder.bitrateMax, 1200);
+  await f.provider.disconnect();
+});
+
+test("one failed unsubscribe does not block other videos and is retried without touching audio", async () => {
+  const f = fixture(); await f.provider.connect(credential, "Teacher");
+  for (const uid of [2, 3]) {
+    const user = {uid, hasVideo:true};
+    f.clients[0].remoteUsers.push(user);
+    f.clients[0].emit("user-published", user, "video");
+    f.provider.attachVideo(String(uid), videoSurface(160, 120));
+  }
+  await tick(); await tick();
+  let failed = false; const paused = [];
+  f.clients[0].unsubscribe = async (user, kind) => {
+    assert.equal(kind, "video");
+    if (user.uid === 2 && !failed) { failed = true; throw new Error("temporary unsubscribe failure"); }
+    paused.push(user.uid);
+  };
+  for (let at = 0; at <= 12_000; at += 2_000) await f.network(at, 1, 5);
+  assert.deepEqual(paused, [3]);
+  await f.network(14_000, 1, 5);
+  assert.deepEqual(paused, [3, 2]);
+  await f.network(16_000, 1, 5);
+  assert.deepEqual(paused, [3, 2], "already-paused videos are not repeatedly unsubscribed");
+  assert.equal(f.clients[0].listenerCount("stream-message"), 1, "caption delivery stays registered");
+  await f.provider.disconnect();
+});
+
+test("a delayed encoder change cannot overwrite the latest network mode or re-enable a muted microphone", async () => {
+  const f = fixture(); await f.provider.connect(credential, "Teacher");
+  await f.provider.toggleMicrophone(); await f.provider.toggleCamera();
+  const camera = f.tracks.find(track => track.deviceId === "main");
+  let finish;
+  camera.setEncoderConfiguration = config => new Promise(resolve => { finish = () => { camera.encoder = config; resolve(); }; });
+  for (let at = 0; at <= 4_000; at += 2_000) await f.network(at, 5, 1);
+  assert.ok(finish);
+  await f.provider.toggleMicrophone();
+  for (let at = 6_000; at <= 12_000; at += 2_000) await f.network(at, 5, 1);
+  camera.setEncoderConfiguration = async config => { camera.encoder = config; };
+  finish(); await tick(); await tick();
+  assert.equal(camera.encoder.bitrateMax, 120);
+  assert.equal(f.provider.getSnapshot().network.publishMode, "minimal");
+  assert.equal(f.provider.getSnapshot().local.microphoneOn, false);
+  assert.equal(f.tracks.find(track => track.deviceId === "microphone").mediaTrack.enabled, false);
+  await f.provider.disconnect();
 });
 
 test("solo and recorder video surfaces upgrade to high and return to low after shrinking", async () => {
