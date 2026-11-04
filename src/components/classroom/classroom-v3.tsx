@@ -3543,7 +3543,7 @@ export function ClassroomV3({
     useState<ClassroomWhiteboardController | null>(null);
   const [whiteboardReady, setWhiteboardReady] = useState(false);
   const [whiteboardTool, setWhiteboardTool] =
-    useState<ClassroomWhiteboardTool>("selector");
+    useState<ClassroomWhiteboardTool>("pencil");
   const [toolRailLevel, setToolRailLevel] =
     useState<"expanded" | "compact" | "collapsed">("expanded");
   const [toolRailActivity, setToolRailActivity] = useState(0);
