@@ -6,6 +6,7 @@ import { initialCaptionStartView, newCaptionStartPreferences, type CaptionStartP
 import { isClassroomOvertime } from "@/lib/classroom/overtime-leave";
 import { imageMessageContent } from "@/lib/classroom/chat-image-message";
 import { useWhiteboardShortcuts } from "@/lib/classroom/whiteboard/use-shortcuts";
+import { activeClassroomDrawingTool } from "@/lib/classroom/drawing-tool";
 import { BoardToolsMenu } from "./board-tools-menu";
 import { MinimalHeader } from "./minimal-header";
 import { ClassroomNetworkStatus } from "./network-status";
@@ -3544,6 +3545,8 @@ export function ClassroomV3({
     useState<ClassroomWhiteboardController | null>(null);
   const [whiteboardReady, setWhiteboardReady] = useState(false);
   const [whiteboardTool, setWhiteboardTool] =
+    useState<ClassroomWhiteboardTool>("pencil");
+  const [screenAnnotationTool, setScreenAnnotationTool] =
     useState<ClassroomWhiteboardTool>("selector");
   const [toolRailLevel, setToolRailLevel] =
     useState<"expanded" | "compact" | "collapsed">("expanded");
@@ -3756,8 +3759,11 @@ export function ClassroomV3({
     // render. Apply the current choice once its controller becomes available
     // so the toolbar state and the actual drawing appliance never diverge.
     whiteboardController?.setTool(whiteboardTool);
-    screenAnnotationController?.setTool(whiteboardTool);
-  }, [whiteboardController, screenAnnotationController, whiteboardTool]);
+  }, [whiteboardController, whiteboardTool]);
+
+  useEffect(() => {
+    screenAnnotationController?.setTool(screenAnnotationTool);
+  }, [screenAnnotationController, screenAnnotationTool]);
 
   useEffect(() => {
     // In the standard classroom the toolbar is a persistent teaching control
@@ -6050,6 +6056,14 @@ export function ClassroomV3({
   const videoGalleryActive = showWhiteboard && sessionData?.runtime.composition.videoLayout === "grid" && boardSourceIds.size > 0;
   const drawingSurfaceAvailable = (showWhiteboard && !videoGalleryActive) || Boolean(screenParticipant && !hideLocalScreenSharePreview);
   const drawingController = screenParticipant ? screenAnnotationController : whiteboardController;
+  const drawingTool = activeClassroomDrawingTool(
+    Boolean(screenParticipant),
+    whiteboardTool,
+    screenAnnotationTool,
+  );
+  const setDrawingTool = screenParticipant
+    ? setScreenAnnotationTool
+    : setWhiteboardTool;
   const recorderCameras = isRecorder ? recorderCameraParticipants(
     media.participants,
     classroomMembers,
@@ -6146,7 +6160,7 @@ export function ClassroomV3({
         (now - new Date(sessionData.runtime.timerStartedAt).getTime()) / 1000
       : null;
   const canUseWhiteboard = Boolean(!isRecorder && (sessionData?.capabilities.canManageWhiteboard || currentMember?.whiteboardWritable));
-  useWhiteboardShortcuts(drawingController, whiteboardTool, setWhiteboardTool, Boolean(!classEnded && drawingSurfaceAvailable && canUseWhiteboard && sessionData?.whiteboard.writable), !screenParticipant);
+  useWhiteboardShortcuts(drawingController, drawingTool, setDrawingTool, Boolean(!classEnded && drawingSurfaceAvailable && canUseWhiteboard && sessionData?.whiteboard.writable), !screenParticipant);
   const canUseMedia = requiresRoomMedia
     ? controlsRoomMedia && Boolean(currentSpaceMember)
     : sessionData?.credential.role !== "student" || Boolean(currentMember?.onStage && currentMember.stageState === "accepted");
@@ -7337,8 +7351,8 @@ export function ClassroomV3({
                   : setActionError(t("classroom.v3.screenShareBrowserUnsupported"))
               }
               whiteboardController={drawingController}
-              whiteboardTool={whiteboardTool}
-              onWhiteboardToolChange={setWhiteboardTool}
+              whiteboardTool={drawingTool}
+              onWhiteboardToolChange={setDrawingTool}
               railLevel={mobileControls && canUseWhiteboard ? "expanded" : toolRailLevel}
               onInteract={wakeToolRail}
               canManageStage={
@@ -7750,7 +7764,7 @@ export function ClassroomV3({
                 <span>{t(controlMedia.local.screenSharing ? "classroom.v3.stopSharing" : "classroom.v3.screenShare")}</span>
               </button>
             )}
-            {classinLayout && canUseWhiteboard ? <BoardToolsMenu screenAnnotation={Boolean(screenParticipant)} controller={screenParticipant ? screenAnnotationController : whiteboardController} tool={whiteboardTool} onTool={setWhiteboardTool} onOpen={() => { if (!screenParticipant && !whiteboardReady) openWhiteboard(); }} /> : (canUseWhiteboard && <button
+            {classinLayout && canUseWhiteboard ? <BoardToolsMenu screenAnnotation={Boolean(screenParticipant)} controller={screenParticipant ? screenAnnotationController : whiteboardController} tool={drawingTool} onTool={setDrawingTool} onOpen={() => { if (!screenParticipant && !whiteboardReady) openWhiteboard(); }} /> : (canUseWhiteboard && <button
               type="button"
               data-dock-action="whiteboard" title={t("classroomMinimal.tools")} className={`is-dock-secondary ${sessionData.runtime.stageMode === "whiteboard" ? "is-active" : ""}`}
               onClick={openWhiteboard}
