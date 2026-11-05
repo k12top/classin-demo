@@ -97,6 +97,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   private sharePortrait: Awaited<ReturnType<typeof createSharePortrait>> | null = null;
   private portraitCameraSuppressed = false;
   private screenOptionsQueue: Promise<void> = Promise.resolve();
+  private screenDualStreamEnabled = false;
   private cameraPublicationQueue: Promise<void> = Promise.resolve();
   private credential: ClassroomJoinCredential | null = null;
   private displayName = "";
@@ -364,10 +365,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       Number(b.id === this.snapshot.focusedParticipantId) - Number(a.id === this.snapshot.focusedParticipantId) ||
       b.area - a.area || a.id.localeCompare(b.id));
     const plan = new Map<string, 0 | 1>();
-    // Reserve the bounded 900p share profile before the first receive sample,
-    // leaving room for visible low-stream camera thumbnails.
+    // Estimate unknown shares at FHD; the sharing plan also reserves room
+    // for visible low-stream cameras before receive stats become available.
     const pixels = new Map(this.remoteObservedPixels);
-    for (const { id } of visible) if (this.isScreen(id) && !pixels.has(id)) pixels.set(id, 1600 * 900);
+    for (const { id } of visible) if (this.isScreen(id) && !pixels.has(id)) pixels.set(id, classroomMediaProfile.screen.width * classroomMediaProfile.screen.height);
     const sharingPlan = screenVideoPlan(visible, id => this.isScreen(id), pixels);
     if (sharingPlan) return this.limitRemoteVideoPlan(sharingPlan);
     const low = classroomMediaProfile.camera.low;
@@ -392,9 +393,29 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
 
   private limitRemoteVideoPlan(plan: Map<string, 0 | 1>) {
     if (this.snapshot.network.receiveMode === "low") {
-      for (const id of plan.keys()) plan.set(id, 1);
+      for (const id of plan.keys()) {
+        // Keep the screen on the HD stream unless the teacher has explicitly
+        // allowed low-resolution screen subscriptions for this lesson.
+        if (this.isScreen(id) && !this.screenDualStreamEnabled) continue;
+        plan.set(id, 1);
+      }
     }
     return plan;
+  }
+
+  async setScreenDualStreamEnabled(enabled: boolean): Promise<void> {
+    this.screenDualStreamEnabled = enabled;
+    const client = this.screenClient;
+    if (client) {
+      if (enabled) {
+        client.setLowStreamParameter({ ...classroomScreenLowStream });
+        await client.enableDualStream();
+      } else {
+        await client.disableDualStream();
+      }
+      if (this.screenClient !== client) return;
+    }
+    if (this.client) void this.updateRemoteVideos();
   }
 
   private videoEncoder(normal: VideoEncoderConfiguration, screen = false): VideoEncoderConfiguration {
@@ -502,16 +523,38 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
           this.remoteVideoStreamTypes.delete(id);
           this.clearVideoTargets(id);
         } else if (type === 0 && next === 1) {
-          await client.setRemoteVideoStreamType(user.uid, 1);
-          if (current(id, user)) this.remoteVideoStreamTypes.set(id, 1);
+          try {
+            await client.setRemoteVideoStreamType(user.uid, 1);
+            if (current(id, user)) this.remoteVideoStreamTypes.set(id, 1);
+          } catch (error) {
+            if (!this.isScreen(id)) throw error;
+            // A remote screen publisher may reject the low stream if dual
+            // stream was unavailable on its browser. Keep its current HD feed.
+            plan.set(id, 0);
+            console.warn("[ClassroomRTC] Screen low stream unavailable; keeping HD", error);
+          }
         }
       }
       for (const [id, type] of plan) {
         const user = this.remoteUsers.get(id);
         if (!user || !current(id, user)) continue;
         try {
-          if (this.remoteVideoStreamTypes.get(id) !== type) {
-            await client.setRemoteVideoStreamType(user.uid, type);
+          let selectedType = type;
+          if (this.remoteVideoStreamTypes.get(id) !== selectedType) {
+            // High-quality video is Agora's default. Avoid asking for stream
+            // type 0 before subscribe, since that API only applies when the
+            // publisher has enabled dual-stream mode.
+            if (selectedType !== 0 || this.remoteVideoStreamTypes.has(id)) {
+              try {
+                await client.setRemoteVideoStreamType(user.uid, selectedType);
+              } catch (error) {
+                if (!this.isScreen(id)) throw error;
+                // If a remote browser cannot switch streams, the default high
+                // stream is still valid and must remain subscribed.
+                selectedType = 0;
+                console.warn("[ClassroomRTC] Screen stream switch unavailable; keeping HD", error);
+              }
+            }
             if (!current(id, user) || (this.isScreen(id) && this.selectedScreenUid !== undefined && id !== this.selectedScreenUid)) continue;
             if (!this.remoteVideoStreamTypes.has(id)) await client.subscribe(user, "video");
             if (!current(id, user)) continue;
@@ -521,7 +564,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
               this.clearVideoTargets(id);
               continue;
             }
-            this.remoteVideoStreamTypes.set(id, type);
+            this.remoteVideoStreamTypes.set(id, selectedType);
           }
           this.renderVideoTargets(id);
         } catch (error: unknown) {
@@ -1328,7 +1371,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       const previous = { mode: this.snapshot.local.screenShareMode ?? "screen", corner: this.snapshot.local.screenShareCorner };
       try {
         if (!this.sharePortrait && options.mode === "portrait") {
-          await capture.getMediaStreamTrack().applyConstraints?.({ width: { ideal: 1600, max: 1600 }, height: { ideal: 900, max: 900 }, frameRate: { ideal: 15, max: 15 } });
+          await capture.getMediaStreamTrack().applyConstraints?.({ width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 15, max: 15 } });
           if (!active()) return;
           const composite = await createSharePortrait(capture.getMediaStreamTrack(), () => this.snapshot.local.cameraOn ? this.cameraTrack?.getMediaStreamTrack() ?? null : null, options);
           if (!active()) { composite.dispose(); return; }
@@ -1338,7 +1381,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
           if (!active()) return;
           await client.unpublish(this.screenTrack);
           if (!active()) return;
-          this.screenTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: composite.track, width: 1600, height: 900, frameRate: 15, optimizationMode: "detail" });
+          this.screenTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: composite.track, width: 1920, height: 1080, frameRate: 15, optimizationMode: "detail" });
           await this.setVideoEncoder(this.screenTrack, screenShareProfile("portrait"));
           if (!active()) return;
           await client.publish(this.screenTrack);
@@ -1515,10 +1558,15 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       try {
         await screenClient.join(this.credential.appId, this.credential.channelName, this.credential.screenShare.token, this.credential.screenShare.rtcUid);
         if (!active()) throw new DOMException("Screen selection changed", "AbortError");
-        screenClient.setLowStreamParameter({ ...classroomScreenLowStream });
-        void screenClient.enableDualStream().catch((error: unknown) => {
-          console.warn("[ClassroomRTC] Failed to enable screen dual stream", error);
-        });
+        if (this.screenDualStreamEnabled) {
+          try {
+            screenClient.setLowStreamParameter({ ...classroomScreenLowStream });
+            await screenClient.enableDualStream();
+          } catch (error) {
+            console.warn("[ClassroomRTC] Failed to enable screen dual stream", error);
+          }
+          if (!active()) throw new DOMException("Screen selection changed", "AbortError");
+        }
         track.getMediaStreamTrack().enabled = true;
         if (this.screenAudioTrack) this.screenAudioTrack.getMediaStreamTrack().enabled = true;
         this.portraitCameraSuppressed = this.snapshot.local.screenShareMode === "portrait";

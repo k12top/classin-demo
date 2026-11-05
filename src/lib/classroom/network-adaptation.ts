@@ -1,9 +1,9 @@
 /** Quality is Agora's last-mile estimate (0 unknown, 1 best, 6 disconnected),
  * not the device's Wi-Fi or cellular signal strength. */
 export type NetworkVideoMode = "normal" | "low" | "minimal";
-/** Screen text needs more detail than a camera thumbnail. Keep a separate
- * 360p stream available so one weak receiver does not lower everybody's share. */
-export const classroomScreenLowStream = { width: 640, height: 360, framerate: 5, bitrate: 220 } as const;
+/** Optional 540p screen stream lets weak receivers save bandwidth without
+ * lowering the main share. */
+export const classroomScreenLowStream = { width: 960, height: 540, framerate: 8, bitrate: 650 } as const;
 const rank = { normal: 0, low: 1, minimal: 2 } as const;
 
 export function worseVideoMode(a: NetworkVideoMode, b: NetworkVideoMode): NetworkVideoMode {
@@ -45,8 +45,8 @@ export function createNetworkDirectionPolicy() {
 export function networkVideoEncoder(mode: NetworkVideoMode, screen: boolean) {
   if (mode === "normal") return null;
   if (screen) return mode === "low"
-    ? { width: 960, height: 540, frameRate: 5, bitrateMin: 80, bitrateMax: 550 }
-    : { width: 640, height: 360, frameRate: 3, bitrateMin: 40, bitrateMax: 220 };
+    ? { width: 1920, height: 1080, frameRate: 5, bitrateMin: 200, bitrateMax: 1100 }
+    : { width: 1920, height: 1080, frameRate: 3, bitrateMin: 100, bitrateMax: 650 };
   return mode === "low"
     ? { width: 640, height: 360, frameRate: 10, bitrateMin: 60, bitrateMax: 300 }
     : { width: 320, height: 180, frameRate: 8, bitrateMin: 30, bitrateMax: 120 };

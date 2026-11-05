@@ -3020,6 +3020,7 @@ function DeviceSettings({
   media,
   runtime,
   canManageRecording,
+  canManageScreenSettings,
   canManageStage,
   stageStudentLimit,
   stageDefaultStudentLimit,
@@ -3031,6 +3032,7 @@ function DeviceSettings({
   startSettingsBusy,
   focusClassStart = false,
   onRecordingStartModeChange,
+  onScreenDualStreamChange,
   onOpenCaptions,
   onClose,
 }: {
@@ -3041,6 +3043,7 @@ function DeviceSettings({
   media: ClassroomMediaSnapshot;
   runtime: ClassroomRuntimeSnapshot | null;
   canManageRecording: boolean;
+  canManageScreenSettings: boolean;
   canManageStage: boolean;
   stageStudentLimit: number | null;
   stageDefaultStudentLimit: number | null;
@@ -3052,6 +3055,7 @@ function DeviceSettings({
   startSettingsBusy: boolean;
   focusClassStart?: boolean;
   onRecordingStartModeChange: (mode: "classStart" | "scheduled" | "scheduledEarly" | "disabled") => void;
+  onScreenDualStreamChange: (enabled: boolean) => Promise<boolean>;
   onOpenCaptions?: () => void;
   onClose: () => void;
 }) {
@@ -3071,12 +3075,29 @@ function DeviceSettings({
       : { provider, microphoneId: "", cameraId: "" };
   const primaryDeviceId = media.local.cameraDeviceId || selectedDevices.cameraId;
   const [error, setError] = useState("");
+  const [screenStreamBusy, setScreenStreamBusy] = useState(false);
   const [backgroundMode, setBackgroundMode] = useState<
     ClassroomVideoBackgroundEffect["type"]
   >("none");
   const [backgroundBusy, setBackgroundBusy] = useState(false);
   const [customBackgroundName, setCustomBackgroundName] = useState("");
   const backgroundSupported = provider?.supportsVirtualBackground() ?? false;
+  const applyScreenStreamSetting = async (enabled: boolean) => {
+    if (!provider || screenStreamBusy) return;
+    const previous = runtime?.screenDualStreamEnabled === true;
+    setScreenStreamBusy(true);
+    setError("");
+    try {
+      await provider.setScreenDualStreamEnabled?.(enabled);
+      const saved = await onScreenDualStreamChange(enabled);
+      if (!saved) await provider.setScreenDualStreamEnabled?.(previous);
+    } catch (reason) {
+      await provider.setScreenDualStreamEnabled?.(previous).catch(() => undefined);
+      setError(reason instanceof Error ? reason.message : t("classroom.v3.mediaActionFailed"));
+    } finally {
+      setScreenStreamBusy(false);
+    }
+  };
   useEffect(() => {
     if (!open || !provider) return;
     let cancelled = false;
@@ -3369,6 +3390,15 @@ function DeviceSettings({
                     <p>{t("classroom.v3.recordingPolicyHint")}</p>
                   </fieldset>
                 </>}
+                {canManageScreenSettings && runtime && <fieldset className="classroom-v3-caption-settings">
+                  <legend>{t("classroomScreenSettings.title")}</legend>
+                  <label className="classroom-v3-setting-toggle">
+                    <input type="checkbox" checked={runtime.screenDualStreamEnabled === true} disabled={stageSettingsBusy || screenStreamBusy}
+                      onChange={event => void applyScreenStreamSetting(event.target.checked)} />
+                    <span>{t("classroomScreenSettings.allowLowStream")}</span>
+                  </label>
+                  <p>{t("classroomScreenSettings.allowLowStreamHint")}</p>
+                </fieldset>}
                 <fieldset className="classroom-v3-caption-settings"><legend>{t("classroom.v3.interfaceLanguage")}</legend><select aria-label={t("classroom.v3.interfaceLanguage")} value={locale} onChange={(event) => setLocale(event.target.value as SupportedLocale)}>{languageOptions.map((language) => <option key={language.value} value={language.value}>{language.label}</option>)}</select></fieldset>
                 <button type="button" className="classroom-v3-caption-settings-link" onClick={() => { onClose(); onOpenCaptions?.(); }}><Headphones />{t("classroomUpdates.openCaptionSettings")}</button>
 
@@ -5935,6 +5965,14 @@ export function ClassroomV3({
     !isClassroomTeachingRole(sessionData.credential.role) &&
     !acceptedStudentOnStage &&
     Boolean(roomProvider);
+  const screenDualStreamEnabled = sessionData?.runtime.screenDualStreamEnabled === true;
+  useEffect(() => {
+    for (const provider of new Set([mediaProvider, roomProvider])) {
+      void provider?.setScreenDualStreamEnabled?.(screenDualStreamEnabled).catch(error => {
+        console.warn("[classroom:rtc] could not apply classroom screen-stream setting", error);
+      });
+    }
+  }, [mediaProvider, roomProvider, screenDualStreamEnabled]);
   const requiresRoomMedia =
     sessionData?.mode === "largeClass" &&
     !isClassroomTeachingRole(sessionData.credential.role) &&
@@ -7989,6 +8027,8 @@ export function ClassroomV3({
         onCaptionStartPreferencesChange={preferences => { void performAction({ type: "setCaptionStartPreferences", preferences }); }}
         onClassStartModeChange={(mode) => void performAction({ type: "setClassStartMode", mode })}
         onRecordingStartModeChange={(mode) => void performAction({ type: "setRecordingStartMode", mode })}
+        canManageScreenSettings={Boolean(isClassroomTeachingRole(sessionData?.credential.role) && !isRecorder)}
+        onScreenDualStreamChange={(enabled) => performAction({ type: "setScreenDualStream", enabled })}
         onOpenCaptions={() => setActivePanel("captions")}
         onClose={() => setSettingsOpen(false)}
       />

@@ -149,6 +149,7 @@ export interface ClassroomMediaProvider {
   startScreenShare(authorize?: () => Promise<void>, options?: ClassroomScreenShareOptions): Promise<void>;
   supportsSharePortrait?(): boolean;
   setScreenShareOptions?(options: ClassroomScreenShareOptions): Promise<void>;
+  setScreenDualStreamEnabled?(enabled: boolean): Promise<void>;
   stopScreenShare(): Promise<void>;
   setScreenShareSelection?(rtcUid: string | null): Promise<void>;
   focusParticipant(participantId: string | null): Promise<void>;
@@ -373,6 +374,8 @@ export type ClassroomRuntimeSnapshot = {
   stageLocked: boolean;
   stageStudentLimit?: number | null;
   stageInviteBypassLimit?: boolean;
+  /** When enabled, weak receivers may choose the lower-resolution screen stream. */
+  screenDualStreamEnabled?: boolean;
   spotlightUserId: string | null;
   activeCoursewareId: string | null;
   chatEnabled: boolean;
@@ -472,6 +475,7 @@ export function credentialCanPublish(
 export type ClassroomAction =
   | { type: "heartbeat" }
   | { type: "setStageSettings"; studentLimit: number | null; inviteBypassLimit: boolean }
+  | { type: "setScreenDualStream"; enabled: boolean }
   | { type: "setAssistantPermission"; targetUserId: string; allowed: boolean }
   | { type: "startClass" }
   | { type: "startScheduledClass" }
