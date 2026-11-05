@@ -529,6 +529,7 @@ model ClassroomRuntime {
   stageLocked                Boolean   @default(false)
   stageStudentLimit          Int?
   stageInviteBypassLimit     Boolean   @default(true)
+  screenDualStreamEnabled    Boolean   @default(false)
   spotlightUserId            String?
   activeCoursewareId         String?
   composition                Json      @default("{}")

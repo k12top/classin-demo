@@ -11,6 +11,8 @@ import {
   resolveLocalePreference,
 } from "./locales";
 
+import { classroomScreenSettingsLocales } from "./locales/classroom-screen-settings";
+
 const SYNC_CHANNEL_NAME = "matrix_sync_channel";
 const ALLOWED_ORIGINS = [
   "https://openmaic.org",
@@ -286,8 +288,10 @@ export function I18nProvider({
     const fallbackDict = locales["en"];
 
     const t = (key: string, replacements?: Record<string, string | number>) => {
-      // Try current language translation
-      let translated = getTranslation(dict, key, replacements);
+      const screenSettingsPrefix = "classroomScreenSettings.";
+      let translated = key.startsWith(screenSettingsPrefix)
+        ? getTranslation(classroomScreenSettingsLocales[locale], key.slice(screenSettingsPrefix.length), replacements)
+        : getTranslation(dict, key, replacements);
       // Fallback to key if not translated or translates to the key itself
       if (translated === key) {
         translated = getTranslation(fallbackDict, key, replacements);

@@ -520,6 +520,7 @@ async function loadClassroomRuntimeSnapshot(
     stageLocked: runtime.stageLocked,
     stageStudentLimit: runtime.stageStudentLimit,
     stageInviteBypassLimit: runtime.stageInviteBypassLimit,
+    screenDualStreamEnabled: runtime.screenDualStreamEnabled,
     spotlightUserId: runtime.spotlightUserId,
     activeCoursewareId: runtime.activeCoursewareId,
     chatEnabled: runtime.chatEnabled,
@@ -824,6 +825,17 @@ export async function applyClassroomAction(input: {
         if (combinedTargets.length > captionTranslationLimit(runtime.interpretationProvider === "wordly" ? "wordly" : "shengwang")) {
           throw new ClassroomActionError("当前课堂使用的翻译语言超出服务上限", 409);
         }
+        break;
+      }
+      case "setScreenDualStream": {
+        requireTeachingRole(role);
+        if (typeof action.enabled !== "boolean") {
+          throw new ClassroomActionError("屏幕共享大小流设置无效", 400);
+        }
+        await tx.classroomRuntime.update({
+          where: { id: runtime.id },
+          data: { screenDualStreamEnabled: action.enabled },
+        });
         break;
       }
       case "setClassStartMode": {

@@ -3815,6 +3815,8 @@ button.classroom-v3-seat-preview:focus-visible::after {
 }
 
 .classroom-v3-caption-settings label { display: grid; gap: 5px; }
+.classroom-v3-caption-settings .classroom-v3-setting-toggle { grid-template-columns: auto 1fr; align-items: center; gap: 8px; }
+.classroom-v3-caption-settings .classroom-v3-setting-toggle input { margin: 0; }
 .classroom-v3-caption-settings input[type="color"] { width: 60px; height: 32px; cursor: pointer; }
 .classroom-v3-caption-settings p { font-size: 12px; opacity: 0.7; }
 
