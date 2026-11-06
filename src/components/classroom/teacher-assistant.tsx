@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, GripVertical, Loader2, MessageCircle, Minimize2, Send, Square, RotateCcw, Trash2, X } from "lucide-react";
 import { ClassroomIconButton } from "./icon-button";
 import { ClassroomMemberAvatar } from "@/components/classroom/member-avatar";
+import { MarkdownContent } from "@/components/markdown-content";
 import { useTranslation } from "@/lib/i18n/context";
 import { ASSISTANT_HISTORY_LIMIT, ASSISTANT_QUESTION_LIMIT, type ClassroomAssistantMessage } from "@/lib/classroom/assistant";
 import { useAssistantPosition } from "./use-assistant-position";
@@ -108,7 +109,7 @@ export function TeacherAssistant({ sessionId, teacher, shareAccess, minimal = fa
               {["suggestExplain", "suggestExample", "suggestHomework"].map((key) => <button type="button" key={key} onClick={() => void send(label(key))}>{label(key)}</button>)}
             </div>}
             {messages.map((message, index) => <div key={index} className={`${styles.message} ${message.role === "user" ? styles.user : styles.answer}`}>
-              <span>{message.role === "user" ? label("you") : `${teacher.name} · AI`}</span><p>{message.content}</p>
+              <span>{message.role === "user" ? label("you") : `${teacher.name} · AI`}</span>{message.role === "user" ? <p>{message.content}</p> : <MarkdownContent className={styles.markdown} content={message.content} />}
             </div>)}
             {question && <div className={`${styles.message} ${styles.user}`}><span>{label("you")}</span><p>{question}</p></div>}
             {busy && <p className={styles.status}><Loader2 className={styles.spinner} aria-hidden="true" />{label("thinking")}</p>}

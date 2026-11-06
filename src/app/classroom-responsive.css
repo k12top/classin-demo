@@ -254,7 +254,7 @@ html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-minimal-hea
 .classroom-minimal-course { min-width:0;display:flex;align-items:center;gap:7px;flex:1;padding:8px 6px;text-align:start; }
 .classroom-minimal-course-name { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:600; }
 .classroom-minimal-course>svg { width:13px;height:13px;color:var(--classroom-mist); }
-.classroom-network-status { --network-color:var(--classroom-mist);flex:0 0 auto; }
+.classroom-network-status { --network-color:var(--classroom-mist);position:relative;flex:0 0 auto; }
 .classroom-network-status[data-tone="good"] { --network-color:var(--classroom-green, #138f66); }
 html.dark .classroom-network-status[data-tone="good"] { --network-color:var(--classroom-accent, #73dfb9); }
 .classroom-network-status[data-tone="warning"] { --network-color:#855308; }
@@ -272,10 +272,8 @@ html[lang] .classroom-v3-shell.is-classin-layout[data-responsive-workspace] .cla
 .classroom-network-popover dl { display:grid;gap:10px;margin:16px 0; }
 .classroom-network-popover dl>div { display:flex;justify-content:space-between;gap:16px;font-size:13px; }
 .classroom-network-popover dd { margin:0;font-variant-numeric:tabular-nums; }
-.classroom-network-notice { position:fixed;z-index:90;inset-block-start:64px;inset-inline-end:12px;display:flex;align-items:flex-start;gap:8px;width:min(420px,calc(100vw - 24px));padding:12px 8px 12px 16px;border:1px solid var(--network-color);border-radius:12px;background:var(--classroom-panel);color:var(--classroom-frost); }
-.classroom-network-notice>p { margin:0;font-size:14px;line-height:1.6;overflow-wrap:anywhere; }
-html[lang] .classroom-v3-shell.is-classin-layout[data-responsive-workspace] .classroom-minimal-header .classroom-network-notice>button { display:grid;place-items:center;flex:0 0 44px;min-width:44px;min-height:44px;padding:0;color:var(--classroom-mist); }
-.classroom-network-notice>button svg { width:18px;height:18px; }
+.classroom-network-hover-notice { position:fixed;z-index:130;inset-block-start:64px;inset-inline-end:12px;width:min(320px,calc(100vw - 24px));padding:12px 16px;border:1px solid var(--network-color);border-radius:12px;background:var(--classroom-panel);color:var(--classroom-frost);font-size:13px;line-height:1.6;overflow-wrap:anywhere;visibility:hidden;pointer-events:none; }
+.classroom-network-status:has(.classroom-network-trigger:is(:hover,:focus-visible)) .classroom-network-hover-notice { visibility:visible; }
 @media (max-width:600px) {
   .classroom-network-trigger>span { display:none; }
   html[lang] .classroom-minimal-header .classroom-network-trigger { padding:6px; }

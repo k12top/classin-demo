@@ -56,6 +56,18 @@
 .message p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.65; }
 .user { margin-left: 24px; padding: 10px 12px; border-radius: 12px; background: var(--assistant-raised); }
 .answer { padding-block: 4px; }
+.markdown { min-width: 0; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
+.markdown > * + * { margin-top: .7em; }
+.message .markdown p { white-space: pre-line; }
+.markdown :is(ul, ol) { padding-inline-start: 1.5em; list-style: revert; }
+.markdown :is(pre, :global(.katex-display)) { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+.markdown pre { padding: 10px; border-radius: 8px; background: var(--assistant-raised); }
+.markdown code { white-space: pre-wrap; }
+.markdown pre code { white-space: pre; }
+.markdown a { color: var(--assistant-accent); text-decoration: underline; }
+.markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.markdown :is(th, td) { border: 1px solid var(--assistant-line); padding: 4px 8px; }
+.widget .markdown :global(.katex) svg { width: 100%; height: inherit; flex-shrink: initial; }
 .status { display: flex; align-items: center; gap: 8px; color: var(--assistant-muted); font-size: 12px; margin: 16px 0 0; }
 .spinner { animation: spin 1s linear infinite; }
 .error { margin-top: 12px; font-size: 12px; }

@@ -1,19 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { X } from "lucide-react";
+import { useId } from "react";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu";
 import { useTranslation } from "@/lib/i18n/context";
 import { networkSignalLevel, worseVideoMode } from "@/lib/classroom/network-adaptation";
 import type { ClassroomMediaSnapshot } from "@/lib/classroom/types";
 
-export function ClassroomNetworkStatus({ media, sessionId }: { media: ClassroomMediaSnapshot; sessionId: string }) {
+export function ClassroomNetworkStatus({ media }: { media: ClassroomMediaSnapshot; sessionId: string }) {
   const { t } = useTranslation();
-  const storageKey = `classroom:network-notice-dismissed:${sessionId}`;
-  const [dismissed, setDismissed] = useState(() => {
-    try { return typeof window !== "undefined" && window.sessionStorage.getItem(storageKey) === "1"; }
-    catch { return false; }
-  });
+  const noticeId = useId();
   const connected = media.connectionState === "connected";
   const quality = Math.max(media.network.uplinkQuality, media.network.downlinkQuality);
   const level = connected ? networkSignalLevel(quality) : 0;
@@ -25,7 +20,7 @@ export function ClassroomNetworkStatus({ media, sessionId }: { media: ClassroomM
   return <div className="classroom-network-status" data-tone={tone} data-video-mode={mode}>
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <button type="button" className="classroom-network-trigger" aria-label={`${t("classroomNetwork.title")}：${label}`}>
+        <button type="button" className="classroom-network-trigger" aria-label={`${t("classroomNetwork.title")}：${label}`} aria-describedby={connected && mode !== "normal" ? noticeId : undefined}>
           <svg viewBox="0 0 24 20" aria-hidden="true" focusable="false">
             {[4, 8, 12, 16].map((height, index) => <rect key={height} x={index * 6} y={18 - height} width="4" height={height} rx="1" data-filled={level !== null && index < level} />)}
           </svg>
@@ -44,12 +39,8 @@ export function ClassroomNetworkStatus({ media, sessionId }: { media: ClassroomM
         {media.network.publishMode && media.network.publishMode !== "normal" && <p>{t("classroomNetwork.uploadReduced")}</p>}
       </DropdownMenuContent>
     </DropdownMenu>
-    {connected && mode !== "normal" && !dismissed && <div className="classroom-network-notice" data-testid="network-notice">
-      <p role="status">{t(`classroomNetwork.${mode === "minimal" ? "pausedNotice" : "weakNotice"}`)}</p>
-      <button type="button" aria-label={t("classroomNetwork.dismiss")} onClick={() => {
-        setDismissed(true);
-        try { window.sessionStorage.setItem(storageKey, "1"); } catch { /* Keep the in-memory dismissal if storage is unavailable. */ }
-      }}><X aria-hidden="true" /></button>
+    {connected && mode !== "normal" && <div id={noticeId} className="classroom-network-hover-notice" role="tooltip">
+      {t(`classroomNetwork.${mode === "minimal" ? "pausedNotice" : "weakNotice"}`)}
     </div>}
   </div>;
 }

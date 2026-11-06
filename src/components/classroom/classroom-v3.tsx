@@ -3537,7 +3537,7 @@ export function ClassroomV3({
     const dismiss = (event: PointerEvent) => {
       const target = event.target as Element;
       if (!target.closest(".classroom-v3-dock-wrap")) setDockMoreOpen(false);
-      if (activePanel !== "chat" && activePanel !== "captions" && !target.closest(".classroom-v3-drawer, .classroom-v3-side, .classroom-v3-dock-wrap") && target.closest(".classroom-v3-stage")) setActivePanel(null);
+      if (activePanel !== "chat" && activePanel !== "captions" && !target.closest(".classroom-v3-drawer, .classroom-v3-side, .classroom-v3-dock-wrap, .classroom-stage-share-controls") && target.closest(".classroom-v3-stage")) setActivePanel(null);
     };
     const escape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { setDockMoreOpen(false); setActivePanel(null); } };
     document.addEventListener("pointerdown", dismiss, true);

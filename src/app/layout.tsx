@@ -11,6 +11,7 @@ import {
 import { siteDescription, siteIcon, siteTitle } from "@/lib/site-brand";
 import { PortalFeedbackProvider } from "@/components/portal/portal-feedback";
 import { getSession } from "@/lib/session";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 import "./classroom-classin.css";
 import "./classroom-light.css";

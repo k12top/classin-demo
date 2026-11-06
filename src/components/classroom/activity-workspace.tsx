@@ -1,5 +1,6 @@
 "use client";
 
+import { MarkdownContent } from "@/components/markdown-content";
 import { ActivityDraftControls } from "./activity-draft-controls";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, BarChart3, Check, ClipboardList, Download, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
@@ -283,9 +284,9 @@ export function AnswerForm({ detail, busy, enabled, draft, onDraft, onSubmit }: 
   return <form className={styles.editor} onSubmit={e => { e.preventDefault(); if (busy || closed) return; void onSubmit(answers, expectedVersion).then(ok => { if (ok) { onDraft(null); } }); }}>
     {detail.ownResponse && (!local || matchesSaved) && <p className={styles.noticeText}><Check />{t("activities.saved")}</p>}
     {changedElsewhere && !closed && !busy && <p className={styles.error}>{t("activities.errors.answerChanged")} <button type="button" disabled={busy} onClick={() => { if (window.confirm(t("activities.replaceDraft"))) { onDraft(null); } }}>{t("activities.loadSavedAnswer")}</button></p>}
-    {detail.definition.questions.map((q, index) => <fieldset className={styles.question} disabled={busy} key={q.id}><legend>{index + 1}. {q.prompt}</legend>
+    {detail.definition.questions.map((q, index) => <fieldset className={styles.question} disabled={busy} key={q.id}><legend className="sr-only">{index + 1}. {q.prompt}</legend><MarkdownContent content={`${index + 1}. ${q.prompt}`}/>
       {q.options.length ? q.options.map(o => <label className={styles.choice} key={o.id}><input disabled={closed} type={q.type === "multiple" ? "checkbox" : "radio"} name={q.id} value={o.id} checked={Array.isArray(answers[q.id]) && (answers[q.id] as string[]).includes(o.id)} required={q.type !== "multiple"}
-        onChange={e => change({ ...answers, [q.id]: q.type === "multiple" ? (e.target.checked ? [...(answers[q.id] as string[] || []), o.id] : (answers[q.id] as string[] || []).filter(v => v !== o.id)) : [o.id] })} /><span>{o.text}</span></label>) : <textarea readOnly={closed} aria-label={q.prompt} rows={q.type === "essay" ? 5 : 2} required maxLength={10000} value={typeof answers[q.id] === "string" ? answers[q.id] as string : ""} onChange={e => change({ ...answers, [q.id]: e.target.value })} />}
+        onChange={e => change({ ...answers, [q.id]: q.type === "multiple" ? (e.target.checked ? [...(answers[q.id] as string[] || []), o.id] : (answers[q.id] as string[] || []).filter(v => v !== o.id)) : [o.id] })} /><MarkdownContent content={o.text}/></label>) : <textarea readOnly={closed} aria-label={q.prompt} rows={q.type === "essay" ? 5 : 2} required maxLength={10000} value={typeof answers[q.id] === "string" ? answers[q.id] as string : ""} onChange={e => change({ ...answers, [q.id]: e.target.value })} />}
     </fieldset>)}
     {local && !matchesSaved && <p className={styles.muted}>{t(closed ? "activities.retainedDraft" : "activities.unsaved")}</p>}
     {!closed && <button className={styles.primary} disabled={busy} type="submit">{busy && <Loader2 className={styles.spinner} />}{t(detail.ownResponse ? "activities.resubmit" : "activities.submit")}</button>}
@@ -293,18 +294,18 @@ export function AnswerForm({ detail, busy, enabled, draft, onDraft, onSubmit }: 
 }
 export function QuestionPreview({ definition }: { definition: ActivityDefinition }) {
   const { t } = useTranslation();
-  return <div className={styles.preview}>{definition.questions.map((q, index) => <section key={q.id}><h4>{index + 1}. {q.prompt}</h4>{q.options.length > 0 && <ul>{q.options.map(o => <li key={o.id}>{o.text}{q.correct?.includes(o.id) && <span className={styles.correct}><Check />{t("activities.correct")}</span>}</li>)}</ul>}{q.type === "shortText" && q.correct && <p>{t("activities.correct")}: {q.correct.join(" / ")}</p>}</section>)}</div>;
+  return <div className={styles.preview}>{definition.questions.map((q, index) => <section key={q.id}><MarkdownContent content={`${index + 1}. ${q.prompt}`}/>{q.options.length > 0 && <ul>{q.options.map(o => <li key={o.id}><MarkdownContent content={o.text}/>{q.correct?.includes(o.id) && <span className={styles.correct}><Check />{t("activities.correct")}</span>}</li>)}</ul>}{q.type === "shortText" && q.correct && <div>{t("activities.correct")}: <MarkdownContent content={q.correct.join(" / ")}/></div>}</section>)}</div>;
 }
 export function SavedResponse({ response, definition }: { response: ActivityResponse; definition: ActivityDefinition }) {
   const { t } = useTranslation(); const graded = response.grading && Object.values(response.grading).every(v => v !== null);
   return <div className={styles.saved}><h4>{t("activities.myAnswer")}</h4>{definition.questions.map(q => {
     const answer = response.answers[q.id];
-    return <p key={q.id}><strong>{q.prompt}</strong><span>{Array.isArray(answer) ? answer.map(id => q.options.find(o => o.id === id)?.text || id).join(" / ") : answer}</span>{response.grading && q.points > 0 && <small>{response.grading[q.id] === null ? t("activities.pendingGrade") : `${response.grading[q.id]} / ${q.points}`}</small>}</p>;
+    return <div key={q.id}><MarkdownContent content={q.prompt}/><span>{Array.isArray(answer) ? answer.map(id => q.options.find(o => o.id === id)?.text || id).join(" / ") : answer}</span>{response.grading && q.points > 0 && <small>{response.grading[q.id] === null ? t("activities.pendingGrade") : `${response.grading[q.id]} / ${q.points}`}</small>}</div>;
   })}{graded && definition.questions.some(q => q.points > 0) && <strong>{t("activities.score", { score: Object.values(response.grading!).reduce<number>((a, b) => a + (b || 0), 0), total: definition.questions.reduce((a, q) => a + q.points, 0) })}</strong>}{response.feedback && <p>{t("activities.feedback")}: {response.feedback}</p>}</div>;
 }
 function ActivityStatistics({ detail }: { detail: ActivityDetail }) {
   const { t } = useTranslation();
-  return <section className={styles.statistics}><h4><BarChart3 />{t("activities.statistics")}</h4>{detail.definition.questions.filter(q => q.options.length).map(q => <div key={q.id}><strong>{q.prompt}</strong>{q.options.map(o => <div className={styles.statRow} key={o.id}><span>{o.text}</span><meter min={0} max={Math.max(detail.responseCount, 1)} value={detail.statistics?.[q.id]?.[o.id] || 0} aria-label={o.text} /><strong>{detail.statistics?.[q.id]?.[o.id] || 0}</strong></div>)}</div>)}</section>;
+  return <section className={styles.statistics}><h4><BarChart3 />{t("activities.statistics")}</h4>{detail.definition.questions.filter(q => q.options.length).map(q => <div key={q.id}><MarkdownContent content={q.prompt}/>{q.options.map(o => <div className={styles.statRow} key={o.id}><MarkdownContent content={o.text}/><meter min={0} max={Math.max(detail.responseCount, 1)} value={detail.statistics?.[q.id]?.[o.id] || 0} aria-label={o.text} /><strong>{detail.statistics?.[q.id]?.[o.id] || 0}</strong></div>)}</div>)}</section>;
 }
 function ResponseGrader({ response, definition, canGrade, busy, onSave }: { response: ActivityResponse; definition: ActivityDefinition; canGrade: boolean; busy: boolean; onSave: (grading: ActivityGrade, feedback: string, expectedVersion: number) => Promise<boolean> }) {
   const { t } = useTranslation(); const [open, setOpen] = useState(false);
@@ -330,8 +331,8 @@ export function ActivityStagePresentation({ sessionId, shareAccess, recorderToke
   const q = presentation.question;
   return <section className={styles.stagePresentation} aria-label={t("activities.title")} data-activity-presentation>
     <header><strong>{presentation.title}</strong><small>{t(`activities.${presentation.status}`)} · {presentation.index + 1} / {presentation.questionCount}</small></header>
-    <p>{q.prompt}</p>
-    {q.options.length > 0 && <ul>{q.options.map(o => <li key={o.id}><span>{o.text}</span>{q.correct?.includes(o.id) && <Check aria-label={t("activities.correct")} />}{presentation.statistics && <strong>{presentation.statistics[o.id] || 0}</strong>}</li>)}</ul>}
-    {q.type === "shortText" && q.correct && <small>{t("activities.correct")}: {q.correct.join(" / ")}</small>}
+    <MarkdownContent content={q.prompt}/>
+    {q.options.length > 0 && <ul>{q.options.map(o => <li key={o.id}><MarkdownContent content={o.text}/>{q.correct?.includes(o.id) && <Check aria-label={t("activities.correct")} />}{presentation.statistics && <strong>{presentation.statistics[o.id] || 0}</strong>}</li>)}</ul>}
+    {q.type === "shortText" && q.correct && <div><small>{t("activities.correct")}:</small><MarkdownContent content={q.correct.join(" / ")}/></div>}
   </section>;
 }

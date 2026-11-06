@@ -7955,3 +7955,16 @@ html[lang="de"] .classroom-v3-dock button > span {
 .classroom-v3-device-ack-status { position: fixed; bottom: calc(88px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100vw - 24px); padding: 10px 14px; border: 1px solid #c9d6eb; border-radius: 12px; background: #f4f7fd; color: #263854; font-size: 13px; box-shadow: 0 4px 20px #17243b18; }
 .classroom-v3-device-ack-status button { flex-shrink: 0; padding: 4px; }
 .classroom-v3-device-ack-status svg { width: 16px; height: 16px; }
+
+/* Shared Markdown and formula content. */
+.markdown-content { min-width: 0; overflow-wrap: anywhere; }
+.markdown-content > * { margin: 0; }
+.markdown-content > * + * { margin-top: .6em; }
+.markdown-content p { white-space: pre-line; }
+.markdown-content :is(ul, ol) { padding-inline-start: 1.5em; list-style: revert; }
+.markdown-content :is(pre, .katex-display, table) { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+.markdown-content pre { white-space: pre; }
+.markdown-content table { display: block; border-collapse: collapse; }
+.markdown-content :is(th, td) { border: 1px solid currentColor; padding: 4px 8px; }
+.markdown-content a { text-decoration: underline; }
+.markdown-content .katex svg { width: 100%; height: inherit; flex-shrink: initial; }

@@ -3,6 +3,7 @@ import { Check, Clock3, Minus, X } from "lucide-react";
 import { activityAnswerText, activityQuestionJudgment, type ActivityDetail } from "@/lib/classroom/activities";
 import { interactionCopy } from "@/lib/classroom/interaction-copy";
 import { useTranslation } from "@/lib/i18n/context";
+import { MarkdownContent } from "@/components/markdown-content";
 import styles from "./activity-interaction.module.css";
 
 /** Published feedback only; active/closed snapshots must never reveal an answer key. */
@@ -17,9 +18,9 @@ export function ActivityResults({ detail }: { detail: ActivityDetail }) {
       const score = detail.ownResponse?.grading?.[question.id];
       return <section key={question.id} className={styles.resultItem} data-judgment={judgment}>
         <strong><Icon aria-hidden="true" />{label}</strong>
-        {detail.questionCount > 1 && <p>{question.prompt}</p>}
-        <p><span>{copy.yourAnswer}：</span>{activityAnswerText(question, detail.ownResponse?.answers[question.id]) || copy.unanswered}</p>
-        {!!question.correct?.length && <p><span>{copy.correctAnswer}：</span>{activityAnswerText(question, question.correct)}</p>}
+        {detail.questionCount > 1 && <MarkdownContent content={question.prompt}/>}
+        <div><span>{copy.yourAnswer}：</span><MarkdownContent content={activityAnswerText(question, detail.ownResponse?.answers[question.id]) || copy.unanswered}/></div>
+        {!!question.correct?.length && <div><span>{copy.correctAnswer}：</span><MarkdownContent content={activityAnswerText(question, question.correct)}/></div>}
         {typeof score === "number" && <p><span>{copy.score}：</span>{score} / {question.points}</p>}
         {detail.ownResponse?.aiReview?.[question.id]?.reason && <p>{detail.ownResponse.aiReview[question.id].reason}</p>}
       </section>;

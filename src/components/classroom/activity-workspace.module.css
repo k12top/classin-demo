@@ -48,7 +48,7 @@
 .preview ul { list-style: none; margin: 0; padding: 0; }
 .preview li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; overflow-wrap: anywhere; }
 .correct { color: #b9e8c7; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
-.saved p { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; }
+.saved > div { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; }
 .saved strong { font-weight: 600; }
 .saved span { white-space: pre-wrap; overflow-wrap: anywhere; }
 .saved small { color: var(--activity-muted); font-variant-numeric: tabular-nums; }
