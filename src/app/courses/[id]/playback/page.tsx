@@ -1086,6 +1086,7 @@ function LessonSummaryPanel({
           ) : null}
         </CardContent>
       </Card>
+      {summary ? <SummarySpeakers speakers={summary.document.speakers} copy={copy} /> : null}
       </>
     )}
     </div>
@@ -1204,35 +1205,44 @@ function SummaryDocument({
           {draft.report ? <LessonSummaryReport report={draft.report} locale={zh ? "zh-CN" : "en"} onChange={(report) => setDraft((current) => ({ ...current, report, actionItems: report.actionItems.map((item) => item.title) }))} /> : <SummaryTextarea label={copy.actionItems} value={draft.actionItems.join("\n")} onChange={(value) => updateList("actionItems", value)} />}
         </div>
       ) : (
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_240px]">
-          <div className="min-w-0 max-w-[72ch] space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold tracking-[-0.015em] text-foreground">{summary.document.title}</h3>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{summary.document.overview}</p>
-            </div>
-            <SummaryList title={copy.keyPoints} items={summary.document.keyPoints} />
-            <SummaryList title={copy.questions} items={summary.document.questions} />
-            {summary.document.report ? <LessonSummaryReport report={summary.document.report} locale={zh ? "zh-CN" : "en"} evidenceLink={evidenceLink} /> : <SummaryList title={copy.actionItems} items={summary.document.actionItems} />}
+        <div className="min-w-0 max-w-[72ch] space-y-6">
+          <div>
+            <h3 className="text-lg font-semibold tracking-[-0.015em] text-foreground">{summary.document.title}</h3>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{summary.document.overview}</p>
           </div>
-          <aside className="self-start rounded-xl bg-muted/45 p-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <Users className="h-4 w-4 text-primary" />
-              {copy.speakers}
-            </div>
-            {summary.document.speakers.length ? (
-              <ul className="mt-3 space-y-3">
-                {summary.document.speakers.map((speaker) => (
-                  <li key={speaker.id} className="flex items-baseline justify-between gap-3 text-sm">
-                    <span className="min-w-0 truncate text-foreground">{speaker.name}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{speaker.utteranceCount}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : <p className="mt-3 text-sm text-muted-foreground">—</p>}
-          </aside>
+          <SummaryList title={copy.keyPoints} items={summary.document.keyPoints} />
+          <SummaryList title={copy.questions} items={summary.document.questions} />
+          {summary.document.report ? <LessonSummaryReport report={summary.document.report} locale={zh ? "zh-CN" : "en"} evidenceLink={evidenceLink} /> : <SummaryList title={copy.actionItems} items={summary.document.actionItems} />}
         </div>
       )}
     </div>
+  );
+}
+
+function SummarySpeakers({
+  speakers,
+  copy,
+}: {
+  speakers: LessonSummaryDocument["speakers"];
+  copy: SummaryCopy;
+}) {
+  return (
+    <section className="border-t border-border/60 px-5 py-5" aria-labelledby="summary-speakers-heading">
+      <div id="summary-speakers-heading" className="flex items-center gap-2 text-sm font-medium text-foreground">
+        <Users className="h-4 w-4 text-primary" aria-hidden="true" />
+        {copy.speakers}
+      </div>
+      {speakers.length ? (
+        <ul className="mt-3 space-y-3">
+          {speakers.map((speaker) => (
+            <li key={speaker.id} className="flex items-baseline justify-between gap-3 text-sm">
+              <span className="min-w-0 truncate text-foreground">{speaker.name}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{speaker.utteranceCount}</span>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="mt-3 text-sm text-muted-foreground">—</p>}
+    </section>
   );
 }
 
