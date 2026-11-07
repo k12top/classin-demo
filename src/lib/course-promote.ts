@@ -68,6 +68,14 @@ export async function promoteCoursesIfDue(
       where: { id: { in: sessionsToFinish.map((lesson) => lesson.id) }, status: { in: [CourseStatus.SCHEDULED, CourseStatus.LIVE, CourseStatus.AFTER_CLASS] } },
       data: { status: CourseStatus.FINISHED },
     });
+    // Persist the effective deadline, not the cron execution time. Preserve a
+    // teacher/empty-room end and respect extensions re-read under the locks above.
+    for (const lesson of sessionsToFinish) {
+      await tx.courseSession.updateMany({
+        where: { id: lesson.id, status: CourseStatus.FINISHED, endedAt: null },
+        data: { endedAt: lessonAttendanceCloseTime(lesson, now, delayMinutes) },
+      });
+    }
     await tx.classroomRuntime.updateMany({
       where: { sessionId: { in: sessionsToFinish.map((lesson) => lesson.id) }, status: { not: "ended" } },
       data: { status: "ended", revision: { increment: 1 } },

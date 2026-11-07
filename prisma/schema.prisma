@@ -327,7 +327,7 @@ model ClassroomRecording {
   failureStage        String?
   playbackFormat      String?
   startedAt           DateTime?
-  stoppedAt           DateTime?
+  stoppedAt           DateTime? // Replay end boundary; provider exit is tracked in providerState.stopControl.confirmedAt
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 

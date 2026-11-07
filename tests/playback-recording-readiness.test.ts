@@ -20,6 +20,7 @@ for (const status of ["completed", "processing", "stopping", "failed", "recordin
       "@/lib/aliyun-oss": { getCoursewareOssClient: () => ({ signatureUrl: () => { signed++; return "https://media.example.test/clip.mp4"; } }) },
     };
     const list = loadModule<typeof import("../src/app/api/sessions/[sessionId]/recordings/route")>("src/app/api/sessions/[sessionId]/recordings/route.ts", {
+      "@/lib/classroom/server/recording-stop": {},
       ...stubs, "next/server": { after: () => {}, NextResponse: { json: Response.json } },
       "@/app/api/courses/[id]/recording/route": {}, "@/lib/classroom/server/recording-orchestrator": {},
       "@/lib/classroom/recording-reconciliation": { recordingNeedsReconciliation: () => false },

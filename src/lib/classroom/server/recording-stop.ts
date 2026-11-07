@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { ClassroomRecording, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getRecordingProvider } from "./provider-factory";
+import { endedLessonRecordingTime, type RecordingLessonEnd } from "../recording-timeline";
 import { newRecordingStopControl, recordingOperationFailure, recordingProviderExited, recordingProviderStatus,
   recordingState, recordingStopBackoff, recordingStopControl, recordingUploadComplete,
   RECORDING_RESOURCE_GONE_WINDOW_MS,
@@ -12,12 +13,24 @@ import { newRecordingStopControl, recordingOperationFailure, recordingProviderEx
 function json(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
-async function locked<T>(id: string, fn: (tx: Prisma.TransactionClient, row: ClassroomRecording) => Promise<T>) {
+async function locked<T>(id: string, fn: (tx: Prisma.TransactionClient, row: ClassroomRecording & { session: RecordingLessonEnd }) => Promise<T>) {
   return prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRecording" WHERE "id" = ${id} FOR UPDATE`;
-    const row = await tx.classroomRecording.findUnique({ where: { id } });
-    return row ? fn(tx, row) : null;
+    const row = await tx.classroomRecording.findUnique({ where: { id },
+      include: { session: { select: { status: true, endedAt: true, endTime: true } } } });
+    if (!row) return null;
+    const stoppedAt = endedLessonRecordingTime(row, row.session, new Date());
+    if (!row.stoppedAt && stoppedAt) {
+      await tx.classroomRecording.update({ where: { id }, data: { stoppedAt } });
+      row.stoppedAt = stoppedAt;
+    }
+    return fn(tx, row);
   }, { timeout: 5_000 });
+}
+
+/** Repair historical ended lessons too, including tasks whose verification budget is exhausted. */
+export async function finalizeEndedRecordingTime(id: string) {
+  return locked(id, async (_tx, row) => row);
 }
 
 /** Idempotent queueing never clears another worker's lease/backoff or retry budget. */
@@ -37,8 +50,9 @@ export async function queueDurableRecordingStop(id: string, retryVerification = 
     await tx.classroomRecording.update({ where: { id }, data: {
       status: control.attention ? "processing" : "stopping",
       stopRequestedAt: row.stopRequestedAt ?? new Date(),
-      // Legacy stoppedAt represented a request or a discovered file, not confirmed exit.
-      stoppedAt: null,
+      // Preserve replay boundaries across retries/reopens. Task-exit confirmation
+      // is tracked separately in stopControl.confirmedAt.
+      stoppedAt: row.stoppedAt,
       providerState: json({ ...recordingState(row.providerState), stopControl: control }),
     } });
   });
@@ -53,7 +67,7 @@ export async function reconcileDurableRecordingStop(id: string) {
     const control = recordingStopControl(state) ?? newRecordingStopControl(row.stopRetryCount);
     if (control.attention || control.nextAt > now || (control.leaseUntil ?? 0) > now) return null;
     if (control.confirmedAt && row.playbackObjectKey) {
-      await tx.classroomRecording.update({ where: { id }, data: { status: "completed", stoppedAt: new Date(control.confirmedAt) } });
+      await tx.classroomRecording.update({ where: { id }, data: { status: "completed", stoppedAt: row.stoppedAt ?? new Date(control.confirmedAt) } });
       return null;
     }
     // A crash during the previous operation consumed its reserved attempt. Verify before retrying stop.
@@ -63,7 +77,7 @@ export async function reconcileDurableRecordingStop(id: string) {
       if (state.startDispatch === "not_dispatched") {
         control.confirmedAt = new Date(now).toISOString();
         control.confirmation = "never_dispatched";
-        await tx.classroomRecording.update({ where: { id }, data: { status: "completed", stoppedAt: new Date(now),
+        await tx.classroomRecording.update({ where: { id }, data: { status: "completed", stoppedAt: row.stoppedAt ?? new Date(now),
           providerState: json({ ...state, stopControl: control }), failureStage: null, errorMessage: null } });
         return null;
       }
@@ -77,7 +91,7 @@ export async function reconcileDurableRecordingStop(id: string) {
     }
     if (control.attention) {
       await tx.classroomRecording.update({ where: { id }, data: { status: "processing", failureStage: "stop-attention",
-        stoppedAt: control.confirmedAt ? new Date(control.confirmedAt) : null,
+        stoppedAt: row.stoppedAt ?? (control.confirmedAt ? new Date(control.confirmedAt) : null),
         errorMessage: control.attention, providerState: json({ ...state, stopControl: control }) } });
       console.error("[classroom:recording] operator attention required", { recordingId: id, reason: control.attention });
       return null;
@@ -87,7 +101,7 @@ export async function reconcileDurableRecordingStop(id: string) {
     control.leaseId = randomUUID(); control.leaseUntil = now + RECORDING_STOP_LEASE_MS;
     await tx.classroomRecording.update({ where: { id }, data: { status: "processing",
       stopRequestedAt: row.stopRequestedAt ?? new Date(now), lastProviderCheckAt: new Date(now),
-      stoppedAt: control.confirmedAt ? new Date(control.confirmedAt) : null,
+      stoppedAt: row.stoppedAt ?? (control.confirmedAt ? new Date(control.confirmedAt) : null),
       providerState: json({ ...state, stopControl: control }) } });
     return { row, control, operation };
   });
@@ -164,7 +178,7 @@ export async function reconcileDurableRecordingStop(id: string) {
         ...(failureEvidence ? { [operation === "stop" ? "lastStopFailure" : "lastQueryFailure"]: { ...failureEvidence, at: completedAt.toISOString() } } : {}), stopControl: next }),
       ...(result?.files.length ? { files: json(result.files) } : {}),
       playbackObjectKey: objectKey, playbackFormat: result?.playbackFormat || current.playbackFormat,
-      stoppedAt: next.confirmedAt ? new Date(next.confirmedAt) : null,
+      stoppedAt: current.stoppedAt ?? (next.confirmedAt ? new Date(next.confirmedAt) : null),
       stopRetryCount: next.stopAttempts,
       lastProviderCheckAt: completedAt,
       failureStage: failure ? "stop-verification" : null,

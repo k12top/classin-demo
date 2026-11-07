@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
             ? "recording" : current.status,
         ...(files.length ? { files: inputJson(files) } : {}),
         ...(playback.objectKey ? { playbackObjectKey: playback.objectKey, playbackFormat: playback.format } : {}),
-        ...(confirmedAt ? { stoppedAt: confirmedAt, failureStage: null, errorMessage: null } : {}),
+        ...(confirmedAt ? { stoppedAt: current.stoppedAt ?? confirmedAt, failureStage: null, errorMessage: null } : {}),
         providerState: inputJson(nextProviderState),
         ...(disposition === "started" && !current.startedAt && current.mode !== "web" ? { startedAt: now } : {}),
         ...(disposition === "failed" ? { errorMessage: agoraRecordingWebhookLabel(payload).slice(0, 1000) } : {}),

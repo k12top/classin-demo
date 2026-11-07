@@ -24,3 +24,9 @@ test("file and component-stop events never claim provider task exit",async()=>{f
 test("signed exact-SID session_exit confirms provider exit independently of replay",async()=>{const f=fixture(11);await f.api.POST(f.request() as any);assert.equal(f.recording.status,"completed");assert(f.recording.providerState.stopControl.confirmedAt);assert(f.recording.stoppedAt);const response=await f.api.POST(f.request() as any);assert.equal((await response.json()).duplicate,true);});
 test("old SID never falls back to newest task sharing channel",async()=>{const f=fixture(11,"old-sid");const response=await f.api.POST(f.request() as any);assert.equal((await response.json()).matched,false);assert.deepEqual(f.where,{provider:"agora",providerSessionId:"old-sid"});assert.equal(f.recording.status,"recording");});
 test("invalid webhook signature cannot read or mutate recorder state",async()=>{const f=fixture(11);const response=await f.api.POST(new Request("https://example.test",{method:"POST",body:"{}"}) as any);assert.equal(response.status,401);assert.equal(f.where,undefined);assert.equal(f.recording.status,"recording");});
+test("late exit callback preserves the ended lesson's existing replay boundary",async()=>{
+ const f=fixture(11);const endedAt=new Date("2026-11-07T10:00:00Z");f.recording.stoppedAt=endedAt;
+ await f.api.POST(f.request() as any);
+ assert.equal(f.recording.stoppedAt,endedAt);assert.equal(f.recording.status,"completed");
+ assert(f.recording.providerState.stopControl.confirmedAt);
+});

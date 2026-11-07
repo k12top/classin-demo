@@ -6,13 +6,16 @@ import { loadModule } from "./helpers/load-module";
 import * as stopState from "../src/lib/classroom/recording-stop-state";
 import { classroomEmptyGraceMs, classroomEmptySince } from "../src/lib/classroom/empty-room-policy";
 import { CLASSROOM_RECONNECT_WINDOW_MS } from "../src/lib/classroom/presence";
+import { captionPosition } from "../src/lib/classroom/playback-captions";
 
 type Row = Record<string, any>; // In-memory database boundary; actual orchestration code is executed below.
 function fixture(overrides: Row = {}) {
   let now = 1_800_000_000_000;
   const row: Row = { id:"recording", courseId:"course", sessionId:"session", provider:"agora", status:"recording", mode:"web",
     resourceId:"resource", providerSessionId:"sid", recorderUserId:"bot", providerState:{mode:"web"}, stopRequestedAt:null,
-    stoppedAt:null, lastProviderCheckAt:null, stopRetryCount:0, playbackObjectKey:null, playbackFormat:null, session:{status:"finished"}, ...overrides };
+    stoppedAt:null, lastProviderCheckAt:null, stopRetryCount:0, playbackObjectKey:null, playbackFormat:null,
+    startedAt:new Date(now - 3_600_000), createdAt:new Date(now - 3_600_000),
+    session:{status:"live", endedAt:null, endTime:new Date(now + 3_600_000)}, ...overrides };
   let stopCalls=0,queryCalls=0;
   const provider = { stop: async():Promise<any> => { stopCalls++; return {files:[],playbackObjectKey:"asset.m3u8",playbackFormat:"hls",providerState:{serverResponse:{status:6}}}; },
     query: async():Promise<any> => { queryCalls++; return {active:true,files:[],playbackObjectKey:null,playbackFormat:null,providerState:{serverResponse:{status:5}}}; } };
@@ -94,8 +97,43 @@ test("no provider SID is completed only with proof that start was never dispatch
   }
 });
 test("scheduled-ended session stops recording from the server without a browser",async()=>{
-  const f=fixture({session:{status:"finished"}});await f.api.reconcileRecordingAttempt("recording");
-  assert.equal(f.calls.stopCalls,1);assert(f.row.stopRequestedAt);assert.equal(f.row.stoppedAt,null);
+  const endedAt = new Date(1_800_000_000_000 - 60_000);
+  const f=fixture({session:{status:"finished", endedAt, endTime:endedAt}});
+  await f.api.reconcileRecordingAttempt("recording");
+  assert.equal(f.calls.stopCalls,1);assert(f.row.stopRequestedAt);
+  assert.equal(f.row.stoppedAt.getTime(),endedAt.getTime());
+  assert.equal(f.row.status,"processing");
+  assert.equal(f.row.providerState.stopControl.confirmedAt,undefined);
+  assert.deepEqual(captionPosition(new Date(f.row.startedAt.getTime() + 30_000).toISOString(), [{
+    id:f.row.id,startedAt:f.row.startedAt.toISOString(),stoppedAt:f.row.stoppedAt.toISOString(),
+  }]),{recordingId:"recording",seconds:30});
+  f.advance();await f.api.reconcileRecordingAttempt("recording");
+  assert.equal(f.row.stoppedAt.getTime(),endedAt.getTime());
+});
+test("historical exhausted verification gets an end time without rearming the provider task",async()=>{
+  const endTime = new Date(1_800_000_000_000 - 3_600_000);
+  const f=fixture({status:"processing",startedAt:new Date(endTime.getTime()-3_600_000),
+    session:{status:"finished",endTime,endedAt:null},stopRequestedAt:new Date(endTime.getTime()+3_600_000),
+    failureStage:"stop-attention",providerState:{stopControl:{...stopState.newRecordingStopControl(),queryAttempts:24,attention:"verify"}}});
+  await f.stops.finalizeEndedRecordingTime("recording");
+  const boundary=f.row.stoppedAt.getTime();assert(boundary < 1_800_000_000_000);
+  assert.equal(f.row.status,"processing");assert.equal(f.row.failureStage,"stop-attention");
+  assert.equal(f.row.providerState.stopControl.queryAttempts,24);
+  assert.equal(f.row.providerState.stopControl.confirmedAt,undefined);
+  f.advance();await f.api.reconcileRecordingAttempt("recording");
+  assert.equal(f.row.stoppedAt.getTime(),boundary);assert.deepEqual(f.calls,{stopCalls:0,queryCalls:0});
+});
+test("late provider exit does not shift an ended lesson's replay boundary",async()=>{
+  const endedAt=new Date(1_800_000_000_000-60_000);
+  const f=fixture({session:{status:"finished",endedAt,endTime:endedAt}});
+  await f.api.stopRecordingAttempt(f.row as any);f.advance();
+  f.provider.query=async()=>({active:false,files:[],providerState:{serverResponse:{status:8}}});
+  await f.api.reconcileRecordingAttempt("recording");
+  assert.equal(f.row.status,"completed");assert.equal(f.row.stoppedAt.getTime(),endedAt.getTime());
+  assert(new Date(f.row.providerState.stopControl.confirmedAt).getTime()>endedAt.getTime());
+  f.row.session.status="live";f.row.session.endedAt=null;
+  await f.api.requestRecordingStop(f.row as any);
+  assert.equal(f.row.stoppedAt.getTime(),endedAt.getTime());
 });
 test("confirmed empty-room default, multi-device, explicit leave, reconnect and heartbeat expiry",()=>{
   assert.equal(classroomEmptyGraceMs(undefined),180_000);assert.equal(classroomEmptyGraceMs("0"),0);
@@ -125,9 +163,9 @@ test("provider abnormal exit is terminal but an ordinary stop response is only a
  f.provider.query=async()=>({active:false,files:[],playbackObjectKey:null,providerState:{serverResponse:{status:20}}});
  await f.api.reconcileRecordingAttempt("recording");assert.equal(f.row.status,"completed");assert(f.row.providerState.stopControl.confirmedAt);
 });
-test("a legacy completed row with a stop marker is reverified rather than trusting its file",async()=>{
+test("a legacy completed row is reverified while preserving its replay boundary",async()=>{
  const f=fixture({status:"completed",stopRequestedAt:new Date(1),stoppedAt:new Date(1),playbackObjectKey:"old-asset"});
- await f.api.reconcileRecordingAttempt("recording");assert.equal(f.calls.queryCalls,1);assert.equal(f.row.status,"processing");assert.equal(f.row.stoppedAt,null);
+ await f.api.reconcileRecordingAttempt("recording");assert.equal(f.calls.queryCalls,1);assert.equal(f.row.status,"processing");assert.equal(f.row.stoppedAt.getTime(),1);
  f.advance();await f.api.reconcileRecordingAttempt("recording");assert.equal(f.calls.stopCalls,1);
 });
 test("only an explicit teacher stop action rearms an exhausted verification budget",async()=>{

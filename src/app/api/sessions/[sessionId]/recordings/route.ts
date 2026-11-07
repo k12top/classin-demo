@@ -10,6 +10,7 @@ import { recordingHlsAlternative, recordingReplayAssets } from "@/lib/classroom/
 import { recordingNeedsReconciliation } from "@/lib/classroom/recording-reconciliation";
 import { recordingAssetDiscoveryDue, recordingAssetDiscoveryPollMs } from "@/lib/classroom/recording-asset-discovery";
 import { discoverRecordingPlaybackAssets } from "@/lib/classroom/server/recording-asset-discovery";
+import { finalizeEndedRecordingTime } from "@/lib/classroom/server/recording-stop";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest, context: Context) {
   const { sessionId } = await context.params;
   const lesson = await prisma.courseSession.findUnique({
     where: { id: sessionId },
-    select: { courseId: true },
+    select: { courseId: true, status: true },
   });
   if (!lesson) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
@@ -39,10 +40,14 @@ export async function GET(request: NextRequest, context: Context) {
   if (!access.allowed) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  const recordings = await prisma.classroomRecording.findMany({
+  let recordings = await prisma.classroomRecording.findMany({
     where: { sessionId },
     orderBy: { createdAt: "asc" },
   });
+  if (["finished", "afterClass", "cancelled"].includes(lesson.status)) {
+    recordings = await Promise.all(recordings.map(async recording =>
+      recording.stoppedAt ? recording : await finalizeEndedRecordingTime(recording.id) ?? recording));
+  }
   const pending = recordings.filter((recording) =>
     recordingNeedsReconciliation(recording.status) && !recordingStopControl(recording.providerState)?.attention,
   );

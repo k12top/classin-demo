@@ -64,7 +64,7 @@ test("new cycle waits for unresolved old recorder shutdown and respects recordin
 
 test("scheduled end re-reads eligibility after the extension or reopen acquires the lock", async () => {
   const source = "src/lib/classroom/server/lesson-deadline.ts";
-  const module = loadModule<typeof import("../src/lib/classroom/server/lesson-deadline")>(source, { "@prisma/client": { Prisma: { join: (ids: string[]) => ids.join(",") } } });
+  const deadlineApi = loadModule<typeof import("../src/lib/classroom/server/lesson-deadline")>(source, { "@prisma/client": { Prisma: { join: (ids: string[]) => ids.join(",") } } });
   let reads = 0, locks = 0;
   const tx = { courseSession: { findMany: async ({ where }: any) => {
     reads++;
@@ -73,7 +73,7 @@ test("scheduled end re-reads eligibility after the extension or reopen acquires 
     // The extension has committed. This row no longer meets the deadline predicate.
     return [];
   } }, $queryRaw: async () => { locks++; return []; } };
-  assert.deepEqual(await module.lockDueLessons(tx as any, {}, start), []);
+  assert.deepEqual(await deadlineApi.lockDueLessons(tx as any, {}, start), []);
   assert.equal(reads, 2);
 });
 
@@ -104,4 +104,28 @@ test("an expired runtime snapshot cannot end a lesson extended before the deadli
   assert.equal((await api.ensureClassroomRuntime("course", "lesson")).graceEndsAt, extended.graceEndsAt);
   assert.equal(ended, 0);
   assert.equal(stopped, 0);
+});
+
+test("classroom polling persists the effective automatic end without a teacher action", async () => {
+  const source = "src/lib/classroom/server/runtime.ts";
+  const stubs = Object.fromEntries([...readFileSync(source, "utf8").matchAll(/from "([^"\n]+)"/g)].map(match => [match[1], {}]));
+  const deadline = new Date(Date.now() - 60_000);
+  const lesson = { id: "lesson", status: "live", endTime: deadline, endedAt: null as Date | null };
+  const runtime = { id: "room", courseId: "course", sessionId: "lesson", status: "live", graceEndsAt: deadline };
+  let stops = 0;
+  const tx = { $queryRaw: async () => [],
+    courseSession: { findUniqueOrThrow: async () => lesson, update: async ({ data }: any) => Object.assign(lesson, data) },
+    classroomRuntime: { findUniqueOrThrow: async () => runtime, update: async ({ data }: any) => Object.assign(runtime, data) },
+    classroomRecording: { updateMany: async () => { stops++; } } };
+  const api = loadModule<typeof import("../src/lib/classroom/server/runtime")>(source, {
+    ...stubs, "server-only": {}, "@/lib/db": { prisma: {
+      courseSession: { findFirst: async () => lesson }, classroomRuntime: { findUnique: async () => runtime },
+      $transaction: (fn: any) => fn(tx),
+    } }, "@/lib/course-status": { CourseStatus: { FINISHED: "finished", CANCELLED: "cancelled" } },
+    "@/lib/classroom/policy": { classroomGraceEndAt: (date: Date) => date },
+    "./integration-events": { enqueueClassroomEvent: async () => {} },
+    "@/lib/course-session-status": { syncCourseStatusFromSessions: async () => {} },
+  });
+  assert.equal((await api.ensureClassroomRuntime("course", "lesson")).status, "ended");
+  assert.equal(lesson.endedAt?.getTime(), deadline.getTime());assert.equal(stops, 1);
 });

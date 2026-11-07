@@ -40,7 +40,7 @@ async function main() {
     "@/lib/course-session-summary-generation": 'export async function queueCourseSessionSummary() {} export async function processCourseSessionSummaryGeneration() {}',
   };
   await esbuild.build({
-    stdin: { contents: 'export { prisma } from "@/lib/db"; export * from "@/lib/classroom/server/integration-events"; export * from "@/lib/classroom/server/runtime"; export * from "@/lib/classroom/server/connections"; export { promoteCoursesIfDue } from "@/lib/course-promote"; export { POST as lifecycle } from "@/app/api/courses/[id]/sessions/[sessionId]/lifecycle/route";', resolveDir: root, loader: "ts" },
+    stdin: { contents: 'export { prisma } from "@/lib/db"; export { finalizeEndedRecordingTime } from "@/lib/classroom/server/recording-stop"; export * from "@/lib/classroom/server/integration-events"; export * from "@/lib/classroom/server/runtime"; export * from "@/lib/classroom/server/connections"; export { promoteCoursesIfDue } from "@/lib/course-promote"; export { POST as lifecycle } from "@/app/api/courses/[id]/sessions/[sessionId]/lifecycle/route";', resolveDir: root, loader: "ts" },
     outfile: output, bundle: true, platform: "node", format: "cjs", packages: "external", tsconfig: path.join(root, "tsconfig.json"),
     plugins: [{ name: "isolated-lifecycle", setup(build) {
       build.onResolve({ filter: /.*/ }, ({ path: id }) => id in stubs ? { path: id, namespace: "test-stub" } : undefined);
@@ -113,7 +113,23 @@ async function main() {
     assert.equal(await db.classroomIntegrationEvent.count({ where: { sessionId: scheduled.id } }), 1);
     await db.courseSession.update({ where: { id: scheduled.id }, data: { endTime: new Date(Date.now() - 30 * 60_000) } });
     await api.promoteCoursesIfDue([course.id], { reconcileRecordings: false });
+    const automaticallyEnded = await db.courseSession.findUniqueOrThrow({ where: { id: scheduled.id } });
+    assert(automaticallyEnded.endedAt, "scheduled finish persists endedAt without teacher action");
+    assert.equal(automaticallyEnded.endedAt.getTime(), automaticallyEnded.endTime.getTime() + 20 * 60_000);
+    const historical = await db.classroomRecording.create({ data: {
+      courseId: course.id, sessionId: scheduled.id, provider: "fixture", channelName: "fixture", recorderUserId: "fixture",
+      status: "processing", failureStage: "stop-attention", startedAt: new Date(automaticallyEnded.endTime.getTime() - 60_000),
+      createdAt: new Date(automaticallyEnded.endTime.getTime() - 60_000), stopRequestedAt: new Date(),
+      providerState: { stopControl: { version: 1, queryAttempts: 24, attention: "verify" } },
+    } });
+    const repaired = await api.finalizeEndedRecordingTime(historical.id);
+    assert.equal(repaired.stoppedAt.getTime(), automaticallyEnded.endedAt.getTime());
+    assert.equal(repaired.status, "processing");
+    assert.equal(repaired.providerState.stopControl.queryAttempts, 24);
+    assert.equal(repaired.providerState.stopControl.confirmedAt, undefined);
+    assert.equal((await db.classroomRecording.findUniqueOrThrow({ where: { id: historical.id } })).stoppedAt.getTime(), automaticallyEnded.endedAt.getTime());
     await api.promoteCoursesIfDue([course.id], { reconcileRecordings: false });
+    assert.equal((await db.courseSession.findUniqueOrThrow({ where: { id: scheduled.id } })).endedAt.getTime(), automaticallyEnded.endedAt.getTime(), "later cron preserves the effective end");
     assert.equal(await db.classroomIntegrationEvent.count({ where: { sessionId: scheduled.id } }), 2, "scheduled end persists exactly once");
 
     const leaveLesson = await fixture();

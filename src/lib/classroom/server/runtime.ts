@@ -161,7 +161,10 @@ export async function ensureClassroomRuntime(
         return current.graceEndsAt?.getTime() === graceEndsAt.getTime() ? current
           : tx.classroomRuntime.update({ where: { id: current.id }, data: { graceEndsAt } });
       }
-      if (currentLesson.status !== CourseStatus.CANCELLED) await tx.courseSession.update({ where: { id: sessionId }, data: { status: CourseStatus.FINISHED } });
+      if (currentLesson.status !== CourseStatus.CANCELLED) await tx.courseSession.update({ where: { id: sessionId }, data: {
+        status: CourseStatus.FINISHED,
+        endedAt: currentLesson.endedAt ?? new Date(Math.min(graceEndsAt.getTime(), Date.now())),
+      } });
       const endedRuntime = await tx.classroomRuntime.update({ where: { id: runtime.id }, data: { status: "ended", revision: { increment: 1 } } });
       await queueEndedRecordingStops(tx, sessionId);
       await enqueueClassroomEvent(tx, sessionId, "classroom.ended", currentLesson.status === CourseStatus.CANCELLED ? "cancelled" : "scheduled_end");
