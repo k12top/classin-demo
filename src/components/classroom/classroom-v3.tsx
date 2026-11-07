@@ -7903,6 +7903,20 @@ export function ClassroomV3({
             <button type="button" data-dock-action="fullscreen" onClick={toggleFullscreen} title={t("classroom.v3.fullscreen")}><Expand /><span>{t("classroom.v3.fullscreen")}</span></button>
             <button type="button" title={t("classroom.v3.resetMedia")} className="is-dock-secondary" onClick={() => void runMediaAction("recover", async (provider) => { await renewClassroomCredentials(); await provider.recoverMedia(true); })}><RefreshCw /><span>{t("classroom.v3.resetMedia")}</span></button>
             {classinLayout ? <ClassroomHeaderMenu actions={minimalOperationActions} variant="operations" /> : (<button type="button" title={t("classroom.v3.more")} aria-label={t("classroom.v3.more")} className={`is-dock-more ${dockMoreOpen ? "is-active" : ""}`} aria-expanded={dockMoreOpen} onClick={() => setDockMoreOpen((value) => !value)}><MoreHorizontal /><span>{t("classroom.v3.more")}</span></button>)}
+            <button
+              type="button"
+              data-dock-action="collapse"
+              className="classroom-v3-dock-toggle is-inline"
+              aria-expanded="true"
+              aria-label={t("classroom.v3.collapsePanel")}
+              title={t("classroom.v3.collapsePanel")}
+              onClick={() => {
+                setDockMoreOpen(false);
+                setDockHidden(true);
+              }}
+            >
+              <ChevronDown aria-hidden="true" />
+            </button>
             <span className="classroom-v3-dock-divider" />
             <button
               type="button"
@@ -7919,19 +7933,18 @@ export function ClassroomV3({
             </button>
             </div>
           )}
-          <button
-            type="button"
-            className={`classroom-v3-dock-toggle ${dockHidden ? "is-collapsed" : "is-expanded"}`}
-            aria-expanded={!dockHidden}
-            aria-label={t(dockHidden ? "classroom.v3.expandPanel" : "classroom.v3.collapsePanel")}
-            title={t(dockHidden ? "classroom.v3.expandPanel" : "classroom.v3.collapsePanel")}
-            onClick={() => {
-              setDockMoreOpen(false);
-              setDockHidden((hidden) => !hidden);
-            }}
-          >
-            {dockHidden ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
-          </button>
+          {dockHidden && (
+            <button
+              type="button"
+              className="classroom-v3-dock-toggle is-collapsed"
+              aria-expanded="false"
+              aria-label={t("classroom.v3.expandPanel")}
+              title={t("classroom.v3.expandPanel")}
+              onClick={() => setDockHidden(false)}
+            >
+              <ChevronUp aria-hidden="true" />
+            </button>
+          )}
         </footer>
       )}
 
