@@ -127,6 +127,8 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
   private videoTargetOwners = new WeakMap<HTMLElement, string>();
   private videoTargetObservers = new Map<HTMLElement, ResizeObserver>();
   private remoteVideoStreamTypes = new Map<string, 0 | 1>();
+  private remoteVideoHighOnly = new Set<string>();
+  private remoteTransportNeedsRecovery = false;
   private remoteObservedPixels = new Map<string, number>();
   private remoteVideoUpdate: Promise<void> = Promise.resolve();
   private remoteVideoUpdateScheduled = false;
@@ -509,6 +511,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       this.remoteVideoUpdateScheduled = false;
       if (!client || this.client !== client) return;
       const plan = this.remoteVideoPlan();
+      for (const id of this.remoteVideoHighOnly) if (plan.has(id)) plan.set(id, 0);
       const current = (id: string, user: IAgoraRTCRemoteUser) =>
         this.client === client && this.remoteUsers.get(id) === user && user.hasVideo;
       // Release subscriptions and high streams first, including hidden tiles.
@@ -527,11 +530,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
             await client.setRemoteVideoStreamType(user.uid, 1);
             if (current(id, user)) this.remoteVideoStreamTypes.set(id, 1);
           } catch (error) {
-            if (!this.isScreen(id)) throw error;
-            // A remote screen publisher may reject the low stream if dual
-            // stream was unavailable on its browser. Keep its current HD feed.
+            // Dual stream is optional on cameras too (including mobile Safari).
+            this.remoteVideoHighOnly.add(id);
             plan.set(id, 0);
-            console.warn("[ClassroomRTC] Screen low stream unavailable; keeping HD", error);
+            console.warn("[ClassroomRTC] Low stream unavailable; keeping current video", error);
           }
         }
       }
@@ -548,11 +550,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
               try {
                 await client.setRemoteVideoStreamType(user.uid, selectedType);
               } catch (error) {
-                if (!this.isScreen(id)) throw error;
-                // If a remote browser cannot switch streams, the default high
-                // stream is still valid and must remain subscribed.
-                selectedType = 0;
-                console.warn("[ClassroomRTC] Screen stream switch unavailable; keeping HD", error);
+                if (selectedType === 1) this.remoteVideoHighOnly.add(id);
+                // A failed optimization must never prevent the subscription.
+                selectedType = this.remoteVideoStreamTypes.get(id) ?? 0;
+                console.warn("[ClassroomRTC] Stream switch unavailable; keeping current video", error);
               }
             }
             if (!current(id, user) || (this.isScreen(id) && this.selectedScreenUid !== undefined && id !== this.selectedScreenUid)) continue;
@@ -569,7 +570,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
           this.renderVideoTargets(id);
         } catch (error: unknown) {
           // A single unavailable publisher must not block the remaining tiles.
-          console.warn("[ClassroomRTC] Failed to subscribe to remote video", error);
+          console.warn("[ClassroomRTC] Failed to subscribe to remote video", { rtcUid: id, streamType: type, error });
         }
       }
       if (this.client !== client) return;
@@ -603,6 +604,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       this.videoTargetObservers.delete(element);
     }
     this.videoElements.delete(id);
+    this.remoteVideoHighOnly.delete(id);
     this.remoteVideoStreamTypes.delete(id);
     if (this.snapshot.focusedParticipantId === id) {
       this.snapshot.focusedParticipantId = null;
@@ -638,6 +640,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
 
     client.on("connection-state-change", (state, previous, reason) => {
       if (this.client !== client) return;
+      if (state === "RECONNECTING" || state === "DISCONNECTED") this.remoteTransportNeedsRecovery = true;
       this.snapshot.connectionState = connectionState(state);
       this.snapshot.connectionEvent = {
         sequence: ++this.connectionSequence, state: connectionState(state),
@@ -653,11 +656,32 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.watchTokenExpiry(client);
     client.on("network-quality", (quality) => {
       if (this.client !== client) return;
+      // Repair missed publication notifications and retry failed subscriptions
+      // on the SDK's existing cadence, without resetting healthy playback.
+      for (const user of client.remoteUsers) {
+        const id = participantId(user.uid);
+        if (this.isLocalParticipant(id)) continue;
+        if (this.remoteUsers.get(id) !== user) {
+          this.remoteVideoStreamTypes.delete(id);
+          this.remoteVideoHighOnly.delete(id);
+        }
+        this.remoteUsers.set(id, user);
+        const participant = this.participants.get(id);
+        if (!participant || participant.hasVideo !== user.hasVideo || participant.hasAudio !== user.hasAudio) {
+          if (!user.hasVideo) {
+            this.remoteVideoStreamTypes.delete(id);
+            this.clearVideoTargets(id);
+          }
+          this.upsertParticipant(id, { hasVideo: user.hasVideo, hasAudio: user.hasAudio,
+            videoSubscriptionPaused: user.hasVideo && !this.remoteVideoStreamTypes.has(id) });
+        }
+      }
+      void this.updateRemoteVideos();
       // Some mobile browsers cannot honor a requested low stream. Budget
       // their measured receive size conservatively for the rest of this join.
       let changed = false;
       for (const [id, stats] of Object.entries(client.getRemoteVideoStats?.() ?? {})) {
-        if (!this.isScreen(id) && this.remoteVideoStreamTypes.get(id) !== 1) continue;
+        if (!this.isScreen(id) && this.remoteVideoStreamTypes.get(id) !== 1 && !this.remoteVideoHighOnly.has(id)) continue;
         const pixels = stats.receiveResolutionWidth * stats.receiveResolutionHeight;
         if (Number.isFinite(pixels) && pixels > (this.remoteObservedPixels.get(id) ?? 0)) {
           this.remoteObservedPixels.set(id, pixels);
@@ -692,6 +716,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       this.removeParticipant(participantId(user.uid));
     });
     client.on("user-published", (user, mediaType) => {
+      if (this.client !== client) return;
       void this.onUserPublished(user, mediaType).catch(error => {
         if (this.client === client) console.warn("[classroom:rtc] remote publication failed", error);
       });
@@ -701,6 +726,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       if (this.client !== client || this.remoteUsers.get(id) !== user) return;
       if (id === this.auxiliaryId()) return;
       if (mediaType === "video") {
+        this.remoteVideoHighOnly.delete(id);
         if (this.isScreen(id)) this.remoteObservedPixels.delete(id);
         this.remoteVideoStreamTypes.delete(id);
         this.clearVideoTargets(id);
@@ -816,15 +842,17 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     });
   }
 
-  recoverMedia(force = false): Promise<void> {
-    return this.serializeRecovery(() => this.recoverMediaNow(force));
+  recoverMedia(force = false, options: { preserveHealthySubscriptions?: boolean } = {}): Promise<void> {
+    return this.serializeRecovery(() => this.recoverMediaNow(force, !force && options.preserveHealthySubscriptions === true));
   }
 
-  private async recoverMediaNow(force: boolean): Promise<void> {
+  private async recoverMediaNow(force: boolean, preserveHealthySubscriptions: boolean): Promise<void> {
     if (!this.client || !this.credential) return;
+    if (this.remoteTransportNeedsRecovery) preserveHealthySubscriptions = false;
     const client = this.client;
     const assertCurrent = () => { if (this.client !== client) throw new DOMException("Classroom left", "AbortError"); };
     if (client.connectionState === "DISCONNECTED") {
+      preserveHealthySubscriptions = false;
       const tracks = [this.portraitCameraSuppressed || !this.snapshot.local.cameraOn ? null : this.cameraTrack, this.microphoneTrack].filter((track): track is ICameraVideoTrack | IMicrophoneAudioTrack => Boolean(track && track.getMediaStreamTrack().readyState !== "ended"));
       await renewAgoraConnection(client, this.credential, tracks, () => this.client === client);
       this.cameraPublished = Boolean(this.cameraTrack && tracks.includes(this.cameraTrack));
@@ -861,20 +889,27 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     }
     for (const [id, user] of currentUsers) {
       if (this.isLocalParticipant(id)) continue;
+      const sameUser = this.remoteUsers.get(id) === user;
       this.remoteUsers.set(id, user);
       if (this.isScreen(id)) this.remoteObservedPixels.delete(id);
       this.upsertParticipant(id, { hasVideo: user.hasVideo, hasAudio: user.hasAudio });
-      // Reset video subscriptions even if the SDK retained a track object.
-      // Rebuild them together through the receive budget, never one by one.
-      await client.unsubscribe(user, "video").catch(() => undefined);
-      assertCurrent();
-      this.remoteVideoStreamTypes.delete(id);
+      // Reconnects can retain stale track objects. Ordinary focus returns keep
+      // healthy tracks; transport recovery rebuilds them through one plan.
+      const videoHealthy = preserveHealthySubscriptions && sameUser && user.hasVideo && user.videoTrack?.getMediaStreamTrack().readyState === "live";
+      if (!preserveHealthySubscriptions || !videoHealthy) {
+        await client.unsubscribe(user, "video").catch(() => undefined);
+        assertCurrent();
+        this.remoteVideoStreamTypes.delete(id);
+      }
       if (user.hasAudio) {
         try {
-          await client.unsubscribe(user, "audio").catch(() => undefined);
-          assertCurrent();
-          await client.subscribe(user, "audio");
-          assertCurrent();
+          const audioHealthy = preserveHealthySubscriptions && sameUser && user.audioTrack?.getMediaStreamTrack().readyState === "live";
+          if (!preserveHealthySubscriptions || !audioHealthy) {
+            await client.unsubscribe(user, "audio").catch(() => undefined);
+            assertCurrent();
+            await client.subscribe(user, "audio");
+            assertCurrent();
+          }
           user.audioTrack?.play();
         } catch (error) {
           assertCurrent();
@@ -884,6 +919,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     }
     await this.updateRemoteVideos();
     assertCurrent();
+    this.remoteTransportNeedsRecovery = false;
     for (const id of this.videoElements.keys()) this.renderVideoTargets(id);
     // A browser cannot silently reacquire a screen after the OS ends capture.
     // Clear the sharing state so the teacher can explicitly start it again.
@@ -1697,6 +1733,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     }
     const tracks = [this.portraitCameraSuppressed || !this.snapshot.local.cameraOn ? null : this.cameraTrack, this.microphoneTrack].filter((track): track is ICameraVideoTrack | IMicrophoneAudioTrack => Boolean(track && track.getMediaStreamTrack().readyState !== "ended"));
     const rejoining = client.connectionState === "DISCONNECTED" || this.expiredClients.has(client);
+    if (rejoining) this.remoteTransportNeedsRecovery = true;
     await renewAgoraConnection(client, credential, tracks, () => this.client === client, this.expiredClients.has(client));
     if (rejoining) this.cameraPublished = Boolean(this.cameraTrack && tracks.includes(this.cameraTrack));
     this.expiredClients.delete(client);
@@ -1946,6 +1983,8 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     for (const observer of this.videoTargetObservers.values()) observer.disconnect();
     this.videoTargetObservers.clear();
     this.remoteVideoStreamTypes.clear();
+    this.remoteVideoHighOnly.clear();
+    this.remoteTransportNeedsRecovery = false;
     this.remoteObservedPixels.clear();
     this.remoteVideoUpdate = Promise.resolve();
     this.remoteVideoUpdateScheduled = false;

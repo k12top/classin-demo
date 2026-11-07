@@ -3984,7 +3984,7 @@ export function ClassroomV3({
       controller.signal.throwIfAborted();
       if (roomProviderRef.current !== provider) throw new DOMException("Room replaced", "AbortError");
       await provider.renewCredential(payload.credential);
-      await provider.recoverMedia();
+      await provider.recoverMedia(false, { preserveHealthySubscriptions: true });
       if (roomProviderRef.current === provider && !controller.signal.aborted) setRoomScreenShareUserId(payload.credential.screenShare?.rtcUid.toString() || null);
     }, { signal: controller.signal, maxAttempts: 4 });
     roomRecoveryTaskRef.current = task;
@@ -4137,7 +4137,7 @@ export function ClassroomV3({
         controller.signal.throwIfAborted();
         if (providerRef.current !== provider) throw new DOMException("Classroom replaced", "AbortError");
         await provider.renewCredential(payload.credential);
-        await provider.recoverMedia();
+        await provider.recoverMedia(false, { preserveHealthySubscriptions: true });
         controller.signal.throwIfAborted();
         if (providerRef.current !== provider) throw new DOMException("Classroom replaced", "AbortError");
         updateSession({ credential: payload.credential, signaling: payload.signaling });
@@ -4576,7 +4576,7 @@ export function ClassroomV3({
     if (sessionData?.runtime.status !== "live" || !mediaProvider || isRecorder) return;
     // Starting a lesson should replay remote audio and repair missing
     // subscriptions without minting credentials or rebuilding the RTC client.
-    void mediaProvider.recoverMedia().catch(() => undefined);
+    void mediaProvider.recoverMedia(false, { preserveHealthySubscriptions: true }).catch(() => undefined);
   }, [isRecorder, mediaProvider, sessionData?.runtime.status]);
 
   useEffect(() => {

@@ -36,7 +36,7 @@ import type { CourseSessionSummaryDocument, SummaryEvidence } from "@/lib/course
 import { LessonSummaryReport } from "@/components/course-sessions/lesson-summary-report";
 import { summaryGenerationActive, watchCourseSessionSummary } from "@/lib/course-session-summary-watch";
 import type { SummaryGenerationState } from "@/lib/course-session-summary-generation";
-import { PlaybackCompatibility, usePlaybackMedia } from "@/components/course-sessions/playback-compatibility";
+import { PlaybackCompatibility, PlaybackQualityControl, usePlaybackMedia } from "@/components/course-sessions/playback-compatibility";
 import { applyPlaybackSeek, requestPlayback, scrollToPlayback, updatePlaybackBuffering } from "@/lib/playback-navigation";
 import {
   PortalShell,
@@ -1329,8 +1329,9 @@ function PlaybackVideo({
   captionAppearance: CaptionAppearance;
 }) {
   const { t } = useTranslation();
-  const { issue, directUrl, retry, format } = usePlaybackMedia(videoRef, src, isHls, hlsSrc);
+  const { issue, directUrl, retry, format, quality, setQuality, qualityInfo } = usePlaybackMedia(videoRef, src, isHls, hlsSrc);
   const [buffering, setBuffering] = useState(true);
+  const automaticStartSource = useRef<string | null>(null);
   const [watchedSec, setWatchedSec] = useState(0);
   const [trackingState, setTrackingState] = useState<TrackingState>(
     trackProgress ? "idle" : "teacher"
@@ -1592,7 +1593,10 @@ function PlaybackVideo({
           onError={(event) => updatePlaybackBuffering(setBuffering, "error", event.currentTarget)}
           onCanPlay={(event) => {
             updatePlaybackBuffering(setBuffering, "canplay", event.currentTarget);
-            if (autoStart) void event.currentTarget.play().catch(() => {});
+            if (autoStart && automaticStartSource.current !== src) {
+              automaticStartSource.current = src;
+              void event.currentTarget.play().catch(() => {});
+            }
           }}
         />
         {buffering && !issue && <div role="status" aria-label={t("portalUpdates.replayPreparing")} className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -1614,6 +1618,7 @@ function PlaybackVideo({
       </div>
       <div className="flex flex-wrap items-center gap-3 bg-[#141a27] px-4 py-2 text-white">
         {controls}
+        <PlaybackQualityControl quality={quality} onChange={setQuality} info={qualityInfo} />
       <PlaybackCompatibility issue={issue} directUrl={directUrl} src={src} isHls={isHls}
         sharePath={sharePath} onRetry={retry} onExternalPlay={() => videoRef.current?.pause()}
         onRecheck={onRecheck} recheckBusy={recheckBusy} />

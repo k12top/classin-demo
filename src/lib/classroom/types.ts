@@ -138,7 +138,7 @@ export interface ClassroomMediaProvider {
   getActualDeviceState?(): { microphone: import("./signaling/types").ClassroomDeviceState; camera: import("./signaling/types").ClassroomDeviceState };
   /** Current microphone level in [0, 1]; unavailable or muted tracks return 0. */
   getMicrophoneLevel?(participantId: string): number;
-  recoverMedia(force?: boolean): Promise<void>;
+  recoverMedia(force?: boolean, options?: { preserveHealthySubscriptions?: boolean }): Promise<void>;
   toggleMicrophone(): Promise<boolean>;
   muteMicrophone?(): Promise<void>;
   setMicrophonePermission?(allowed: boolean): void;

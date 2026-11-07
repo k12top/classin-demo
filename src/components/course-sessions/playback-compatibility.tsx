@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { useTranslation } from "@/lib/i18n/context";
-import { connectPlaybackMedia, type PlaybackIssue } from "@/lib/playback-media";
+import { connectPlaybackMedia, type PlaybackIssue, type PlaybackQuality, type PlaybackQualityInfo } from "@/lib/playback-media";
 
 const fetchPlaybackSource: typeof fetch = async (input, init) => {
   let response = await fetch(input, init);
@@ -21,6 +21,8 @@ export function usePlaybackMedia(videoRef: RefObject<HTMLVideoElement | null>, s
   const [directUrl, setDirectUrl] = useState<string | null>(null);
   const [format, setFormat] = useState<"hls" | "mp4">(isHls ? "hls" : "mp4");
   const [revision, setRevision] = useState(0);
+  const [quality, setQuality] = useState<PlaybackQuality>("auto");
+  const [qualityInfo, setQualityInfo] = useState<PlaybackQualityInfo>({ height: null, adaptive: false, canSelect: false });
   const startAt = useRef(0);
   const resume = useRef(false);
   useEffect(() => {
@@ -29,20 +31,39 @@ export function usePlaybackMedia(videoRef: RefObject<HTMLVideoElement | null>, s
     const cleanup = connectPlaybackMedia(video, src, isHls, {
       onIssue: setIssue, onDirectUrl: setDirectUrl, fetcher: fetchPlaybackSource,
       startAt: startAt.current, hlsSrc, onFormat: setFormat, resume: resume.current,
+      quality, onQualityInfo: setQualityInfo,
     });
     return () => {
       if (video.readyState >= 1) startAt.current = video.currentTime;
       resume.current = !video.paused && !video.ended;
       cleanup();
     };
-  }, [hlsSrc, isHls, revision, src, videoRef]);
+  }, [hlsSrc, isHls, quality, revision, src, videoRef]);
   const retry = useCallback(() => {
     const video = videoRef.current;
     // A failed reload has no metadata; retain the last valid position for the next retry.
     if (video && video.readyState >= 1) startAt.current = video.currentTime;
     setRevision((value) => value + 1);
   }, [videoRef]);
-  return { issue, directUrl, retry, format };
+  return { issue, directUrl, retry, format, quality, setQuality, qualityInfo };
+}
+
+export function PlaybackQualityControl({ quality, onChange, info }: {
+  quality: PlaybackQuality; onChange: (quality: PlaybackQuality) => void; info: PlaybackQualityInfo;
+}) {
+  const { locale } = useTranslation();
+  const zh = locale.startsWith("zh");
+  return <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm" data-playback-quality>
+    {info.canSelect && <label className="flex items-center gap-2">
+      <span>{zh ? "画质" : "Quality"}</span>
+      <select aria-label={zh ? "回放画质" : "Playback quality"} value={quality} onChange={event => onChange(event.target.value as PlaybackQuality)}
+        className="min-h-11 max-w-full rounded-md border border-white/30 bg-transparent px-2 text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+        <option className="bg-background text-foreground" value="auto">{zh ? "自动" : "Auto"}</option>
+        <option className="bg-background text-foreground" value="high">{zh ? "高画质（原始录像）" : "High (original recording)"}</option>
+      </select>
+    </label>}
+    {info.height && <span className="text-white/80" role="status">{info.height}p{!info.canSelect ? zh ? " · 源画质" : " · Source quality" : ""}</span>}
+  </div>;
 }
 
 export function PlaybackCompatibility({ issue, directUrl, src, isHls, sharePath, onRetry, onExternalPlay, onRecheck, recheckBusy }: {

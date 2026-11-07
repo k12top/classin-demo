@@ -60,7 +60,9 @@ function fixture(touch = false) {
   const recovery = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/agora-credential-recovery.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: recovery, DOMException });
   const portraitHelpers = {};
-  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/share-portrait.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: portraitHelpers });
+  const mediaConfig = {};
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/config.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: mediaConfig });
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/share-portrait.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: portraitHelpers, require: name => { if (name === './config') return mediaConfig; throw Error(name); } });
   const profile = { width: 1280, height: 720, frameRate: 30, bitrateKbps: 1200 };
   vm.runInNewContext(source, { exports, console, DOMException, Error, ResizeObserver, Date: FixtureDate, window: { matchMedia: () => ({ matches: touch }) },
     require(name) {
@@ -416,6 +418,7 @@ test("unchanged video target measurements do not broadcast new classroom snapsho
 test("weak downlink progressively reduces and pauses video without touching audio or local publication", async () => {
   const f = fixture();
   await f.provider.connect(credential, "Teacher");
+  await f.provider.setScreenDualStreamEnabled(true);
   await f.provider.toggleMicrophone();
   await f.provider.toggleCamera();
   const microphone = f.tracks.find(track => track.deviceId === "microphone");
@@ -459,6 +462,7 @@ test("weak downlink progressively reduces and pauses video without touching audi
 test("screen publisher congestion constrains all local video while preserving the microphone and share capture", async () => {
   const f = fixture();
   await f.provider.connect(credential, "Teacher");
+  await f.provider.setScreenDualStreamEnabled(true);
   await f.provider.toggleMicrophone(); await f.provider.toggleCamera(); await f.provider.startScreenShare();
   for (let at = 0; at <= 12_000; at += 2_000) {
     await f.network(at, 5, 0, 1);
@@ -469,19 +473,19 @@ test("screen publisher congestion constrains all local video while preserving th
   assert.equal(state.network.publishMode, "minimal");
   assert.equal(state.network.receiveMode, "minimal");
   assert.equal(f.tracks.find(track => track.deviceId === "main").encoder.bitrateMax, 120);
-  assert.equal(f.tracks.find(track => track.deviceId === "composite-output").encoder.bitrateMax, 220);
+  assert.equal(f.tracks.find(track => track.deviceId === "composite-output").encoder.bitrateMax, 650);
   assert.equal(f.tracks.find(track => track.deviceId === "microphone").mediaTrack.enabled, true);
   assert.ok(f.tracks.every(track => !track.closed));
   assert.equal(state.local.screenSharing, true);
   assert.equal(f.clients[1].dualStream, true);
-  assert.equal(f.clients[1].lowStream.width, 640);
+  assert.equal(f.clients[1].lowStream.width, 960);
   await f.provider.setScreenShareSelection(null);
   assert.equal(f.clients[1].left, true);
   assert.equal(f.tracks.find(track => track.deviceId === "composite-output").closed, undefined);
   await f.provider.setScreenShareSelection(String(credential.screenShare.rtcUid));
   assert.equal(f.clients[2].dualStream, true, "resumed screen publishers retain dual stream");
-  assert.equal(f.clients[2].lowStream.height, 360);
-  assert.equal(f.tracks.find(track => track.deviceId === "composite-output").encoder.bitrateMax, 220);
+  assert.equal(f.clients[2].lowStream.height, 540);
+  assert.equal(f.tracks.find(track => track.deviceId === "composite-output").encoder.bitrateMax, 650);
   await f.provider.stopScreenShare();
   for (let at = 14_000; at <= 34_000; at += 2_000) await f.network(at, 1, 1);
   assert.equal(f.provider.getSnapshot().network.publishMode, "normal");
@@ -554,14 +558,15 @@ test("solo and recorder video surfaces upgrade to high and return to low after s
 });
 
 test("a shared camera stays high until its last enlarged surface is removed", async () => {
-  const { provider, clients, streamTypes, observers } = fixture();
+  const { provider, clients, streamTypes, observers, subscriptions } = fixture();
   await provider.connect(credential, "教师");
   clients[0].emit("user-published", { uid: 2, hasVideo: true }, "video"); await tick();
   const podium = videoSurface(160, 90), stage = videoSurface(800, 450), preview = videoSurface(640, 360);
   provider.attachVideo("2", podium); provider.attachVideo("2", stage); provider.attachVideo("2", preview); await tick();
-  assert.deepEqual(streamTypes.at(-1), [2, 0]);
+  assert.ok(subscriptions.some(([uid, kind]) => uid === 2 && kind === "video"));
+  assert.equal(streamTypes.length, 0, "high is the SDK default before a first subscription");
   provider.detachVideo("2", stage); await tick();
-  assert.equal(streamTypes.length, 1);
+  assert.equal(streamTypes.length, 0);
   provider.detachVideo("2", preview); await tick();
   assert.deepEqual(streamTypes.at(-1), [2, 1]);
   assert.equal(observers[1].disconnected, true);
@@ -570,15 +575,17 @@ test("a shared camera stays high until its last enlarged surface is removed", as
 });
 
 test("publishing or republishing a camera applies the already enlarged layout", async () => {
-  const { provider, clients, streamTypes } = fixture();
+  const { provider, clients, streamTypes, subscriptions } = fixture();
   await provider.connect(credential, "教师");
   provider.attachVideo("2", videoSurface(375, 211));
   const camera = { uid: 2, hasVideo: true };
   clients[0].emit("user-published", camera, "video"); await tick();
-  assert.deepEqual(streamTypes, [[2, 0]]);
+  assert.deepEqual(subscriptions, [[2, "video"]]);
+  assert.deepEqual(streamTypes, [], "high is the SDK default");
   camera.hasVideo = false; clients[0].emit("user-unpublished", camera, "video");
   camera.hasVideo = true; clients[0].emit("user-published", camera, "video"); await tick();
-  assert.deepEqual(streamTypes, [[2, 0], [2, 0]]);
+  assert.deepEqual(subscriptions, [[2, "video"], [2, "video"]]);
+  assert.deepEqual(streamTypes, []);
   await provider.disconnect();
 });
 
@@ -690,7 +697,8 @@ test("720p sharing retains teacher thumbnails and audio, then restores the large
   assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, false);
   assert.ok(streamTypes.some(([uid, type]) => uid === 2 && type === 1));
   assert.ok(subscriptions.some(([uid, kind]) => uid === 2 && kind === "audio"));
-  assert.ok(streamTypes.some(([uid,type])=>uid===screen.uid&&type===0));
+  assert.ok(subscriptions.some(([uid,kind])=>uid===screen.uid&&kind==="video"));
+  assert.equal(streamTypes.some(([uid,type])=>uid===screen.uid&&type===1),false,"screen starts on default high");
   screen.hasVideo = false; clients[0].emit("user-unpublished", screen, "video"); await tick();
   assert.equal(provider.getSnapshot().participants.find(p => p.id === "2").videoSubscriptionPaused, false);
   assert.equal(subscriptions.filter(([uid, kind]) => uid === 2 && kind === "video").length, 1);
@@ -1007,5 +1015,92 @@ test("a late screen subscription is released instead of restoring an obsolete se
   const change=provider.setScreenShareSelection(null);finish();await change;await tick();
   assert.equal(provider.getSnapshot().participants.find(p=>p.id===String(screen.uid)).videoSubscriptionPaused,true);
   assert.ok(clients[0].unsubscriptions.some(([uid,kind])=>uid===screen.uid&&kind==='video'));
+  await provider.disconnect();
+});
+
+test("repeated foreground refresh preserves healthy screen, camera and audio subscriptions", async () => {
+  const { provider, clients, subscriptions } = fixture();
+  provider.renderVideoTarget = () => {};
+  await provider.connect(credential, "Teacher");
+  const native = { readyState: "live" };
+  const camera = { uid: 2, hasVideo: true, hasAudio: true,
+    videoTrack: { getMediaStreamTrack: () => native },
+    audioTrack: { getMediaStreamTrack: () => native, play() {} } };
+  const screen = { uid: 1_500_000_000, hasVideo: true, hasAudio: false,
+    videoTrack: { getMediaStreamTrack: () => native } };
+  for (const user of [camera, screen]) {
+    clients[0].remoteUsers.push(user);
+    clients[0].emit("user-published", user, "video");
+    provider.attachVideo(String(user.uid), videoSurface(160, 120));
+  }
+  await tick(); await tick();
+  const count = subscriptions.length;
+  for (let i = 0; i < 3; i++) await provider.recoverMedia(false, { preserveHealthySubscriptions: true });
+  assert.equal(subscriptions.length, count, "tab focus must not subscribe healthy video again");
+  assert.equal(clients[0].unsubscriptions, undefined, "tab focus must not interrupt any active track");
+  await provider.recoverMedia();
+  assert.ok(clients[0].unsubscriptions.some(([uid, kind]) => uid === 2 && kind === 'video'));
+  assert.ok(subscriptions.length > count, "actual transport recovery still rebuilds subscriptions");
+  await provider.disconnect();
+});
+
+test("an unavailable camera low stream falls back to high instead of hiding the person", async () => {
+  const { provider, clients, subscriptions } = fixture();
+  await provider.connect(credential, "Teacher");
+  clients[0].setRemoteVideoStreamType = async () => { throw Error("dual stream unsupported"); };
+  const camera = { uid: 2, hasVideo: true, hasAudio: false };
+  clients[0].remoteUsers.push(camera);
+  provider.attachVideo("2", videoSurface(160, 120));
+  clients[0].emit("user-published", camera, "video");
+  await tick(); await tick();
+  assert.ok(subscriptions.some(([uid, kind]) => uid === 2 && kind === 'video'));
+  assert.equal(provider.getSnapshot().participants.find(p => p.id === '2').videoSubscriptionPaused, false);
+  await provider.disconnect();
+});
+
+test("the network cadence repairs a missed publication and retries a transient subscription failure", async () => {
+  const f = fixture(); await f.provider.connect(credential, "Teacher");
+  const camera = { uid: 2, hasVideo: true, hasAudio: false };
+  f.clients[0].remoteUsers.push(camera);
+  f.provider.attachVideo('2', videoSurface(160, 120));
+  let attempts = 0;
+  f.clients[0].subscribe = async () => { if (++attempts === 1) throw Error('transient subscription failure'); };
+  await f.network(2_000, 1, 1);
+  assert.equal(attempts, 1);
+  assert.equal(f.provider.getSnapshot().participants.find(p => p.id === '2').hasVideo, true);
+  await f.network(4_000, 1, 1);
+  assert.equal(attempts, 2);
+  assert.equal(f.provider.getSnapshot().participants.find(p => p.id === '2').videoSubscriptionPaused, false);
+  await f.provider.disconnect();
+});
+
+test("foreground refresh rebuilds ended video while leaving healthy audio playing", async () => {
+  const { provider, clients, subscriptions } = fixture(); await provider.connect(credential, "Teacher");
+  const camera = { uid: 2, hasVideo: true, hasAudio: true,
+    videoTrack: { getMediaStreamTrack: () => ({ readyState: 'ended' }) },
+    audioTrack: { getMediaStreamTrack: () => ({ readyState: 'live' }), play() {} } };
+  clients[0].remoteUsers.push(camera);
+  clients[0].emit('user-published', camera, 'video');
+  provider.attachVideo('2', videoSurface(160, 120)); await tick();
+  subscriptions.length = 0;
+  await provider.recoverMedia(false, { preserveHealthySubscriptions: true });
+  assert.ok(subscriptions.some(([uid, kind]) => uid === 2 && kind === 'video'));
+  assert.equal(subscriptions.some(([, kind]) => kind === 'audio'), false);
+  await provider.disconnect();
+});
+
+test("a detected transport interruption overrides foreground subscription preservation", async () => {
+  const { provider, clients, subscriptions } = fixture();
+  provider.renderVideoTarget = () => {};
+  await provider.connect(credential, 'Teacher');
+  const remote = { uid: 2, hasVideo: true, hasAudio: false,
+    videoTrack: { getMediaStreamTrack: () => ({ readyState: 'live' }) } };
+  clients[0].remoteUsers.push(remote);
+  provider.attachVideo('2', videoSurface(160, 120));
+  clients[0].emit('user-published', remote, 'video'); await tick();
+  const before = subscriptions.length;
+  clients[0].emit('connection-state-change', 'RECONNECTING', 'CONNECTED');
+  await provider.recoverMedia(false, { preserveHealthySubscriptions: true });
+  assert.equal(subscriptions.length, before + 1, 'retained live tracks on an interrupted transport are resubscribed');
   await provider.disconnect();
 });

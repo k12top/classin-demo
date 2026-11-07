@@ -41,7 +41,9 @@ test("fallback constrains camera and screen bitrate, with unknown quality shown 
     const low = networkVideoEncoder("low", screen)!;
     const minimal = networkVideoEncoder("minimal", screen)!;
     assert.ok(minimal.bitrateMax < low.bitrateMax);
-    assert.ok(minimal.width < low.width);
+    // Screen fallback preserves readable text; it reduces frames and bitrate.
+    if (screen) assert.equal(minimal.width, low.width);
+    else assert.ok(minimal.width < low.width);
     assert.ok(minimal.frameRate < low.frameRate);
   }
   assert.equal(networkSignalLevel(0), null);

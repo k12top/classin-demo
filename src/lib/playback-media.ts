@@ -1,6 +1,8 @@
 import type Hls from "hls.js";
 
 export type PlaybackIssue = "network" | "decode" | "unsupported" | "timeout" | "unauthorized" | "forbidden" | "unavailable";
+export type PlaybackQuality = "auto" | "high";
+export type PlaybackQualityInfo = { height: number | null; adaptive: boolean; canSelect: boolean };
 
 /** Only our authenticated recording endpoints can resolve a private media URL. */
 export function recordingSourceRequest(src: string): string | null {
@@ -52,6 +54,8 @@ type PlaybackMediaOptions = {
   userAgent?: string;
   onFormat?: (format: "hls" | "mp4") => void;
   resume?: boolean;
+  quality?: PlaybackQuality;
+  onQualityInfo?: (info: PlaybackQualityInfo) => void;
 };
 
 /** Explicit HarmonyOS signatures use the known-compatible MP4 route. Capability/error fallback covers hidden UAs. */
@@ -69,6 +73,7 @@ export function connectPlaybackMedia(video: HTMLVideoElement, src: string, isHls
   let position = options.startAt || 0;
   let wantsPlayback = Boolean(options.resume), resume = Boolean(options.resume);
   let hls: Hls | null = null;
+  let adaptive = false, canSelect = !isHls && Boolean(options.hlsSrc);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const clearTimer = () => { clearTimeout(timer); timer = undefined; };
   const report = (issue: PlaybackIssue | null) => { if (!disposed) options.onIssue(issue); };
@@ -95,6 +100,7 @@ export function connectPlaybackMedia(video: HTMLVideoElement, src: string, isHls
   };
   const metadata = () => {
     clearTimer();
+    options.onQualityInfo?.({ height: video.videoHeight || null, adaptive, canSelect });
     if (position && Number.isFinite(position)) {
       const end = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.1) : position;
       video.currentTime = Math.min(position, end);
@@ -113,6 +119,7 @@ export function connectPlaybackMedia(video: HTMLVideoElement, src: string, isHls
   async function attach(nextFormat: "mp4" | "hls", source: string) {
     const epoch = ++generation;
     format = nextFormat;
+    adaptive = false; canSelect = !isHls && Boolean(options.hlsSrc);
     clearTimer();
     changingSource = true;
     hls?.destroy(); hls = null;
@@ -120,6 +127,7 @@ export function connectPlaybackMedia(video: HTMLVideoElement, src: string, isHls
     changingSource = false;
     if (disposed) return;
     options.onFormat?.(format);
+    options.onQualityInfo?.({ height: null, adaptive, canSelect });
     report(null); options.onDirectUrl(null); wait();
     try {
       if (format === "mp4") {
@@ -144,6 +152,23 @@ export function connectPlaybackMedia(video: HTMLVideoElement, src: string, isHls
       // Inline demuxing keeps small buffered fragments on the verified path.
       const player = new HlsPlayer({ enableWorker: false, backBufferLength: 30, maxBufferLength: 20, maxMaxBufferLength: 60 });
       hls = player;
+      player.on(HlsPlayer.Events.MANIFEST_PARSED, () => {
+        if (disposed || epoch !== generation) return;
+        const levels = player.levels ?? [];
+        if (options.quality === "high" && levels.length) {
+          // Level order is not guaranteed to follow resolution or bitrate.
+          const highest = levels.reduce((best, level, index) =>
+            (level.height || 0) > (levels[best].height || 0) || ((level.height || 0) === (levels[best].height || 0) && level.bitrate > levels[best].bitrate) ? index : best, 0);
+          player.loadLevel = highest;
+        }
+        adaptive = levels.length > 1;
+        canSelect = adaptive || (!isHls && Boolean(options.hlsSrc));
+        options.onQualityInfo?.({ height: levels[player.currentLevel]?.height || null, adaptive, canSelect });
+      });
+      player.on(HlsPlayer.Events.LEVEL_SWITCHED, (_event, data) => {
+        if (disposed || epoch !== generation) return;
+        options.onQualityInfo?.({ height: player.levels[data.level]?.height || video.videoHeight || null, adaptive, canSelect });
+      });
       player.on(HlsPlayer.Events.ERROR, (_event, data) => {
         if (disposed || epoch !== generation || !data.fatal) return;
         clearTimer();
@@ -159,7 +184,9 @@ export function connectPlaybackMedia(video: HTMLVideoElement, src: string, isHls
   }
   void Promise.resolve().then(() => {
     if (disposed) return;
-    const preferredHls = !isHls && options.hlsSrc && !prefersMp4Playback(ua);
+    // Original MP4 bypasses ABR when explicitly requested; it never invents
+    // higher resolution than the recorded source contains.
+    const preferredHls = !isHls && options.hlsSrc && options.quality !== "high" && !prefersMp4Playback(ua);
     return attach(isHls || preferredHls ? "hls" : "mp4", preferredHls ? options.hlsSrc! : src);
   });
   return () => {

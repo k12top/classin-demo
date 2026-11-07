@@ -147,7 +147,7 @@ test("HLS fatal errors surface and the player is destroyed on retry", async () =
     static isSupported() { return true; }
     static Events = { ERROR: "error" };
     static ErrorTypes = { NETWORK_ERROR: "network", MEDIA_ERROR: "media" };
-    on(_event: string, listener: typeof fatal) { fatal = listener; }
+    on(event: string, listener: typeof fatal) { if (event === "error") fatal = listener; }
     loadSource(value: string) { assert.equal(value, src); }
     attachMedia(value: unknown) { assert.equal(value, video); }
     destroy() { destroyed = true; }
@@ -215,4 +215,49 @@ test("Chromium uses MSE even when native HLS is advertised but metadata preloadi
   const cleanup=connectPlaybackMedia(video.asElement(),src,false,{hlsSrc:"/manifest.m3u8",userAgent:"Mozilla/5.0 Chrome/156.0 Safari/537.36",
     onIssue:()=>{},onDirectUrl:()=>{},loadHls:async()=>({default:MseHls}) as never,fetcher:async()=>assert.fail("MSE HLS should not resolve MP4")});
   await flush();assert.equal(attached,true);assert.equal(video.src,"blob:mse");cleanup();
+});
+
+test("high quality uses the original recording instead of the paired HLS and retains position", async () => {
+  const video = new Video();
+  let height: number | null = null;
+  Object.assign(video, { videoHeight: 720 });
+  const cleanup = connectPlaybackMedia(video.asElement(), src, false, {
+    quality: 'high', hlsSrc: '/manifest.m3u8', startAt: 37,
+    onIssue: () => {}, onDirectUrl: () => {}, onQualityInfo: info => { height = info.height; },
+    loadHls: async () => { throw Error('High mode must use original MP4'); },
+    fetcher: async () => Response.json({url:mediaUrl,format:'mp4'}),
+  });
+  await flush(); video.emit('loadedmetadata');
+  assert.equal(video.src, mediaUrl);
+  assert.equal(video.currentTime, 37);
+  assert.equal(height, 720, 'the original source is never presented as a fabricated 1080p stream');
+  cleanup();
+});
+
+test("HLS high mode selects the highest actual resolution and metadata retains the quality control", async () => {
+  const video = new Video();
+  let info: import('../src/lib/playback-media').PlaybackQualityInfo | null = null;
+  class QualityHls {
+    static instances: QualityHls[] = [];
+    static isSupported() { return true; }
+    static Events = { ERROR:'error', MANIFEST_PARSED:'manifest', LEVEL_SWITCHED:'level' };
+    static ErrorTypes = { NETWORK_ERROR:'network', MEDIA_ERROR:'media' };
+    levels = [{ height:1080, bitrate:3500000 }, { height:360, bitrate:400000 }, { height:720, bitrate:1800000 }];
+    currentLevel = 1; loadLevel = -1;
+    listeners = new Map<string, (...args: unknown[]) => void>();
+    constructor() { QualityHls.instances.push(this); }
+    on(event: string, listener: (...args: unknown[]) => void) { this.listeners.set(event,listener); }
+    loadSource() {} attachMedia() {} destroy() {}
+  }
+  const cleanup = connectPlaybackMedia(video.asElement(), '/manifest.m3u8', true, {
+    quality:'high', onIssue:()=>{}, onDirectUrl:()=>{}, onQualityInfo: value => { info = value; },
+    loadHls: async()=>({default:QualityHls}) as never,
+  });
+  await flush(); const player = QualityHls.instances[0]; player.listeners.get('manifest')!();
+  assert.equal(player.loadLevel,0);
+  Object.assign(video,{ videoHeight:1080 }); video.emit('loadedmetadata');
+  assert.deepEqual(info,{ height:1080, adaptive:true, canSelect:true });
+  player.listeners.get('level')!('level',{level:2});
+  assert.equal((info as unknown as {height:number}).height,720);
+  cleanup();
 });

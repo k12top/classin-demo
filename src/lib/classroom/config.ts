@@ -79,10 +79,10 @@ export const classroomMediaProfile: ClassroomMediaProfile = {
   // classroom settings when they need to reduce attendee bandwidth.
   ...classroomVideoPresets.hd,
   recording: {
-    width: 1280,
-    height: 720,
+    width: 1920,
+    height: 1080,
     frameRate: 15,
-    bitrateKbps: 1800,
+    bitrateKbps: 3500,
   },
 };
 
