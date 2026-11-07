@@ -134,6 +134,7 @@ type Props = {
   groupLinks: Array<{ group: GroupNode }>;
   initialSessions?: CourseSessionItem[];
   onManageRoster: (role: "assistant" | "student") => void;
+  onSessionsChanged?: () => void | Promise<void>;
 };
 
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0] as const;
@@ -176,6 +177,7 @@ export function CourseSessionManager({
   groupLinks,
   initialSessions,
   onManageRoster,
+  onSessionsChanged,
 }: Props) {
   const router = useRouter();
   const { t, locale } = useTranslation();
@@ -687,6 +689,7 @@ export function CourseSessionManager({
       setEditingSession(null);
       setTitle("");
       await loadSessions();
+      await onSessionsChanged?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("courseSessions.createFailed"));
     } finally {
@@ -742,6 +745,7 @@ export function CourseSessionManager({
         throw new Error(payload.error || t("courseSessions.lifecycleFailed"));
       }
       await loadSessions();
+      await onSessionsChanged?.();
       router.refresh();
     } catch (cause) {
       const message =

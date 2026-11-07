@@ -154,6 +154,7 @@ export function CaptionsPanel({
     bilingual: t("classroom.v3.bilingual"),
     translated: t("classroom.v3.translatedOnly"),
   };
+  const displayModeOptions = Object.entries(displayLabels).filter(([value]) => value !== "off");
   const draftMode = applying || applyFailed ? draftModeState : displayMode;
   const draftLanguage = applying || applyFailed ? draftLanguageState : preferredLanguage;
   const draftOverlay = applying || applyFailed ? draftOverlayState : overlayVisible;
@@ -245,8 +246,8 @@ export function CaptionsPanel({
         </div>
 
             <div className="classroom-v3-caption-view-settings">
-              <CaptionSelect label={t("classroom.v3.displayMode")} value={draftMode} disabled={Boolean(busy)}
-                options={Object.entries(displayLabels).map(([value, label]) => ({ value, label }))}
+              <CaptionSelect label={t("classroom.v3.displayMode")} value={draftMode === "off" ? "bilingual" : draftMode} disabled={Boolean(busy)}
+                options={displayModeOptions.map(([value, label]) => ({ value, label }))}
                 onChange={value => saveSettings({ displayMode: value as CaptionDisplayMode })} />
               <CaptionSelect label={t("classroom.v3.myCaptionLanguage")} value={draftLanguage}
                 disabled={Boolean(busy) || !availability[configuredProvider]}

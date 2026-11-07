@@ -1407,6 +1407,7 @@ export default function TeacherCourseDetail({
             students={course.students}
             groupLinks={course.groupLinks}
             initialSessions={course.sessions}
+            onSessionsChanged={fetchCourse}
             onManageRoster={(role) =>
               setActiveTab(role === "assistant" ? "teachers" : "members")
             }
