@@ -2,7 +2,7 @@
 const { app, BrowserWindow } = require("electron");
 const fs = require("node:fs/promises"), path = require("node:path"), http = require("node:http"), assert = require("node:assert/strict"), esbuild = require("esbuild");
 const { execFileSync } = require("node:child_process");
-const root = path.resolve(__dirname, "../.."), cache = path.join(root, "node_modules/.cache/screen-board-restore"), output = path.join(root, "outputs/classroom-screen-board-restore-2026-10-18");
+const root = path.resolve(__dirname, "../.."), cache = path.join(root, "node_modules/.cache/screen-board-restore"), output = path.join(root, "outputs/classroom-local-camera-share-2026-11-08");
 let win, server, payload, role = "teacher", recorder = false, actions = [];
 const member = (userId, displayName, rtcUid) => ({ userId, displayName, avatar: "", role: userId === "teacher" ? "teacher" : "student", rtcUids: [rtcUid], screenUids: [rtcUid + 100], signalingUserIds: [userId + "-sig"], online: true, onStage: true, stageState: "accepted", handRaisedAt: null, microphoneAllowed: true, cameraAllowed: true, whiteboardWritable: false, chatMuted: false, rewardCount: 0, screenShareState: userId === "teacher" ? "idle" : "accepted", screenShareRequestedAt: null });
 const seed = () => {
@@ -35,9 +35,9 @@ async function main() {
       let snapshot={connectionState:'connected',participants,focusedParticipantId:null,network:{uplinkQuality:1,downlinkQuality:1,latencyMs:20,packetLossPercent:0},local:{microphoneOn:false,cameraOn:true,screenSharing:false,videoQuality:'hd'}};
       const emit=()=>listener?.({...snapshot,local:{...snapshot.local},participants:[...snapshot.participants]});
       const provider=new Proxy({getSnapshot:()=>snapshot,subscribe:cb=>{listener=cb;emit();return()=>{listener=null}},subscribeTokenExpiry:()=>()=>{},subscribeCaptions:()=>()=>{},connect:async()=>emit(),disconnect:async()=>{},getMicrophoneLevel:()=>0,
-        attachVideo:(id,element)=>{const marker=document.createElement('div');marker.dataset.fixtureTrack=id;marker.className='fixture-video';marker.textContent=id==='101'?'主讲老师':id==='102'?'Mia':id==='103'?'Leo':'共享屏幕';element.replaceChildren(marker)},detachVideo:(id,element)=>element.replaceChildren(),
-        startScreenShare:async authorize=>{if(window.cancelCapture)throw new DOMException('Cancelled','NotAllowedError');await authorize();snapshot={...snapshot,local:{...snapshot.local,screenSharing:true}};emit()},
-        stopScreenShare:async()=>{snapshot={...snapshot,local:{...snapshot.local,screenSharing:false}};emit()},toggleCamera:async()=>{},toggleMicrophone:async()=>{},
+        attachVideo:(id,element)=>{const canvas=document.createElement('canvas');canvas.width=640;canvas.height=360;const ctx=canvas.getContext('2d');ctx.fillStyle=id==='101'?'#263b53':id==='102'?'#425347':'#4c3b55';ctx.fillRect(0,0,640,360);ctx.fillStyle='white';ctx.font='28px sans-serif';ctx.fillText(id==='101'?'主讲老师':id==='102'?'Mia':id==='103'?'Leo':'共享屏幕',40,190);const video=document.createElement('video');video.dataset.fixtureTrack=id;video.className='fixture-video';video.autoplay=true;video.muted=true;video.playsInline=true;video.srcObject=canvas.captureStream(1);element.replaceChildren(video);video.play().catch(()=>{})},detachVideo:(id,element)=>{element.querySelector('video')?.srcObject?.getTracks().forEach(track=>track.stop());element.replaceChildren()},
+        startScreenShare:async authorize=>{if(window.cancelCapture)throw new DOMException('Cancelled','NotAllowedError');await authorize();snapshot={...snapshot,participants:[...participants,{id:window.fixtureRole==='teacher'?'201':'202',kind:'screen',isLocal:true,hasVideo:true,hasAudio:false}],local:{...snapshot.local,screenSharing:true,screenShareMode:'portrait'}};emit()},
+        stopScreenShare:async()=>{snapshot={...snapshot,participants:[...participants],local:{...snapshot.local,screenSharing:false}};emit()},toggleCamera:async()=>{snapshot.local.cameraOn=!snapshot.local.cameraOn;const camera=participants.find(item=>item.isLocal);camera.hasVideo=snapshot.local.cameraOn;emit();return snapshot.local.cameraOn},toggleMicrophone:async()=>{},
       },{get:(target,key)=>key==='then'?undefined:key in target?target[key]:async()=>{}});
       window.fixture={provider,remote:async(active,user='teacher')=>{const response=await fetch('/fixture/remote',{method:'POST',body:JSON.stringify({active,user})});const result=await response.json();snapshot={...snapshot,participants:active?[...participants,{id:String(result.uid),displayName:'共享屏幕',kind:'screen',isLocal:false,hasVideo:true,hasAudio:false}]:participants};emit();window.fixtureSignal?.({courseId:'session-fixture',revision:result.revision,topic:'runtime'},'teacher-sig')},externalStop:()=>provider.stopScreenShare()};export const createClassroomMediaProvider=async()=>provider;
     `,
@@ -48,7 +48,7 @@ async function main() {
   } }] });
   const cssFile = path.join(cache, "global.css");
   execFileSync("node", [require.resolve("tailwindcss/lib/cli.js"), "-i", path.join(root, "src/app/globals.css"), "-o", cssFile, "--minify"], { cwd: root, stdio: "pipe" });
-  const css = await fs.readFile(cssFile, "utf8") + '\n' + (await Promise.all(["classroom-classin.css", "classroom-light.css"].map(name => fs.readFile(path.join(root, "src/app", name), "utf8")))).join('\n') + '\n' + (bundle.outputFiles.find(file => file.path.endsWith('.css'))?.text || '');
+  const css = await fs.readFile(cssFile, "utf8") + '\n' + (await Promise.all(["classroom-classin.css", "classroom-light.css", "classroom-responsive.css"].map(name => fs.readFile(path.join(root, "src/app", name), "utf8")))).join('\n') + '\n' + (bundle.outputFiles.find(file => file.path.endsWith('.css'))?.text || '');
   server = http.createServer(async (request, response) => {
     if (request.url === '/fixture.js') { response.setHeader('Content-Type','application/javascript');return response.end(bundle.outputFiles.find(file=>file.path.endsWith('.js')).text); }
     if (request.url === '/fixture.css') { response.setHeader('Content-Type','text/css');return response.end(css); }
@@ -76,19 +76,33 @@ async function main() {
   const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   const wait=async code=>{const end=Date.now()+12000;while(!await run(`Boolean(${code})`)){if(Date.now()>end)throw new Error('timeout: '+code+'; '+errors.join(';'));await pause(40)}};
   const point=async selector=>run(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error(${JSON.stringify('missing '+selector)});const r=e.getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2}})()`);
-  const click=async selector=>{const p=await point(selector);for(const type of ['mousePressed','mouseReleased'])await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type,...p,button:'left',buttons:type==='mousePressed'?1:0,clickCount:1})};
+  const click=async selector=>{const startsShare=await run(`document.querySelector(${JSON.stringify(selector)})?.dataset.dockAction==='share'`);const p=await point(selector);for(const type of ['mousePressed','mouseReleased'])await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type,...p,button:'left',buttons:type==='mousePressed'?1:0,clickCount:1});if(startsShare){await wait(`document.querySelector('.classroom-share-menu')`);await click('.classroom-share-menu > button:nth-of-type(2)')}};
   const shot=async name=>{await pause(350);await fs.writeFile(path.join(output,name+'.png'),(await win.webContents.capturePage()).toPNG())};
   const seats=()=>run(`Array.from(document.querySelectorAll('.classroom-v3-seat-copy strong')).map(e=>e.childNodes[0].textContent.trim())`);
   const boardCount=()=>run(`document.querySelectorAll('.classroom-v3-board-item').length`);
   const style=()=>run(`Array.from(document.querySelectorAll('.classroom-v3-board-item')).map(e=>({style:e.getAttribute('style'),circle:e.classList.contains('is-circle'),locked:e.classList.contains('is-locked')}))`);
   const load=async(nextRole,nextRecorder=false)=>{role=nextRole;recorder=nextRecorder;payload=seed();actions=[];await win.loadURL(`http://127.0.0.1:${server.address().port}/?sessionId=session-fixture&lang=zh-CN${recorder?'&is_recorder=1&recorderToken=fixture&recordingId=fixture':''}`);await wait(`document.querySelectorAll('.classroom-v3-board-item').length===2`);await pause(300)};
-  const shareButton='button[title="桌面共享"],button[title="停止共享"]';
+  const shareButton='button[data-dock-action="share"],button[data-dock-action="stop-share"]';
+  const localSeat='.classroom-v3-seat.has-sharing-camera';
+  const checkSelfPreview=async()=>{
+    await wait(`document.querySelector('${localSeat} video[data-fixture-track="101"]')?.readyState>=2`);
+    assert.equal(await run(`document.querySelector('${localSeat} video').srcObject.getVideoTracks()[0].readyState`),'live');
+    assert.equal(await run(`document.querySelector('${localSeat} .classroom-seat-sharing').textContent.trim()`),'正在共享');
+    assert.equal(await run(`document.querySelectorAll('${localSeat} [data-participant-id="201"]').length`),0,'self preview plays camera, never shared desktop');
+    assert.ok(await run(`(()=>{const seat=document.querySelector('${localSeat}').getBoundingClientRect(),badge=document.querySelector('${localSeat} .classroom-seat-sharing').getBoundingClientRect();return badge.top>=seat.top&&badge.bottom<=seat.bottom&&badge.right<=seat.right&&badge.height<seat.height/2})()`),'sharing badge stays inside camera tile');
+  };
   await load('teacher');
   assert.deepEqual(await seats(),['Leo','主讲老师']);const original=await style(),saved=JSON.stringify(payload.runtime.composition.boardItems),order=[...payload.runtime.composition.seatOrder];const boardInstance=await run(`document.querySelector('.fixture-whiteboard').dataset.instance`);
   await shot('whiteboard-before');
   await click(shareButton);await wait(`document.querySelector('.is-screen-share')&&document.querySelectorAll('.classroom-v3-board-item').length===0`);
+  await checkSelfPreview();
+  await run('fixture.provider.toggleCamera()');await wait(`!document.querySelector('${localSeat}')`);
+  assert.equal(await run(`document.querySelectorAll('.classroom-v3-seat.is-sharing video').length`),0,'camera off removes self video');
+  await run('fixture.provider.toggleCamera()');await checkSelfPreview();
   assert.deepEqual(await seats(),['Leo','Mia','主讲老师']);assert.equal(await run(`document.querySelectorAll('.classroom-v3-seat-controls button[title="移动到黑板"]').length`),0);assert.equal(await run(`document.querySelectorAll('button.classroom-v3-seat-preview').length`),0,'sharing cannot reset a saved board placement');assert.equal(JSON.stringify(payload.runtime.composition.boardItems),saved);await shot('screen-sharing');
+  win.setContentSize(390,844);await checkSelfPreview();await shot('mobile-local-camera-sharing');win.setContentSize(1440,1000);
   await click(shareButton);await wait(`!document.querySelector('.is-screen-share')&&document.querySelectorAll('.classroom-v3-board-item').length===2`);await pause(300);
+  assert.equal(await run(`document.querySelectorAll('.classroom-v3-seat.is-sharing').length`),0,'stop clears sharing badge');
   assert.deepEqual(await style(),original);assert.deepEqual(payload.runtime.composition.seatOrder,order);assert.equal(await run(`document.querySelector('.fixture-whiteboard').dataset.instance`),boardInstance,'whiteboard remains mounted');await shot('whiteboard-restored');
   await click(shareButton);await wait(`document.querySelectorAll('.classroom-v3-board-item').length===0`);await run('fixture.externalStop()');await wait(`document.querySelectorAll('.classroom-v3-board-item').length===2`);
   await run('window.cancelCapture=true');await click(shareButton);await pause(300);assert.equal(await boardCount(),2,'cancelled picker keeps board cameras');await run('window.cancelCapture=false');
@@ -100,7 +114,7 @@ async function main() {
   win.setContentSize(390,844);await load('teacher');await run(`fixture.remote(true)`);await wait(`document.querySelectorAll('.classroom-v3-seat').length===3&&document.querySelectorAll('.classroom-v3-board-item').length===0`);await shot('mobile-screen-sharing');assert.equal(await boardCount(),0);assert.equal((await seats()).length,3);await run('fixture.remote(false)');await wait(`document.querySelectorAll('.classroom-v3-board-item').length===2`);await shot('mobile-whiteboard-restored');
   win.setContentSize(1440,1000);await load('teacher',true);await run('fixture.remote(true)');await wait(`document.querySelectorAll('.classroom-v3-recorder-camera').length===3&&document.querySelectorAll('.classroom-v3-board-item').length===0`);await shot('recorder-screen-sharing');assert.equal(await boardCount(),0);assert.equal(await run(`document.querySelectorAll('.classroom-v3-recorder-camera').length`),3);await run('fixture.remote(false)');await wait(`document.querySelectorAll('.classroom-v3-board-item').length===2&&document.querySelectorAll('.classroom-v3-recorder-camera').length===1`);
   assert.deepEqual(errors,[]);
-  console.log('PASS full production ClassroomV3: local start/stop, browser stop, cancelled picker, remote teacher/student views, original geometry/shape/lock/seat order, stable whiteboard instance, placement controls suspended, mobile and recorder return/restore. Media SDKs and persistence are simulated.');
+  console.log('PASS full production ClassroomV3: live local camera while sharing, camera off/on, compact sharing badge on desktop/mobile, local start/stop, browser stop, cancelled picker, remote teacher/student views, original geometry/shape/lock/seat order, stable whiteboard instance, placement controls suspended, mobile and recorder return/restore. Media SDKs and persistence are simulated.');
 }
 main().then(()=>cleanup(0),error=>{console.error(error);cleanup(1)});
 function cleanup(code){win?.destroy();server?.close();app.exit(code)}

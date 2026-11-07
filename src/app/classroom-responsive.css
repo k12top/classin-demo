@@ -631,6 +631,8 @@ html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat:not
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat:not(.is-sharing) .classroom-v3-avatar-fallback { background:transparent;border:0;box-shadow:none;border-radius:0; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat .classroom-v3-rail-media { background:#20242b; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat.is-sharing { background:var(--conversation-tint); }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat.has-sharing-camera .classroom-seat-sharing { inset:4px auto auto 4px;width:max-content;max-width:calc(100% - 28px);height:18px;padding:0 4px;border-radius:4px;background:var(--classroom-panel);color:var(--classroom-iris);font-size:10px; }
+html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-seat.has-sharing-camera .classroom-v3-seat-name { inset:auto auto 6px 6px;padding:2px 4px;border-radius:4px;background:var(--classroom-panel);color:var(--classroom-frost); }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-stage-layer.is-screen-share .classroom-v3-media-caption { display:none; }
 html[lang] .classroom-v3-shell[data-responsive-workspace].is-rail-collapsed .classroom-v3-workspace { grid-template-rows:32px minmax(0,1fr)!important; }
 html[lang] .classroom-v3-shell[data-responsive-workspace] .classroom-v3-live-rail[data-collapsed="true"] { margin:0;min-height:32px;height:32px;background:transparent; }

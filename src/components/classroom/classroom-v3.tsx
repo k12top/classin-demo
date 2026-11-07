@@ -1132,17 +1132,21 @@ function LiveRailSeat({
   canPlaceOnBoard?: boolean;
 }) {
   const { t } = useTranslation();
-  const sharing = media.participants.some(item => item.kind === "screen" && item.hasVideo && classroomParticipantOwnerId(item, [member], currentUserId) === member.userId);
+  const isSelf = member.userId === currentUserId;
+  const sharing = (isSelf && media.local.screenSharing) || media.participants.some(item => item.kind === "screen" && item.hasVideo && classroomParticipantOwnerId(item, [member], currentUserId) === member.userId);
   const [touchControlsVisible, setTouchControlsVisible] = useState(false);
   const [seatMenuOpen, setSeatMenuOpen] = useState(false);
   const skipTouchPreviewActionRef = useRef(false);
-  const isSelf = member.userId === currentUserId;
   const microphoneOn = participant?.isLocal
     ? media.local.microphoneOn
     : Boolean(participant?.hasAudio);
   const cameraOn = participant?.isLocal
     ? media.local.cameraOn
     : Boolean(participant?.hasVideo);
+  // Keep the presenter's local camera visible even when portrait sharing
+  // suppresses its separate publication. The seat must never play the screen.
+  const showCameraPreview = Boolean(participant && (!sharing ||
+    (isSelf && participant.isLocal && cameraOn && participant.hasVideo)));
   const canControlSelf = isSelf && Boolean(participant?.isLocal);
   const canControlStudent =
     canManage && member.role === "student" && !isSelf;
@@ -1153,7 +1157,7 @@ function LiveRailSeat({
   const cameraControlOn = canControlSelf ? cameraOn : member.cameraAllowed;
   const preview = (
     <>
-      {participant && !sharing ? (
+      {participant && showCameraPreview ? (
         <MediaSurface
           participant={participant}
           provider={provider}
@@ -1173,7 +1177,7 @@ function LiveRailSeat({
         {member.displayName}
       </span>
       {participant && <MicrophoneLevel provider={provider} participantId={participant.id} enabled={microphoneOn} />}
-      {(!participant || sharing) && <HandRaiseVideoBadge member={member} />}
+      {!showCameraPreview && <HandRaiseVideoBadge member={member} />}
       {!microphoneOn && (
         <span
           className="classroom-v3-seat-media-state"
@@ -1210,7 +1214,7 @@ function LiveRailSeat({
         const slots = Math.round(info.offset.x / 150);
         if (slots) onMoveSeat(member.userId, slots);
       }}
-      className={`classroom-v3-seat${sharing ? " is-sharing" : ""}${member.role !== "student" ? " is-teacher" : ""}${cameraOn ? " has-video" : ""}${touchControlsVisible || seatMenuOpen ? " is-touch-active" : ""}${canReorder ? " is-reorderable" : ""}`}
+      className={`classroom-v3-seat${sharing ? " is-sharing" : ""}${sharing && showCameraPreview ? " has-sharing-camera" : ""}${member.role !== "student" ? " is-teacher" : ""}${cameraOn ? " has-video" : ""}${touchControlsVisible || seatMenuOpen ? " is-touch-active" : ""}${canReorder ? " is-reorderable" : ""}`}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) {
           setTouchControlsVisible(false);
