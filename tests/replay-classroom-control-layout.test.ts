@@ -55,7 +55,7 @@ test("the classroom dock can be hidden without hiding its restore control", () =
   );
   assert.match(
     globalStyles,
-    /\.classroom-v3-dock-toggle\.is-collapsed:hover\s*\{[\s\S]*?border-color:\s*transparent;[\s\S]*?background:\s*transparent;/,
+    /\.classroom-v3-dock-toggle\.is-collapsed:hover\s*\{[\s\S]*?border-color:\s*rgb\(18 20 25 \/ 0\.94\);[\s\S]*?background:\s*#fff;/,
   );
   assert.match(
     globalStyles,

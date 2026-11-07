@@ -5516,15 +5516,15 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
 }
 
 .classroom-v3-dock-toggle.is-collapsed:hover {
-  border-color: transparent;
-  color: #c9c3ff;
-  background: transparent;
+  border-color: rgb(18 20 25 / 0.94);
+  color: rgb(18 20 25 / 0.94);
+  background: #fff;
 }
 
 .classroom-v3-dock-toggle.is-collapsed:focus-visible {
   border-color: transparent;
   color: #c9c3ff;
-  background: transparent;
+  background: #fff;
   outline: 2px solid #9f96ff;
   outline-offset: 1px;
 }
