@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
@@ -53,4 +54,13 @@ test("student caption settings retain their overlay and display controls without
   assert.doesNotMatch(html, /课堂主要语言/);
   assert.match(html, /我的字幕语言/);
   assert.ok(html.indexOf('class="classroom-v3-caption-toggles"') < html.indexOf('class="classroom-v3-caption-view-settings"'));
+});
+
+test("display mode choices do not duplicate the stage caption overlay off switch", async () => {
+  const source = await readFile(
+    new URL("../src/components/classroom/captions-panel.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /const displayModeOptions = Object\.entries\(displayLabels\)\.filter\(\(\[value\]\) => value !== "off"\)/);
+  assert.match(source, /value=\{draftMode === "off" \? "bilingual" : draftMode\}/);
 });
