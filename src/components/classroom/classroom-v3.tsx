@@ -108,6 +108,7 @@ import {
   Check,
   ChevronRight,
   ChevronDown,
+  ChevronUp,
   Circle,
   CircleStop,
   Clock3,
@@ -3490,6 +3491,7 @@ export function ClassroomV3({
   const [mediaIntent, setMediaIntent] = useState<{ camera?: boolean; microphone?: boolean }>({});
   const mobileControls = useSyncExternalStore(subscribeToViewport, readMobileControls, () => false);
   const [dockMoreOpen, setDockMoreOpen] = useState(false);
+  const [dockHidden, setDockHidden] = useState(false);
   const [stageExpanded, setStageExpanded] = useState(false);
   const [assistantVisible, setAssistantVisible] = useState(true);
   const pendingRuntimeActionRef = useRef(false);
@@ -7744,7 +7746,8 @@ export function ClassroomV3({
             <button type="button" role="menuitem" aria-busy={mediaBusy.includes("recover")} onClick={() => void runMediaAction("recover", async (provider) => { await renewClassroomCredentials(); await provider.recoverMedia(true); })}>{mediaBusy.includes("recover") ? <Loader2 className="animate-spin" /> : <RefreshCw />}{t("classroom.v3.resetMedia")}</button>
             <button type="button" role="menuitem" onClick={leaveClassroom}><LogOut />{t("classroom.v3.leave")}</button>
           </div>}
-          <div className="classroom-v3-dock" data-more-open={dockMoreOpen}>
+          {!dockHidden && (
+            <div className="classroom-v3-dock" data-more-open={dockMoreOpen}>
             {canUseMedia && (
               <>
                 {microphoneAllowed && <button
@@ -7900,6 +7903,20 @@ export function ClassroomV3({
             <button type="button" data-dock-action="fullscreen" onClick={toggleFullscreen} title={t("classroom.v3.fullscreen")}><Expand /><span>{t("classroom.v3.fullscreen")}</span></button>
             <button type="button" title={t("classroom.v3.resetMedia")} className="is-dock-secondary" onClick={() => void runMediaAction("recover", async (provider) => { await renewClassroomCredentials(); await provider.recoverMedia(true); })}><RefreshCw /><span>{t("classroom.v3.resetMedia")}</span></button>
             {classinLayout ? <ClassroomHeaderMenu actions={minimalOperationActions} variant="operations" /> : (<button type="button" title={t("classroom.v3.more")} aria-label={t("classroom.v3.more")} className={`is-dock-more ${dockMoreOpen ? "is-active" : ""}`} aria-expanded={dockMoreOpen} onClick={() => setDockMoreOpen((value) => !value)}><MoreHorizontal /><span>{t("classroom.v3.more")}</span></button>)}
+            <button
+              type="button"
+              data-dock-action="collapse"
+              className="classroom-v3-dock-toggle is-inline"
+              aria-expanded="true"
+              aria-label={t("classroom.v3.collapsePanel")}
+              title={t("classroom.v3.collapsePanel")}
+              onClick={() => {
+                setDockMoreOpen(false);
+                setDockHidden(true);
+              }}
+            >
+              <ChevronDown aria-hidden="true" />
+            </button>
             <span className="classroom-v3-dock-divider" />
             <button
               type="button"
@@ -7914,7 +7931,20 @@ export function ClassroomV3({
                   : t("classroom.v3.leave")}
               </span>
             </button>
-          </div>
+            </div>
+          )}
+          {dockHidden && (
+            <button
+              type="button"
+              className="classroom-v3-dock-toggle is-collapsed"
+              aria-expanded="false"
+              aria-label={t("classroom.v3.expandPanel")}
+              title={t("classroom.v3.expandPanel")}
+              onClick={() => setDockHidden(false)}
+            >
+              <ChevronUp aria-hidden="true" />
+            </button>
+          )}
         </footer>
       )}
 
