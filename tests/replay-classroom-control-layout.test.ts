@@ -10,6 +10,14 @@ const activityStyles = readFileSync(
   new URL("../src/components/classroom/activity-interaction.module.css", import.meta.url),
   "utf8",
 );
+const classroomSource = readFileSync(
+  new URL("../src/components/classroom/classroom-v3.tsx", import.meta.url),
+  "utf8",
+);
+const globalStyles = readFileSync(
+  new URL("../src/app/globals.css", import.meta.url),
+  "utf8",
+);
 
 test("speaker records render after the utterance timeline instead of inside the summary document", () => {
   const timelineStart = playbackSource.indexOf('{presentation === "timeline"');
@@ -32,4 +40,12 @@ test("the in-class response launcher sits to the right of the AI teacher only in
     /:global\(\.is-classin-layout\)[^{]*\.questionReopen\s*\{[^}]*left:\s*82px/,
   );
   assert.match(activityStyles, /\.surface \.questionReopen\{[^}]*left:16px/);
+});
+
+test("the classroom dock can be hidden without hiding its restore control", () => {
+  assert.match(classroomSource, /const \[dockHidden, setDockHidden\] = useState\(false\)/);
+  assert.match(classroomSource, /\{!dockHidden && \(\s*<div className="classroom-v3-dock"/);
+  assert.match(classroomSource, /className="classroom-v3-dock-toggle"/);
+  assert.match(classroomSource, /dockHidden \? "classroom\.v3\.expandPanel" : "classroom\.v3\.collapsePanel"/);
+  assert.match(globalStyles, /\.classroom-v3-dock-toggle\s*\{/);
 });

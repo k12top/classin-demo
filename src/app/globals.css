@@ -5468,6 +5468,41 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
   display: none;
 }
 
+.classroom-v3-dock-toggle {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  margin: 5px 0 0 8px;
+  padding: 0;
+  border: 1px solid rgb(255 255 255 / 0.075);
+  border-radius: 11px;
+  color: #8f97a4;
+  background: rgb(18 20 25 / 0.94);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.28);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: color 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.classroom-v3-dock-toggle:hover,
+.classroom-v3-dock-toggle:focus-visible {
+  border-color: rgb(123 111 242 / 0.28);
+  color: #c9c3ff;
+  background: rgb(123 111 242 / 0.11);
+}
+
+.classroom-v3-dock-toggle:focus-visible {
+  outline: 2px solid #9f96ff;
+  outline-offset: 2px;
+}
+
+.classroom-v3-dock-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
 .classroom-v3-dock button {
   display: grid;
   min-width: 58px;
