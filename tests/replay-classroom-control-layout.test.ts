@@ -45,7 +45,16 @@ test("the in-class response launcher sits to the right of the AI teacher only in
 test("the classroom dock can be hidden without hiding its restore control", () => {
   assert.match(classroomSource, /const \[dockHidden, setDockHidden\] = useState\(false\)/);
   assert.match(classroomSource, /\{!dockHidden && \(\s*<div className="classroom-v3-dock"/);
-  assert.match(classroomSource, /className="classroom-v3-dock-toggle"/);
+  assert.match(classroomSource, /className=\{`classroom-v3-dock-toggle/);
   assert.match(classroomSource, /dockHidden \? "classroom\.v3\.expandPanel" : "classroom\.v3\.collapsePanel"/);
   assert.match(globalStyles, /\.classroom-v3-dock-toggle\s*\{/);
+  assert.match(classroomSource, /className=\{`classroom-v3-dock-toggle \$\{dockHidden \? "is-collapsed" : ""\}`\}/);
+  assert.match(
+    globalStyles,
+    /\.classroom-v3-dock-toggle\.is-collapsed\s*\{[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;/s,
+  );
+  assert.match(
+    globalStyles,
+    /\.classroom-v3-dock-toggle\.is-collapsed:hover,[\s\S]*\.classroom-v3-dock-toggle\.is-collapsed:focus-visible\s*\{[^}]*border-color:/,
+  );
 });

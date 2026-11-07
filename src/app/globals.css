@@ -5503,6 +5503,25 @@ html[lang] .classroom-v3-shell .classroom-v3-drawer .classroom-v3-panel-body.is-
   height: 18px;
 }
 
+.classroom-v3-dock-toggle.is-collapsed {
+  width: 34px;
+  height: 28px;
+  flex-basis: 34px;
+  margin-left: 0;
+  border-color: transparent;
+  border-radius: 6px;
+  color: #8f97a4;
+  background: transparent;
+  box-shadow: none;
+}
+
+.classroom-v3-dock-toggle.is-collapsed:hover,
+.classroom-v3-dock-toggle.is-collapsed:focus-visible {
+  border-color: #9f96ff;
+  color: #c9c3ff;
+  background: rgb(123 111 242 / 0.11);
+}
+
 .classroom-v3-dock button {
   display: grid;
   min-width: 58px;

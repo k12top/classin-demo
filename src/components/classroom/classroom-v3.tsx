@@ -7921,7 +7921,7 @@ export function ClassroomV3({
           )}
           <button
             type="button"
-            className="classroom-v3-dock-toggle"
+            className={`classroom-v3-dock-toggle ${dockHidden ? "is-collapsed" : ""}`}
             aria-expanded={!dockHidden}
             aria-label={t(dockHidden ? "classroom.v3.expandPanel" : "classroom.v3.collapsePanel")}
             title={t(dockHidden ? "classroom.v3.expandPanel" : "classroom.v3.collapsePanel")}
