@@ -15,11 +15,17 @@ async function main() {
     import{I18nProvider}from'@/lib/i18n/context';
     import{StudentActivityOverlay}from'@/components/classroom/student-activity-overlay';
     import{ActivityChatCard}from'@/components/classroom/activity-chat-card';
-    import{usePlaybackMedia,PlaybackQualityControl}from'@/components/course-sessions/playback-compatibility';
+    import{usePlaybackMedia,PlaybackQualityControl,PlaybackCompatibility}from'@/components/course-sessions/playback-compatibility';
     import{useChatActivities}from'@/lib/classroom/use-chat-activities';
     function Playback(){const ref=useRef(null);const media=usePlaybackMedia(ref,'/fixture.webm',false,'/unavailable.m3u8');
-      return <section style={{background:'#141a27',color:'white',padding:16}}><video ref={ref} controls style={{width:'100%',maxWidth:640}}/>
-      <PlaybackQualityControl quality={media.quality} onChange={media.setQuality} info={media.qualityInfo}/></section>}
+      return <section style={{background:'#141a27',color:'white'}}><video ref={ref} controls style={{width:'100%',maxWidth:640}}/>
+      <div data-playback-toolbar className="flex flex-wrap items-center gap-3 bg-[#141a27] px-4 py-2 text-white">
+        <div className="flex w-full flex-none flex-wrap items-center justify-between gap-3 text-white sm:w-auto sm:flex-1">
+          <div className="flex items-center gap-2"><button type="button" className="rounded-md border px-2.5 py-1 text-xs font-bold">CC</button><button type="button" className="rounded-md border p-1.5">⚙</button><span data-caption-state className="whitespace-nowrap text-xs text-white/60">关闭字幕</span></div>
+        </div>
+        <PlaybackQualityControl quality={media.quality} onChange={media.setQuality} info={media.qualityInfo}/>
+        <PlaybackCompatibility issue={media.issue} directUrl={media.directUrl} src="/fixture.webm" isHls={false} sharePath="/playback" onRetry={media.retry} onExternalPlay={()=>{}}/>
+      </div></section>}
     function Fixture(){const feed=useChatActivities('lesson',null,true);return location.search.includes('playback')?<Playback/>:
       <main className="classroom-v3-shell" style={{height:'100vh',position:'relative',overflow:'hidden',background:'#f5f5f7'}}>
         <div className="classroom-v3-stage" style={{position:'absolute',inset:0}}/>
@@ -131,6 +137,8 @@ async function main() {
     assert.equal(await page.locator('[data-playback-quality]').innerText().then(text=>text.includes('360p')),true);
     assert.equal(await page.locator('video').evaluate(video=>video.paused),true);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+    const captionStateBox=await page.locator('[data-caption-state]').boundingBox();
+    assert.ok(captionStateBox&&captionStateBox.height<24,'mobile caption state stays on one line');
     await page.screenshot({path:path.join(output,'playback-high-mobile.png')});
     await page.locator('video').evaluate(video=>video.play());
     await page.getByRole('combobox',{name:'回放画质'}).selectOption('auto');

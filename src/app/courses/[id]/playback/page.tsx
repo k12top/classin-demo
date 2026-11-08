@@ -793,7 +793,7 @@ export default function CoursePlaybackPage({
             ) : canPlayInApp ? (
               <>
                 <PlaybackVideo
-                  controls={<div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-3 text-white">
+                  controls={<div className="flex w-full flex-none flex-wrap items-center justify-between gap-3 text-white sm:w-auto sm:flex-1">
                   <div className="flex items-center gap-2">
                     <button type="button" disabled={!captionCanSync} aria-pressed={captionCanSync && captionMode !== "off"} aria-label={t("classroom.v3.captionsTitle")}
                       onClick={() => setCaptionMode((mode) => mode === "off" ? "bilingual" : "off")}
@@ -802,7 +802,7 @@ export default function CoursePlaybackPage({
                       aria-label={t("classroom.v3.captionSettings")}
                       onClick={() => setCaptionSettingsOpen((open) => !open)}
                       className="rounded-md border border-white/30 p-1.5 text-white/80 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"><Settings2 className="h-4 w-4" /></button>
-                    <span className="text-xs text-white/60">{captionStateLabel}</span>
+                    <span className="whitespace-nowrap text-xs text-white/60">{captionStateLabel}</span>
                   </div>
                   <span className="hidden text-xs text-white/50 lg:inline">{t("replayExtras.timelineSeekHint")}</span>
                 </div>}
