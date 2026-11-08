@@ -34,6 +34,6 @@ CLASSROOM_WEB_URL=http://127.0.0.1:3180 npm run dev
 
 ## 桌面界面设计
 
-当前修订方向为 [简约方案 v2](design/minimal-v2/README.md)：浅色背景、克制配色、渐进展开功能，包含首页、课堂和学生分组设计稿。该方案响应用户对简约、时尚和功能明晰的要求，尚未替换客户端运行界面。
+首页、学生通讯录与分组管理的最新修订为 [简约清晰方案 v3](design/compact-v3/README.md)：学生与分组独立入口，紧凑导航和列表，按当前任务显示操作。课堂界面继续保留 [简约方案 v2](design/minimal-v2/README.md) 供参考。
 
-[早期 ClassIn 布局 v1](design/classin-v1/README.md) 仅作设计历史保留，其深色边栏与亮绿色强调已被用户否定，不应继续作为后续实现的视觉依据。
+[早期 ClassIn 布局 v1](design/classin-v1/README.md) 与 v2 的首页/学生分组合并页仅作设计历史保留。所有设计稿均未替换客户端运行界面。
