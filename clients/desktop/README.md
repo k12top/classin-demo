@@ -31,3 +31,7 @@ CLASSROOM_WEB_URL=http://127.0.0.1:3180 npm run dev
 这次已在 macOS ARM64 验证原生窗口、邀请上台、添加/移出与分页；构建产物为 `dist/mac-arm64/翔宇文淑课堂.app`。当前产物未配置 Developer ID 签名/公证；Windows 安装包、真实课堂摄像头/麦克风/屏幕共享仍需设备验收。macOS 包含摄像头与麦克风用途说明。独立管理界面不替代媒体 SDK。
 
 设计参考 [ClassIn 教师手册](https://www.classin.com/classin-teacher-manual-an-ultimate-guide-to-classin/) 的课堂角色、举手和成员操作，以及 [ClassIn 班级管理](https://docs.eeo.cn/product/zh-hans/function/3ClassInIM.html) 的班级成员批量管理。按当前服务端能力实现，不表示完整功能对齐。
+
+## 桌面界面设计
+
+[ClassIn 布局设计 v1](design/classin-v1/README.md) 包含课堂成员、屏幕共享互动和课外学生分组三张设计稿，以及完整提示词和实现规范。设计稿尚未替换运行中的客户端界面。

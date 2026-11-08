@@ -49,4 +49,3 @@ Footer table count “共 6 名学生” and muted note “移出分组不会删
 Tiny bottom-right “桌面端设计稿 · 示例数据”.
 Constraints: polished consistent native desktop operational software with ClassIn-like two-level navigation; table and management actions are the focus. Preserve clear return path to ongoing classroom; do not show camera thumbnails on external management page; no irrelevant graphs, no giant KPIs, no ClassIn logo or other brand marks. Render Simplified Chinese labels exactly and legibly.
 ```
-
