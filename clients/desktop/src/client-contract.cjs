@@ -1,12 +1,12 @@
 /* Client UI only. Every operation still uses the server's authenticated session. */
-const OPERATIONS = new Set(['identity', 'groups', 'searchStudents', 'createGroup', 'addMembers', 'removeMembers', 'runtime', 'command']);
+const OPERATIONS = new Set(['identity', 'groups', 'searchStudents', 'createGroup', 'addMembers', 'removeMembers', 'runtime', 'command', 'courses', 'course', 'sessions', 'verifyAccess', 'createCourse']);
 const MANAGEMENT = new Set(['inviteStage', 'removeStage', 'setMediaAllowed', 'setWhiteboardWritable', 'giveReward', 'acknowledgeHand', 'muteAllMicrophones', 'unmuteAllMicrophones', 'removeAllStudentsFromStage']);
 function webBase(value) {
   const url = new URL(value);
   if (url.username || url.password || url.search || url.hash || (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))) throw new Error('Use an HTTPS classroom origin, or loopback HTTP for local development');
   return url.origin;
 }
-const identifier = value => typeof value === 'string' && value.length > 0 && value.length <= 200 && !/[\x00-\x1f]/.test(value);
+const identifier = value => typeof value === 'string' && value.length > 0 && !['.','..'].includes(value) && value.length <= 200 && !/[\x00-\x1f]/.test(value);
 function classroomContext(value, origin) {
   const url = new URL(value);
   if (url.origin !== origin || url.pathname !== '/classroom') return null;
@@ -16,6 +16,25 @@ function classroomContext(value, origin) {
 function requestFor(operation, args = {}, context) {
   if (!OPERATIONS.has(operation) || !args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Unsupported client operation');
   if (operation === 'identity') return { path: '/api/auth/me', method: 'GET' };
+  if (operation === 'createCourse') {
+    if (typeof args.name !== 'string' || !args.name.trim() || args.name.trim().length > 100 || !identifier(args.requestId)) throw new Error('填写1–100字的课程名称');
+    const body = { name:args.name.trim(), description:String(args.description||'').slice(0,2000), roomType:0, courseKind:'series' };
+    if (args.startTime !== undefined || args.endTime !== undefined) {
+      if (typeof args.startTime !== 'string' || typeof args.endTime !== 'string' || !/Z$/.test(args.startTime) || !/Z$/.test(args.endTime) || !Number.isFinite(Date.parse(args.startTime)) || !Number.isFinite(Date.parse(args.endTime)) || Date.parse(args.endTime)<=Date.parse(args.startTime)) throw new Error('课节起止时间无效');
+      try { new Intl.DateTimeFormat('en',{timeZone:args.timezone}); } catch { throw new Error('排课时区无效'); }
+      Object.assign(body,{startTime:args.startTime,endTime:args.endTime,timezone:args.timezone});
+    }
+    return {path:'/api/courses',method:'POST',headers:{'Idempotency-Key':args.requestId},body};
+  }
+  if (operation === 'courses') return { path: '/api/courses', method: 'GET' };
+  if (['course', 'sessions', 'verifyAccess'].includes(operation)) {
+    if (!identifier(args.courseId)) throw new Error('Choose a course');
+    const path = `/api/courses/${encodeURIComponent(args.courseId)}`;
+    if (operation === 'course') return { path, method: 'GET' };
+    if (operation === 'sessions') return { path: path + '/sessions', method: 'GET' };
+    if (args.sessionId !== undefined && !identifier(args.sessionId)) throw new Error('Choose a lesson');
+    return { path: path + '/verify-access' + (args.sessionId ? '?sessionId=' + encodeURIComponent(args.sessionId) : ''), method: 'GET' };
+  }
   if (operation === 'groups') return { path: '/api/groups', method: 'GET' };
   if (operation === 'searchStudents') {
     if (typeof args.query !== 'string' || !args.query.trim() || args.query.length > 120) throw new Error('Enter a student name or account');

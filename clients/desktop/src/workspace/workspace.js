@@ -27,9 +27,10 @@ function load(initial = false) {
 }
 const fingerprint = () => JSON.stringify([state.loading, state.error, state.context, state.user, state.groups, state.runtime && {revision:state.runtime.revision,status:state.runtime.status,members:state.runtime.members?.map(member => [member.userId,member.displayName,member.role,member.online,member.onStage,member.stageState,member.handRaisedAt,member.microphoneAllowed,member.cameraAllowed,member.whiteboardWritable,member.rewardCount])}]);
 async function loadOnce(initial = false) {
-  const generation = ++loadGeneration, tab = state.tab, before = fingerprint();
+  const generation = ++loadGeneration, before = fingerprint(); let tab = state.tab;
   try {
     const context = await api.context();
+    if ((initial || state.context?.navigationId !== context.navigationId) && ['members','groups'].includes(context.preferredTab)) { state.tab=context.preferredTab; tab=state.tab; }
     const identity = await api.request('identity');
     if (generation !== loadGeneration || tab !== state.tab) return;
     if (state.context?.sessionId !== context.sessionId || state.user?.userId !== identity.user?.userId) { state.runtime = null; state.groups = []; state.selected.clear(); }

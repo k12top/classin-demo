@@ -21,7 +21,10 @@
     "productName": "翔宇文淑课堂",
     "files": [
       "src/**/*",
-      "package.json"
+      "package.json",
+      "design/classin-v5/style.css",
+      "design/classin-v5/assets/*.png",
+      "design/classin-v5/time.js"
     ],
     "mac": {
       "category": "public.app-category.education",

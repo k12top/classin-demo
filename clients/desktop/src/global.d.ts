@@ -5,6 +5,7 @@ declare global {
     classroomDesktop?: {
       platform: NodeJS.Platform;
       isDesktop: true;
+      openHome(): Promise<void>;
       openWorkspace(): Promise<void>;
       listDesktopSources(): Promise<
         Array<{

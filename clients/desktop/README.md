@@ -1,12 +1,30 @@
 # 桌面客户端（Electron）
 
-客户端承载现有在线课堂，音视频、白板、互动题与录制仍使用原课堂内核。在独立的非模态「人员工作台」管理课堂成员与课外分组，管理窗口不会替换课堂页。普通网页不加载这些客户端界面或样式。
+客户端默认打开已接入真实后端的桌面工作台：登录后查看当前账号的课程、课节、日历、学生和分组，新建课程并可同时安排首节课。从课节进入项目现有生产课堂，继续使用其 Agora 音视频、白板、课堂聊天、互动和录制能力。
 
-- 左下角「人员工作台」或 `⌘/Ctrl + 2` 打开；`⌘/Ctrl + 1` 返回课堂。
-- 花名册支持搜索、举手/台上/暂离筛选、邀请/取消邀请/下台、发言权限、板书授权、奖励、全体静音与确认全体下台。
-- 学生与分组支持新建分组、搜索添加、跨搜索多选、已加入提示、确认批量移出与每页 12 人；每批最多 100 人。
-- 教师/助教的课堂权限与教师分组权限仍由现有服务端验证；学生花名册只读。
-- 可见花名册每 3 秒尝试同步，同一时间只执行一个读取请求；操作使用命令 ID、课堂版本和当前课次，网络失败保留内容并提示刷新确认。
+桌面首页沿用已批准的 [ClassIn 实拍参照 v5](design/classin-v5/README.md)：系统字体、13px 正文、浅色侧栏、课程封面和黑色主操作。真实入口在 `src/home/`，独立设计原型仍保留在 `design/classin-v5/`。原型的 To Do、云盘、私聊、翻译等示例页面不代表真实服务已接入；生产课堂内的聊天由现有课堂实现提供。
+
+## 登录与窗口
+
+“统一账号登录”打开站点 `/api/auth/login`，沿用 Casdoor 跳转和已有第三方账号配置。完成登录后回到桌面工作台，窗口重新获得焦点或点击“刷新登录状态”即可同步。完整课程管理、成员与教学人员、课件及回放管理继续打开已有站点页面。
+
+| 快捷键 | 入口 |
+| --- | --- |
+| `⌘/Ctrl + 1` | 桌面工作台 |
+| `⌘/Ctrl + 2` | 人员工作台 |
+| `⌘/Ctrl + 3` | 当前课堂 |
+
+首页、人员工作台和远程课堂使用独立窗口；人员工作台是非模态窗口。客户端只允许一个活动课堂，从首页、远程页面的普通跳转或 SPA 跳转进入另一课节时，均要求先退出当前课堂。
+
+人员工作台复用既有实现：花名册搜索、举手/台上/暂离筛选、上下台、发言和板书授权、奖励、全体静音，以及学生分组的搜索、多选、添加和确认移出。分组每页 12 人、每批最多 100 人；可见花名册每 3 秒尝试同步，同一时间只执行一个读取。教师、助教及学生权限由服务端校验，学生花名册只读。
+
+## 数据与安全边界
+
+- `src/main.cjs` 管理窗口、导航、媒体权限及 `classroom-client://` 本地资源白名单；`src/api-client.cjs` 在主进程通过 Electron `session.fetch` 使用共享的 HttpOnly 登录会话。
+- 渲染界面只调用固定操作桥；Cookie、Token、任意 URL 请求和文件接口不暴露给本地页面。本地窗口启用沙箱与上下文隔离，禁用 Node 集成、任意跳转和弹窗；首页 CSP 禁止直接联网。
+- 写请求携带配置站点的 `Origin`，继续经过服务端鉴权及同源/CSRF 校验。并行读取遇到 401 共用一次登录续期；续期或网络暂时失败保留已加载内容，确认未登录后清空账号数据。写操作不会因网络失败自动重放。
+- 新建课程支持可选首课，将排课时区内的时间转换为 UTC 并携带 IANA 时区；拒绝无效顺序和夏令时不存在时间，重复时间引导使用完整排课页明确选择。同一创建对话框的重试复用一个幂等键，结果未确认时应先刷新课程列表。
+- 进入课节前调用现有访问核验接口，校验返回的课堂来源、路径和课节。摄像头、麦克风与屏幕共享权限限定于配置站点的课堂主框架；优先使用系统共享选择器，系统不支持时才显示本地来源选择器，由用户明确选择。
 
 ## 开发与构建
 
@@ -14,28 +32,39 @@
 cd clients/desktop
 npm ci
 CLASSROOM_WEB_URL=http://127.0.0.1:3000 npm run dev
-npm test
-npm run package
 ```
 
-打包默认打开 `https://live.xiangyuwenshu.cn`，可用 `CLASSROOM_WEB_URL` 指定 HTTPS 部署；HTTP 仅接受本机回环地址。用户在课堂页正常登录。固定操作桥在主进程复用该窗口的 HttpOnly 登录会话，不把 Cookie、Token 或任意网络/文件接口暴露给管理界面。自定义协议限制资源白名单并禁用缓存，工作台禁止跳转和弹窗。
-
-本地验收不需要生产账号：
+本地站点须另外启动，并具备可用的后端与统一登录配置。开发默认连接 `http://localhost:3000`，打包默认连接 [生产站点](https://live.xiangyuwenshu.cn)。`CLASSROOM_WEB_URL` 可指定其他 HTTPS 部署；HTTP 仅接受本机回环地址。
 
 ```bash
-node test/fixture-server.cjs
-# 在另一终端运行，本地夹具使用虚构老师、学生和课堂数据
-CLASSROOM_WEB_URL=http://127.0.0.1:3180 npm run dev
+# 固定操作、安全契约、时间换算及窗口路由测试
+npm test
+
+# 当前平台的应用目录，默认输出 dist/
+npm run package
+
+# macOS Apple Silicon，复现本轮输出目录
+npm run package -- --mac --arm64 --config.directories.output=dist-live-verified
+
+# 按 package.json 的平台配置生成分发包
+npm run dist
 ```
 
-这次已在 macOS ARM64 验证原生窗口、邀请上台、添加/移出与分页；构建产物为 `dist/mac-arm64/翔宇文淑课堂.app`。当前产物未配置 Developer ID 签名/公证；Windows 安装包、真实课堂摄像头/麦克风/屏幕共享仍需设备验收。macOS 包含摄像头与麦克风用途说明。独立管理界面不替代媒体 SDK。
+2026-11-08 已在路由修复后重新构建 macOS ARM64 应用：`dist-live-verified/mac-arm64/翔宇文淑课堂.app`，包含摄像头和麦克风用途说明。当前未配置 Developer ID 签名及公证；Windows 安装包和设备行为尚未验收。
 
-设计参考 [ClassIn 教师手册](https://www.classin.com/classin-teacher-manual-an-ultimate-guide-to-classin/) 的课堂角色、举手和成员操作，以及 [ClassIn 班级管理](https://docs.eeo.cn/product/zh-hans/function/3ClassInIM.html) 的班级成员批量管理。按当前服务端能力实现，不表示完整功能对齐。
+## 验证与证据
 
-## 桌面界面设计
+本轮 19 项桌面测试通过，并完成 macOS 原生教师账号登录、重启后会话恢复、真实课程读取、创建独立零学生课程及进入生产课堂。已在教师设备观察摄像头自览、麦克风电平/字幕、白板载入和课堂消息发送，并在结束前停止媒体、共享及录制；后端记录课节已结束、存在一条录制，页面有回放入口。屏幕共享时只观察到教师端自身画面；学生接收端、白板绘制及多端同步、实际弱网和回放完整播放尚未验收。
 
-当前为 [ClassIn 实拍参照 v5](design/classin-v5/README.md)：以实际 ClassIn 登录首页截图为依据，改为浅色导航、班级封面卡片和右侧待办。学生、分组、课程和课表按对象分别组织，保持真实 PC 字号。运行 `npm run design:preview` 查看独立 Electron 原型。
+可提交的界面截图均使用虚构人员和接口夹具；夹具不连接真实媒体，也不能证明原生登录或 RTC 链路。运行及证据范围见 [接入验证记录](verification/live-integration/README.md)。真实账号和课堂截图仅保留在本机 `outputs/desktop-live-integration-2026-11-08/`，不随仓库提交。
 
-[调研记录](research/classin-2026-11-08/README.md) 区分实际客户端观察和公开教程。真实账号截图只在本机 outputs 目录保留，不随仓库提交。设计原型使用示例数据，不连接生产接口，不替换现有课堂运行入口。
+## 设计预览与参考
 
-[PC v4](design/pc-v4/README.md)、[简约清晰 v3](design/compact-v3/README.md)、[简约 v2](design/minimal-v2/README.md) 与 [早期布局 v1](design/classin-v1/README.md) 作为历史保存。
+```bash
+cd clients/desktop
+npm run design:preview
+```
+
+该命令打开独立 v5 设计原型，所有业务数据与媒体状态仍是示例；真实客户端使用 `npm run dev`。桌面运行入口复用 v5 的样式、封面和时间转换模块。根 `DESIGN.md` 的 15px／靛蓝规范与已批准桌面 v5 的紧凑样式存在范围差异，本轮保持 v5 设计。
+
+[调研记录](research/classin-2026-11-08/README.md) 区分当前 ClassIn 客户端观察与公开教程；真实账号截图仅用于本机对照。按当前服务端能力实现，不表示完整功能对齐。[PC v4](design/pc-v4/README.md)、[简约清晰 v3](design/compact-v3/README.md)、[简约 v2](design/minimal-v2/README.md) 与 [早期布局 v1](design/classin-v1/README.md) 作为历史保存。
