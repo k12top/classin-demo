@@ -54,7 +54,7 @@ function toast(message) {
   const node = document.getElementById('toast'); node.textContent = message; node.classList.add('visible');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => node.classList.remove('visible'), 2800);
 }
-function go(page) { history.replaceState(null, '', `#${page}`); state.page = page; state.query = ''; state.groupQuery = ''; state.creating = false; state.selected.clear(); render(); }
+function go(page) { closeAccountMenu(); closeQuickMenu(); history.replaceState(null, '', `#${page}`); state.page = page; state.query = ''; state.groupQuery = ''; state.creating = false; state.selected.clear(); render(); }
 function avatar(student, active = false) { return h('span', { class: `avatar${active ? ' blue' : ''}`, 'aria-hidden': 'true' }, student.name.slice(0, 1)); }
 function search(label, value, onInput) {
   return h('label', { class: 'search' }, icon('search', 15), h('span', { class: 'visually-hidden' }, label), h('input', { type: 'search', placeholder: label, 'aria-label': label, value, onInput: event => onInput(event.target.value) }));
@@ -72,9 +72,9 @@ function menu(title, entries) {
   for (const [name, action] of entries) body.append(button(name, () => { pane.close(); action(); }, ''));
 }
 function renderNav() {
-  const items = [['home','首页','home'],['students','学生','students'],['groups','分组','groups'],['todo','To Do','todo'],['calendar','日历','calendar'],['files','云盘','files']];
-  navigation.replaceChildren(h('div', {class:'workspace-brand'}, '翔宇文淑课堂'), ...items.map(([page,name,symbol])=>button([icon(symbol,18),h('span',{},name)],()=>go(page),'nav-button',{'aria-label':name,'aria-current':state.page===page || page==='home' && state.page==='courses' ? 'page':null})),
-    h('div',{class:'nav-bottom'},button([icon('settings',17),h('span',{},'设置')],()=>menu('设置',[['账号设置',()=>toast('示例：打开账号设置')],['设备检测',()=>toast('示例：打开设备检测')]]),'nav-button'),h('div',{class:'profile-row'},h('span',{class:'profile-avatar'},'陈'),h('div',{},h('strong',{},'陈老师'),h('small',{},'教师账号')))));
+  const items = [['home','首页','home'],['chat','聊天','chat'],['students','学生','students'],['groups','分组','groups'],['todo','To Do','todo'],['calendar','日历','calendar'],['files','云盘','files']];
+  navigation.replaceChildren(h('div', {class:'workspace-brand'}, '翔宇文淑课堂'), ...items.map(([page,name,symbol])=>button([icon(symbol,18),h('span',{},name),page==='chat'&&chatUnread()?h('span',{class:'nav-unread'},chatUnread()):null],()=>go(page),'nav-button',{'aria-label':name,'aria-current':state.page===page || page==='home' && state.page==='courses' ? 'page':null})),
+    h('div',{class:'nav-bottom'},button([h('span',{class:'profile-avatar'},'陈'),h('span',{class:'profile-copy'},h('strong',{},'陈老师'),h('small',{},'教师账号')),icon('more',14)],toggleAccountMenu,'profile-row',{'aria-label':'陈老师 账号与设置','aria-haspopup':'menu','aria-expanded':document.getElementById('account-menu')?.matches(':popover-open')||false})));
 }
 function studentView() {
   const student = students.find(item => item.id === state.student) || students[0];
@@ -86,7 +86,7 @@ function studentView() {
   for (const person of list) listing.append(h('li', {}, button([avatar(person, person.id === student.id), h('div', { class: 'grow' }, h('strong', {}, person.name), h('small', {}, person.id)), person.id === student.id ? icon('right', 12) : null], () => { state.student = person.id; render(); }, 'side-choice', { 'aria-current': person.id === student.id, 'aria-label': `查看学生 ${person.name}` })));
   side.append(listing, h('footer', { class: 'side-foot' }, `共 ${ownedIds.size} 名学生`));
   const memberships = groups.filter(group => group.members.includes(student.id));
-  const content = h('section', { class: 'directory-content' }, h('header', { class: 'detail-header' }, avatar(student, true), h('div', {}, h('h1', {}, student.name), h('p', {}, `学生账号：${student.id}`)), button([icon('plus', 14), '添加至分组'], () => addToGroups(student), 'btn primary end')));
+  const content = h('section', { class: 'directory-content' }, h('header', { class: 'detail-header' }, avatar(student, true), h('div', {}, h('h1', {}, student.name), h('p', {}, `学生账号：${student.id}`)), h('div',{class:'row end'},button([icon('chat',14),'发消息'],()=>openStudentChat(student),'btn'),button([icon('plus', 14), '添加至分组'], () => addToGroups(student), 'btn primary'))));
   const rows = h('ul', { class: 'membership-list' });
   for (const group of memberships) rows.append(h('li', {}, h('span', { class: 'course-mark' }, '组'), h('div', { class: 'grow' }, h('h3', {}, group.name), h('small', {}, `${group.members.length} 名学生${group.course ? ` · ${group.course}` : ''}`)), button(['查看分组', icon('right', 12)], () => { state.group = group.id; go('groups'); }, 'text-btn'), iconButton('more', `${student.name} 在 ${group.name} 中的操作`, () => menu(group.name, [['移出此分组', () => confirmRemove(group, [student.id])]]))));
   if (!memberships.length) rows.append(h('li', { class: 'empty' }, '尚未加入分组'));
@@ -156,7 +156,8 @@ function renderMainPreservingFocus() {
 }
 function render() {
   renderNav();
-  main.replaceChildren(state.page === 'home' ? home() : state.page === 'students' ? studentView() : state.page === 'groups' ? groupView() : state.page === 'calendar' ? calendarView() : state.page === 'files' ? filesView() : state.page === 'todo' ? todoView() : coursesView());
+  renderGlobalActions();
+  main.replaceChildren(state.page === 'home' ? home() : state.page === 'students' ? studentView() : state.page === 'groups' ? groupView() : state.page === 'calendar' ? calendarView() : state.page === 'files' ? filesView() : state.page === 'todo' ? todoView() : state.page === 'chat' ? chatView() : coursesView());
 }
 function openClass(id) { state.classId=id||classes[0].id; state.courseTab='lessons'; go('courses'); }
 function createClass() {
@@ -185,4 +186,3 @@ function home() {
     h('p',{class:'todo-time-label later'},'最近结束'),h('article',{class:'todo-item'},h('h3',{},'二分查找'),h('p',{},'Python 算法基础班 · 11月6日'),h('div',{class:'row'},button('回放',()=>toast('示例：打开二分查找课堂回放'),'text-btn'),button('互动记录',()=>{state.classId='base';state.courseTab='records';go('courses');},'text-btn'))),h('p',{class:'todo-note'},'待办随课程与教学活动更新。'));
   return h('div',{class:'home-workspace'},center,todo);
 }
-document.getElementById('next-lesson')?.addEventListener('click',()=>{state.classId='base';state.courseTab='lessons';go('courses');});

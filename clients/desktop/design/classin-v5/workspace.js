@@ -60,14 +60,17 @@ function calendarView(){
   for(const l of matches)dayList.append(button([h('small',{},`${l.start}–${l.end}`),h('strong',{},l.title),h('span',{},courseName(l.classId))],()=>lessonDialog(l),'day-agenda-item'));
   if(!matches.length)dayList.append(h('p',{class:'small'},'暂无课堂安排'));
   const start=shiftDate(state.calendarDate,-((selected.getDay()+6)%7));const days=Array.from({length:7},(_,i)=>shiftDate(start,i));
+  const visibleLessons=lessons.filter(l=>days.includes(l.date)&&state.calendarCourse&&(state.calendarClass==='all'||state.calendarClass===l.classId));
+  const firstHour=Math.min(9,...visibleLessons.map(l=>Number(l.start.slice(0,2)))),lastHour=Math.max(21,...visibleLessons.map(l=>Math.ceil(Number(l.end.slice(0,2))+Number(l.end.slice(3))/60))),gridHours=lastHour-firstHour;
   const content=h('section',{class:'calendar-content'},h('header',{class:'workspace-toolbar'},h('h1',{},`${selected.getFullYear()}年 ${selected.getMonth()+1}月`),h('div',{class:'row gap4'},iconButton('left','上一周',()=>weekMove(-7)),button('今天',()=>{state.calendarDate=today;state.month='2026-11-01';render();},'btn compact'),iconButton('right','下一周',()=>weekMove(7))),h('span',{class:'end small'},'周视图'),button([icon('filter',15),'筛选'],()=>{state.calendarFilter=!state.calendarFilter;render();},'btn compact',{'aria-expanded':state.calendarFilter})));
   if(state.calendarFilter)content.append(h('div',{class:'calendar-filter'},h('strong',{},'课堂范围'),selectControl('日历班级',state.calendarClass,[['all','全部班级'],...classes.map(c=>[c.id,c.course])],v=>state.calendarClass=v),h('span',{class:'small'},'当前教师账号的示例课节'),iconButton('close','关闭筛选',()=>{state.calendarFilter=false;render();})));
   const week=h('div',{class:'calendar-week-head'},h('span',{class:'timezone'},'GMT+8'),days.map((d,i)=>button([h('span',{},`周${['一','二','三','四','五','六','日'][i]}`),h('strong',{},parseDate(d).getDate())],()=>{state.calendarDate=d;render();},`calendar-day-head${d===today?' today':''}`,{'aria-label':`选中${dateLabel(d)}`,'aria-pressed':d===state.calendarDate})));
-  const grid=h('div',{class:'time-grid'},h('div',{class:'hour-labels'},Array.from({length:13},(_,i)=>h('span',{},`${String(i+9).padStart(2,'0')}:00`))));
+  const grid=h('div',{class:'time-grid'},h('div',{class:'hour-labels'},Array.from({length:gridHours+1},(_,i)=>h('span',{},`${String(i+firstHour).padStart(2,'0')}:00`))));
+  grid.style.height=`${gridHours*42+6}px`;grid.querySelector('.hour-labels').style.height=`${gridHours*42}px`;
   for(const d of days){const col=h('div',{class:`time-column${d===state.calendarDate?' selected':''}`,'aria-label':`${dateLabel(d)}课节`});
-    if(state.calendarCourse)for(const l of lessons.filter(l=>l.date===d&&(state.calendarClass==='all'||l.classId===state.calendarClass))){const minutes=t=>Number(t.slice(0,2))*60+Number(t.slice(3));const item=button([h('strong',{},l.title),h('span',{},`${l.start}–${l.end}`),h('small',{},courseName(l.classId))],()=>lessonDialog(l),`calendar-event ${l.classId==='advanced'?'blue':l.classId==='cpp'?'amber':'green'}${l.done?' past':''}`,{'aria-label':`${dateLabel(d)} ${l.start} ${l.title}`});item.style.top=`${(minutes(l.start)-540)/60*42}px`;item.style.height=`${(minutes(l.end)-minutes(l.start))/60*42-4}px`;col.append(item);}
-    if(state.calendarPersonal&&d===today){const personal=button([h('strong',{},'本周备课整理'),h('span',{},'10:00–11:00')],()=>toast('示例个人日程：整理下周课程讲义。'),'calendar-event personal',{'aria-label':'个人日程 本周备课整理'});personal.style.top='42px';personal.style.height='39px';col.append(personal);}
-    if(d===today){const line=h('div',{class:'current-time','aria-label':'示例时间 15:20'});line.style.top=`${(6+20/60)*42}px`;col.append(line);}grid.append(col);}
+    col.style.height=`${gridHours*42}px`;if(state.calendarCourse)for(const l of lessons.filter(l=>l.date===d&&(state.calendarClass==='all'||l.classId===state.calendarClass))){const minutes=t=>Number(t.slice(0,2))*60+Number(t.slice(3));const item=button([h('strong',{},l.title),h('span',{},`${l.start}–${l.end}`),h('small',{},courseName(l.classId))],()=>lessonDialog(l),`calendar-event ${l.classId==='advanced'?'blue':l.classId==='cpp'?'amber':'green'}${l.done?' past':''}`,{'aria-label':`${dateLabel(d)} ${l.start} ${l.title}`});item.style.top=`${(minutes(l.start)-firstHour*60)/60*42}px`;item.style.height=`${(minutes(l.end)-minutes(l.start))/60*42-4}px`;col.append(item);}
+    if(state.calendarPersonal&&d===today){const personal=button([h('strong',{},'本周备课整理'),h('span',{},'10:00–11:00')],()=>toast('示例个人日程：整理下周课程讲义。'),'calendar-event personal',{'aria-label':'个人日程 本周备课整理'});personal.style.top=`${(10-firstHour)*42}px`;personal.style.height='39px';col.append(personal);}
+    if(d===today){const line=h('div',{class:'current-time','aria-label':'示例时间 15:20'});line.style.top=`${(15+20/60-firstHour)*42}px`;col.append(line);}grid.append(col);}
   content.append(week,h('div',{class:'calendar-scroll'},grid),h('footer',{class:'workspace-foot'},'点击课节查看详情',h('span',{},'示例日期 · 2026年11月8日')));return h('div',{class:'workspace-layout calendar-workspace'},side,content);
 }
 function changeMonth(delta){const d=parseDate(state.month);d.setMonth(d.getMonth()+delta);state.month=dateKey(d);render();}
@@ -119,7 +122,6 @@ function coursesView(){
   }
   content.append(h('footer',{class:'workspace-foot'},'课程与互动记录均为示例',h('span',{},`${course.members.length} 名班级成员`)));return h('div',{class:'workspace-layout'},side,content);
 }
-const workspacePages=['home','calendar','todo','files','courses','students','groups'];
+const workspacePages=['home','calendar','todo','files','courses','students','groups','chat'];
 const initialPage=location.hash.slice(1);if(workspacePages.includes(initialPage))state.page=initialPage;
 window.addEventListener('hashchange',()=>{const page=location.hash.slice(1);if(workspacePages.includes(page))go(page);});
-render();

@@ -8,10 +8,11 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="window-bar"><span>翔宇文淑课堂</span><span class="window-context">教学工作台</span><button type="button" id="next-lesson" class="window-lesson">下节课 15:30 <span>· 10分钟</span></button><span class="preview-tag">设计预览 · 示例数据</span></div>
+  <header class="window-bar"><div id="global-actions" class="global-actions" aria-label="课堂快捷操作"></div><span class="preview-tag">设计预览 · 示例数据</span></header>
   <div class="app-shell"><nav id="navigation" aria-label="主导航"></nav><main id="main"></main></div>
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="app.js"></script>
   <script src="workspace.js"></script>
+  <script src="communication.js"></script>
 </body>
 </html>
