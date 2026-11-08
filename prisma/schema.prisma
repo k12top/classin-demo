@@ -516,6 +516,7 @@ model Courseware {
 
 // ── Authoritative live classroom state ──
 model ClassroomRuntime {
+  activityRevision Int @default(0)
   id                         String    @id @default(uuid())
   courseId                   String
   sessionId                  String    @unique
@@ -912,6 +913,7 @@ model ClassroomActivity {
   deadlineAt  DateTime?
   closedAt    DateTime?
   publishedAt DateTime?
+  answerReleaseScope String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   runtime     ClassroomRuntime @relation(fields: [runtimeId], references: [id], onDelete: Cascade)

@@ -15,6 +15,21 @@ export function serverRtmPublisherId(sessionId: string, config: ServerRtmConfigu
 export function assertClientSignalingIdentity(sessionId: string, userId: string, config: ServerRtmConfiguration) {
   if (userId===serverRtmPublisherId(sessionId,config)) throw new Error("Server Signaling identity cannot be issued to a client");
 }
+/** A wake-up only: answers and answer keys never enter a public RTM channel.
+ * Durable activityRevision checks repair delivery when server RTM is disabled
+ * or unavailable, independently of the submitting browser's acknowledgement. */
+export async function publishActivityInvalidation(sessionId: string, revision: number, config = serverRtmConfiguration(), fetcher: typeof fetch = fetch) {
+  if (!config) return;
+  if (!sessionId || !Number.isSafeInteger(revision) || revision < 0) throw new Error("Invalid activity notification");
+  const response = await fetcher(`https://api.agora.io/dev/v2/project/${encodeURIComponent(config.appId)}/rtm/users/${encodeURIComponent(serverRtmPublisherId(sessionId, config))}/channel_messages`, {
+    method: "POST", headers: { "Content-Type": "application/json", Authorization: `Basic ${Buffer.from(`${config.customerId}:${config.customerSecret}`).toString("base64")}` },
+    body: JSON.stringify({ channel_name: `classroom-${sessionId}`, enable_historical_messaging: false, payload: JSON.stringify({ courseId: sessionId, revision, topic: "activities" }) }),
+    signal: AbortSignal.timeout(5000), cache: "no-store",
+  });
+  if (!response.ok) throw new Error("Activity signaling delivery failed");
+  const result = await response.json() as { result?: string; code?: string };
+  if (result.result !== "success" || result.code !== "message_sent") throw new Error("Activity signaling was not acknowledged");
+}
 export async function publishServerRtmEvent(event: PublicRealtimeEnvelope, config: ServerRtmConfiguration, fetcher: typeof fetch = fetch) {
   if (!safePublicRealtimeEnvelope(event)) throw new Error("Unsafe public realtime envelope");
   if (event.audience !== "public") throw new Error("Only the public audience is implemented");

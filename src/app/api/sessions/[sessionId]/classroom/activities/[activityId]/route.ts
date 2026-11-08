@@ -1,4 +1,5 @@
 import { after, NextRequest, NextResponse } from "next/server";
+import { publishActivityInvalidation } from "@/lib/classroom/signaling/server-publisher";
 import { reviewActivityAnswer } from "@/lib/classroom/server/activity-ai-review";
 import { activityActor, activityFailure, activityBody } from "@/lib/classroom/server/activity-route";
 import { activityDetail, commandActivity, exportActivity } from "@/lib/classroom/server/activities";
@@ -31,6 +32,7 @@ export async function PATCH(request: NextRequest, { params }: Context) {
       return NextResponse.json({ revision: 0 });
     }
     const result = await commandActivity(actor, activityId, body);
+    after(() => publishActivityInvalidation(actor.sessionId, result.revision).catch(() => undefined));
     if (body.action === "answer" && "responseId" in result && typeof result.responseId === "string") {
       const id = result.responseId;
       after(() => reviewActivityAnswer(actor, activityId, id).catch(error => console.error("[activities:review]", error instanceof Error ? error.name : "failed")));

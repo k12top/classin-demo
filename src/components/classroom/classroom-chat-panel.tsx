@@ -1,4 +1,6 @@
 "use client";
+import { MarkdownContent } from "@/components/markdown-content";
+import { useActivityPublication } from '@/lib/classroom/use-activity-publication';
 import { ClassroomIconButton } from "./icon-button";
 /* eslint-disable @next/next/no-img-element -- Private no-store chat images and local blob previews must bypass the shared image optimizer. */
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from "react";
@@ -127,11 +129,13 @@ export function ClassroomChatPanel({
     return message.scope === scope;
   });
   const activityFeed = useChatActivities(sessionId, shareAccess, visible && scope === "classroom");
+  const publication = useActivityPublication(sessionId,currentUserId,shareAccess,onActivityChanged,activityFeed.activities);
+  const feedActivities = [...activityFeed.activities,...(canManage?publication.created.filter(item=>!activityFeed.activities.some(row=>row.id===item.id)):[])];
   const [translateEnabled, setTranslateEnabled] = useState(false);
   const [languageOverride, setLanguageOverride] = useState("");
   const language = languageOverride || translationLanguage;
   const chatTranslation = useChatTranslations(sessionId, visibleMessages, language, translateEnabled && visible, shareAccess);
-  const latestId = [visibleMessages.at(-1)?.id, activityFeed.activities.at(0)?.id].filter(Boolean).join(":");
+  const latestId = [visibleMessages.at(-1)?.id, feedActivities.at(0)?.id, publication.pending.at(-1)?.requestId].filter(Boolean).join(":");
   const lastSeenIdRef = useRef(latestId);
   useEffect(() => {
     if (!visible) return;
@@ -195,7 +199,7 @@ export function ClassroomChatPanel({
         aria-live="polite"
         aria-relevant="additions"
       >
-        {visibleMessages.length === 0 && (scope !== "classroom" || activityFeed.activities.length === 0) && (
+        {visibleMessages.length === 0 && (scope !== "classroom" || feedActivities.length === 0 && publication.pending.length === 0) && (
           <div className="classroom-v3-panel-empty">
             <MessageCircle />
             <strong>{t("classroom.v3.discussionEmpty")}</strong>
@@ -204,8 +208,8 @@ export function ClassroomChatPanel({
         )}
         {activityFeed.hasMore && scope === "classroom" && <button type="button" disabled={activityFeed.loading} onClick={activityFeed.loadMore}>{t("classroomChat.moreActivities")}</button>}
         {activityFeed.error && scope === "classroom" && <button type="button" onClick={() => { void activityFeed.reload().catch(() => undefined); }}>{t("classroomChat.activityRetry")}</button>}
-        {[...visibleMessages.map(message => ({ type: "message" as const, createdAt: message.createdAt, message })), ...(scope === "classroom" ? activityFeed.activities.map(activity => ({ type: "activity" as const, createdAt: activity.startedAt || activity.createdAt, activity })) : [])].sort((a,b)=>Date.parse(a.createdAt)-Date.parse(b.createdAt)).map(entry => {
-          if (entry.type === "activity") return <ActivityChatCard visible={visible && scope === "classroom"} key={"activity:"+entry.activity.id} activity={entry.activity} sessionId={sessionId} shareAccess={shareAccess} student={role === "student"} onChanged={onActivityChanged} onManage={() => setActivityEditorOpen(true)} />;
+        {[...visibleMessages.map(message => ({ type: "message" as const, createdAt: message.createdAt, message })), ...(scope === "classroom" ? feedActivities.map(activity => ({ type: "activity" as const, createdAt: activity.startedAt || activity.createdAt, activity })) : [])].sort((a,b)=>Date.parse(a.createdAt)-Date.parse(b.createdAt)).map(entry => {
+          if (entry.type === "activity") return <ActivityChatCard visible={visible && scope === "classroom"} key={"activity:"+entry.activity.id} activity={entry.activity} initialDetail={publication.created.find(row=>row.id===entry.activity.id)} sessionId={sessionId} shareAccess={shareAccess} student={role === "student"} onChanged={onActivityChanged} onManage={() => setActivityEditorOpen(true)} />;
           const message = entry.message;
           const pending = message.id.startsWith(OPTIMISTIC_MESSAGE_PREFIX);
           return (
@@ -237,8 +241,13 @@ export function ClassroomChatPanel({
             </article>
           );
         })}
+        {canManage && scope === "classroom" && publication.pending.map(row=><section className={`${interactionStyles.card} ${interactionStyles.surface}`} key={row.requestId} data-activity-pending={row.requestId} aria-live="polite">
+          <header className={interactionStyles.questionHead}>{row.state==='sending'?interaction.sending:row.state==='failed'?interaction.sendFailed:interaction.sendRetry}</header>
+          {row.activity.definition.questions.map(question=><div key={question.id}><MarkdownContent className={interactionStyles.questionTitle} content={question.prompt}/><div className={interactionStyles.distribution}>{question.options.map((option,index)=><div key={option.id}><span className={interactionStyles.optionLetter}>{String.fromCharCode(65+index)}</span><MarkdownContent className={interactionStyles.optionText} content={option.text}/></div>)}</div></div>)}
+          {row.state!=='sending'&&<button type="button" onClick={()=>void publication.retry(row)}>{interaction.retry}</button>}
+        </section>)}
       </div>
-      <ActivityQuickCreator sessionId={sessionId} shareAccess={shareAccess} open={quickOpen && canManage} hasActive={activityFeed.activities.some(activity => activity.status === "active")} onClose={() => setQuickOpen(false)} onPublished={onActivityChanged} onAdvanced={() => { setQuickOpen(false); setActivityEditorOpen(true); }} />
+      <ActivityQuickCreator onQueuePublish={publication.publish} publishing={publication.pending.length>0} sessionId={sessionId} shareAccess={shareAccess} open={quickOpen && canManage} hasActive={activityFeed.activities.some(activity => activity.status === "active")} onClose={() => setQuickOpen(false)} onPublished={onActivityChanged} onAdvanced={() => { setQuickOpen(false); setActivityEditorOpen(true); }} />
       {hasNewMessages && <button type="button" className="classroom-chat-latest" onClick={showLatest}>{t("classroomWorkspace.latest")}</button>}
       {images.error && <p className="classroom-chat-send-error" role="alert">{images.error}</p>}
       {sendFailed && <p className="classroom-chat-send-error" role="alert">{t("classroomWorkspace.sendFailed")}</p>}

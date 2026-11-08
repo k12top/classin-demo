@@ -16,3 +16,12 @@
 .quizFloat legend:global(.sr-only) { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; float:none; }
 
 :global(.is-classin-layout) .surface .questionReopen { left:82px; }
+
+/* Answer identity and release scope remain readable in narrow chat panels. */
+.answerBadge{position:absolute;inset:-3px -3px auto auto;z-index:3;display:grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--i-bg);color:var(--i-muted);border:1px solid var(--i-line)}
+.answerBadge svg{width:12px;height:12px}.answerBadge[data-judgment="correct"]{color:#23744d}.answerBadge[data-judgment="incorrect"]{color:#b33542}.answerBadge[data-judgment="partial"]{color:#805b24}
+.person.updated:after{inset:auto -1px -1px auto}
+.releaseResults{flex-wrap:wrap}.surface .releaseResults button{white-space:normal;text-align:start}.surface .optionEdit>button{flex-shrink:0}
+.distribution>[role="button"]{cursor:pointer}.distribution>[role="button"]:hover{outline:1px solid var(--i-accent)}
+.card[data-activity-pending]{padding:12px 14px}.card[data-activity-pending] h3{margin:0}.card[data-activity-pending] p{margin:6px 0;color:var(--i-muted)}
+.rosterRow>span[data-judgment="incorrect"]{color:#b33542}.rosterRow>span[data-judgment="pending"],.rosterRow>span[data-judgment="partial"]{color:#805b24}

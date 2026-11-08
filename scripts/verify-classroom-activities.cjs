@@ -45,6 +45,7 @@ INSERT INTO "Courseware" ("id", "courseId", "name", "ext", "url", "updatedAt", "
   const reportDir = path.join(root, "clients/desktop/dist/verification"); await fsp.mkdir(reportDir, { recursive: true });
   await fsp.writeFile(path.join(reportDir, "activities-migrations.json"), JSON.stringify({ passed: true, database: "isolated PostgreSQL16", checks: ["empty database full migration chain", "no Prisma schema drift", "guarded baseline preserves existing course and courseware rows, dates, permissions and conversion metadata"], productionDatabaseChanged: false }, null, 2));
   run(process.execPath, ["tests/integration/classroom-activities.cjs"], { env, stdio: "inherit" });
+  run(process.execPath, ["tests/integration/classroom-activity-release-scopes.cjs"], { env, stdio: "inherit" });
   run(process.execPath, ["tests/integration/classroom-activity-interactions.cjs"], { env, stdio: "inherit" });
   run(process.execPath, ["tests/integration/classroom-activity-ai-review.cjs"], { env, stdio: "inherit" });
   if (process.argv.includes("--feedback-only")) {
@@ -52,6 +53,10 @@ INSERT INTO "Courseware" ("id", "courseId", "name", "ext", "url", "updatedAt", "
     return;
   }
   run(process.execPath, ["tests/integration/classroom-chat-images.cjs"], { env, stdio: "inherit" });
+  if (process.argv.includes("--improvements-ui")) {
+    run(process.execPath, ["tests/integration/classroom-activity-improvements-ui.cjs"], { env, stdio: "inherit" });
+    return;
+  }
   if (!process.argv.includes("--database-only")) {
     run(path.join(root, "clients/desktop/node_modules/.bin/electron"), ["tests/integration/classroom-chat-ui.cjs"], { env, stdio: "inherit" });
     if (!process.argv.includes("--chat-only")) run(path.join(root, "clients/desktop/node_modules/.bin/electron"), ["tests/integration/classroom-activity-workspace-ui.cjs"], { env, stdio: "inherit" });

@@ -5,6 +5,11 @@ export const ACTIVITY_CREATE_EVENT = "classroom-activity-create";
 export type ActivityKind = "poll" | "quiz" | "task";
 export type QuestionKind = "single" | "multiple" | "boolean" | "shortText" | "essay";
 export type ActivityStatus = "draft" | "active" | "closed" | "published" | "cancelled";
+export type ActivityReleaseScope = "answered" | "all";
+export function activityResultsVisible(activity: { status: string; answerReleaseScope?: string | null }, answered: boolean) {
+  if (activity.status === "draft" || activity.status === "cancelled") return false;
+  return activity.status === "published" || activity.answerReleaseScope === "all" || (activity.answerReleaseScope === "answered" && answered);
+}
 export type ActivityQuestion = {
   id: string; type: QuestionKind; prompt: string; points: number;
   options: Array<{ id: string; text: string }>;
@@ -29,6 +34,8 @@ export type ActivitySummary = {
   id: string; title: string; kind: ActivityKind; status: ActivityStatus;
   durationSec: number | null; startedAt: string | null; deadlineAt: string | null;
   version: number; presented: boolean; presentedQuestion: number; createdAt: string; updatedAt: string; responseCount: number; questionCount: number;
+  answerReleaseScope?: ActivityReleaseScope | null;
+  requestId?: string;
 };
 export type ActivityResponse = {
   id: string; userId: string; displayName: string; answers: ActivityAnswers;
@@ -38,11 +45,20 @@ export type ActivityResponse = {
 };
 export type ActivityRosterMember = { userId: string; displayName: string; avatar: string; online: boolean; response: ActivityResponse | null };
 export type ActivityDetail = ActivitySummary & {
+  resultsVisible?: boolean;
   definition: ActivityDefinition; ownResponse: ActivityResponse | null;
   responses: ActivityResponse[]; responseCursor: string | null;
   statistics: Record<string, Record<string, number>> | null;
   roster?: ActivityRosterMember[]; reminder?: { id: string; createdAt: string } | null; lastRemindedAt?: string | null;
 };
+export type ActivityMutationResult = {
+  revision: number; response?: ActivityResponse; definition?: ActivityDefinition; resultsVisible?: boolean;
+};
+/** A delayed acknowledgement must not undo newer grading or answer visibility. */
+export function mergeActivityAnswer(detail: ActivityDetail | null, result: ActivityMutationResult): ActivityDetail | null {
+  if (!detail || !result.response || (detail.ownResponse && detail.ownResponse.version > result.response.version) || (detail.resultsVisible && result.resultsVisible === false)) return detail;
+  return { ...detail, ownResponse: result.response, ...(result.definition && { definition: result.definition }), ...(result.resultsVisible !== undefined && { resultsVisible: result.resultsVisible }) };
+}
 export type ActivityList = {
   activities: ActivitySummary[]; nextCursor: string | null; active: ActivitySummary | null;
   canManage: boolean; canAnswer: boolean; canPrepare: boolean; live: boolean;

@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { ACTIVITY_REFRESH_EVENT } from "./activities";
 import { ClassroomSharedReads, ClassroomSyncScheduler } from "./sync-scheduler";
 
-function createSync() { return { scheduler: new ClassroomSyncScheduler(), reads: new ClassroomSharedReads() }; }
+function createSync() { return { scheduler: new ClassroomSyncScheduler(), reads: new ClassroomSharedReads(), activityVersions: new Map<string, { users: number; remove: () => void }>() }; }
 type Sync = ReturnType<typeof createSync>;
 const Context = createContext<Sync | null>(null);
 export const ClassroomSyncProvider = Context.Provider;
@@ -67,4 +67,35 @@ export function useClassroomJsonRead(sessionId: string) {
     // never let one widget mutate another widget's response object.
     return structuredClone(await sync.reads.read(key, load, init?.signal));
   }, [sync]);
+}
+
+/** One lightweight durable-version check per authorized classroom view, shared
+ * by every card. It repairs a lost RTM event or a lost mutation response without
+ * polling every question's roster and answers every two seconds. */
+export function useActivityVersionWatch(sessionId: string, shareAccess?: string | null, active = true) {
+  const sync = useSync(sessionId);
+  useEffect(() => {
+    if (!active || !sessionId) return;
+    const params = new URLSearchParams({ versionOnly: "1" });
+    if (shareAccess) params.set("shareAccess", shareAccess);
+    const url = `/api/sessions/${encodeURIComponent(sessionId)}/classroom/activities?${params}`;
+    let entry = sync.activityVersions.get(url);
+    if (!entry) {
+      let revision: number | undefined;
+      const remove = sync.scheduler.register({ topics: ["transport", "resume"], interval: () => 2000, maxRetryMs: 8000,
+        run: async signal => {
+          const value = await sync.reads.read(url, async readSignal => {
+            const response = await fetch(url, { cache: "no-store", signal: AbortSignal.any([readSignal, AbortSignal.timeout(8000)]) });
+            if (!response.ok) throw new Error("activity_version_unavailable");
+            return response.json() as Promise<{ revision: number }>;
+          }, signal);
+          if (!Number.isSafeInteger(value.revision)) throw new Error("invalid_activity_version");
+          if (revision !== value.revision) sync.scheduler.invalidate("activities");
+          revision = value.revision;
+        } });
+      entry = { users: 0, remove }; sync.activityVersions.set(url, entry);
+    }
+    entry.users++;
+    return () => { if (--entry.users === 0) { entry.remove(); sync.activityVersions.delete(url); } };
+  }, [sync, sessionId, shareAccess, active]);
 }

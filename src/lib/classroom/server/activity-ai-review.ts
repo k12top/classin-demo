@@ -15,7 +15,7 @@ export function parseAnswerReview(text: string, points: number) {
 export async function reviewActivityAnswer(actor: ActivityActor, activityId: string, responseId: string, retry = false, generate?: (instruction: string, signal: AbortSignal) => Promise<string>) {
   const row = await prisma.classroomActivity.findFirst({ where: { id: activityId, sessionId: actor.sessionId } });
   const saved = await prisma.classroomActivitySubmission.findFirst({ where: { id: responseId, activityId } });
-  if (!row || !saved || !["active", "closed"].includes(row.status)) return;
+  if (!row || !saved || !["active", "closed", "published"].includes(row.status)) return;
   if (retry && actor.role !== "teacher" && actor.role !== "assistant") throw new ActivityError("Only authorized teachers can manage activities", 403);
   const definition = row.definition as ActivityDefinition;
   const review = saved.aiReview as NonNullable<ActivityResponse["aiReview"]>;
@@ -35,8 +35,8 @@ export async function reviewActivityAnswer(actor: ActivityActor, activityId: str
   await prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${actor.sessionId} FOR UPDATE`;
     const active = await tx.classroomActivity.findUnique({ where: { id: activityId }, select: { status: true } });
-    if (!active || !["active", "closed"].includes(active.status)) return;
+    if (!active || !["active", "closed", "published"].includes(active.status)) return;
     const updated = await tx.classroomActivitySubmission.updateMany({ where: { id: responseId, version: saved.version, answerVersion: saved.answerVersion }, data: { grading: grading as Prisma.InputJsonValue, aiReview: review as Prisma.InputJsonValue, version: { increment: 1 } } });
-    if (updated.count) await tx.classroomRuntime.update({ where: { sessionId: actor.sessionId }, data: { revision: { increment: 1 } } });
+    if (updated.count) await tx.classroomRuntime.update({ where: { sessionId: actor.sessionId }, data: { revision: { increment: 1 }, activityRevision: { increment: 1 } } });
   });
 }

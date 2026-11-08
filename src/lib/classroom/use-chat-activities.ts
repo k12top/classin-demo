@@ -1,10 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useClassroomSyncTask, useClassroomJsonRead } from "./use-classroom-sync";
+import { useClassroomSyncTask, useClassroomJsonRead, useActivityVersionWatch } from "./use-classroom-sync";
 import { type ActivityList, type ActivitySummary } from "./activities";
 
 /** Keep active questions visible even when newer drafts fill the first history page. */
 export function useChatActivities(sessionId: string, shareAccess: string | null | undefined, visible: boolean) {
+  useActivityVersionWatch(sessionId, shareAccess, visible);
   const [activities, setActivities] = useState<ActivitySummary[]>([]);
   const [error, setError] = useState(false), [pages, setPages] = useState(1);
   const [hasMore, setHasMore] = useState(false), [loading, setLoading] = useState(false);

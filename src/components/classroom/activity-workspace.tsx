@@ -5,7 +5,8 @@ import { ActivityDraftControls } from "./activity-draft-controls";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, BarChart3, Check, ClipboardList, Download, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
-import { useClassroomSyncTask, useClassroomJsonRead } from "@/lib/classroom/use-classroom-sync";
+import { useClassroomSyncTask, useClassroomJsonRead, useActivityVersionWatch } from "@/lib/classroom/use-classroom-sync";
+import { interactionCopy } from "@/lib/classroom/interaction-copy";
 import { ACTIVITY_REFRESH_EVENT, answersMatch } from "@/lib/classroom/activities";
 import type { ActivityAnswers, ActivityDefinition, ActivityDetail, ActivityGrade, ActivityKind, ActivityList, ActivityPresentation, ActivityQuestion, ActivityResponse, QuestionKind } from "@/lib/classroom/activities";
 import styles from "./activity-workspace.module.css";
@@ -66,7 +67,9 @@ export function ActivityWorkspace(props: Props) {
 }
 export type AnswerDraft = { answers: ActivityAnswers; expectedVersion: number };
 function ActivityWorkspaceSession({ sessionId, shareAccess, review = false, onChanged }: Props) {
-  const { t } = useTranslation();
+  useActivityVersionWatch(sessionId, shareAccess, !review);
+  const { t, locale } = useTranslation();
+  const interaction = interactionCopy(locale);
   const read=useClassroomJsonRead(sessionId);
   const [list, setList] = useState<ActivityList | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -196,7 +199,7 @@ function ActivityWorkspaceSession({ sessionId, shareAccess, review = false, onCh
           <div className={styles.actions}>
             {detail.status === "draft" && <><button type="button" disabled={busy} onClick={() => setEditing(detail)}>{t("activities.editDraft")}</button><button type="button" className={styles.primary} disabled={busy || !list.live || !!list.active} onClick={() => void command({ action: "start" })}>{t("activities.start")}</button></>}
             {detail.status === "active" && <button type="button" disabled={busy} onClick={() => window.confirm(t("activities.closeConfirm")) && void command({ action: "close" })}>{t("activities.stop")}</button>}
-            {detail.status === "closed" && <button type="button" className={styles.primary} disabled={busy} onClick={() => window.confirm(t("activities.confirmPublish")) && void command({ action: "publish" })}>{t("activities.publish")}</button>}
+            {["active", "closed"].includes(detail.status) && <><button type="button" disabled={busy || detail.answerReleaseScope === "answered"} onClick={() => void command({ action: "release", scope: "answered" })}>{interaction.releaseAnswered}</button><button type="button" className={styles.primary} disabled={busy} onClick={() => window.confirm(t("activities.confirmPublish")) && void command({ action: "release", scope: "all" })}>{interaction.releaseAll}</button></>}
             {["draft", "active", "closed"].includes(detail.status) && <button type="button" disabled={busy} onClick={() => window.confirm(t("activities.confirmCancel")) && void command({ action: "cancel" })}>{t("activities.cancelActivity")}</button>}
             <button type="button" disabled={busy} onClick={() => void exportCsv()}><Download />{t("activities.export")}</button>
           </div>
@@ -208,15 +211,15 @@ function ActivityWorkspaceSession({ sessionId, shareAccess, review = false, onCh
           {detail.statistics && <ActivityStatistics detail={detail} />}
           <h4>{t("activities.teacherAnswers")}</h4>
           {!detail.responses.length && <p className={styles.muted}>{t("activities.noResponses")}</p>}
-          {detail.responses.map(r => <ResponseGrader key={r.id} response={r} definition={detail.definition} canGrade={detail.status === "closed" && detail.kind !== "poll"} busy={busy} onSave={(grading, feedback, expectedVersion) => command({ action: "grade", responseId: r.id, grading, feedback, expectedVersion })} />)}
+          {detail.responses.map(r => <ResponseGrader key={r.id} response={r} definition={detail.definition} canGrade={["closed", "published"].includes(detail.status) && detail.kind !== "poll"} busy={busy} onSave={(grading, feedback, expectedVersion) => command({ action: "grade", responseId: r.id, grading, feedback, expectedVersion })} />)}
           {detail.responseCursor && <button type="button" disabled={busy} onClick={() => void more(true)}>{t("activities.loadMore")}</button>}
         </> : <>
-          {list.canAnswer && (detail.status === "active" || answerDrafts.has(detail.id)) ? <>
-            <AnswerForm key={detail.id} detail={detail} busy={busy} enabled={list.live && detail.status === "active"}
+          {list.canAnswer && ((detail.status === "active" && !detail.resultsVisible) || answerDrafts.has(detail.id)) ? <>
+            <AnswerForm key={detail.id} detail={detail} busy={busy} enabled={list.live && detail.status === "active" && !detail.resultsVisible}
               draft={answerDrafts.get(detail.id)} onDraft={draft => setAnswerDrafts(old => { const next = new Map(old); if (draft) next.set(detail.id, draft); else next.delete(detail.id); return next; })}
               onSubmit={(answers, expectedVersion) => command({ action: "answer", answers, expectedVersion })} />
             {detail.status !== "active" && detail.ownResponse && <SavedResponse response={detail.ownResponse} definition={detail.definition} />}
-            {detail.status === "published" && <QuestionPreview definition={detail.definition} />}
+            {(detail.resultsVisible ?? detail.status === "published") && <QuestionPreview definition={detail.definition} />}
           </> : <>
             <QuestionPreview definition={detail.definition} />
             {detail.ownResponse ? <SavedResponse response={detail.ownResponse} definition={detail.definition} /> : <p className={styles.muted}>{t("activities.notSubmitted")}</p>}
@@ -272,7 +275,7 @@ function ActivityEditor({ initial, busy, onSave, onCancel, sessionId, shareAcces
 }
 export function AnswerForm({ detail, busy, enabled, draft, onDraft, onSubmit }: { detail: ActivityDetail; busy: boolean; enabled: boolean; draft?: AnswerDraft; onDraft: (draft: AnswerDraft | null) => void; onSubmit: (a: ActivityAnswers, expectedVersion: number) => Promise<boolean> }) {
   const { t } = useTranslation();
-  const local = draft || null;
+  const local = detail.resultsVisible ? null : draft || null;
   const answers = local?.answers ?? detail.ownResponse?.answers ?? {};
   const expectedVersion = local?.expectedVersion ?? detail.ownResponse?.version ?? 0;
   const matchesSaved = !!detail.ownResponse && answersMatch(answers, detail.ownResponse.answers);

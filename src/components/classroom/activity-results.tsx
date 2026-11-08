@@ -9,7 +9,7 @@ import styles from "./activity-interaction.module.css";
 /** Published feedback only; active/closed snapshots must never reveal an answer key. */
 export function ActivityResults({ detail }: { detail: ActivityDetail }) {
   const { locale } = useTranslation(), copy = interactionCopy(locale);
-  if (detail.status !== "published" || detail.kind === "poll") return null;
+  if (!(detail.resultsVisible ?? detail.status === "published") || detail.kind === "poll") return null;
   return <div className={styles.results} role="status" aria-label={copy.resultsPublished}>
     {detail.definition.questions.map(question => {
       const judgment = activityQuestionJudgment(question, detail.ownResponse);

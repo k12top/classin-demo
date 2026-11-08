@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Isolated real PostgreSQL acceptance. */
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -58,7 +59,7 @@ async function run() {
     assert.equal((await db.classroomActivitySubmission.findUnique({ where: { id: retained.id } })).version, retained.version);
     checks.push("versioned answers prevent stale overwrites; retries retain timestamps even after closing");
     await assert.rejects(api.commandActivity(student, made.id, { action: "answer", expectedVersion: 0, answers: { choice: ["a"], essay: "Late" } }), { status: 409 });
-    await assert.rejects(api.commandActivity(teacher, made.id, { action: "publish" }), { status: 409 });
+    await assert.rejects(api.commandActivity(teacher, made.id, { action: "publish", scope: "invalid" }), { status: 400 });
     let grading = await api.activityDetail(teacher, made.id);
     assert.deepEqual(grading.responses[0].grading, { choice: 4, essay: null });
     const row = grading.responses[0];

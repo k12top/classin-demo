@@ -6,6 +6,18 @@ import {loadModule} from "./helpers/load-module";
 const publisher=loadModule<typeof import("../src/lib/classroom/signaling/server-publisher")>("src/lib/classroom/signaling/server-publisher.ts",{"server-only":{},"node:crypto":crypto,"./committed-stream":{safePublicRealtimeEnvelope}});
 const event=(sequence=1,patch:Partial<PublicRealtimeEnvelope>={}):PublicRealtimeEnvelope=>({version:1,eventId:`event-${sequence}`,sessionId:"lesson",audience:"public",epoch:"epoch",sequence,entity:"message",entityId:"message",entityVersion:sequence,operation:"upsert",data:{id:"message",scope:"classroom",content:"hello"},...patch});
 const config={appId:"mock-app",appCertificate:"mock-certificate",customerId:"mock-id",customerSecret:"mock-secret"};
+test("activity signaling is only an invalidation hint and requires a delivery acknowledgement", async () => {
+  let calls = 0;
+  await publisher.publishActivityInvalidation("lesson", 12, config, async (_url, init) => {
+    calls++; const body = JSON.parse(String(init?.body));
+    assert.equal(body.channel_name, "classroom-lesson");
+    assert.deepEqual(JSON.parse(body.payload), { courseId: "lesson", revision: 12, topic: "activities" });
+    return Response.json({ result: "success", code: "message_sent" });
+  });
+  assert.equal(calls, 1);
+  await publisher.publishActivityInvalidation("lesson", 12, null, async () => { throw new Error("disabled publisher called"); });
+  await assert.rejects(publisher.publishActivityInvalidation("lesson", 12, config, async () => Response.json({ result: "failed" })), /not acknowledged/);
+});
 test("only an authenticated server identity can drive ordered changes, duplicates are ignored",()=>{const applied:PublicRealtimeEnvelope[]=[];let reads=0;const stream=createCommittedStream({sessionId:"lesson",serverPublisherId:"server",apply:value=>applied.push(value),recover:()=>reads++});stream.reset({epoch:"epoch",sequence:0});assert.equal(stream.receive(event(),"peer"),"ignored");assert.equal(stream.receive(event(),"server"),"applied");assert.equal(stream.receive(event(),"server"),"ignored");assert.equal(applied.length,1);assert.equal(reads,0);});
 test("a gap requests one snapshot, blocks later events, and resumes only at an authoritative watermark",()=>{let reads=0,count=0;const stream=createCommittedStream({sessionId:"lesson",serverPublisherId:"server",apply:()=>count++,recover:()=>reads++});stream.reset({epoch:"epoch",sequence:0});assert.equal(stream.receive(event(2),"server"),"recovering");assert.equal(stream.receive(event(3),"server"),"recovering");assert.equal(reads,1);assert.equal(count,0);stream.reset({epoch:"epoch",sequence:3});assert.equal(stream.receive(event(4),"server"),"applied");assert.equal(count,1);assert.throws(()=>stream.reset({epoch:"epoch",sequence:2}),/backwards/);});
 test("a tombstone prevents an older upsert from resurrecting deleted content; retired epochs stay retired",()=>{const ops:string[]=[];const stream=createCommittedStream({sessionId:"lesson",serverPublisherId:"server",apply:value=>ops.push(value.operation),recover:()=>{}});stream.reset({epoch:"epoch",sequence:0});stream.receive(event(1,{operation:"delete",data:undefined,entityVersion:9}),"server");stream.receive(event(2,{entityVersion:8}),"server");assert.deepEqual(ops,["delete"]);stream.reset({epoch:"new",sequence:0});assert.equal(stream.receive(event(3),"server"),"ignored");});

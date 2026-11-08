@@ -5,6 +5,7 @@ export type SyncJob = {
   background?: boolean;
   initialDelay?: number | null;
   wakeAt?: number;
+  maxRetryMs?: number;
 };
 type Entry = { job: SyncJob; due: number; running: boolean; dirty: boolean; failures: number; controller: AbortController };
 type Clock = { now: () => number; set: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>; clear: (timer: ReturnType<typeof setTimeout>) => void };
@@ -77,7 +78,7 @@ export class ClassroomSyncScheduler {
         if (!this.enabled || this.jobs.get(id) !== entry) return;
         entry.running = false;
         const interval = entry.job.interval(this.realtime);
-        const delay = entry.failures ? Math.min(60_000, Math.max(5_000, interval ?? 5_000) * 2 ** Math.min(entry.failures - 1, 4)) : interval;
+        const delay = entry.failures ? Math.min(entry.job.maxRetryMs ?? 60_000, Math.max(entry.job.maxRetryMs ? 2_000 : 5_000, interval ?? 5_000) * 2 ** Math.min(entry.failures - 1, 4)) : interval;
         entry.due = entry.dirty && !entry.failures ? this.clock.now() + 50 : delay === null ? Infinity : this.clock.now() + delay;
         if (!entry.failures && entry.job.wakeAt && entry.job.wakeAt > this.clock.now()) entry.due = Math.min(entry.due, entry.job.wakeAt);
         this.arm();
