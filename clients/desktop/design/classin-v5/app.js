@@ -157,10 +157,11 @@ function renderMainPreservingFocus() {
 function render() {
   stopReplayTimer();
   document.body.classList.toggle('in-course',state.page==='courses');
+  document.body.classList.toggle('in-classroom',state.page==='classroom');
   document.documentElement.lang=state.locale;document.querySelector('.preview-tag').textContent=tr('设计预览 · 示例数据');
   renderNav();
   renderGlobalActions();
-  main.replaceChildren(state.page === 'home' ? home() : state.page === 'students' ? studentView() : state.page === 'groups' ? groupView() : state.page === 'calendar' ? calendarView() : state.page === 'files' ? filesView() : state.page === 'todo' ? todoView() : state.page === 'chat' ? chatView() : state.page === 'replay' ? replayView() : coursesView());
+  main.replaceChildren(state.page === 'home' ? home() : state.page === 'students' ? studentView() : state.page === 'groups' ? groupView() : state.page === 'calendar' ? calendarView() : state.page === 'files' ? filesView() : state.page === 'todo' ? todoView() : state.page === 'chat' ? chatView() : state.page === 'replay' ? replayView() : state.page === 'classroom' ? classroomView() : coursesView());
 }
 function openClass(id) { state.classId=id||classes[0].id; state.courseTab='lessons'; go('courses'); }
 function createClass() {

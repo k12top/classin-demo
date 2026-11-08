@@ -107,6 +107,6 @@ function filesView(){
   content.append(h('footer',{class:'workspace-foot'},'文件仅用于本地设计演示',h('span',{},state.driveLayout==='list'?'列表视图':'网格视图')));return h('div',{class:'workspace-layout'},side,content);
 }
 function lessonRecords(course,programId=null){const list=lessons.filter(l=>l.classId===course.id&&l.done&&(!programId||l.programId===programId));const box=h('div',{},h('div',{class:'section-head'},h('h2',{},'课堂互动记录'),h('span',{class:'small'},'教师视角 · 全班示例')));for(const l of list)box.append(h('article',{class:'record-row'},h('div',{class:'grow'},h('h3',{},`第 ${l.no} 课 · ${l.title}`),h('p',{class:'small'},`${dateLabel(l.date)} · ${l.answered} 人参与 · 互动正确率 ${l.correct}%`)),button('查看记录',()=>modal(l.title,h('div',{},h('p',{class:'small'},'互动记录示例 · 教师可查看全班'),h('div',{class:'preview-sheet'},h('h3',{},'如何确定二分查找的边界？'),h('p',{},'参考答案：根据有序区间与目标值比较，收缩左右边界。'),h('p',{},`本课参与 ${l.answered} 人 · 正确率 ${l.correct}%`))),'关闭',()=>{}),'btn compact')));if(!list.length)box.append(emptyState('暂无课堂记录','课节结束后，在这里查看回放与互动记录。'));return box;}
-const workspacePages=['home','calendar','todo','files','courses','students','groups','chat','replay'];
+const workspacePages=['home','calendar','todo','files','courses','students','groups','chat','replay','classroom'];
 const initialPage=location.hash.slice(1);if(workspacePages.includes(initialPage))state.page=initialPage;
 window.addEventListener('hashchange',()=>{const page=location.hash.slice(1);if(workspacePages.includes(page))go(page);});

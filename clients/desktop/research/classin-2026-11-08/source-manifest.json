@@ -68,6 +68,24 @@
       "url": "https://classin.vn/wp-content/uploads/2025/08/Update-Image-Khanh-An-3.png",
       "source_page": "https://classin.vn/huong-dan/xem-danh-sach-bai-hoc-tren-classin/",
       "note": "班级内课程和课节列表、进度与成员侧栏"
+    },
+    {
+      "file": "sources/classroom-top-publisher.png",
+      "url": "https://classin.vn/wp-content/uploads/2025/08/Update-Image-Khanh-An-15.png",
+      "source_page": "https://classin.vn/huong-dan/cau-truc-lop-hoc-ao/",
+      "note": "发布者公开课堂结构说明，仅作研究；不是当前Mac原生课堂实测"
+    },
+    {
+      "file": "sources/classroom-cameras-publisher.png",
+      "url": "https://classin.vn/wp-content/uploads/2025/08/Update-Image-Khanh-An-16.png",
+      "source_page": "https://classin.vn/huong-dan/cau-truc-lop-hoc-ao/",
+      "note": "发布者公开课堂结构说明，仅作研究；不是当前Mac原生课堂实测"
+    },
+    {
+      "file": "sources/classroom-tools-publisher.png",
+      "url": "https://classin.vn/wp-content/uploads/2025/08/Update-Image-Khanh-An-39.png",
+      "source_page": "https://classin.vn/huong-dan/cau-truc-lop-hoc-ao/",
+      "note": "发布者公开课堂结构说明，仅作研究；不是当前Mac原生课堂实测"
     }
   ],
   "desktop_download": {
@@ -104,6 +122,14 @@
     {
       "url": "https://classin.vn/huong-dan/tao-khoa-hoc-va-lop-hoc-tieu-chuan-tren-classin/",
       "purpose": "班级→课程→活动层级及课程内界面的公开说明；不是当前Mac原生页面实测"
+    },
+    {
+      "url": "https://classin.vn/huong-dan/su-dung-chatbox/",
+      "purpose": "课堂教学设计的公开参考，未实测当前Mac原生课堂"
+    },
+    {
+      "url": "https://classin.vn/huong-dan/cai-dat-camera-va-micro-trong-lop-hoc-ao/",
+      "purpose": "课堂教学设计的公开参考，未实测当前Mac原生课堂"
     }
   ]
 }
