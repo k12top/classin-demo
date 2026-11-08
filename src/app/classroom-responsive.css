@@ -1,4 +1,60 @@
 /* Classroom conversation workspace. Imported after both classroom skins. */
+.classroom-v3-modal-backdrop > section.classroom-v3-confirm-dialog.classroom-v3-exit-dialog {
+  width: min(100%, 420px);
+  grid-template-columns: minmax(0, 1fr);
+  padding: 24px;
+  border-radius: 14px;
+}
+.classroom-v3-exit-dialog .classroom-v3-confirm-copy h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.4;
+}
+.classroom-v3-modal-backdrop .classroom-v3-confirm-dialog.classroom-v3-exit-dialog footer {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 0;
+  border-top: 0;
+}
+.classroom-v3-exit-dialog select {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: 44px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--classroom-mist) 35%, transparent);
+  border-radius: 9px;
+  color: var(--classroom-frost);
+  background: var(--classroom-panel-raised);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  color-scheme: dark;
+}
+html.light .classroom-v3-exit-dialog select { color-scheme: light; }
+.classroom-v3-modal-backdrop .classroom-v3-confirm-dialog.classroom-v3-exit-dialog footer button {
+  flex-shrink: 0;
+  min-width: 44px;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  font-size: 14px;
+}
+.classroom-v3-modal-backdrop .classroom-v3-confirm-dialog.classroom-v3-exit-dialog footer button.is-secondary {
+  width: auto;
+  padding-inline: 12px;
+}
+.classroom-v3-modal-backdrop .classroom-v3-exit-dialog footer button svg { width: 18px; height: 18px; }
+.classroom-v3-exit-dialog :is(button, select):focus-visible {
+  outline: 2px solid var(--classroom-iris);
+  outline-offset: 3px;
+}
+.classroom-v3-exit-dialog :is(button, select):disabled { opacity: 0.5; cursor: wait; }
+
 html[lang] .classroom-v3-shell.is-classin-layout[data-responsive-workspace]:not(.is-recorder) {
   --conversation-width: clamp(320px, 28vw, 400px);
   --conversation-line: color-mix(in srgb, var(--classroom-mist) 28%, transparent);

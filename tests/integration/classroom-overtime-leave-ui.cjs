@@ -16,9 +16,11 @@ if (!process.versions.electron) {
   const { createClassroomBrowserFixture } = require('../helpers/classroom-browser-fixture.cjs');
   let fixture;
   async function main() {
-    const output = path.join(root, 'outputs/classroom-overtime-leave-2026-10-31/ui');
+    const output = path.join(root, 'outputs/classroom-exit-simplification-2026-11-08/ui');
     fixture = await createClassroomBrowserFixture({ outputDirectory: output, transformSource(source) {
       source=source.replace('end=new Date(Date.now()+3600000).toISOString()', "end=new Date(Date.now()+(new URLSearchParams(location.search).has('overtime')?-60000:3600000)).toISOString()");
+      source=source.replace(' const originalFetch=', ` if(new URLSearchParams(location.search).has('recording')){payload.recording={...payload.recording,enabled:true,status:'recording'};payload.runtime.recordingStartMode='manual';}
+ const originalFetch=`);
       return source.replace("  if(url.pathname==='/api/classroom/session')", `  if(url.pathname.endsWith('/lifecycle')&&body.action==='end'){
         (window.fixtureEnds??=[]).push(body);
         if(window.fixtureEndFailOnce){window.fixtureEndFailOnce=false;return Response.json({error:'transient end failure'},{status:503})}
@@ -35,7 +37,14 @@ if (!process.versions.electron) {
       if(url.pathname==='/api/classroom/session')`);
     } });
     const { win, run, wait, capture, url, checks } = fixture;
- const clickButton=async text=>assert(await run('(()=>{const e=[...document.querySelectorAll("button")].find(e=>e.textContent.trim()==='+JSON.stringify(text)+');if(!e)return false;e.click();return true})()'),'button '+text);
+ const chooseAction=async value=>{
+   assert(await run('(()=>{const e=document.querySelector(".classroom-v3-exit-dialog select");if(!e||![...e.options].some(o=>o.value==='+JSON.stringify(value)+'))return false;e.value='+JSON.stringify(value)+';e.dispatchEvent(new Event("change",{bubbles:true}));return true})()'),'exit option '+value);
+ };
+ const clickButton=async text=>{
+   const value={'暂时离开':'temporary','暂时离开（课堂继续）':'temporary','下课退出':'finish','结束课堂并停止录制':'end'}[text];
+   if(value){await chooseAction(value);assert(await run('(()=>{const e=document.querySelector(".classroom-v3-exit-dialog footer button:not(.is-secondary)");if(!e)return false;e.click();return true})()'));return;}
+   assert(await run('(()=>{const e=[...document.querySelectorAll("button")].find(e=>e.textContent.trim()==='+JSON.stringify(text)+');if(!e)return false;e.click();return true})()'),'button '+text);
+ };
  const enter=async(width,height,query='&overtime=1',role='teacher')=>{win.setContentSize(width,height);await win.loadURL(url+'&role='+role+query);await wait('typeof fixtureReceive==="function"&&document.querySelector(".classroom-minimal-header button[aria-label=返回课程]")');};
  for(const [width,height] of [[1440,900],[390,844]]){
    await enter(width,height);
@@ -43,6 +52,16 @@ if (!process.versions.electron) {
    await wait('document.querySelector("#overtime-leave-title")');
    assert.equal(await run('(window.fixtureLeaves||[]).length'),0);
    assert.equal(await run('document.activeElement.textContent.trim()'),'取消');
+   assert.equal(await run('document.querySelector(".classroom-v3-exit-dialog select").value'),'finish');
+   assert.equal(await run('document.querySelectorAll(".classroom-v3-exit-dialog option").length'),3);
+   assert.equal(await run('document.querySelectorAll(".classroom-v3-exit-dialog button").length'),2);
+   assert.equal(await run('document.querySelectorAll(".classroom-v3-exit-dialog .classroom-v3-confirm-copy p").length'),0);
+   await run('document.querySelector(".classroom-v3-exit-dialog select").focus()');
+   await run('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Tab",shiftKey:true,bubbles:true,cancelable:true}))');
+   assert.equal(await run('document.activeElement.textContent'),'', 'reverse tab wraps to the icon button');
+   await run('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Tab",bubbles:true,cancelable:true}))');
+   assert.equal(await run('document.activeElement.tagName'),'SELECT');
+   await run('document.querySelector(".classroom-v3-exit-dialog .is-secondary").focus()');
    await capture('dialog-'+width+'.png');
    const bounds=await run('(()=>{const e=document.querySelector("#overtime-leave-title").closest("section"),r=e.getBoundingClientRect();return{left:r.left,right:r.right,viewport:innerWidth,overflow:e.scrollWidth>e.clientWidth}})()');
    assert(bounds.left>=0&&bounds.right<=bounds.viewport&&!bounds.overflow);
@@ -74,6 +93,7 @@ if (!process.versions.electron) {
  await enter(1440,900,'');
  await run('document.querySelector(".classroom-minimal-header button[aria-label=返回课程]").click()');await wait('document.querySelector("#end-class-title")');
  assert.equal(await run('Boolean(window.fixtureNavigation)'),false);
+ assert.equal(await run('document.querySelector(".classroom-v3-exit-dialog select").value'),'temporary');
  await clickButton('暂时离开（课堂继续）');await wait('Boolean(window.fixtureNavigation)');
  assert.equal(await run('fixtureLeaves[0].leaveIntent'),'temporary');
  assert.equal(await run('Boolean(document.querySelector("#overtime-leave-title"))'),false);
@@ -93,8 +113,11 @@ if (!process.versions.electron) {
  for(const [width,height]of [[1440,900],[390,844]]){
  await enter(width,height);
  await run('document.querySelector(".classroom-minimal-header button[aria-label=返回课程]").click()');await wait('document.querySelector("#overtime-leave-title")');
- await clickButton('结束课堂并停止录制');await wait('document.querySelector("#end-class-title")');
- assert.equal(await run('(window.fixtureEnds||[]).length'),0,'opening end confirmation cannot close a lesson');
+ await chooseAction('end');
+ assert.equal(await run('document.querySelector(".classroom-v3-exit-dialog .is-danger").textContent'),'');
+ await run('document.querySelector(".classroom-v3-exit-dialog .is-danger").dispatchEvent(new PointerEvent("pointerover",{pointerType:"mouse",bubbles:true}))');
+ await wait('[...document.querySelectorAll("[role=tooltip]")].some(e=>e.textContent==="结束课堂并退出")');
+ assert.equal(await run('(window.fixtureEnds||[]).length'),0,'selecting end cannot close a lesson');
  await capture('overtime-explicit-end-'+width+'.png');
  await run('window.fixtureHoldEnd=true');await clickButton('结束课堂并停止录制');await wait('typeof fixtureReleaseEnd==="function"');
  assert.equal(await run('Boolean(window.fixtureNavigation)'),false);await run('fixtureReleaseEnd()');await wait('Boolean(window.fixtureNavigation)');
@@ -102,8 +125,50 @@ if (!process.versions.electron) {
  await enter(width,height,'');
  await run('document.querySelector(".classroom-minimal-course").dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}))');
  await wait('[...document.querySelectorAll("[role=menuitem]")].some(e=>e.textContent.includes("结束课堂并停止录制"))');
- await capture('course-menu-end-'+width+'.png');checks.push({width,endVisibleInCourseMenu:true});
+ await capture('course-menu-end-'+width+'.png');
+ await run('[...document.querySelectorAll("[role=menuitem]")].find(e=>e.textContent.includes("结束课堂并停止录制")).click()');
+ await wait('document.querySelector("#end-class-title")');
+ assert.equal(await run('document.querySelector(".classroom-v3-exit-dialog select").value'),'end');
+ await clickButton('取消');
+ await run('document.querySelector(".classroom-minimal-header button[aria-label=返回课程]").click()');
+ await wait('document.querySelector("#end-class-title")');
+ assert.equal(await run('document.querySelector(".classroom-v3-exit-dialog select").value'),'temporary','reopen resets the default');
+ await run('document.querySelector(".classroom-v3-exit-dialog select").dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}))');
+ assert.equal(await run('Boolean(document.querySelector(".classroom-v3-exit-dialog"))'),false);
+ checks.push({width,endVisibleInCourseMenu:true,defaultReset:true,escapeCloses:true});
  }
+ for(const [width,height]of [[1440,900],[390,844]]){
+   for(const query of ['&recording=1','&overtime=1&recording=1']){
+     await enter(width,height,query);
+     await wait('document.querySelector("[data-recording-state=recording]")');
+     await run('document.querySelector(".classroom-minimal-header button[aria-label=返回课程]").click()');
+     await wait('document.querySelector(".classroom-v3-exit-dialog")');
+     assert.equal(await run('document.querySelector(".classroom-v3-exit-dialog select").value'),'end');
+     assert.equal(await run('document.querySelector(".classroom-v3-exit-dialog select").selectedOptions[0].textContent'),'停止录制并退出');
+     assert.equal(await run('document.querySelector(".classroom-v3-exit-dialog option[value=temporary]").textContent'),'继续录制并离开');
+     await run('document.querySelector(".classroom-v3-exit-dialog .is-danger").dispatchEvent(new PointerEvent("pointerover",{pointerType:"mouse",bubbles:true}))');
+     await wait('[...document.querySelectorAll("[role=tooltip]")].some(e=>e.textContent==="结束课堂，停止并保存录制")');
+     await capture('recording-exit-'+width+(query.includes('overtime')?'-overtime':'')+'.png');
+     assert.equal(await run('(window.fixtureEnds||[]).length'),0);
+     await run('window.fixtureHoldEnd=true;document.querySelector(".classroom-v3-exit-dialog .is-danger").click()');
+     await wait('typeof fixtureReleaseEnd==="function"');
+     assert.equal(await run('Boolean(window.fixtureNavigation)'),false);
+     await run('fixtureReleaseEnd()');await wait('Boolean(window.fixtureNavigation)');
+     assert.equal(await run('(window.fixtureLeaves||[]).length'),0);
+     checks.push({width,query,recordingDefaultsToStopAndLeave:true,awaitsEndConfirmation:true});
+   }
+ }
+ await enter(1440,900,'&recording=1');
+ await wait('document.querySelector("[data-recording-state=recording]")');
+ await run('document.querySelector(".classroom-minimal-header button[aria-label=返回课程]").click()');
+ await wait('document.querySelector(".classroom-v3-exit-dialog")');
+ await chooseAction('temporary');
+ assert.equal(await run('document.querySelector(".classroom-v3-exit-dialog footer button:not(.is-secondary)").getAttribute("aria-label")'),'继续录制并离开');
+ await run('document.querySelector(".classroom-v3-exit-dialog footer button:not(.is-secondary)").click()');
+ await wait('Boolean(window.fixtureNavigation)');
+ assert.equal(await run('fixtureLeaves[0].leaveIntent'),'temporary');
+ assert.equal(await run('(window.fixtureEnds||[]).length'),0);
+ checks.push({continuingRecordingRequiresExplicitChoice:true});
  await enter(1440,900);
  await run('window.fixtureBeacons=[];navigator.sendBeacon=(url,blob)=>{fixtureBeacons.push({url,blob});return true};window.dispatchEvent(new PageTransitionEvent("pagehide",{persisted:false}))');
  assert.equal(await run('(window.fixtureLeaves||[]).length'),0);
