@@ -87,5 +87,19 @@
     "todo": "未实测：原生点击不可用；以发布者教程补充",
     "drive": "仅发布者教程",
     "lessons": "仅发布者教程"
-  }
+  },
+  "additional_pages": [
+    {
+      "url": "https://classin.vn/huong-dan/cac-dinh-nghia-cua-classin/",
+      "purpose": "区分班级管理身份与课节教师/助教，非当前 Mac 实测"
+    },
+    {
+      "url": "https://classin.vn/huong-dan/them-tro-giang-vao-bai-hoc-co-teacher/",
+      "purpose": "课节创建及编辑中的助教配置流程"
+    },
+    {
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/DateTimeFormat",
+      "purpose": "指定时区的时间格式化与日期时间部分读取"
+    }
+  ]
 }
