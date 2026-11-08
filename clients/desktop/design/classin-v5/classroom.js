@@ -19,9 +19,9 @@ Object.assign(paths, {
   pin:'<path d="m14 3 7 7-4 1-3 5-2-2-7 7m7-7-4-4 5-3Z"/>',
 });
 Object.assign(EN, {
-  '教学界面':'Teaching room','课堂设计预览':'Classroom design preview','返回课程':'Back to course',
+  '教学界面':'Teaching room','显示白板工具':'Show board tools','收起白板工具':'Hide board tools','课堂信息':'Lesson information','关闭':'Close','课堂设置':'Classroom settings','课节时间':'Scheduled time','课堂设计预览 · 未连接真实媒体或课堂服务':'Classroom preview · Live media and services are not connected','麦克风预览状态':'Microphone preview','摄像头预览状态':'Camera preview','自己的摄像头':'Your camera','当前站点课堂样式':'Current web classroom style','课堂设计预览':'Classroom design preview','返回课程':'Back to course',
   '课堂成员':'Class members','关闭侧栏':'Close panel','画笔':'Pen','橡皮':'Eraser','文字批注':'Text note','撤销批注':'Undo annotation','清空本页批注':'Clear page annotations',
-  '白色画笔':'White pen','绿色画笔':'Green pen','橙色画笔':'Orange pen','上一页白板':'Previous board','下一页白板':'Next board','新建白板':'New board','缩小白板':'Zoom out','放大白板':'Zoom in','适合窗口':'Fit board',
+  '黑色画笔':'Black pen','紫色画笔':'Purple pen','蓝色画笔':'Blue pen','上一页白板':'Previous board','下一页白板':'Next board','新建白板':'New board','缩小白板':'Zoom out','放大白板':'Zoom in','适合窗口':'Fit board',
   '教学白板':'Teaching board','白板':'Whiteboard','课堂课件':'Lesson slides','双指针与有序数组':'Two pointers & sorted arrays','在有序数组中，找到和为 10 的两个数。':'Find two numbers in a sorted array that sum to 10.','相向而行，逐步缩小查找范围。':'Move inward to narrow the search.','移动指针':'Move pointers','重置演示':'Reset demo','两数之和等于目标值。':'The pair sums to the target.','两数之和偏小，左指针右移。':'The sum is too small. Move the left pointer.','两数之和偏大，右指针左移。':'The sum is too large. Move the right pointer.',
   '独立白板，可自由书写。':'A blank board, ready for your notes.','双指针课堂笔记':'Two-pointer lesson notes','有序 · 相向 · 边界':'Sorted · Inward · Bounds','每次移动后，检查 left < right。':'After each move, check left < right.','课件内容为示例':'Demo slide content','本地批注':'Local annotations','添加文字批注':'Add text note','批注内容':'Note text','在白板中补充重点':'Add a teaching note','添加到白板':'Add to board','请填写批注内容。':'Enter a note.','只清空当前页的批注，课件内容保留。':'Clear this page’s annotations; keep slide content.','清空批注':'Clear annotations',
   '摄像头示意':'Camera placeholder','摄像头已关闭':'Camera off','教师自览':'Self preview','自己':'You','授课教师':'Teacher','学生':'Student','已静音':'Muted','正在发言':'Speaking','麦克风开启':'Mic on','麦克风关闭':'Mic off','关闭麦克风':'Mute microphone','开启麦克风':'Unmute microphone','关闭摄像头':'Turn camera off','开启摄像头':'Turn camera on','共享屏幕':'Share screen','停止共享':'Stop sharing','共享方式':'Sharing mode','仅共享':'Screen only','共享＋人像':'Screen + camera','共享预览':'Sharing preview','共享时保留自己的摄像头位置，真实画面需接入客户端媒体服务。':'Keep your camera position while sharing. Live video requires the client media service.','本地模拟共享，不读取屏幕或摄像头。':'Simulated sharing. No screen or camera is accessed.','共享的窗口内容将在这里显示。':'The shared window will appear here.','返回白板':'Back to whiteboard',
@@ -34,7 +34,7 @@ function currentRoom() {
   if (!classroomRooms.has(lesson.id)) {
     const course = classes.find(c=>c.id===lesson.classId);
     classroomRooms.set(lesson.id, {
-      lesson, teacher:course.role==='teacher', panel:'chat', chatTab:'messages', query:'', tool:'pen', color:'#f5f5ec',
+      lesson, teacher:course.role==='teacher', panel:null, chatTab:'messages', query:'', tool:'pen', toolsOpen:false, color:'#282c36',
       mic:true, camera:true, sharing:null, page:0, zoom:1, pointer:0, chatAllowed:true, translate:state.autoTranslate,
       pages:[{kind:'slide',annotations:[]},{kind:'notes',annotations:[]}], drafts:{messages:'',questions:''}, chatScroll:{},
       people:course.members.map((id,i)=>({...students.find(s=>s.id===id),mic:i===0,stage:i<2,write:false,hand:i===1})),
@@ -68,7 +68,7 @@ function roomCameraStrip(room) {
   const tiles=[cameraTile(room,teacher,room.teacher)];
   if(!room.teacher)tiles.push(cameraTile(room,{id:'self',name:'李明',mic:room.mic},true));
   for(const person of room.people.filter(p=>p.stage && (room.teacher||p.id!=='liming')))tiles.push(cameraTile(room,person));
-  return h('section',{class:'room-camera-strip','aria-label':tr('摄像头示意')},tiles,h('div',{class:'camera-strip-note'},icon('camera',17),h('span',{},'课堂设计预览'),h('small',{},'未连接真实媒体或课堂服务')));
+  return h('section',{class:'room-camera-strip','aria-label':tr('摄像头示意')},h('div',{class:'room-camera-track'},tiles));
 }
 function boardSlide(room,page) {
   if(page.kind==='blank')return h('div',{class:'blank-board-label'},'独立白板，可自由书写。');
@@ -108,10 +108,10 @@ function teachingBoard(room) {
     roomTool('pen','画笔',()=>{room.tool='pen';roomRefresh();},room.tool==='pen',!room.teacher),
     roomTool('eraser','橡皮',()=>{room.tool='eraser';roomRefresh();},room.tool==='eraser',!room.teacher),
     roomTool('text','文字批注',()=>{room.tool='text';addBoardText(room);},room.tool==='text',!room.teacher),
-    h('span',{class:'tool-divider'}),['#f5f5ec','#afd4b8','#e8b07e'].map((color,i)=>{const b=button(h('span',{}),()=>{room.color=color;room.tool='pen';roomRefresh();},`board-color color-${i}`,{'aria-label':['白色画笔','绿色画笔','橙色画笔'][i],'aria-pressed':room.color===color,disabled:!room.teacher});return b;}),
+    h('span',{class:'tool-divider'}),['#282c36','#6254ce','#356bc2'].map((color,i)=>{const b=button(h('span',{}),()=>{room.color=color;room.tool='pen';roomRefresh();},`board-color color-${i}`,{'aria-label':['黑色画笔','紫色画笔','蓝色画笔'][i],'aria-pressed':room.color===color,disabled:!room.teacher});return b;}),
     h('span',{class:'tool-divider'}),roomTool('undo','撤销批注',()=>{page.annotations.pop();roomRefresh();},false,!room.teacher||!page.annotations.length),
     roomTool('trash','清空本页批注',()=>modal('清空批注',h('p',{},'只清空当前页的批注，课件内容保留。'),'清空批注',()=>{page.annotations=[];roomRefresh();},true),false,!room.teacher||!page.annotations.length));
-  return h('section',{class:'room-board-area','aria-label':tr('教学白板')},
+  return h('section',{class:`room-board-area${room.toolsOpen?' tools-open':''}`,'aria-label':tr('教学白板')},
     h('header',{class:'board-heading'},h('span',{class:'row gap4'},icon('document',14),h('span',{},'课堂课件')),h('span',{class:'grow'}),h('small',{},'课件内容为示例')),
     h('div',{class:'board-stage'},h('div',{class:'board-viewport'},surface),tools),
     h('footer',{class:'board-footer'},h('div',{class:'row gap4'},iconButton('left','上一页白板',()=>{room.page=Math.max(0,room.page-1);roomRefresh();}),h('span',{class:'board-page'},`${room.page+1} / ${room.pages.length}`),iconButton('right','下一页白板',()=>{room.page=Math.min(room.pages.length-1,room.page+1);roomRefresh();}),room.teacher?iconButton('plus','新建白板',()=>{room.pages.push({kind:'blank',annotations:[]});room.page=room.pages.length-1;roomRefresh();}):null),
@@ -157,13 +157,36 @@ function startRoomShare(room) {
   if(room.sharing){room.sharing=null;roomRefresh();return;}
   const pane=modal('共享方式',h('div',{class:'room-share-options'},h('p',{},'共享时保留自己的摄像头位置，真实画面需接入客户端媒体服务。'),h('div',{class:'row'},button([icon('share',20),'仅共享'],()=>{room.sharing='screen';pane.close();roomRefresh();},'btn'),button([icon('camera',20),'共享＋人像'],()=>{room.sharing='portrait';pane.close();roomRefresh();},'btn')),h('small',{},'本地模拟共享，不读取屏幕或摄像头。')),'返回白板',()=>{});
 }
-function roomControl(name,label,action,active=false,extra='') {return button([icon(name,19),h('span',{},label)],action,`room-control ${extra}`,{'aria-pressed':active});}
+function roomControl(name,label,action,active=false,extra='') {return button([icon(name,19),h('span',{class:'visually-hidden'},label)],action,`room-control ${extra}`,{'aria-pressed':active,'aria-label':label,title:label});}
+function classroomInfo(room) {
+  modal('课堂信息',h('div',{class:'lesson-dialog'},h('p',{translate:'no'},room.lesson.title),h('dl',{},h('dt',{},'所属班级'),h('dd',{translate:'no'},courseName(room.lesson.classId)),h('dt',{},'本地时间'),h('dd',{},lessonWhen(room.lesson)),h('dt',{},'授课教师'),h('dd',{},staffName(room.lesson.teacherId))),h('p',{class:'muted'},'未连接真实媒体或课堂服务')),'关闭',()=>{});
+}
+function classroomSettings(room) {
+  const mic=h('input',{type:'checkbox',checked:room.mic}),camera=h('input',{type:'checkbox',checked:room.camera});
+  let pane;
+  pane=modal('课堂设置',h('div',{class:'room-settings'},h('label',{},mic,'麦克风预览状态'),h('label',{},camera,'摄像头预览状态'),button('语言与时区',()=>{pane.close();internationalSettings();},'text-btn'),h('small',{},'未连接真实媒体或课堂服务')),'保存',()=>{room.mic=mic.checked;room.camera=camera.checked;roomRefresh();});
+}
 function classroomView() {
   const room=currentRoom(), lesson=room.lesson;
-  return h('div',{class:'teaching-room'},h('header',{class:'room-header'},button([icon('left',15),'返回课程'],()=>{state.courseTab='lessons';state.courseMode='lessons';go('courses');},'room-back'),h('span',{class:'room-divider'}),h('div',{class:'room-title'},h('h1',{translate:'no'},lesson.title),h('span',{},`${courseName(lesson.classId)} · ${tr('第 '+lesson.no+' 课')}`)),h('time',{class:'room-schedule'},lessonWhen(lesson)),h('span',{class:'room-demo-badge'},'课堂设计预览')),
-    roomCameraStrip(room),
-    h('div',{class:`room-workspace${room.panel?'':' dock-closed'}`},h('div',{class:'room-stage-column'},room.sharing?h('section',{class:'room-share-stage'},h('header',{},icon('share',15),h('span',{},room.sharing==='screen'?'仅共享':'共享＋人像'),button('返回白板',()=>{room.sharing=null;roomRefresh();},'btn compact')),h('div',{class:'share-window-preview'},icon('share',38),h('h2',{},'共享预览'),h('p',{},'共享的窗口内容将在这里显示。'),h('small',{},'本地模拟共享，不读取屏幕或摄像头。')),room.sharing==='portrait'?h('div',{class:'share-portrait'},cameraTile(room,{id:lesson.teacherId,name:staffName(lesson.teacherId),mic:room.mic},true)):null):teachingBoard(room)),roomDock(room)),
-    h('footer',{class:'room-bottom-bar'},h('span',{class:'room-network'},icon('signal',14),h('span',{},'网络未接入')),h('div',{class:'room-controls'},roomControl(room.mic?'mic':'micOff',room.mic?'关闭麦克风':'开启麦克风',()=>{room.mic=!room.mic;roomRefresh();},room.mic,room.mic?'':'off'),roomControl(room.camera?'camera':'cameraOff',room.camera?'关闭摄像头':'开启摄像头',()=>{room.camera=!room.camera;roomRefresh();},room.camera,room.camera?'':'off'),room.teacher?roomControl('share',room.sharing?'停止共享':'共享屏幕',()=>startRoomShare(room),!!room.sharing):null,h('span',{class:'room-divider'}),roomControl('chat','课堂聊天',()=>{room.panel=room.panel==='chat'?null:'chat';roomRefresh();},room.panel==='chat'),roomControl('students','课堂成员',()=>{room.panel=room.panel==='members'?null:'members';roomRefresh();},room.panel==='members')),
-      button('离开课堂',()=>modal('离开课堂',h('p',{},'退出设计预览，返回当前课程。'),'退出预览',()=>{state.courseTab='lessons';state.courseMode='lessons';go('courses');}),'btn room-leave')));
+  const leave=()=>modal('离开课堂',h('p',{},'退出设计预览，返回当前课程。'),'退出预览',()=>{state.courseTab='lessons';state.courseMode='lessons';go('courses');});
+  const header=h('header',{class:'room-header'},
+    button(icon('left',18),()=>{state.courseTab='lessons';state.courseMode='lessons';go('courses');},'room-back',{'aria-label':'返回课程',title:'返回课程'}),
+    button([h('h1',{translate:'no'},lesson.title),icon('down',12)],()=>classroomInfo(room),'room-title',{'aria-label':'课堂信息'}),
+    h('time',{class:'room-schedule',title:lessonWhen(lesson),'aria-label':tr('课节时间')},icon('clock',13),h('span',{},`${lesson.start}–${lesson.end} · ${zoneOffset(state.timeZone,lesson.startsAt)}`)),
+    h('span',{class:'room-network',title:'未连接真实媒体或课堂服务'},icon('signal',16),h('span',{},'网络未接入')),
+    button([icon('students',18),h('span',{},String(room.people.length+1))],()=>{room.panel=room.panel==='members'?null:'members';roomRefresh();},'room-header-members',{'aria-label':'查看课堂成员',title:'查看课堂成员','aria-pressed':room.panel==='members'}),
+    iconButton('settings','课堂设置',()=>classroomSettings(room)),iconButton('more','离开课堂',leave));
+  const stage=h('div',{class:'room-stage-column'},room.sharing?
+    h('section',{class:'room-share-stage'},h('header',{},icon('share',15),h('span',{},room.sharing==='screen'?'仅共享':'共享＋人像'),button('返回白板',()=>{room.sharing=null;roomRefresh();},'btn compact')),
+      h('div',{class:'share-window-preview'},icon('share',38),h('h2',{},'共享预览'),h('p',{},'共享的窗口内容将在这里显示。'),h('small',{},'本地模拟共享，不读取屏幕或摄像头。')),
+      room.sharing==='portrait'?h('div',{class:'share-portrait'},cameraTile(room,{id:lesson.teacherId,name:staffName(lesson.teacherId),mic:room.mic},true)):null):teachingBoard(room));
+  const controls=h('footer',{class:'room-bottom-bar'},h('div',{class:'room-controls','aria-label':tr('课堂快捷操作')},
+    roomControl(room.mic?'mic':'micOff',room.mic?'关闭麦克风':'开启麦克风',()=>{room.mic=!room.mic;roomRefresh();},room.mic,room.mic?'':'off'),
+    roomControl(room.camera?'camera':'cameraOff',room.camera?'关闭摄像头':'开启摄像头',()=>{room.camera=!room.camera;roomRefresh();},room.camera,room.camera?'':'off'),
+    room.teacher?roomControl('share',room.sharing?'停止共享':'共享屏幕',()=>startRoomShare(room),!!room.sharing,room.sharing?'sharing':''):null,
+    room.teacher?roomControl('pen',room.toolsOpen?'收起白板工具':'显示白板工具',()=>{if(room.sharing)room.sharing=null;room.toolsOpen=!room.toolsOpen;roomRefresh();},room.toolsOpen):null,
+    roomControl('chat','课堂聊天',()=>{room.panel=room.panel==='chat'?null:'chat';roomRefresh();},room.panel==='chat','panel-toggle'),
+    roomControl('students','课堂成员',()=>{room.panel=room.panel==='members'?null:'members';roomRefresh();},room.panel==='members','panel-toggle')));
+  return h('div',{class:'teaching-room'},header,h('div',{class:`room-workspace${room.panel?'':' dock-closed'}`},roomCameraStrip(room),stage,roomDock(room),controls),h('small',{class:'room-preview-note'},'课堂设计预览 · 未连接真实媒体或课堂服务'));
 }
 render();
