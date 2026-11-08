@@ -32,6 +32,42 @@
       "url": "https://classin.vn/wp-content/uploads/2025/08/25.png",
       "source_page": "https://classin.vn/huong-dan/tao-nhom-hoc-vien-tren-ung-dung-classin-group-management/",
       "note": "方案列表与组内成员，公开图中部分身份已由发布者遮挡"
+    },
+    {
+      "file": "sources/calendar-entry-publisher.png",
+      "url": "https://classin.vn/wp-content/uploads/2025/02/15.1.1.png",
+      "source_page": "https://classin.vn/huong-dan/xem-lich-hoc-tren-ung-dung-classin/",
+      "note": "日历导航入口；发布者图片路径为 2025/02，界面示例日期并不代表当前版本"
+    },
+    {
+      "file": "sources/calendar-role-publisher.png",
+      "url": "https://classin.vn/wp-content/uploads/2025/02/15.2.1.png",
+      "source_page": "https://classin.vn/huong-dan/xem-lich-hoc-tren-ung-dung-classin/",
+      "note": "日历周时间网格、小月历、角色和班级筛选抽屉；非当前 Mac 实测"
+    },
+    {
+      "file": "sources/todo-teacher-publisher.jpg",
+      "url": "https://classin.vn/wp-content/uploads/2025/08/Update-Image-Nhu-Y.jpg",
+      "source_page": "https://classin.vn/huong-dan/tong-hop-cac-tac-vu-can-lam-to-do-tren-classin/",
+      "note": "教师帮助文章中的混合角色示例，不能据图中学生操作按钮推定教师权限"
+    },
+    {
+      "file": "sources/todo-student-publisher.png",
+      "url": "https://classin.vn/wp-content/uploads/2025/04/screenshot_1751529446.png",
+      "source_page": "https://classin.vn/huong-dan/tong-hop-cac-tac-vu-can-lam-to-do-tren-ung-dung-classin/",
+      "note": "学生 To Do：状态、截止时间分组、任务操作"
+    },
+    {
+      "file": "sources/drive-publisher.png",
+      "url": "https://classin.vn/wp-content/uploads/2025/08/Update-Image-Cao-Nhan-5-scaled.png",
+      "source_page": "https://classin.vn/huong-dan/o-luu-tru-du-lieu-drive-tren-ung-dung-classin/",
+      "note": "Drive 分类、最近打开、新建和上传；菜单权限未实测"
+    },
+    {
+      "file": "sources/lesson-list-publisher.png",
+      "url": "https://classin.vn/wp-content/uploads/2025/08/Update-Image-Khanh-An-3.png",
+      "source_page": "https://classin.vn/huong-dan/xem-danh-sach-bai-hoc-tren-classin/",
+      "note": "班级内课程和课节列表、进度与成员侧栏"
     }
   ],
   "desktop_download": {
@@ -46,6 +82,10 @@
     "home": "已核对",
     "contacts": "待手动切换",
     "groups": "待手动切换",
-    "font_values": "未读取应用内样式，不能宣称精确字号"
+    "font_values": "未读取应用内样式，不能宣称精确字号",
+    "calendar": "未实测：Raise 后点击仍返回 AXError.notImplemented；以发布者教程补充",
+    "todo": "未实测：原生点击不可用；以发布者教程补充",
+    "drive": "仅发布者教程",
+    "lessons": "仅发布者教程"
   }
 }

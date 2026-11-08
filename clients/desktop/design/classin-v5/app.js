@@ -54,7 +54,7 @@ function toast(message) {
   const node = document.getElementById('toast'); node.textContent = message; node.classList.add('visible');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => node.classList.remove('visible'), 2800);
 }
-function go(page) { state.page = page; state.query = ''; state.groupQuery = ''; state.creating = false; state.selected.clear(); render(); }
+function go(page) { history.replaceState(null, '', `#${page}`); state.page = page; state.query = ''; state.groupQuery = ''; state.creating = false; state.selected.clear(); render(); }
 function avatar(student, active = false) { return h('span', { class: `avatar${active ? ' blue' : ''}`, 'aria-hidden': 'true' }, student.name.slice(0, 1)); }
 function search(label, value, onInput) {
   return h('label', { class: 'search' }, icon('search', 15), h('span', { class: 'visually-hidden' }, label), h('input', { type: 'search', placeholder: label, 'aria-label': label, value, onInput: event => onInput(event.target.value) }));
@@ -72,39 +72,9 @@ function menu(title, entries) {
   for (const [name, action] of entries) body.append(button(name, () => { pane.close(); action(); }, ''));
 }
 function renderNav() {
-  const items = [['home','首页','home'],['students','学生','students'],['groups','分组','groups'],['calendar','课表','calendar'],['files','课件','files']];
+  const items = [['home','首页','home'],['students','学生','students'],['groups','分组','groups'],['todo','To Do','todo'],['calendar','日历','calendar'],['files','云盘','files']];
   navigation.replaceChildren(h('div', {class:'workspace-brand'}, '翔宇文淑课堂'), ...items.map(([page,name,symbol])=>button([icon(symbol,18),h('span',{},name)],()=>go(page),'nav-button',{'aria-label':name,'aria-current':state.page===page || page==='home' && state.page==='courses' ? 'page':null})),
     h('div',{class:'nav-bottom'},button([icon('settings',17),h('span',{},'设置')],()=>menu('设置',[['账号设置',()=>toast('示例：打开账号设置')],['设备检测',()=>toast('示例：打开设备检测')]]),'nav-button'),h('div',{class:'profile-row'},h('span',{class:'profile-avatar'},'陈'),h('div',{},h('strong',{},'陈老师'),h('small',{},'教师账号')))));
-}
-function datePicker() {
-  const input = h('input', { type: 'date', value: `2026-11-${String(state.day).padStart(2, '0')}`, 'aria-label': '选择日期' });
-  modal('选择日期', h('div', { class: 'row' }, input), '查看课程', () => {
-    const date = new Date(`${input.value}T12:00:00`);
-    if (!Number.isFinite(date.getTime()) || date.getFullYear() !== 2026 || date.getMonth() !== 10 || date.getDate() < 2 || date.getDate() > 8) { toast('此设计预览展示 11 月 2 日至 8 日的数据'); return false; }
-    state.day = date.getDate(); render();
-  });
-}
-function calendarView() {
-  const page = h('section', { class: 'page' });
-  page.append(h('header', { class: 'page-header' }, h('h1', {}, '今日课程'), button([icon('calendar', 14), `11月${state.day}日`, icon('down', 13)], datePicker, 'btn date-switch'), h('span', { class: 'label' }, ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][state.day - 2]), search('搜索课程或班级', state.query, value => { state.query = value; renderMainPreservingFocus(); }), button('查看课表', () => go('courses'))));
-  page.append(h('div', { class: 'week', 'aria-label': '本周日期' }, iconButton('left', '上一周', () => toast('示例：查看上一周课程')), ['一', '二', '三', '四', '五', '六', '日'].map((name, index) => button([h('span', {}, `周${name}`), h('b', {}, index + 2)], () => { state.day = index + 2; render(); }, 'week-button', { 'aria-label': `11月${index + 2}日 周${name}`, 'aria-pressed': state.day === index + 2 })), iconButton('right', '下一周', () => toast('示例：查看下一周课程')), button('今天', () => { state.day = 8; render(); }, 'text-btn')));
-  const lessons = state.day === 8 ? [
-    { title: '双指针与有序数组', group: classes[0], start: '15:30', end: '17:00', next: true },
-    { title: '滑动窗口', group: classes[1], start: '19:00', end: '20:30' },
-  ].filter(item => `${item.title}${item.group.course}`.toLowerCase().includes(state.query.toLowerCase())) : [];
-  page.append(h('div', { class: 'section-head' }, h('h2', {}, '待上课', h('span', { class: 'section-count' }, `${lessons.length} 节课`)), h('span', { class: 'small' }, '按上课时间排序')));
-  const agenda = h('ul', { class: 'agenda' });
-  if (!lessons.length) agenda.append(h('li', { class: 'empty' }, state.query ? '没有找到匹配的课程' : '当天暂无课程安排'));
-  for (const item of lessons) agenda.append(h('li', { class: `lesson-row${item.next ? ' next' : ''}` }, h('div', { class: 'lesson-time' }, h('strong', {}, item.start), h('small', {}, `至 ${item.end}`)), h('div', { class: 'lesson-copy' }, h('h3', {}, item.title), h('p', {}, `${item.group.course} · ${item.group.members.length} 名学生`)), h('div', { class: 'lesson-state' }, item.next ? h('span', { class: 'state-note' }, h('span', { class: 'state-dot' }), '10 分钟后开始') : h('span', { class: 'muted' }, '未开始')), h('div', { class: 'lesson-actions' }, button(item.next ? '进入课堂' : '备课', () => toast(`示例：${item.next ? '进入' : '准备'}「${item.title}」课堂`), `btn${item.next ? ' primary' : ''}`), iconButton('more', `${item.title} 更多操作`, () => menu(item.title, [['查看课程', () => go('courses')], ['课前资料', () => go('files')]])))));
-  page.append(agenda, h('section', { class: 'recent-section' }, h('div', { class: 'section-head' }, h('h2', {}, '最近课程'), button(['全部课程', icon('right', 13)], () => go('courses'), 'text-btn')), courseTable()));
-  page.append(h('footer', { class: 'page-footer' }, button(['回放与互动记录', icon('arrow', 13)], () => toast('示例：查看课程回放和本课互动记录'), 'text-btn'), h('span', {}, '课程时间按本地时区显示')));
-  return page;
-}
-function courseTable() {
-  const table = h('table', { class: 'course-table', 'aria-label': '最近课程' }, h('thead', {}, h('tr', {}, ['课程', '下次上课', '学生', '操作'].map(text => h('th', {}, text)))));
-  const body = h('tbody');
-  for (const [index, group] of classes.filter(group => group.course).entries()) body.append(h('tr', {}, h('td', {}, h('div', { class: 'row' }, h('span', { class: `course-mark${index === 2 ? ' amber' : ''}` }, index === 2 ? 'C++' : 'PY'), h('strong', {}, group.course))), h('td', {}, group.isNew ? '暂无课节' : index === 0 ? '今天 15:30' : index === 1 ? '今天 19:00' : '11月10日 19:00'), h('td', {}, `${group.members.length} 人`), h('td', {}, button('查看课程', () => { state.classId = group.id; go('courses'); }, 'text-btn'))));
-  table.append(body); return table;
 }
 function studentView() {
   const student = students.find(item => item.id === state.student) || students[0];
@@ -179,31 +149,6 @@ function addStudents(group) {
     group.members.push(...picked); render(); toast('示例数据：已添加所选学生');
   });
 }
-function coursesView() {
-  const course=classes.find(item=>item.id===state.classId)||classes[0];
-  const page=h('section',{class:'page course-detail'});
-  page.append(button([icon('left',13),'全部班级'],()=>go('home'),'text-btn back-link'),h('header',{class:'page-header'},h('span',{class:'course-mark'},course.cover==='forest'?'C++':'PY'),h('div',{},h('h1',{},course.course),h('small',{},`陈老师 · ${course.members.length} 名学生`))));
-  page.append(h('div',{class:'tabs',role:'tablist','aria-label':'班级内容'},[['lessons','课程'],['members','班级成员'],['records','互动记录']].map(([tab,name])=>button(name,()=>{state.courseTab=tab;render();},'',{role:'tab','aria-selected':state.courseTab===tab}))));
-  if(course.isNew && state.courseTab==='lessons') {
-    page.append(h('section',{class:'empty'},h('h2',{},'尚未安排课节'),h('p',{},'添加课节后，学生即可在课表中查看安排。'),button('添加课节',()=>toast('示例：打开新建课节表单'),'btn primary')));
-    return page;
-  }
-  if(state.courseTab==='members') {
-    const rows=h('ul',{class:'membership-list'});
-    for(const student of students.filter(item=>course.members.includes(item.id))) rows.append(h('li',{},avatar(student),h('div',{class:'grow'},h('h3',{},student.name),h('small',{},student.id)),button('查看学生',()=>{state.student=student.id;go('students');},'text-btn')));
-    page.append(h('section',{class:'detail-section'},h('div',{class:'section-head'},h('h2',{},'班级成员',h('span',{class:'section-count'},`${course.members.length} 人`)),button('分组管理',()=>{const group=groups.find(item=>item.course===course.course);if(group)state.group=group.id;go('groups');},'btn')),rows));
-  } else if(state.courseTab==='records') {
-    if(course.isNew) { page.append(h('p',{class:'empty'},'暂无课堂互动记录')); return page; }
-    page.append(h('section',{class:'detail-section'},h('h2',{},'课堂互动记录'),h('ul',{class:'membership-list'},h('li',{},h('div',{class:'grow'},h('h3',{},'第 07 课 · 二分查找'),h('small',{},'11月6日 · 已结束')),button('查看互动',()=>toast('示例：查看该课次互动题与作答记录'),'text-btn'),button('回放',()=>toast('示例：查看该课次回放'),'text-btn')))));
-  } else {
-    const first=course.id==='base';
-    page.append(h('section',{class:'detail-section'},h('div',{class:'section-head'},h('h2',{},'课节安排'),h('small',{},'按课次排列')),h('ul',{class:'membership-list'},h('li',{},icon('calendar',18),h('div',{class:'grow'},h('h3',{},first?'第 08 课 · 双指针与有序数组':'第 09 课 · 滑动窗口'),h('small',{},first?'今天 15:30–17:00':'今天 19:00–20:30')),h('span',{class:'deadline'},first?'10分钟后开始':'未开始'),button(first?'进入课堂':'备课',()=>toast('示例：打开相应课次课堂'),'btn primary')),h('li',{},icon('courses',18),h('div',{class:'grow'},h('h3',{},'第 07 课 · 二分查找'),h('small',{},'11月6日 19:00–20:30 · 已结束')),button('回放',()=>toast('示例：打开课程回放'),'text-btn'),button('互动记录',()=>{state.courseTab='records';render();},'text-btn')))));
-  }
-  return page;
-}
-function filesView() {
-  return h('section', { class: 'page' }, h('header', { class: 'page-header' }, h('h1', {}, '课件'), h('span', { class: 'small' }, '本地设计示例')), h('ul', { class: 'membership-list' }, [['双指针 · 课堂讲义.pdf', '2.4 MB'], ['有序数组去重.py', '1.2 KB']].map(([name, size]) => h('li', {}, icon('files', 20), h('span', { class: 'grow' }, name), h('span', { class: 'small' }, size), button('预览', () => toast(`示例：预览 ${name}`), 'text-btn')))));
-}
 function renderMainPreservingFocus() {
   const active = document.activeElement, label = active?.getAttribute('aria-label'), start = active?.selectionStart;
   render();
@@ -211,7 +156,7 @@ function renderMainPreservingFocus() {
 }
 function render() {
   renderNav();
-  main.replaceChildren(state.page === 'home' ? home() : state.page === 'students' ? studentView() : state.page === 'groups' ? groupView() : state.page === 'calendar' ? calendarView() : state.page === 'files' ? filesView() : coursesView());
+  main.replaceChildren(state.page === 'home' ? home() : state.page === 'students' ? studentView() : state.page === 'groups' ? groupView() : state.page === 'calendar' ? calendarView() : state.page === 'files' ? filesView() : state.page === 'todo' ? todoView() : coursesView());
 }
 function openClass(id) { state.classId=id||classes[0].id; state.courseTab='lessons'; go('courses'); }
 function createClass() {
@@ -234,11 +179,10 @@ function home() {
   }
   if(!matches.length) grid.append(h('div',{class:'catalog-empty'},h('h2',{},state.query?'没有找到匹配班级':'暂无此类班级'),h('p',{},state.query?'请尝试其他名称。':'创建班级后，即可安排课程和组织学生。'),state.classFilter==='all'?button('新建班级',createClass,'btn primary'):button('查看全部班级',()=>{state.classFilter='all';render();},'btn')));
   center.append(grid,h('div',{class:'catalog-note'},'选择班级，查看课程、成员与课堂记录。'));
-  const todo=h('aside',{class:'todo-panel','aria-label':'待办'},h('header',{class:'section-head'},h('h2',{},'待办'),button(['全部',icon('right',12)],()=>go('calendar'),'text-btn')),h('p',{class:'todo-time-label'},'今天'),
+  const todo=h('aside',{class:'todo-panel','aria-label':'待办'},h('header',{class:'section-head'},h('h2',{},'待办'),button(['全部',icon('right',12)],()=>go('todo'),'text-btn')),h('p',{class:'todo-time-label'},'今天'),
     h('article',{class:'todo-item'},h('h3',{},'双指针与有序数组'),h('p',{},'Python 算法基础班'),h('div',{class:'todo-action'},h('span',{class:'deadline'},'15:30 开始'),button('进入课堂',()=>toast('示例：进入双指针与有序数组课堂'),'btn primary'))),
     h('article',{class:'todo-item'},h('h3',{},'滑动窗口'),h('p',{},'Python 进阶班'),h('div',{class:'todo-action'},h('span',{class:'muted'},'19:00 开始'),button('备课',()=>{state.classId='advanced';state.courseTab='lessons';go('courses');},'btn'))),
     h('p',{class:'todo-time-label later'},'最近结束'),h('article',{class:'todo-item'},h('h3',{},'二分查找'),h('p',{},'Python 算法基础班 · 11月6日'),h('div',{class:'row'},button('回放',()=>toast('示例：打开二分查找课堂回放'),'text-btn'),button('互动记录',()=>{state.classId='base';state.courseTab='records';go('courses');},'text-btn'))),h('p',{class:'todo-note'},'待办随课程与教学活动更新。'));
   return h('div',{class:'home-workspace'},center,todo);
 }
 document.getElementById('next-lesson')?.addEventListener('click',()=>{state.classId='base';state.courseTab='lessons';go('courses');});
-render();
