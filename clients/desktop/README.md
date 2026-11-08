@@ -34,4 +34,4 @@ CLASSROOM_WEB_URL=http://127.0.0.1:3180 npm run dev
 
 ## 桌面界面设计
 
-[ClassIn 布局设计 v1](design/classin-v1/README.md) 包含课堂成员、屏幕共享互动和课外学生分组三张设计稿，以及完整提示词和实现规范。设计稿尚未替换运行中的客户端界面。
+[ClassIn 布局设计 v1](design/classin-v1/README.md) 包含首页、课堂成员、屏幕共享互动和课外学生分组四张设计稿，以及完整提示词和实现规范。设计稿尚未替换运行中的客户端界面。

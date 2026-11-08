@@ -1,6 +1,8 @@
 # 桌面客户端设计生成提示词
 
-生成方式：内置 `image_gen` 工具；三个独立的 `ui-mockup` 生成请求，无参考图上传，无 CLI/API 密钥。
+生成方式：内置 `image_gen` 工具；四个独立的 `ui-mockup` 生成请求，无参考图上传，无 CLI/API 密钥。首页是第 4 个请求，输出按应用流程命名为 `00-home.png`。
+
+首页的完整提示词另存于 [home-prompt.md](home-prompt.md)。以下保留前三个界面的原始提示词。
 
 ## 1
 
