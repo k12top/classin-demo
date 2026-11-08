@@ -100,6 +100,10 @@
     {
       "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/DateTimeFormat",
       "purpose": "指定时区的时间格式化与日期时间部分读取"
+    },
+    {
+      "url": "https://classin.vn/huong-dan/tao-khoa-hoc-va-lop-hoc-tieu-chuan-tren-classin/",
+      "purpose": "班级→课程→活动层级及课程内界面的公开说明；不是当前Mac原生页面实测"
     }
   ]
 }

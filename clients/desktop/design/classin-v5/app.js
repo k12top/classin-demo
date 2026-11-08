@@ -156,6 +156,7 @@ function renderMainPreservingFocus() {
 }
 function render() {
   stopReplayTimer();
+  document.body.classList.toggle('in-course',state.page==='courses');
   document.documentElement.lang=state.locale;document.querySelector('.preview-tag').textContent=tr('设计预览 · 示例数据');
   renderNav();
   renderGlobalActions();

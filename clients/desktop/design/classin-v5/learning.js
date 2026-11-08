@@ -44,7 +44,7 @@ const chapters=[{time:0,title:'导入问题'},{time:620,title:'查找过程'},{t
 const interactions=[{id:'q1',time:780,title:'二分查找的循环条件',correct:'C',answers:[{id:'liming',answer:'C'},{id:'xiaolin',answer:'B'},{id:'xiaoyu',answer:'C'},{id:'anan',answer:'C'}]},{id:'q2',time:2100,title:'更新左边界时应使用什么表达式？',correct:'mid + 1',answers:[{id:'liming',answer:'mid + 1'},{id:'xiaolin',answer:'mid + 1'},{id:'xiaoyu',answer:'mid'},{id:'anan',answer:'mid + 1'}]}];
 let replayTimer=null;
 function stopReplayTimer(){if(replayTimer){clearInterval(replayTimer);replayTimer=null;}}
-function openReplay(lesson){state.replayLesson=lesson.id;state.replayTime=0;state.replayPlaying=false;state.replayRole='teacher';state.replayTab='chapters';go('replay');}
+function openReplay(lesson){state.classId=lesson.classId;state.programId=lesson.programId;state.courseMode='lessons';state.replayLesson=lesson.id;state.replayTime=0;state.replayPlaying=false;state.replayRole='teacher';state.replayTab='chapters';go('replay');}
 function replayClock(seconds){const n=Math.max(0,Math.floor(seconds));return `${String(Math.floor(n/60)).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`;}
 function seekReplay(time){state.replayTime=time;render();}
 function replayView(){
@@ -65,4 +65,3 @@ function replayView(){
   return page;
 }
 function updateReplayClock(){const l=lessons.find(l=>l.id===state.replayLesson),duration=Math.round((Date.parse(l.endsAt)-Date.parse(l.startsAt))/1000),clock=document.getElementById('replay-clock'),progress=document.querySelector('.replay-timeline input'),caption=document.getElementById('replay-caption');document.querySelectorAll('.chapter-choice').forEach((button,index)=>button.setAttribute('aria-pressed',String(chapters.filter(c=>c.time<=state.replayTime).at(-1)===chapters[index])));if(clock)clock.textContent=`${replayClock(state.replayTime)} / ${replayClock(duration)}`;if(progress)progress.value=state.replayTime;if(caption)caption.textContent=state.replayCaptions?tr(chapters.filter(c=>c.time<=state.replayTime).at(-1)?.title||'导入问题'):'';}
-render();
