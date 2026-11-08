@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "electron .",
     "package": "electron-builder --dir",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "test": "node --test test/*.test.cjs"
   },
   "devDependencies": {
     "electron": "^37.2.3",
@@ -16,8 +17,19 @@
   "build": {
     "appId": "cn.xiangyuwenshu.classroom",
     "productName": "翔宇文淑课堂",
-    "files": ["src/**/*", "package.json"],
-    "mac": { "category": "public.app-category.education" },
-    "win": { "target": "nsis" }
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.education",
+      "extendInfo": {
+        "NSCameraUsageDescription": "在课堂中开启摄像头，让老师和同学看到你的画面。",
+        "NSMicrophoneUsageDescription": "在课堂中使用麦克风发言。"
+      }
+    },
+    "win": {
+      "target": "nsis"
+    }
   }
 }

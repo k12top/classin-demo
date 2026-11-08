@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'design/classroom_theme.dart';
-import 'features/classroom/classroom_launch_gate.dart';
+import 'features/workspace/client_workspace.dart';
 
 class XiangyuClassroomApp extends StatelessWidget {
   const XiangyuClassroomApp({super.key});
@@ -11,8 +11,10 @@ class XiangyuClassroomApp extends StatelessWidget {
     return MaterialApp(
       title: '翔宇文淑课堂',
       debugShowCheckedModeBanner: false,
-      theme: ClassroomTheme.dark(),
-      home: const ClassroomLaunchGate(),
+      theme: ClassroomTheme.light(),
+      home: const ClientWorkspace(),
+      darkTheme: ClassroomTheme.dark(),
+      themeMode: ThemeMode.system,
     );
   }
 }

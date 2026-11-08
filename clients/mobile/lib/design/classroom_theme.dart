@@ -12,6 +12,12 @@ abstract final class ClassroomColors {
 }
 
 abstract final class ClassroomTheme {
+  static ThemeData light() => ThemeData(
+    useMaterial3: true,
+    colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF4269C9)),
+    visualDensity: VisualDensity.standard,
+  );
+
   static ThemeData dark() {
     const scheme = ColorScheme.dark(
       primary: ClassroomColors.iris,
@@ -27,7 +33,6 @@ abstract final class ClassroomTheme {
       brightness: Brightness.dark,
       colorScheme: scheme,
       scaffoldBackgroundColor: ClassroomColors.obsidian,
-      fontFamily: 'sans-serif',
       appBarTheme: const AppBarTheme(
         backgroundColor: ClassroomColors.obsidian,
         foregroundColor: ClassroomColors.frost,

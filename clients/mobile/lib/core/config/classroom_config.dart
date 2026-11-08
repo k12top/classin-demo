@@ -3,7 +3,7 @@ class ClassroomConfig {
     required this.apiBaseUrl,
     required this.sessionId,
     required this.accessToken,
-    this.shareAccess,
+    this.shareAccess = '',
   });
 
   factory ClassroomConfig.fromEnvironment() {

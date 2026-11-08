@@ -4,6 +4,8 @@ declare global {
   interface Window {
     classroomDesktop?: {
       platform: NodeJS.Platform;
+      isDesktop: true;
+      openWorkspace(): Promise<void>;
       listDesktopSources(): Promise<
         Array<{
           id: string;

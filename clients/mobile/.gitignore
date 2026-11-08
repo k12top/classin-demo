@@ -1,8 +1,12 @@
 .dart_tool/
-.flutter-plugins
-.flutter-plugins-dependencies
-.packages
+.flutter-plugins*
 build/
+android/local.properties
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/ephemeral/
 ios/Flutter/Generated.xcconfig
 ios/Flutter/flutter_export_environment.sh
-android/.gradle/
+.idea/
+*.iml
+ios/Flutter/FlutterGeneratedPluginSwiftPackage/
