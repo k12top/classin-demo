@@ -9,7 +9,8 @@
     "package": "electron-builder --dir",
     "dist": "electron-builder",
     "test": "node --test test/*.test.cjs",
-    "design:preview": "electron design/pc-v4/preview.cjs"
+    "design:preview": "electron design/classin-v5/preview.cjs",
+    "design:preview:v4": "electron design/pc-v4/preview.cjs"
   },
   "devDependencies": {
     "electron": "^37.2.3",

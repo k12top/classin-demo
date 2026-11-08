@@ -1,0 +1,51 @@
+{
+  "reviewed_on": "2026-11-08",
+  "publisher": "ClassIn Việt Nam / EEO Việt Nam",
+  "purpose": "仅桌面 UI 调研，图片不进入应用构建或作为应用素材",
+  "assets": [
+    {
+      "file": "sources/home-6.0-publisher.png",
+      "url": "https://classin.vn/wp-content/uploads/2025/05/Home-page.png",
+      "source_page": "https://classin.vn/huong-dan/giao-dien-trang-chu-homepage/",
+      "note": "ClassIn 6.0 首页公开截图，2025/05 原图；不是当前 Mac 登录后实测"
+    },
+    {
+      "file": "sources/contacts-6.0-publisher.png",
+      "url": "https://classin.vn/wp-content/uploads/2025/05/V6.-Blog.-Anh-Danh-ba.png",
+      "source_page": "https://classin.vn/huong-dan/danh-ba-contact-tren-ung-dung-classin-hoc-vien/",
+      "note": "ClassIn 6.0 联系人入口公开说明图；有发布者标注"
+    },
+    {
+      "file": "sources/group-entry-publisher.png",
+      "url": "https://classin.vn/wp-content/uploads/2025/08/Update-Image-Khanh-An-1.png",
+      "source_page": "https://classin.vn/huong-dan/tao-nhom-hoc-vien-tren-ung-dung-classin-group-management/",
+      "note": "班级成员到分组管理的公开流程截图"
+    },
+    {
+      "file": "sources/group-scheme-publisher.png",
+      "url": "https://classin.vn/wp-content/uploads/2025/08/24.png",
+      "source_page": "https://classin.vn/huong-dan/tao-nhom-hoc-vien-tren-ung-dung-classin-group-management/",
+      "note": "创建分组方案：随机或手动"
+    },
+    {
+      "file": "sources/group-result-publisher.png",
+      "url": "https://classin.vn/wp-content/uploads/2025/08/25.png",
+      "source_page": "https://classin.vn/huong-dan/tao-nhom-hoc-vien-tren-ung-dung-classin-group-management/",
+      "note": "方案列表与组内成员，公开图中部分身份已由发布者遮挡"
+    }
+  ],
+  "desktop_download": {
+    "source_page": "https://www.classin.com/download/",
+    "url": "https://download.eeo.cn/client/classin_mac_install_6.0.9.3155_arm64.dmg",
+    "bundle_identifier": "com.eeoa.classin",
+    "reported_release": "6.0.9.3155",
+    "status": "用户已登录，已核对并截图当前 Mac 首页。原生点击不可用；联系人和分组依据发布者公开教程。用户后续指示直接截图后重新设计，已生成独立 v5 原型。"
+  },
+  "native_evidence": {
+    "storage": "仅本机 outputs/classin-research-2026-11-08，不提交真实账号截图",
+    "home": "已核对",
+    "contacts": "待手动切换",
+    "groups": "待手动切换",
+    "font_values": "未读取应用内样式，不能宣称精确字号"
+  }
+}
