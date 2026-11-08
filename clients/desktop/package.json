@@ -8,7 +8,8 @@
     "dev": "electron .",
     "package": "electron-builder --dir",
     "dist": "electron-builder",
-    "test": "node --test test/*.test.cjs"
+    "test": "node --test test/*.test.cjs",
+    "design:preview": "electron design/pc-v4/preview.cjs"
   },
   "devDependencies": {
     "electron": "^37.2.3",

@@ -34,6 +34,6 @@ CLASSROOM_WEB_URL=http://127.0.0.1:3180 npm run dev
 
 ## 桌面界面设计
 
-首页、学生通讯录与分组管理的最新修订为 [简约清晰方案 v3](design/compact-v3/README.md)：学生与分组独立入口，紧凑导航和列表，按当前任务显示操作。课堂界面继续保留 [简约方案 v2](design/minimal-v2/README.md) 供参考。
+当前为 [PC 原型 v4](design/pc-v4/README.md)：真实 13px 正文、18px 标题，墨蓝窄导航、白色内容区及克制的状态色。首页、学生和分组均可切换并操作本地示例数据。运行 `npm run design:preview` 查看独立 Electron 原型；它不连接生产接口，也不替换已有课堂程序界面。
 
-[早期 ClassIn 布局 v1](design/classin-v1/README.md) 与 v2 的首页/学生分组合并页仅作设计历史保留。所有设计稿均未替换客户端运行界面。
+[简约清晰 v3](design/compact-v3/README.md)、[简约 v2](design/minimal-v2/README.md) 与 [早期 ClassIn 布局 v1](design/classin-v1/README.md) 均作为设计历史保存。课堂界面的旧稿不表示已跟随 v4 完成实现。
