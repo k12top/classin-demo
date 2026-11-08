@@ -25,3 +25,8 @@
 .distribution>[role="button"]{cursor:pointer}.distribution>[role="button"]:hover{outline:1px solid var(--i-accent)}
 .card[data-activity-pending]{padding:12px 14px}.card[data-activity-pending] h3{margin:0}.card[data-activity-pending] p{margin:6px 0;color:var(--i-muted)}
 .rosterRow>span[data-judgment="incorrect"]{color:#b33542}.rosterRow>span[data-judgment="pending"],.rosterRow>span[data-judgment="partial"]{color:#805b24}
+.choiceMeta{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--i-muted);font-variant-numeric:tabular-nums}
+.surface .answerOption[data-result="incorrect"]{background:color-mix(in srgb,var(--i-answer-wrong,#a03835) 8%,var(--i-bg));border-color:var(--i-answer-wrong,#a03835);color:var(--i-answer-wrong,#a03835);accent-color:var(--i-answer-wrong,#a03835)}
+.surface .answerOption[data-result="correct"]{background:color-mix(in srgb,var(--i-answer-correct,#23744d) 7%,var(--i-bg));border-color:var(--i-answer-correct,#23744d);color:var(--i-answer-correct,#23744d);accent-color:var(--i-answer-correct,#23744d)}
+:global(html.dark) .surface{--i-answer-wrong:#ff9aa2;--i-answer-correct:#75d6a8}
+.surface .answerOption[data-result]>span,.surface .answerOption .missedOption{color:inherit}.surface .answerOption:has(input:disabled){cursor:default}.surface .answerOption input:disabled{opacity:1}.missedOption{flex-shrink:0;font-size:11px}
