@@ -18,7 +18,10 @@ const { ActivityChoiceOptions, ActivityResults, ActivitySolutions, ActivityChatC
 const q: ActivityQuestion = { id: "q", type: "single", prompt: "2 + 2 = ?", points: 10, options: [{ id: "a", text: "4" }, { id: "b", text: "5" }, { id: "c", text: "6" }], correct: ["a"] };
 const response = (answer: string | string[], score: number | null = 0): ActivityResponse => ({ id: "r", userId: "s", displayName: "Student", answers: { q: answer }, grading: { q: score }, feedback: null, submittedAt: "2026-11-08T00:00:00Z", updatedAt: "2026-11-08T00:00:00Z", version: 1 });
 const detail = (question = q, ownResponse: ActivityResponse | null = response(["b"])): ActivityDetail => ({ id: "a", title: question.prompt, kind: "quiz", status: "active", answerReleaseScope: "answered", resultsVisible: true, definition: { questions: [question] }, ownResponse, responses: [], responseCursor: null, statistics: null, questionCount: 1, responseCount: 1, version: 1, presented: false, presentedQuestion: 0, durationSec: null, startedAt: "2026-11-08T00:00:00Z", deadlineAt: null, createdAt: "2026-11-08T00:00:00Z", updatedAt: "2026-11-08T00:00:00Z" });
-function render(child: React.ReactNode) { return renderToStaticMarkup(React.createElement(I18nProvider, { initialLocale: "zh-CN" }, child)); }
+function render(child: React.ReactNode) {
+  // eslint-disable-next-line react/no-children-prop -- The typed SSR fixture provider requires its children prop.
+  return renderToStaticMarkup(React.createElement(I18nProvider, { initialLocale: "zh-CN", children: child }));
+}
 function choices(question: ActivityQuestion, saved: ActivityResponse | null, reveal = true) { return render(React.createElement(ActivityChoiceOptions, { question, response: saved, reveal })); }
 
 test("wrong single choice is marked on the checked option, with no duplicate answer paragraph", () => {

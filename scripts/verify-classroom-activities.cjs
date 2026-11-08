@@ -42,10 +42,15 @@ INSERT INTO "Courseware" ("id", "courseId", "name", "ext", "url", "updatedAt", "
   if (before !== after) throw new Error("Baseline repair changed existing course/courseware data");
   run(docker, psql, { input: `DELETE FROM "Course" WHERE "id"='legacy-verification';` });
   console.log("Verified the complete migration chain, Prisma schema parity and existing course/courseware preservation on isolated PostgreSQL.");
+  if (process.argv.includes("--overview-preview")) {
+    run(process.execPath, ["tests/fixtures/activity-overview-preview.cjs"], { env, stdio: "inherit" });
+    return;
+  }
   const reportDir = path.join(root, "clients/desktop/dist/verification"); await fsp.mkdir(reportDir, { recursive: true });
   await fsp.writeFile(path.join(reportDir, "activities-migrations.json"), JSON.stringify({ passed: true, database: "isolated PostgreSQL16", checks: ["empty database full migration chain", "no Prisma schema drift", "guarded baseline preserves existing course and courseware rows, dates, permissions and conversion metadata"], productionDatabaseChanged: false }, null, 2));
   run(process.execPath, ["tests/integration/classroom-activities.cjs"], { env, stdio: "inherit" });
   run(process.execPath, ["tests/integration/classroom-activity-release-scopes.cjs"], { env, stdio: "inherit" });
+  run(process.execPath, ["tests/integration/classroom-activity-overview.cjs"], { env, stdio: "inherit" });
   run(process.execPath, ["tests/integration/classroom-activity-interactions.cjs"], { env, stdio: "inherit" });
   run(process.execPath, ["tests/integration/classroom-activity-ai-review.cjs"], { env, stdio: "inherit" });
   if (process.argv.includes("--feedback-only")) {

@@ -34,6 +34,8 @@ import { classroomLanguageLabel } from "@/lib/classroom/languages";
 import { activeCaptionIndex, captionPosition, captionSeekPosition } from "@/lib/classroom/playback-captions";
 import type { CourseSessionSummaryDocument, SummaryEvidence } from "@/lib/course-session-summary-document";
 import { LessonSummaryReport } from "@/components/course-sessions/lesson-summary-report";
+import { ActivityDashboard } from "@/components/classroom/activity-dashboard";
+import { activityOverviewCopy } from "@/lib/classroom/activity-overview-copy";
 import { summaryGenerationActive, watchCourseSessionSummary } from "@/lib/course-session-summary-watch";
 import type { SummaryGenerationState } from "@/lib/course-session-summary-generation";
 import { PlaybackCompatibility, PlaybackQualityControl, usePlaybackMedia } from "@/components/course-sessions/playback-compatibility";
@@ -766,6 +768,7 @@ export default function CoursePlaybackPage({
             }} className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-primary">
               <FileText className="h-3.5 w-3.5" aria-hidden="true" />{summaryCopy.title}
             </a>
+            <a href="#lesson-interactions" className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-primary"><Activity className="h-3.5 w-3.5" aria-hidden="true" />{activityOverviewCopy(locale).history}</a>
           </div>
         </div>}
         <Card ref={playbackRef} className="scroll-mt-3 overflow-hidden rounded-[22px] border border-border/70 bg-card shadow-[0_24px_70px_rgba(21,23,28,0.08)]">
@@ -871,6 +874,7 @@ export default function CoursePlaybackPage({
             )}
           </CardContent>
         </Card>
+        {selectedSessionId && <section id="lesson-interactions" className="mt-4 min-w-0 scroll-mt-20 overflow-hidden rounded-xl border border-border/70 bg-card" aria-label={activityOverviewCopy(locale).history}><ActivityDashboard key={selectedSessionId} sessionId={selectedSessionId} review /></section>}
         {selectedSessionId && (
           <div ref={reviewContentRef} className={`mt-4 min-w-0 ${embedded ? "scroll-mt-3" : "scroll-mt-[70px] min-[1025px]:scroll-mt-[80px]"}`}>
             <TabsList aria-label={t("replayExtras.lessonReview")}

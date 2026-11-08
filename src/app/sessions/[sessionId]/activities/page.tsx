@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { useSearchParams } from "next/navigation";
-import { ActivityWorkspace } from "@/components/classroom/activity-workspace";
+import { ActivityDashboard } from "@/components/classroom/activity-dashboard";
 import { useTranslation } from "@/lib/i18n/context";
 import styles from "@/components/classroom/activity-workspace.module.css";
 export default function ActivityReviewPage({ params }: { params: Promise<{ sessionId: string }> }) {
@@ -12,5 +12,5 @@ export default function ActivityReviewPage({ params }: { params: Promise<{ sessi
   const search = useSearchParams();
   const { t } = useTranslation();
   const { user, loading } = useAuth();
-  return <main className={styles.reviewPage}><header><Link href="/courses">{t("activities.back")}</Link></header>{loading ? <p>{t("activities.loading")}</p> : !user ? <button type="button" onClick={() => redirectToSsoLogin()}>{t("activities.login")}</button> : <ActivityWorkspace key={sessionId} sessionId={sessionId} shareAccess={search.get("shareAccess")} review />}</main>;
+  return <main className={styles.reviewPage}><header><Link href="/courses">{t("activities.back")}</Link></header>{loading ? <p>{t("activities.loading")}</p> : !user ? <button type="button" onClick={() => redirectToSsoLogin()}>{t("activities.login")}</button> : <ActivityDashboard key={sessionId} sessionId={sessionId} shareAccess={search.get("shareAccess")} review />}</main>;
 }

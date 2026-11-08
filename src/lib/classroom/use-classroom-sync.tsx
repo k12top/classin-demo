@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ACTIVITY_REFRESH_EVENT } from "./activities";
 import { ClassroomSharedReads, ClassroomSyncScheduler } from "./sync-scheduler";
 
@@ -34,6 +34,10 @@ function useSync(sessionId: string) {
   // Management/review pages can use the same hooks outside the live classroom.
   const fallback = useClassroomSyncOwner(sessionId, !shared);
   return shared || fallback;
+}
+export function ClassroomSyncBoundary({ sessionId, children }: { sessionId: string; children: ReactNode }) {
+  const sync = useSync(sessionId);
+  return <ClassroomSyncProvider value={sync}>{children}</ClassroomSyncProvider>;
 }
 
 export function useClassroomSyncTask(input: {

@@ -6,6 +6,7 @@ import { getEffectiveSessionRoster } from "@/lib/course-session-roster";
 import { casdoorUserIdCandidates } from "@/lib/course-teacher";
 import { prisma } from "@/lib/db";
 import type { ClassroomRole } from "@/lib/classroom/types";
+import { summarizeActivities, type ActivityOverview } from "../activity-overview";
 import {
   ActivityError, activityResultsVisible, activityCsv, answersMatch, gradeAnswers, publicDefinition, validateActivity, validateAnswers,
   type ActivityAnswers, type ActivityDefinition, type ActivityDetail, type ActivityGrade,
@@ -150,10 +151,32 @@ export async function activityDetail(actor: ActivityActor, id: string, cursor?: 
     }
     const lastReminder = await tx.classroomActivityReminder.findFirst({ where: { activityId: id, ...(ctx.canManage ? {} : { recipients: { array_contains: [actor.userId] } }) }, orderBy: { createdAt: "desc" } });
     const roster = ctx.canManage ? await enrolledStudents(tx, actor) : [];
+    // Historical responders remain inspectable even after leaving the roster.
+    for (const saved of allResponses) if (!roster.some(member => member.userId === saved.userId)) roster.push({ userId: saved.userId, displayName: saved.displayName, avatar: "", online: false });
     const responseMap = new Map(allResponses.map(r => [r.userId, r]));
     return { ...summary(row), resultsVisible, definition: publicDefinition(definition, reveal), ownResponse: own ? response(own, reveal) : null,
       responses: rows.slice(0, 50).map(r => response(r, true)), responseCursor: rows.length > 50 ? rows[49].id : null, statistics,
       ...(ctx.canManage ? { roster: roster.map(m => ({ ...m, response: responseMap.has(m.userId) ? response(responseMap.get(m.userId)!, true) : null })), lastRemindedAt: lastReminder?.createdAt.toISOString() || null } : { reminder: !own && row.status === "active" && lastReminder ? { id: lastReminder.id, createdAt: lastReminder.createdAt.toISOString() } : null }) };
+  });
+}
+export async function activityOverview(actor: ActivityActor): Promise<ActivityOverview> {
+  return activityRead(async tx => {
+    const runtime = await tx.classroomRuntime.findUnique({ where: { sessionId: actor.sessionId }, select: { id: true } });
+    if (!runtime) {
+      const lesson = await tx.courseSession.findFirst({ where: { id: actor.sessionId, courseId: actor.courseId }, select: { roomType: true } });
+      if (!lesson) throw new ActivityError("Lesson not found", 404);
+      return summarizeActivities([], [], lesson.roomType !== 10 && (actor.role === "teacher" || actor.role === "assistant"), false);
+    }
+    const ctx = await context(tx, actor, false);
+    const rows = await tx.classroomActivity.findMany({ where: { sessionId: actor.sessionId, startedAt: { not: null }, ...(ctx.canManage ? {} : studentVisibility) }, orderBy: [{ startedAt: "desc" }, { id: "desc" }] });
+    const saved = rows.length ? await tx.classroomActivitySubmission.findMany({ where: { activityId: { in: rows.map(row => row.id) }, ...(ctx.canManage ? {} : { userId: actor.userId }) } }) : [];
+    const roster = ctx.canManage ? await enrolledStudents(tx, actor) : [];
+    const byActivity = new Map<string, ClassroomActivitySubmission[]>();
+    for (const answer of saved) { const group = byActivity.get(answer.activityId) || []; group.push(answer); byActivity.set(answer.activityId, group); }
+    return summarizeActivities(rows.map(row => {
+      const answers = byActivity.get(row.id) || [], visible = ctx.canManage || activityResultsVisible(row, answers.length > 0);
+      return { activity: summary({ ...row, _count: { submissions: answers.length } }), definition: publicDefinition(row.definition as ActivityDefinition, visible), responses: answers.map(answer => response(answer, visible)), resultsVisible: visible };
+    }), roster, ctx.canManage, ctx.live);
   });
 }
 export async function createActivity(actor: ActivityActor, value: unknown, requestId: string, launch = false) {

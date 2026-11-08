@@ -4,7 +4,7 @@ import { useActivityPublication } from '@/lib/classroom/use-activity-publication
 import { ClassroomIconButton } from "./icon-button";
 /* eslint-disable @next/next/no-img-element -- Private no-store chat images and local blob previews must bypass the shared image optimizer. */
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { Globe, MessageCircle, MoreHorizontal, X, Loader2, Send, ArrowLeft, Languages, ImagePlus, Sparkles } from "lucide-react";
+import { Globe, MessageCircle, MoreHorizontal, X, Loader2, Send, ArrowLeft, Languages, ImagePlus, Sparkles, BarChart3 } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
 import { useChatTranslations } from "@/lib/classroom/use-chat-translations";
 import { captionLanguageSelectOptions } from "@/lib/classroom/languages";
@@ -20,6 +20,8 @@ import { ActivityQuickCreator } from "./activity-quick-creator";
 import { ACTIVITY_CREATE_EVENT } from "@/lib/classroom/activities";
 import { interactionCopy } from "@/lib/classroom/interaction-copy";
 import { ActivityWorkspace } from "./activity-workspace";
+import { ActivityDashboard } from "./activity-dashboard";
+import { activityOverviewCopy } from "@/lib/classroom/activity-overview-copy";
 import { useChatActivities } from "@/lib/classroom/use-chat-activities";
 import interactionStyles from "./activity-interaction.module.css";
 import { CLASSROOM_CHAT_MAX_CHARACTERS, chatCharacterCount, limitChatContent } from "@/lib/classroom/chat-content";
@@ -85,6 +87,7 @@ export function ClassroomChatPanel({
   const allMuted = students.length > 0 && students.every((member) => member.chatMuted);
   const allUnmuted = students.every((member) => !member.chatMuted);
   const [activityEditorOpen, setActivityEditorOpen] = useState(false);
+  const [dashboardOpen, setDashboardOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const interaction = interactionCopy(locale);
   const [value, setValue] = useState("");
@@ -169,10 +172,12 @@ export function ClassroomChatPanel({
   }
 
   if (activityEditorOpen) return <div className="classroom-chat-activity-editor"><button type="button" className="classroom-chat-back" onClick={() => setActivityEditorOpen(false)}><ArrowLeft />{t("classroom.v3.chat")}</button><ActivityWorkspace sessionId={sessionId} shareAccess={shareAccess} onChanged={revision => { onActivityChanged(revision); void activityFeed.reload().catch(() => undefined); }} /></div>;
+  if (dashboardOpen) return <div className="classroom-chat-activity-editor"><button type="button" className="classroom-chat-back" onClick={() => setDashboardOpen(false)}><ArrowLeft />{t("classroom.v3.chat")}</button><ActivityDashboard sessionId={sessionId} shareAccess={shareAccess} /></div>;
 
   return (
     <div className={`classroom-v3-panel-body is-chat ${quickOpen ? interactionStyles.creating : ""}`}>
       <div className="classroom-chat-inline-tools">
+        <ClassroomIconButton type="button" title={activityOverviewCopy(locale).dashboard} aria-label={activityOverviewCopy(locale).dashboard} onClick={() => setDashboardOpen(true)}><BarChart3 /></ClassroomIconButton>
         {(roomId || role !== "student") && <ChatPopover label={t("classroomChat.scope")} icon={<Globe />}><fieldset className="classroom-chat-scope-picker"><legend>{t("classroomChat.scope")}</legend>{(["classroom", ...(roomId ? ["room"] : []), ...(role !== "student" ? ["staff"] : [])] as Array<"classroom" | "room" | "staff">).map(channel => <label key={channel}><input type="radio" name="chat-scope" value={channel} checked={scope === channel} disabled={sending} onChange={() => { followLatestRef.current = true; setScope(channel); }} />{t(channel === "classroom" ? "classroom.v3.mainChannel" : channel === "room" ? "classroom.v3.roomChannel" : "classroom.v3.staffChannel")}</label>)}</fieldset></ChatPopover>}
         <ChatPopover label={`${t("classroomWorkspace.translationSettings")} · ${t(translateEnabled ? "captionAppearance.on" : "captionAppearance.off")}`} icon={<Languages>{!translateEnabled && <><path d="m3 3 18 18" stroke="var(--classroom-panel, #fff)" strokeWidth={5} /><path d="m3 3 18 18" /></>}</Languages>}><label className="classroom-chat-check"><input type="checkbox" checked={translateEnabled} onChange={event => setTranslateEnabled(event.target.checked)} />{t("classroomUpdates.translateChat")}</label><label className="classroom-chat-language">{t("classroomUpdates.chatTranslationLanguage")}<select aria-label={t("classroomUpdates.chatTranslationLanguage")} value={language} disabled={!translateEnabled} onChange={event => setLanguageOverride(event.target.value)}>{captionLanguageSelectOptions("shengwang", locale).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></ChatPopover>
         {canManage && <DropdownMenu modal={false}>
