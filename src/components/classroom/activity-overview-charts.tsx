@@ -17,7 +17,7 @@ function ChartFrame(props: ActivityEChartProps & { height: number }) {
     import("./activity-echart").then(module => { if (active) { setRenderer(() => module.default); setFailed(false); } }).catch(() => { if (active) setFailed(true); });
     return () => { active = false; };
   }, [attempt]);
-  return <div className={styles.chartFrame} style={{ height: props.height }}>
+  return <div className={styles.chartFrame} data-chart-frame style={{ height: props.height }}>
     {props.model.kind === "questions" && <div className={styles.chartLabels} style={{ gridTemplateRows: `repeat(${props.model.rows.length}, minmax(0, 1fr))` }}>
       {props.model.rows.map(row => <QuestionChartLabel row={row} key={`${row.activityId}:${row.questionId}`} />)}
     </div>}
@@ -30,7 +30,7 @@ function QuestionChartLabel({ row }: { row: QuestionChartRow }) {
     <button type="button" className={styles.chartLabelTrigger} data-chart-question-label aria-label={`Q${row.number}: ${row.prompt}`} aria-describedby={tooltipId}>
       <MarkdownInlineContent content={`Q${row.number}  ${row.prompt}`} />
     </button>
-    <div id={tooltipId} role="tooltip" className={styles.chartLabelPopover} data-chart-question-popover><MarkdownContent content={`Q${row.number}  ${row.prompt}`} /></div>
+    <div id={tooltipId} tabIndex={0} aria-label={`Q${row.number} 完整题目`} className={styles.chartLabelPopover} data-chart-question-popover><MarkdownContent content={`Q${row.number}  ${row.prompt}`} /></div>
   </div>;
 }
 const PAGE_SIZE = 6;
