@@ -41,7 +41,7 @@ async function main() {
     assert.equal((await post(first.id,{type:'setCaptionStartPreferences',preferences:off})).status,200,'actual action route accepts valid preferences');
     assert.deepEqual((await api.getClassroomRuntimeSnapshot(courseId,first.id)).captionStartPreferences,off,'readback after save retains settings');
     assert.equal((await post(first.id,{type:'startClass'})).status,200);
-    let state=await db.classroomRuntime.findUniqueOrThrow({where:{sessionId:first.id}});assert.equal(state.interpretationEnabled,false);assert.equal(state.transcriptionStatus,'stopped');assert.deepEqual(state.targetLanguages,[]);
+    let state=await db.classroomRuntime.findUniqueOrThrow({where:{sessionId:first.id}});assert.equal(state.interpretationEnabled,true);assert.equal(state.transcriptionStatus,'starting');assert.deepEqual(state.targetLanguages,[]);
     assert.equal((await post(first.id,{type:'setCaptionStartPreferences',preferences})).status,409,'live lesson cannot rewrite startup policy');
     const manual=await lesson();await api.ensureClassroomRuntime(courseId,manual.id);assert.equal((await post(manual.id,{type:'startClass'})).status,200);
     state=await db.classroomRuntime.findUniqueOrThrow({where:{sessionId:manual.id}});assert.equal(state.interpretationEnabled,true);assert.deepEqual(state.targetLanguages,['en-US','ja-JP']);

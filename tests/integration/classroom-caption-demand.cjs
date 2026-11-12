@@ -46,9 +46,10 @@ async function main() {
     await db.classroomRuntime.create({ data: { courseId: course.id, sessionId: disabledLesson.id, status: "live", captionStartPreferences: { autoCaptions: false, autoInterpretation: false, sourceLanguage: "zh-CN", targetLanguages: ["en-US"] } } });
     const beforeDisabled = globalThis.captionProviderCalls.length;
     const disabled = await api.ensureClassroomTranscriptionForLiveSession(course.id, disabledLesson.id);
-    assert.equal(disabled.interpretationEnabled, false, "legacy recovery never overrides explicit automatic-off settings");
-    assert.equal(globalThis.captionProviderCalls.length, beforeDisabled, "no recognition or translation provider starts for disabled settings");
-    console.log("PASS explicit auto-off is preserved by live transcription recovery");
+    assert.equal(disabled.interpretationEnabled, true, "live recovery always restores source transcription");
+    assert.equal(globalThis.captionProviderCalls.length, beforeDisabled + 1, "recognition starts even when automatic display and translation are off");
+    assert.equal(globalThis.captionProviderCalls.at(-1).payload.translateConfig, undefined, "automatic-off starts no translation channel");
+    console.log("PASS automatic-off still records source captions without translation");
     await connect("alice"); await connect("bob");
     await check("new lesson starts ASR without any translation channel", async () => {
       assert.deepEqual(await targets(), []); await api.ensureClassroomTranscriptionForLiveSession(course.id, lesson.id);

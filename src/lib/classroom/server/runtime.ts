@@ -880,7 +880,7 @@ export async function applyClassroomAction(input: {
           throw new ClassroomActionError("已结束或取消的课次不能开始", 409);
         }
         const now = new Date();
-        const startCaptionService = runtime.status === "live" ? runtime.interpretationEnabled : automaticCaptionServiceEnabled(runtime.captionStartPreferences);
+        const startCaptionService = automaticCaptionServiceEnabled(runtime.captionStartPreferences);
         await tx.courseSession.update({
           where: { id: sessionId },
           data: { status: CourseStatus.LIVE, endedAt: null },
@@ -892,8 +892,8 @@ export async function applyClassroomAction(input: {
             startedAt: runtime.startedAt ?? now,
             graceEndsAt: classroomGraceEndAt(lesson.endTime),
             // Every lesson records speaker captions for playback and the
-            // teacher-reviewed post-class summary. Teachers may still disable
-            // interpretation explicitly after the class starts.
+            // teacher-reviewed post-class summary. Translation remains
+            // demand-driven and independent from source transcription.
             interpretationEnabled: startCaptionService,
             targetLanguages: await captionDemandTargets(tx, sessionId, runtime.sourceLanguage, runtime.interpretationProvider === "wordly" ? "wordly" : "shengwang"),
             transcriptionStatus:
@@ -1561,16 +1561,15 @@ export async function applyClassroomAction(input: {
         await tx.classroomRuntime.update({
           where: { id: runtime.id },
           data: {
-            interpretationEnabled: action.enabled,
+            // Source transcription is mandatory for every live class. The
+            // participant demand below controls translation independently.
+            interpretationEnabled: true,
             interpretationProvider: provider,
             sourceLanguage,
             targetLanguages,
-            transcriptionStatus: action.enabled ? "starting" : "stopped",
+            transcriptionStatus: runtime.transcriptionStatus === "running" ? "running" : "starting",
             transcriptionError: null,
-            // A timestamp on an explicit disable distinguishes the teacher's
-            // choice from an untouched legacy runtime that should auto-start
-            // captions when the teacher enters the live room.
-            transcriptionLastCheckedAt: action.enabled ? null : new Date(),
+            transcriptionLastCheckedAt: runtime.transcriptionStatus === "running" ? runtime.transcriptionLastCheckedAt : null,
           },
         });
         break;

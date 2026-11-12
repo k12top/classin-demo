@@ -1,4 +1,3 @@
-import { automaticCaptionServiceEnabled } from "../caption-start-preferences";
 import "server-only";
 
 import { prisma } from "@/lib/db";
@@ -495,10 +494,8 @@ export async function reconcileClassroomTranscription(sessionId: string) {
 }
 
 /**
- * A live classroom should start captions when the lead teacher enters even if
- * the original `startClass` background callback was interrupted. Preserve an
- * explicit in-class disable (it has a last-checked timestamp), while upgrading
- * untouched legacy runtimes to source captions with demand-driven translation.
+ * A live classroom always records source captions, even when caption display
+ * and translation are disabled. Translation remains demand-driven.
  */
 export async function ensureClassroomTranscriptionForLiveSession(
   courseId: string,
@@ -510,18 +507,7 @@ export async function ensureClassroomTranscriptionForLiveSession(
   });
   if (runtime.status !== "live") return runtime;
 
-  const untouchedDisabledRuntime =
-    !runtime.interpretationEnabled &&
-    runtime.transcriptionAgentId === null &&
-    runtime.transcriptionLastCheckedAt === null &&
-    runtime.transcriptionRetryCount === 0;
-  if (!runtime.interpretationEnabled && !untouchedDisabledRuntime) {
-    return runtime;
-  }
-
-  if (untouchedDisabledRuntime && !automaticCaptionServiceEnabled(runtime.captionStartPreferences)) return runtime;
-
-  if (untouchedDisabledRuntime) {
+  if (!runtime.interpretationEnabled) {
     runtime = await prisma.classroomRuntime.update({
       where: { id: runtime.id },
       data: { interpretationEnabled: true, transcriptionStatus: "starting", transcriptionError: null, transcriptionLastCheckedAt: null },

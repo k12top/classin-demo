@@ -41,8 +41,10 @@ export function validateCaptionStartPreferences(value: unknown): CaptionStartPre
 }
 
 export function automaticCaptionServiceEnabled(value: unknown): boolean {
-  const preferences = captionStartPreferences(value);
-  return preferences.autoCaptions || preferences.autoInterpretation;
+  void value;
+  // Every live class records source-language captions. These preferences only
+  // choose the initial presentation and translation demand.
+  return true;
 }
 
 /** Apply classroom defaults only where this account has no valid saved choice. */

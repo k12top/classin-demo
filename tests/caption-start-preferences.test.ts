@@ -11,9 +11,9 @@ test('new course defaults include a selectable interpretation language', () => {
   assert.deepEqual(validateCaptionStartPreferences(value), value);
   assert.deepEqual(value.targetLanguages, ['en-US']);
 });
-test('turning both automatic services off stays off, while source-only captions still start recognition', () => {
+test('live classes always start recognition even when automatic caption display and interpretation are off', () => {
   const value = { ...newCaptionStartPreferences(), autoCaptions: false, autoInterpretation: false };
-  assert.equal(automaticCaptionServiceEnabled(value), false);
+  assert.equal(automaticCaptionServiceEnabled(value), true);
   assert.equal(automaticCaptionServiceEnabled({ ...value, autoCaptions: true }), true);
 });
 test('invalid types, source languages, unsupported targets and empty interpretation choices are rejected', () => {
