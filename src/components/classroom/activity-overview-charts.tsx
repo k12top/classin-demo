@@ -1,11 +1,11 @@
 "use client";
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useId, useState, type ComponentType } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
 import type { ActivityOverview } from "@/lib/classroom/activity-overview";
 import { activityOverviewCopy } from "@/lib/classroom/activity-overview-copy";
-import { overviewQuestionRows, qualityKeys, qualityTotal, questionChartState, type QuestionChartRow } from "@/lib/classroom/activity-chart-model";
-import { MarkdownInlineContent } from "@/components/markdown-content";
+import { overviewQuestionRows, qualityKeys, qualityTotal, questionChartState, QUESTION_CHART_ROW_HEIGHT, type QuestionChartRow } from "@/lib/classroom/activity-chart-model";
+import { MarkdownContent, MarkdownInlineContent } from "@/components/markdown-content";
 import type { ActivityEChartProps } from "./activity-echart";
 import styles from "./activity-overview.module.css";
 
@@ -18,10 +18,19 @@ function ChartFrame(props: ActivityEChartProps & { height: number }) {
     return () => { active = false; };
   }, [attempt]);
   return <div className={styles.chartFrame} style={{ height: props.height }}>
-    {props.model.kind === "questions" && <div className={styles.chartLabels} aria-hidden="true" style={{ gridTemplateRows: `repeat(${props.model.rows.length}, minmax(0, 1fr))` }}>
-      {props.model.rows.map(row => <div className={styles.chartLabel} key={`${row.activityId}:${row.questionId}`}><span>Q{row.number}</span><MarkdownInlineContent content={row.prompt} /></div>)}
+    {props.model.kind === "questions" && <div className={styles.chartLabels} style={{ gridTemplateRows: `repeat(${props.model.rows.length}, minmax(0, 1fr))` }}>
+      {props.model.rows.map(row => <QuestionChartLabel row={row} key={`${row.activityId}:${row.questionId}`} />)}
     </div>}
     {Renderer ? <Renderer model={props.model} locale={props.locale} onSelect={props.onSelect} /> : <p className={styles.hint} role="status">{failed ? <>{c.chartFailed} <button type="button" onClick={() => setAttempt(value => value + 1)}>{c.retry}</button></> : c.chartLoading}</p>}
+  </div>;
+}
+function QuestionChartLabel({ row }: { row: QuestionChartRow }) {
+  const tooltipId = useId();
+  return <div className={styles.chartLabel}>
+    <button type="button" className={styles.chartLabelTrigger} data-chart-question-label aria-label={`Q${row.number}: ${row.prompt}`} aria-describedby={tooltipId}>
+      <MarkdownInlineContent content={`Q${row.number}  ${row.prompt}`} />
+    </button>
+    <div id={tooltipId} role="tooltip" className={styles.chartLabelPopover} data-chart-question-popover><MarkdownContent content={`Q${row.number}  ${row.prompt}`} /></div>
   </div>;
 }
 const PAGE_SIZE = 6;
@@ -45,7 +54,7 @@ export function ActivityOverviewCharts({ data, onSelect }: { data: ActivityOverv
     {rows.length > 0 && <section className={styles.questionChart} aria-label={c.questionChart}>
       <header className={styles.chartHeading}><h4>{c.questionChart}</h4><select aria-label={c.chartOrder} value={sort} onChange={event => { setSort(event.target.value); setPage(0); }}><option value="recent">{c.recentFirst}</option><option value="accuracy">{c.accuracyFirst}</option></select></header>
       <p className={styles.chartNote}>{c.questionHint}</p>
-      <ChartFrame model={{ kind: "questions", rows: visible, copy: c }} locale={locale} height={visible.length * 42 + 36} onSelect={index => { if (visible[index]) onSelect(visible[index]); }} />
+      <ChartFrame model={{ kind: "questions", rows: visible, copy: c }} locale={locale} height={visible.length * QUESTION_CHART_ROW_HEIGHT + 36} onSelect={index => { if (visible[index]) onSelect(visible[index]); }} />
       {lastPage > 0 && <nav className={styles.chartPages} aria-label={c.chartPages}><button type="button" aria-label={c.previousQuestions} disabled={!currentPage} onClick={() => setPage(currentPage - 1)}><ChevronLeft /></button><span>{currentPage * PAGE_SIZE + 1}–{Math.min((currentPage + 1) * PAGE_SIZE, rows.length)} / {rows.length}</span><button type="button" aria-label={c.nextQuestions} disabled={currentPage === lastPage} onClick={() => setPage(currentPage + 1)}><ChevronRight /></button></nav>}
       <details className={styles.chartData}><summary>{c.chartData}</summary><table><thead><tr><th scope="col">{c.questions}</th><th scope="col">{c.accuracy}</th><th scope="col">{c.correct} / {c.graded}</th></tr></thead><tbody>{visible.map(row => <tr key={`${row.activityId}:${row.questionId}`}><th scope="row"><button type="button" onClick={() => onSelect(row)}>Q{row.number} · <MarkdownInlineContent content={row.prompt} /></button></th><td>{row.accuracy === null ? questionChartState(row, c) : percent(row.accuracy)}</td><td>{row.quality.correct} / {row.quality.correct + row.quality.incorrect + row.quality.partial}</td></tr>)}</tbody></table></details>
     </section>}

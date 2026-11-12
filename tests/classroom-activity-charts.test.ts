@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import * as chartModel from "../src/lib/classroom/activity-chart-model";
 import { activityChartOption, overviewQuestionRows, qualityTotal, type ActivityChartPalette } from "../src/lib/classroom/activity-chart-model";
 import { activityOverviewCopy } from "../src/lib/classroom/activity-overview-copy";
 import { summarizeActivities, emptyActivityQuality, type ActivityReportSource } from "../src/lib/classroom/activity-overview";
@@ -56,4 +57,7 @@ test("a question without submissions stays ungraded rather than becoming zero-pe
   assert.equal((option.yAxis as { show?: boolean }).show, false, "HTML math labels replace ECharts plain-text labels");
   const series = (option.series as Array<{ label: { formatter: (p: { dataIndex: number }) => string } }>)[0];
   assert.equal(series.label.formatter({ dataIndex: 0 }), "未作答");
+});
+test("question chart rows reserve enough height for two rendered formula lines", () => {
+  assert.equal((chartModel as Record<string, unknown>).QUESTION_CHART_ROW_HEIGHT, 56);
 });

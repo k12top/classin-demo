@@ -6,6 +6,7 @@ import type { activityOverviewCopy } from "./activity-overview-copy";
 
 type Copy = ReturnType<typeof activityOverviewCopy>;
 export const qualityKeys = ["correct", "incorrect", "partial", "pending", "withheld"] as const;
+export const QUESTION_CHART_ROW_HEIGHT = 56;
 export type QualityKey = typeof qualityKeys[number];
 export type QuestionChartRow = {
   activityId: string; questionId: string; number: number; prompt: string;
