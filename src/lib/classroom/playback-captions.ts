@@ -29,6 +29,7 @@ export function captionPosition(
   if (!Number.isFinite(timestamp)) return null;
   const preferred=preferredRecordingId?recordings.find(recording=>recording.id===preferredRecordingId):undefined;
   const candidates=preferred?[preferred,...recordings.filter(recording=>recording.id!==preferred.id)]:recordings;
+  let endpoint:CaptionPosition|null=null;
   for (const recording of candidates) {
     if (!recording.startedAt || !recording.stoppedAt) continue;
     const startedAt = Date.parse(recording.startedAt);
@@ -37,9 +38,13 @@ export function captionPosition(
       !Number.isFinite(startedAt) || !Number.isFinite(stoppedAt) ||
       stoppedAt <= startedAt || timestamp < startedAt || timestamp > stoppedAt
     ) continue;
-    return { recordingId: recording.id, seconds: (timestamp - startedAt) / 1000 };
+    const position={ recordingId: recording.id, seconds: (timestamp - startedAt) / 1000 };
+    // Shared boundaries belong to the next clip. Keep the old endpoint only
+    // when no clip contains this time (including the final replay endpoint).
+    if(timestamp===stoppedAt){endpoint??=position;continue;}
+    return position;
   }
-  return null;
+  return endpoint;
 }
 
 export function activeCaptionIndex(
@@ -50,14 +55,16 @@ export function activeCaptionIndex(
   if (!recording?.startedAt || !Number.isFinite(mediaTime)) return -1;
   const start = Date.parse(recording.startedAt);
   if (!Number.isFinite(start)) return -1;
-  const current = start + mediaTime * 1000;
+  const end=recording.stoppedAt?Date.parse(recording.stoppedAt):Infinity;
+  if(Number.isNaN(end)||end<=start)return -1;
+  const current = Math.min(start + mediaTime * 1000,end);
   let active = -1;
   for (let index = 0; index < captions.length; index += 1) {
     const caption = captions[index];
     if (!caption) continue;
     const position = Date.parse(caption.occurredAt);
-    if (position <= current && position >= start) active = index;
-    if (position > current) break;
+    if (position > current || position >= end) break;
+    if (position >= start) active = index;
   }
   return active;
 }

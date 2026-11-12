@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { loadModule } from "./helpers/load-module";
 import * as policy from "../src/lib/classroom/recording-asset-discovery";
 import * as playback from "../src/lib/classroom/recording-playback";
+import * as timeline from "../src/lib/classroom/recording-playback-timeline";
 
 const prefix = "recordings/lesson/attempt/";
 const base = () => ({
@@ -20,6 +21,7 @@ function service(row: ReturnType<typeof base>, list: (input: { prefix: string; m
     "server-only": {},
     "@/lib/classroom/recording-asset-discovery": policy,
     "@/lib/classroom/recording-playback": playback,
+    "@/lib/classroom/recording-playback-timeline": timeline,
     "@/lib/aliyun-oss": { getCoursewareOssClient: () => ({ list }) },
     "@/lib/db": { prisma: { classroomRecording: {
       findUnique: async () => ({ ...row }),
@@ -137,6 +139,7 @@ test("authorized playback reads schedule discovery without blocking the current 
       classroomRecording: { findMany: async () => [row] },
     } },
     "@/lib/classroom/recording-playback": playback,
+    "@/lib/classroom/recording-playback-timeline": timeline,
     "@/lib/classroom/recording-reconciliation": { recordingNeedsReconciliation: () => false },
     "@/lib/classroom/recording-asset-discovery": policy,
     "@/lib/classroom/server/recording-asset-discovery": { discoverRecordingPlaybackAssets: async (id: string) => { discovered.push(id); } },

@@ -13,11 +13,11 @@
 | 公开课 | `workspace-app.tsx` 的加入入口、公开课预览/报名与现有邀请 API；public-join 回归、重复加入和访问规则测试 | 无效/冲突口令不能绕过预览；加入不授予教学权限。组件/规则测试不等于新一轮真实跨设备报名 |
 | 课程工作区 | `course-workspace.tsx`、课程/单元树、资料、作业与课节入口；course-program-scope、course-members 和原计划的写入验收 | 本轮真实越南语互动摘要及 1366/390 布局通过；学生课节入口不再宣称管理权限，未增加学生写权限 |
 | 教学人员 | `course-staff-assignments.tsx`、`course-teaching-team-settings.tsx`、按课节授权 API；course-staff 回归和原计划“真实课节授权写入验收” | 历史授权只读，班级教师与单/多课助教、旁听分开；不能由一个教师会话推断所有跨账号可见性 |
-| 回放 | 实际 playback 页面、媒体/字幕/聊天/互动接口；student-replay-live、replay-locales、playback-speed 证据；本轮 speed-only、student-access 回归 | 真实 OSS 合成视频与观看进度已验证；仍缺完整真实课堂“录制→字幕→互动定位→回放”的统一闭环 |
+| 回放 | 实际 playback 页面、媒体/字幕/聊天/互动接口；student-replay-live、replay-locales、playback-speed、recording-slices 证据；分段时间保留、字幕/互动跳转、交界和尾部回归 | 真实 OSS 合成视频与观看进度已验证；分段场景使用实际页面/API 映射和合成视频，仍缺完整真实课堂“录制→字幕→互动定位→回放”的统一闭环 |
 | 教学界面 | 现有声网/Netless 教学界面、独立课堂窗口、共享和悬浮工具；classroom-responsive 七视口回归及 classroom-live-network 实测 | 真实互动 HTTP 延迟、范围下发及统计已验证；仍缺真实音视频物理弱网与完整跨设备屏幕控制验收 |
 | 两端同源 | Electron 加载同一网页工作区，隔离 preload/IPC、Casdoor、导航和单课堂限制；107 项桌面测试，原生学生本轮 GET 503 自动恢复 | macOS 本机已实测，Windows 仅交叉编译及协议测试；Windows 实机、多屏/DPI和跨设备输入尚未验证 |
 | 国际化与设置 | 四语言工作区、语言/城市时区选择器、账号与设备检测；本轮设备 16 组布局/失败恢复，真实教师越南语菜单 | 合成设备测试没有授予真实系统权限，也不能证明实际麦克风、扬声器、摄像头都可用 |
-| 总体质量门槛 | 本轮 1052 项根目录测试、107 项桌面测试、11 组页面回归、看板 16 组、设备 16 组、类型/lint 与隔离生产构建通过 | 自动化、真实账号、真实硬件与线上部署是不同证据；目前不宣称整站所有功能和平台已全部验收 |
+| 总体质量门槛 | 最新 1061 项根目录测试、107 项桌面测试、分段及重叠录像集成、类型/lint 与隔离生产构建通过；此前 11 组页面回归、看板 16 组、设备 16 组证据见各次记录 | 自动化、真实账号、真实硬件与线上部署是不同证据；目前不宣称整站所有功能和平台已全部验收 |
 
 实现路径均相对 `src/components/workspace/`，另注明的页面/API除外。每项测试的替身范围、真实账号及清理记录以各 verification README 和原计划相应日期为准；不能只凭测试文件存在判定通过。本轮日志清单保存在本地 `outputs/workspace-final-audit/integration-checks.json`。
 

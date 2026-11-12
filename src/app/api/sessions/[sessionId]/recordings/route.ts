@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
 import { reconcileRecordingAttempt } from "@/lib/classroom/server/recording-orchestrator";
 import { recordingHlsAlternative, recordingReplayAssets } from "@/lib/classroom/recording-playback";
+import { recordingPlaybackTimings } from "@/lib/classroom/recording-playback-timeline";
 import { recordingNeedsReconciliation } from "@/lib/classroom/recording-reconciliation";
 import { recordingAssetDiscoveryDue, recordingAssetDiscoveryPollMs } from "@/lib/classroom/recording-asset-discovery";
 import { discoverRecordingPlaybackAssets } from "@/lib/classroom/server/recording-asset-discovery";
@@ -96,6 +97,7 @@ export async function GET(request: NextRequest, context: Context) {
         failureStage: access.teaching ? recording.failureStage : null,
         ...(access.teaching ? { verification: recordingVerification(recording.providerState) } : {}),
       }];
+      const timings = recordingPlaybackTimings(recording, assets);
       return assets.map((asset, index) => ({
         id: `${recording.id}:${index}`,
         segment: 0,
@@ -103,10 +105,8 @@ export async function GET(request: NextRequest, context: Context) {
         status: recording.status,
         mode: recording.mode,
         fallbackFrom: recording.fallbackFrom,
-        // A single attempt can contain several MP4 files. Its wall-clock
-        // bounds cannot locate a caption within one particular file.
-        startedAt: assets.length === 1 ? recording.startedAt?.toISOString() ?? null : null,
-        stoppedAt: assets.length === 1 ? recording.stoppedAt?.toISOString() ?? null : null,
+        startedAt: timings[index].startedAt,
+        stoppedAt: timings[index].stoppedAt,
         playbackFormat: asset.format,
         hlsPlaybackUrl: recordingHlsAlternative(recording, asset)
           ? `/api/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recording.id)}/play?asset=${encodeURIComponent(recordingHlsAlternative(recording, asset)!)}` : null,

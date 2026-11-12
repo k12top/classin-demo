@@ -55,3 +55,14 @@ test("utterance seeking includes three seconds of context within its recording",
     assert.deepEqual(position, original, "display timestamps and synchronization retain the actual time");
   }
 });
+
+test("a cue at a shared clip boundary selects the next clip rather than the old final frame",()=>{
+ const consecutive=[recordings[0],{id:"next",startedAt:recordings[0].stoppedAt,stoppedAt:"2026-09-27T10:10:00Z"}];
+ assert.deepEqual(captionPosition(recordings[0].stoppedAt,consecutive,"first"),{recordingId:"next",seconds:0});
+ assert.deepEqual(captionPosition("2026-09-27T10:10:00Z",consecutive),{recordingId:"next",seconds:300},"the final endpoint remains seekable");
+});
+
+test("a recorder tail cannot highlight captions after the selected clip's logical end",()=>{
+ const captions=[{occurredAt:"2026-09-27T10:01:00Z"},{occurredAt:"2026-09-27T10:11:30Z"}];
+ assert.equal(activeCaptionIndex(captions,recordings[0],1000),0);
+});

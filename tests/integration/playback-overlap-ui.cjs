@@ -10,6 +10,8 @@ const { execFileSync } = require('node:child_process');
 const esbuild = require('esbuild');
 const root = path.resolve(__dirname, '../..');
 let win, server;
+const sliced=process.argv.includes("--sliced");
+let recordingsApi,routeReads=0;
 
 async function main() {
   const output = path.join(root, 'outputs/playback-overlap');
@@ -25,7 +27,7 @@ async function main() {
     '@/lib/auth-login': `export const redirectToSsoLogin=()=>{window.fixtureRedirected=true};`,
     '@/lib/auth-refresh-client': `export const tryOAuthRefresh=async()=>false;`,
   };
-  const source = `
+  let source = `
     import React,{Suspense} from'react';import{createRoot}from'react-dom/client';import{I18nProvider}from'@/lib/i18n/context';import Page from'@/app/courses/[id]/playback/page';
     window.fixtureUser={userId:'teacher',name:'teacher',displayName:'测试老师',role:'teacher',avatar:''};
     const nativeFetch=window.fetch.bind(window), stats=window.fixtureStats={recordings:0,resolutions:0,requests:[],loadStarts:0,removed:0};
@@ -44,14 +46,38 @@ async function main() {
     const params=Promise.resolve({id:'fixture'}),searchParams=Promise.resolve({});
     createRoot(document.getElementById('root')).render(<I18nProvider initialLocale="zh-CN"><Suspense fallback={<p>准备回放…</p>}><Page params={params} searchParams={searchParams}/></Suspense></I18nProvider>);
   `;
+  if(sliced){
+    const routeStubs={
+      'server-only':'',
+      'next/server':`export const NextResponse={json:(value,init)=>Response.json(value,init)};export const after=()=>{throw Error('Unexpected provider reconciliation')};`,
+      '@/app/api/courses/[id]/recording/route':`export const POST=()=>{};`,
+      '@/lib/session':`export const getSessionFromRequest=async()=>({userId:'fixture-teacher'});`,
+      '@/lib/courseware-access':`export const resolveCoursewareAccess=async()=>({allowed:true,teaching:true});`,
+      '@/lib/classroom/server/recording-orchestrator':`export const reconcileRecordingAttempt=async()=>{};`,
+      '@/lib/classroom/server/recording-asset-discovery':`export const discoverRecordingPlaybackAssets=async()=>{};`,
+      '@/lib/classroom/server/recording-stop':`export const finalizeEndedRecordingTime=async()=>{throw Error('Unexpected timeline repair')};`,
+      '@/lib/db':`import{appendRecordingProviderState}from'@/lib/classroom/recording-provider-state';const start=Date.parse('2026-10-23T08:00:00Z'),prefix=['recordings','lesson','attempt'];const files=[{filename:'rec_0.mp4',sliceStartTime:start},{fileName:'rec_1.mp4',sliceStartTime:(start+50000)/1000}];const evidence=appendRecordingProviderState(appendRecordingProviderState({fileNamePrefix:prefix},'lastWebhook',{payload:{details:{fileList:files}}}),'lastWebhook',{eventType:11});const row={id:'attempt',provider:'agora',mode:'web',status:'completed',createdAt:new Date(start-1000),startedAt:new Date(start+500),stoppedAt:new Date(start+100000),stopRequestedAt:new Date(start+100000),files:files.map(f=>({fileName:f.fileName||f.filename})),providerState:evidence,playbackObjectKey:null,playbackFormat:null,errorMessage:null,failureStage:null};export const prisma={courseSession:{findUnique:async()=>({courseId:'fixture',status:'finished'})},classroomRecording:{findMany:async()=>[row]}};`,
+    };
+    const routeFile=path.join(cache,'recordings-route.cjs');
+    await esbuild.build({stdin:{contents:"export{GET}from'@/app/api/sessions/[sessionId]/recordings/route';",resolveDir:root},outfile:routeFile,bundle:true,platform:'node',format:'cjs',packages:'external',tsconfig:path.join(root,'tsconfig.json'),plugins:[{name:'route-boundaries',setup(build){build.onResolve({filter:/.*/},args=>args.path in routeStubs?{path:args.path,namespace:'route-stub'}:undefined);build.onLoad({filter:/.*/,namespace:'route-stub'},args=>({contents:routeStubs[args.path],loader:'ts',resolveDir:root}));}}]});
+    recordingsApi=require(routeFile);
+    source=source.replace("else if(url.pathname==='/api/sessions/lesson/recordings'){", "else if(url.pathname==='/api/sessions/lesson/recordings'){stats.recordings++;return nativeFetch(input,init);/*");
+    source=source.replace("refreshAfterMs:null};}", "refreshAfterMs:null};*/}");
+    source=source.replaceAll("08:00:20Z","08:01:00Z");
+    source=source.replace("captions:[", "captions:[{id:'caption-boundary',speakerName:'Teacher',text:'Boundary caption',translations:{},occurredAt:'2026-10-23T08:00:50Z'},");
+    source=source.replace("return Response.json(payload,{status});", "if(payload.captions)payload.captions.sort((a,b)=>Date.parse(a.occurredAt)-Date.parse(b.occurredAt));return Response.json(payload,{status});");
+  }
   const bundle = await esbuild.build({ stdin: { contents: source, resolveDir: root, loader: 'tsx' }, bundle: true, write: false, outfile: path.join(cache, 'fixture.js'), platform: 'browser', format: 'iife', define: { 'process.env': '{}' }, tsconfig: path.join(root, 'tsconfig.json'), plugins: [{ name: 'isolated-playback', setup(build) {
     build.onResolve({ filter: /.*/ }, args => args.path in stubs ? { path: args.path, namespace: 'stub' } : undefined);
     build.onLoad({ filter: /.*/, namespace: 'stub' }, args => ({ contents: stubs[args.path], loader: 'tsx', resolveDir: root }));
   } }] });
   const cssFile = path.join(cache, 'fixture.css');
   execFileSync('node', [require.resolve('tailwindcss/lib/cli.js'), '-i', path.join(root, 'src/app/globals.css'), '-o', cssFile, '--minify'], { stdio: 'pipe' });
-  const css = await fs.readFile(cssFile);
+  const css = Buffer.concat([await fs.readFile(cssFile),...bundle.outputFiles.filter(file=>file.path.endsWith('.css')).map(file=>Buffer.from(file.contents))]);
   server = http.createServer((req, res) => {
+    if(sliced&&req.url==='/api/sessions/lesson/recordings'){
+      routeReads++;void recordingsApi.GET(new Request('http://localhost'+req.url),{params:Promise.resolve({sessionId:'lesson'})}).then(async response=>{res.writeHead(response.status,{'content-type':'application/json'});res.end(await response.text());}).catch(error=>{res.writeHead(500);res.end(JSON.stringify({error:error.message}));});return;
+    }
     if (req.url === '/fixture.js') { res.setHeader('content-type', 'text/javascript'); return res.end(bundle.outputFiles.find(f => f.path.endsWith('.js')).text); }
     if (req.url === '/fixture.css') { res.setHeader('content-type', 'text/css'); return res.end(css); }
     if (req.url === '/media.mp4') {
@@ -93,8 +119,17 @@ async function main() {
   await wait(`document.querySelector('video')!==window.secondVideo && document.querySelector('video')?.readyState>=2 && Math.abs(document.querySelector('video').currentTime-2)<1.5`);
   assert.equal(await run('window.oldPlayCalls'),0,'switching segments must not play the old video');
   await run(`window.switchedFirstVideo=document.querySelector('video');window.oldPlayCalls=0;window.switchedFirstVideo.play=()=>{window.oldPlayCalls++;return Promise.resolve()};Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('Second-only caption')).click()`);
-  await wait(`document.querySelector('video')!==window.switchedFirstVideo && document.querySelector('video')?.readyState>=2 && Math.abs(document.querySelector('video').currentTime-42)<1.5`);
+  await wait(`document.querySelector('video')!==window.switchedFirstVideo && document.querySelector('video')?.readyState>=2 && Math.abs(document.querySelector('video').currentTime-${sliced?2:42})<1.5`);
   assert.equal(await run('window.oldPlayCalls'),0,'switching back must not play the old video');
+  if(sliced){
+    await run(`window.beforeBoundary=document.querySelector('video');Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('First-only caption')).click()`);
+    await wait(`document.querySelector('video')!==window.beforeBoundary&&document.querySelector('video')?.readyState>=2`);
+    await run(`window.beforeBoundary=document.querySelector('video');Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('Boundary caption')).click()`);
+    await wait(`document.querySelector('video')!==window.beforeBoundary&&document.querySelector('video')?.readyState>=2&&document.querySelector('video').currentTime<2`);
+    assert.ok(routeReads>0,'recording bounds came through the actual route over HTTP');
+    await fs.writeFile(path.join(output,'sliced-caption-boundary.png'),(await win.webContents.capturePage()).toPNG());
+    await fs.writeFile(path.join(output,'sliced-checks.json'),JSON.stringify({passed:true,routeReads,boundary:'Actual recording GET mapper, timing preservation, playback page and H.264 decoding. Auth/DB/provider metadata/captions are fixtures; no real provider recording.',checks:['persisted file timestamps survive an untimed listing','captions and activities seek into clip 2','captions return to clip 1','shared boundary selects clip 2 at zero','old video never plays during a switch']},null,2));
+  }
   assert.deepEqual(errors,[]);console.log('PASS actual playback page seeks overlapping captions and activities and switches recordings without playing the old video');
 
 }

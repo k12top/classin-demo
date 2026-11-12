@@ -4,6 +4,7 @@ import type { ClassroomRecording, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getRecordingProvider } from "./provider-factory";
 import { endedLessonRecordingTime, type RecordingLessonEnd } from "../recording-timeline";
+import { appendRecordingProviderState } from "../recording-provider-state";
 import { newRecordingStopControl, recordingOperationFailure, recordingProviderExited, recordingProviderStatus,
   recordingState, recordingStopBackoff, recordingStopControl, recordingUploadComplete,
   RECORDING_RESOURCE_GONE_WINDOW_MS,
@@ -174,7 +175,7 @@ export async function reconcileDurableRecordingStop(id: string) {
     const completed = Boolean(next.confirmedAt && objectKey);
     await tx.classroomRecording.update({ where: { id }, data: {
       status: completed ? "completed" : "processing",
-      providerState: json({ ...currentState, ...(result ? { [operation === "stop" ? "lastStop" : "lastQuery"]: result.providerState } : {}),
+      providerState: json({ ...(result ? appendRecordingProviderState(currentState,operation === "stop" ? "lastStop" : "lastQuery",result.providerState) : currentState),
         ...(failureEvidence ? { [operation === "stop" ? "lastStopFailure" : "lastQueryFailure"]: { ...failureEvidence, at: completedAt.toISOString() } } : {}), stopControl: next }),
       ...(result?.files.length ? { files: json(result.files) } : {}),
       playbackObjectKey: objectKey, playbackFormat: result?.playbackFormat || current.playbackFormat,
