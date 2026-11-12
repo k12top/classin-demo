@@ -60,6 +60,14 @@ export class ClassroomSyncScheduler {
     }
     this.arm();
   }
+  /** An explicit user refresh bypasses backoff for matching jobs only. Running
+   * reads still coalesce into one follow-up rather than overlapping. */
+  refresh(topic: string) {
+    for (const entry of this.jobs.values()) {
+      if (topic === "*" || entry.job.topics.includes(topic)) entry.failures = 0;
+    }
+    this.invalidate(topic);
+  }
   private eligible(entry: Entry) { return this.online && (this.visible || entry.job.background); }
   private arm() {
     if (this.timer !== undefined) this.clock.clear(this.timer);

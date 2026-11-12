@@ -107,6 +107,19 @@ test("interactive failures back off to their cap without notification storms",as
   await f.advance(8_000);assert.equal(reads,5);f.scheduler.stop();
 });
 
+test("explicit refresh targets one job, bypasses its backoff and coalesces running reads",async()=>{
+  const f=fixture();let reads=0,other=0,release:(()=>void)|undefined;
+  f.scheduler.register({topics:["overview"],interval:()=>30_000,maxRetryMs:8_000,run:async()=>{reads++;if(reads===1)throw Error("offline");if(reads===2)await new Promise<void>(resolve=>{release=resolve;});}});
+  f.scheduler.register({topics:["captions"],interval:()=>30_000,run:async()=>{other++;throw Error("offline");}});
+  await f.advance(50);assert.equal(reads,1);assert.equal(other,1);
+  f.scheduler.refresh("overview");await f.advance(50);assert.equal(reads,2);assert.equal(other,1);
+  for(let i=0;i<100;i++)f.scheduler.refresh("overview");
+  await f.advance(5_000);assert.equal(reads,2,"running reads never overlap");assert.equal(other,1,"unrelated backoff is unchanged");
+  release!();await f.settle();await f.advance(50);assert.equal(reads,3);
+  f.scheduler.environment(false,true);f.scheduler.refresh("overview");await f.advance(10_000);assert.equal(reads,3,"refresh respects offline suspension");
+  f.scheduler.environment(true,true);await f.advance(50);assert.equal(reads,4);f.scheduler.stop();
+});
+
 test("shared GET consumers cancel independently, requests are never cached across changes", async () => {
   const reads = new ClassroomSharedReads();let calls = 0, release!: (value: number) => void;let underlying: AbortSignal | undefined;
   const load = (signal: AbortSignal) => { calls++;underlying = signal;return new Promise<number>(resolve => { release = resolve; }); };

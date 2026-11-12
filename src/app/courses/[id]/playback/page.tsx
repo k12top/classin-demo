@@ -776,8 +776,9 @@ export default function CoursePlaybackPage({
   };
   const previewLessonContentProps = {...lessonContentProps,summary:replaySummaryForView(summary,true),canManage:false,busy:null};
 
+  const PageSurface = embedded ? "main" : "div";
   const content = (
-      <main className={styles.page}>
+      <PageSurface className={styles.page}>
         <header className={styles.header}>
           {!embedded && <button type="button" className={styles.back} onClick={() => router.push(courseWorkspacePath(id,selectedSessionId))}><ChevronLeft size={15}/>{copy.back}</button>}
           <div className={styles.heading}>
@@ -950,7 +951,7 @@ export default function CoursePlaybackPage({
         </aside>}
         </Tabs>
         </div>
-      </main>
+      </PageSurface>
   );
   const syncedContent=<ClassroomSyncBoundary sessionId={selectedSessionId}>{content}</ClassroomSyncBoundary>;
   return embedded ? syncedContent : <WorkspaceSubpage user={user!}>{syncedContent}</WorkspaceSubpage>;

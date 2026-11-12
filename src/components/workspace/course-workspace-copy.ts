@@ -1,5 +1,9 @@
 /** Course workspace copy shared by the browser and desktop client. */
+import type {ActivityOverviewSummary} from "@/lib/classroom/activity-overview";
 const translations:Record<string,readonly [string,string]>={
+ "Lesson schedule":["課節安排","Lịch học"],
+ "Statistics unavailable":["統計載入失敗","Không thể tải thống kê"],
+ "Loading statistics…":["正在載入統計…","Đang tải thống kê…"],
  "The move could not be confirmed. Refresh and check.":["無法確認移動結果，請重新整理後查看。","Chưa xác nhận được việc di chuyển. Hãy làm mới và kiểm tra."],
  "This assignment is no longer awaiting review. Finish or close the current edit first.":["此作業已不在待批改清單中；請先完成或關閉目前的編輯。","Bài tập này không còn trong danh sách chờ chấm. Hãy hoàn tất hoặc đóng phần chỉnh sửa hiện tại trước."],
  "The latest name differs from this change. Close and check the resource.":["最新名稱與本次修改不同，請關閉後查看資料。","Tên mới nhất khác với thay đổi này. Đóng và kiểm tra tài liệu."],"The save is unconfirmed. Check the latest name.":["無法確認儲存結果，請核對最新名稱。","Chưa xác nhận được việc lưu. Hãy kiểm tra tên mới nhất."],"Checking or saving…":["正在核對或儲存…","Đang kiểm tra hoặc lưu…"],"Check latest name":["核對最新名稱","Kiểm tra tên mới nhất"],
@@ -31,4 +35,14 @@ const translations:Record<string,readonly [string,string]>={
 export function courseWorkspaceText(locale:string,zh:string,en:string):string{
  const translated=translations[en];
  return locale==="zh-TW"?(translated?.[0]||zh):locale.startsWith("zh")?zh:locale.startsWith("vi")?(translated?.[1]||en):en;
+}
+
+export function courseActivitySummaryText(locale:string,summary:Pick<ActivityOverviewSummary,"canManage"|"participants"|"submissions"|"accuracy">):string{
+ const number=new Intl.NumberFormat(locale,{maximumFractionDigits:1});
+ const accuracy=summary.accuracy===null?"—":`${number.format(summary.accuracy)}%`;
+ const count=number.format(summary.canManage?summary.participants??0:summary.submissions);
+ if(locale==="zh-TW")return `${summary.canManage?`${count} 人參與`:`我的作答 ${count}`} · 正確率 ${accuracy}`;
+ if(locale.startsWith("zh"))return `${summary.canManage?`${count} 人参与`:`我的作答 ${count}`} · 正确率 ${accuracy}`;
+ if(locale.startsWith("vi"))return `${summary.canManage?`${count} người tham gia`:`Câu trả lời của tôi ${count}`} · Độ chính xác ${accuracy}`;
+ return `${summary.canManage?`${count} participant${summary.participants===1?"":"s"}`:`My responses ${count}`} · Accuracy ${accuracy}`;
 }

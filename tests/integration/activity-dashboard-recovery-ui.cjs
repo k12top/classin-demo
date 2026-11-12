@@ -17,8 +17,8 @@ function overview(teacher){
 function detail(teacher){return {...activity,resultsVisible:teacher,definition:{questions:[{id:'q',type:'single',prompt:activity.title,points:10,options:[{id:'a',text:'4'},{id:'b',text:'5'}],...(teacher?{correct:['a']}: {})}]},ownResponse:teacher?null:{...response,grading:null},responses:teacher?[response]:[],responseCursor:null,statistics:null};}
 async function main(){
  await app.whenReady();
- const source=`import React from 'react';import{createRoot}from'react-dom/client';import{I18nProvider}from'@/lib/i18n/context';import{ActivityDashboard}from'@/components/classroom/activity-dashboard';const p=new URLSearchParams(location.search);createRoot(document.getElementById('root')).render(<I18nProvider initialLocale={p.get('lang')}><ActivityDashboard sessionId={'lesson-'+p.get('role')} review canSeekActivity={()=>false} onSeekActivity={()=>{}}/></I18nProvider>);`;
- const bundle=await esbuild.build({stdin:{contents:source,loader:'tsx',resolveDir:root},bundle:true,write:false,outfile:'app.js',format:'iife',platform:'browser',define:{'process.env.NODE_ENV':'"production"','process.env':'{}'},tsconfig:path.join(root,'tsconfig.json'),plugins:[{name:'timezone',setup(build){build.onResolve({filter:/^@\/lib\/use-time-zone$/},()=>({path:'timezone',namespace:'mock'}));build.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:'export const useTimeZone=()=>({timeZone:"UTC"})',loader:'js'}));}}]});
+ const source=`import React from 'react';import{createRoot}from'react-dom/client';import{I18nProvider}from'@/lib/i18n/context';import{ActivityDashboard}from'@/components/classroom/activity-dashboard';const p=new URLSearchParams(location.search);createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvider initialLocale={p.get('lang')}><ActivityDashboard sessionId={'lesson-'+p.get('role')} review canSeekActivity={()=>false} onSeekActivity={()=>{}}/></I18nProvider></React.StrictMode>);`;
+ const bundle=await esbuild.build({stdin:{contents:source,loader:'tsx',resolveDir:root},bundle:true,write:false,outfile:'app.js',format:'iife',platform:'browser',define:{'process.env.NODE_ENV':JSON.stringify(process.argv.includes('--strict-effects')?'development':'production'),'process.env':'{}'},tsconfig:path.join(root,'tsconfig.json'),plugins:[{name:'timezone',setup(build){build.onResolve({filter:/^@\/lib\/use-time-zone$/},()=>({path:'timezone',namespace:'mock'}));build.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:'export const useTimeZone=()=>({timeZone:"UTC"})',loader:'js'}));}}]});
  const assets=new Map(bundle.outputFiles.map(file=>['/'+path.basename(file.path),file.contents]));
  server=http.createServer((req,res)=>{
   const url=new URL(req.url,'http://localhost');
@@ -60,14 +60,13 @@ async function main(){
   }
  }
  // A real HTTP socket failure must end loading, preserve previously authorized
- // data, and recover on focus. A denial must clear it instead.
+ // data, and recover automatically. A denial must clear it instead.
  mode='hold';await run(`document.querySelector('[data-activity-dashboard] header button').click()`);
  for(let i=0;i<100&&!held.size;i++)await new Promise(resolve=>setTimeout(resolve,20));assert.ok(held.size);
  mode='drop';for(const response of held)response.destroy();held.clear();
  await wait(`!!document.querySelector('[data-activity-dashboard] [role=status]')&&!document.querySelector('[data-activity-dashboard] header button').disabled`);
  assert.ok(await run(`!!document.querySelector('[data-activity-history]')`),'transient failure retains the prior authorized view');
- mode='ready';await run(`window.dispatchEvent(new Event('focus'))`);
- await wait(`!document.querySelector('[data-activity-dashboard] [role=status]')`);
+ mode='ready';await wait(`!document.querySelector('[data-activity-dashboard] [role=status]')`);
  mode='denied';await run(`document.querySelector('[data-activity-dashboard] header button').click()`);
  await wait(`!document.querySelector('[data-activity-history]')&&!!document.querySelector('[data-activity-dashboard] [role=status]')`);
  mode='ready';await run(`window.dispatchEvent(new Event('focus'))`);await wait(`!!document.querySelector('[data-overview-charts]')`);
@@ -77,9 +76,12 @@ async function main(){
  mode='drop';for(const response of held)response.destroy();held.clear();
  await wait(`document.querySelector('[data-activity-dashboard] [role=status]')?.textContent.includes('Không tải được lịch sử tương tác.')&&!document.querySelector('[data-activity-dashboard] header button').disabled`);
  assert.equal(await run(`document.querySelector('[data-overview-charts]')`),null);
- mode='ready';await run(`window.dispatchEvent(new Event('focus'))`);await wait(`!!document.querySelector('[data-overview-charts]')&&!document.querySelector('[data-activity-dashboard] [role=status]')`);
- assert.deepEqual(errors,[]);fs.writeFileSync(path.join(output,'checks.json'),JSON.stringify({passed:true,boundary:'Actual dashboard, charts, history and I18nProvider in isolated Electron. HTTP data/identity and timezone are fixtures; no real account, device media or weak-network proxy acceptance.',checks,recovery:['socket failure clears busy and retains content','focus retries','403 clears content','focus restores permitted content','initial socket failure ends loading with retry','initial read recovers on focus']},null,2));
- console.log('PASS 16 locale/role/width layouts, unreleased student answer view, initial/refresh socket failures, permission denial and focus recovery');
+ // A background server outage may recover without a focus/online event. The
+ // dashboard must not inherit its healthy 30-second interval after an error.
+ mode='ready';const recoveredAt=Date.now();await wait(`!!document.querySelector('[data-overview-charts]')&&!document.querySelector('[data-activity-dashboard] [role=status]')`);
+ assert.ok(Date.now()-recoveredAt<8000,'initial read recovers automatically within the bounded retry interval');
+ assert.deepEqual(errors,[]);fs.writeFileSync(path.join(output,'checks.json'),JSON.stringify({passed:true,strictEffects:process.argv.includes('--strict-effects'),automaticRecoveryMs:Date.now()-recoveredAt,boundary:'Actual dashboard, charts, history and I18nProvider in isolated Electron. HTTP data/identity and timezone are fixtures; no real account, device media or weak-network proxy acceptance.',checks,recovery:['socket failure clears busy and retains content','manual refresh recovers automatically','403 clears content','focus restores permitted content','initial socket failure ends loading with retry','initial read recovers without a focus or online event']},null,2));
+ console.log('PASS 16 locale/role/width layouts, unreleased student answer view, initial/refresh socket failures, permission denial, focus and automatic recovery');
 }
 function cleanup(){for(const response of held)response.destroy();win?.destroy();server?.close();fs.rmSync(profile,{recursive:true,force:true});}
 main().then(()=>{cleanup();app.exit(0);},error=>{console.error(error);cleanup();app.exit(1);});

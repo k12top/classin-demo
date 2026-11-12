@@ -34,7 +34,9 @@ function ActivityDashboardSession({ sessionId, shareAccess, review = false, prev
     catch (failure) { if (!signal?.aborted && current === generation.current) { const status=(failure as {status?:number})?.status; if(status===401||status===403||status===404){setData(null);setSelected(undefined);setSearch("");} setError(true); } throw failure; }
     finally { if (current === generation.current) setBusy(false); }
   }, [sessionId, shareAccess, read, previewStudentId]);
-  useClassroomSyncTask({ sessionId, taskKey: `activity-overview:${shareAccess || ""}:${previewStudentId || ""}`, topics: ["activities", "resume"], realtimeMs: review ? 30000 : 60000, fallbackMs: review ? 30000 : 5000, run: reload });
+  const taskKey = `activity-overview:${shareAccess || ""}:${previewStudentId || ""}`;
+  const sync = useClassroomSyncTask({ sessionId, taskKey, topics: ["activities", "resume", taskKey], realtimeMs: review ? 30000 : 60000, fallbackMs: review ? 30000 : 5000, maxRetryMs: 8000, run: reload });
+  const refresh = () => sync.scheduler.refresh(taskKey);
   useEffect(() => () => { generation.current++; }, [reload]);
   const percent = (value: number | null) => value === null ? "—" : `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value)}%`;
   const activeId = selected ?? data?.activities.find(activity => activity.status === "active")?.id;
@@ -48,8 +50,8 @@ function ActivityDashboardSession({ sessionId, shareAccess, review = false, prev
   }, [activeId, tab, data, focusRequest]);
   const students = (data?.students || []).filter(student => student.displayName.toLocaleLowerCase(locale).includes(search.toLocaleLowerCase(locale)));
   return <section className={`${styles.panel} ${review ? styles.review : ""}`} data-activity-dashboard aria-label={review ? c.history : c.dashboard}>
-    <header className={styles.header}><h3><BarChart3 aria-hidden="true" />{review ? data && !data.canManage ? c.mine : c.history : c.dashboard}</h3><button type="button" onClick={() => void reload().catch(() => undefined)} disabled={busy} aria-label={c.refresh}><RefreshCw aria-hidden="true" /></button></header>
-    {error && <p className={styles.error} role="status">{data ? c.failed : c.failedInitial} <button onClick={() => void reload().catch(() => undefined)} disabled={busy}>{c.retry}</button></p>}
+    <header className={styles.header}><h3><BarChart3 aria-hidden="true" />{review ? data && !data.canManage ? c.mine : c.history : c.dashboard}</h3><button type="button" onClick={refresh} disabled={busy} aria-label={c.refresh}><RefreshCw aria-hidden="true" /></button></header>
+    {error && <p className={styles.error} role="status">{data ? c.failed : c.failedInitial} <button onClick={refresh} disabled={busy}>{c.retry}</button></p>}
     {!data ? !error && <p role="status">{c.loading}</p> : <>
       <p className={styles.hint}>{data.canManage ? c.teacherHint : c.studentHint}</p>
       <dl className={styles.metrics} aria-label={c.overview}>
