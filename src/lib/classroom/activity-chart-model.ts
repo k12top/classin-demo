@@ -53,7 +53,7 @@ export function activityChartOption(model: ActivityChartModel, palette: Activity
   return { ...base,
     grid: { left: labelWidth + 12, right: 64, top: 8, bottom: 28 },
     xAxis: { type: "value", min: 0, max: 100, splitNumber: 2, axisLabel: { formatter: "{value}%", color: palette.ink, fontSize: 10 }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: palette.line, type: "dashed" } } },
-    yAxis: { type: "category", inverse: true, data: model.rows.map(row => `Q${row.number}  ${chartText(row.prompt)}`), axisLabel: { color: palette.ink, fontSize: 11, width: labelWidth, overflow: "truncate", margin: 12 }, axisLine: { show: false }, axisTick: { show: false } },
+    yAxis: { type: "category", inverse: true, data: model.rows.map(row => `Q${row.number}`), show: false },
     series: [{ type: "bar", name: c.accuracy, barWidth: 12, showBackground: true, backgroundStyle: { color: palette.line, opacity: 0.35, borderRadius: 3 },
       data: model.rows.map(row => ({ value: row.accuracy ?? 0, itemStyle: { color: row.accuracy !== null && row.accuracy < 60 ? palette.incorrect : palette.accent, borderRadius: 3 } })),
       label: { show: true, position: "right", distance: 8, color: palette.ink, fontSize: 11, formatter: params => {

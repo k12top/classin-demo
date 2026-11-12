@@ -6,7 +6,7 @@ import { activityOverviewCopy } from "@/lib/classroom/activity-overview-copy";
 import type { ActivityOverview } from "@/lib/classroom/activity-overview";
 import { ClassroomSyncBoundary, useActivityVersionWatch, useClassroomJsonRead, useClassroomSyncTask } from "@/lib/classroom/use-classroom-sync";
 import { ActivityHistoryDetail } from "./activity-history-detail";
-import { MarkdownContent } from "@/components/markdown-content";
+import { MarkdownContent, MarkdownInlineContent } from "@/components/markdown-content";
 import { ActivityOverviewCharts } from "./activity-overview-charts";
 import type { QuestionChartRow } from "@/lib/classroom/activity-chart-model";
 import styles from "./activity-overview.module.css";
@@ -54,7 +54,7 @@ function ActivityDashboardSession({ sessionId, shareAccess, review = false }: { 
         <div><dt>{data.canManage ? c.pending : c.withheld}</dt><dd>{data.canManage ? data.quality.pending : data.quality.withheld}</dd></div>
       </dl>
       <div className={styles.metricContext}>{data.canManage && <span>{c.students} {data.studentCount} · {c.submissions} {data.submissions}</span>}<details><summary>{c.metricNotes}</summary><p>{data.canManage ? c.metricsHint : c.mineMetricsHint}</p></details></div>
-      {data.live && current && <div className={styles.currentFocus}><div><span>{c.current}</span><strong>{current.title}</strong><small>{data.canManage ? `${c.responseCount} ${current.responseCount} / ${data.studentCount}` : current.responseCount ? c.answered : c.noAnswer}</small></div><button type="button" onClick={() => selectQuestion({ activityId: current.id })}>{c.viewResponses}</button></div>}
+      {data.live && current && <div className={styles.currentFocus}><div><span>{c.current}</span><strong><MarkdownInlineContent content={current.title} /></strong><small>{data.canManage ? `${c.responseCount} ${current.responseCount} / ${data.studentCount}` : current.responseCount ? c.answered : c.noAnswer}</small></div><button type="button" onClick={() => selectQuestion({ activityId: current.id })}>{c.viewResponses}</button></div>}
       {data.canManage && <div className={styles.tabs} role="group" aria-label={c.scope}><button type="button" aria-pressed={tab === "activities"} onClick={() => setTab("activities")}>{c.byActivity}</button><button type="button" aria-pressed={tab === "students"} onClick={() => setTab("students")}>{c.byStudent}</button></div>}
       {(!data.canManage || tab === "activities") && <ActivityOverviewCharts data={data} onSelect={selectQuestion} />}
       {data.canManage && tab === "students" ? <>
@@ -65,7 +65,7 @@ function ActivityDashboardSession({ sessionId, shareAccess, review = false }: { 
         {!data.activities.length && <p className={styles.hint}>{c.empty}</p>}
         {data.activities.map(activity => <article className={styles.activity} key={activity.id}>
           <button type="button" className={styles.activityButton} aria-expanded={activeId === activity.id} onClick={() => setSelected(activeId === activity.id ? "" : activity.id)}>
-            <span className={styles.activityTitle}>{activity.title}<small>{t(`activities.${activity.kind}`)} · {t(`activities.${activity.status}`)}{activity.startedAt && <> · {new Date(activity.startedAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}</>}</small></span><ChevronDown aria-hidden="true" />
+            <span className={styles.activityTitle}><MarkdownInlineContent content={activity.title} /><small>{t(`activities.${activity.kind}`)} · {t(`activities.${activity.status}`)}{activity.startedAt && <> · {new Date(activity.startedAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}</>}</small></span><ChevronDown aria-hidden="true" />
           </button>
           <div className={styles.activityNumbers}>{activity.status === "cancelled" ? <span>{c.cancelled}</span> : <><span>{data.canManage ? c.responseCount : activity.responseCount ? c.answered : c.noAnswer}{data.canManage && <> {activity.responseCount} / {data.studentCount}</>}</span><span>{c.accuracy} {percent(activity.accuracy)}</span>{activity.quality.pending > 0 && <span>{c.pending} {activity.quality.pending}</span>}{activity.quality.withheld > 0 && <span>{c.withheld}</span>}</>}</div>
           {activeId === activity.id && <>

@@ -53,6 +53,7 @@ test("a question without submissions stays ungraded rather than becoming zero-pe
   const rows = overviewQuestionRows(summarizeActivities([unanswered], [], true, true));
   assert.equal(rows[0].accuracy, null);
   const option = activityChartOption({ kind: "questions", rows, copy: c }, palette, "zh-CN", 320);
+  assert.equal((option.yAxis as { show?: boolean }).show, false, "HTML math labels replace ECharts plain-text labels");
   const series = (option.series as Array<{ label: { formatter: (p: { dataIndex: number }) => string } }>)[0];
   assert.equal(series.label.formatter({ dataIndex: 0 }), "未作答");
 });

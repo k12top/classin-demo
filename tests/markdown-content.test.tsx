@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MarkdownContent } from "../src/components/markdown-content";
+import { MarkdownContent, MarkdownInlineContent } from "../src/components/markdown-content";
 import { normalizeMarkdownMath } from "../src/lib/markdown-math";
 
 test("renders Markdown and inline and display math in common delimiters", () => {
@@ -22,6 +22,9 @@ $$
   assert.match(html, /class="katex-display"/);
   assert.match(html, /<li>第一步<\/li>/);
   assert.match(html, /<math/);
+  const inline = renderToStaticMarkup(<button><MarkdownInlineContent content={String.raw`已知 $a \neq 0$`} /></button>);
+  assert.match(inline, /<button><span class="markdown-content"><span>已知 <span class="katex"/);
+  assert.doesNotMatch(inline, /<p>|<div/);
 });
 
 test("leaves code untouched and does not execute raw HTML or unsafe links", () => {
