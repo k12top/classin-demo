@@ -4,7 +4,7 @@
 
 | 要求 | 当前入口与证据 | 验收边界 / 剩余项 |
 | --- | --- | --- |
-| 首页与顶部操作 | `workspace-home.tsx`、`workspace-shell.tsx`、全局功能/文件搜索；本轮 home-state 回归，真实教师 3 个班级、真实学生 1 个班级 | 设计稿使用示例班级和固定日期，真实空课表不能填入示例数据。真实写入与弱网检查分散于原计划，最终逐项签收仍须对应具体操作 |
+| 首页与顶部操作 | `workspace-home.tsx`、`workspace-shell.tsx`、全局功能/文件搜索；workspace-search-keyboard 验证回车、草稿、输入法事件、浮层收起；真实教师网页/学生桌面搜索进入日历，3/1 个班级 | 设计稿使用示例班级和固定日期，真实空课表不能填入示例数据。输入法事件夹具不代表所有系统输入法；真实写入与弱网检查仍按各次操作记录签收 |
 | 日历与时区 | `workspace-calendar.tsx`、个人日程、迷你月历、冲突区、任务全天栏；calendar-access 回归和 DST/跨午夜单元、集成测试 | 组件回归不能代替真实跨国设备的系统时区差异；已有真实课程显示换区/刷新不改 UTC 的证据见原计划 2026-11-12 条目 |
 | 学生与分组 | `workspace-student-detail.tsx`、`workspace-groups.tsx`、班级成员；student-layout、course-members 回归 | 用户目录与分组授权由接口控制；真实本地班级仅有一名测试学生，不能将其当作多名真实账号并发验收 |
 | To Do | `workspace-todo.tsx`、版本化任务 API、课节关联、日历联动；todo-access 及任务写入/回执恢复测试 | 状态与真实作业批改分开；已有实测写入记录见原计划，本轮未重新创建真实任务 |

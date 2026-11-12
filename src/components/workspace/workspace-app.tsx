@@ -1,5 +1,5 @@
 "use client";
-import {useCallback,useEffect,useMemo,useRef,useState,useSyncExternalStore,type FormEvent,type ReactNode} from "react";
+import {useCallback,useEffect,useMemo,useRef,useState,useSyncExternalStore,type FormEvent,type ReactNode,type KeyboardEvent as ReactKeyboardEvent} from "react";
 import {useRouter} from "next/navigation";
 import {BookOpen,CalendarDays,ChevronRight,MessageCircle,Users} from "lucide-react";
 import {useAuth,type AuthUser} from "@/lib/auth-context";
@@ -49,6 +49,18 @@ function currentChatCourse(){return new URLSearchParams(window.location.search).
 function currentStudent(){return new URLSearchParams(window.location.search).get("studentId") || "";}
 function currentDirect(){return new URLSearchParams(window.location.search).get("directId") || "";}
 function currentGroup(){return new URLSearchParams(window.location.search).get("groupId") || "";}
+function searchKeyDown(event:ReactKeyboardEvent<HTMLDivElement>){
+  if(event.defaultPrevented||event.nativeEvent.isComposing||event.nativeEvent.keyCode===229)return;
+  const buttons=[...event.currentTarget.querySelectorAll<HTMLButtonElement>('[data-search-result]:not(:disabled)')];
+  if(!buttons.length)return;
+  if(event.key==="Enter"&&event.target instanceof HTMLInputElement&&event.target.type==="search"&&!event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey){
+    event.preventDefault();buttons[0].click();return;
+  }
+  if(!['ArrowDown','ArrowUp'].includes(event.key))return;
+  event.preventDefault();
+  const index=buttons.indexOf(document.activeElement as HTMLButtonElement);
+  buttons[index<0?(event.key==='ArrowDown'?0:buttons.length-1):(index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length].focus();
+}
 export function WorkspaceApp({courses,user,refresh,error,offline,refreshing,children,navigation}:{courses:WorkspaceCourse[];user:AuthUser;refresh:()=>void;error?:string;offline?:boolean;refreshing?:boolean;children?:ReactNode;navigation?:ReactNode}){
   const router=useRouter(),{logout}=useAuth(),{locale}=useTranslation(),{timeZone}=useTimeZone(),copy=useWorkspaceCopy();
   const [translationPreference,setTranslationPreference]=useTranslationPreference(user.userId);
@@ -59,6 +71,17 @@ export function WorkspaceApp({courses,user,refresh,error,offline,refreshing,chil
   const requestedGroup=useSyncExternalStore(subscribeRoute,currentGroup,()=>"");
   const page=user.role!=="teacher"&&["students","groups"].includes(requested)?"home":requested;
   const [dialog,setDialog]=useState<"create"|"createLesson"|"join"|"settings"|"account"|"devices"|"about"|"search"|null>(null),[dialogBusy,setDialogBusy]=useState(false),[lesson,setLesson]=useState<WorkspaceLesson|null>(null);
+  const dialogRef=useRef<HTMLDivElement>(null);
+  useEffect(()=>{
+    if(!dialog)return;let active=true;
+    queueMicrotask(()=>{
+      const content=dialogRef.current;
+      if(active&&content&&!content.contains(document.activeElement)){
+        (content.querySelector<HTMLElement>('input:not([disabled]),select:not([disabled]),textarea:not([disabled]),button:not([disabled]),a[href]')||content).focus();
+      }
+    });
+    return()=>{active=false;};
+  },[dialog]);
   const [groups,setGroups]=useState<WorkspaceGroup[]>([]),[groupError,setGroupError]=useState(""),[groupsLoaded,setGroupsLoaded]=useState(false),[actionError,setActionError]=useState(""),[entering,setEntering]=useState(false),[query,setQuery]=useState(""),[studentSelection,setStudentSelection]=useState<{id:string;source:string}|null>(null);
   useEffect(()=>{if(refreshing||error||entering)return;let active=true;queueMicrotask(()=>{if(active)setLesson(current=>refreshedWorkspaceLesson(current,courses));});return()=>{active=false;};},[courses,error,refreshing,entering]);
   const [now,setNow]=useState<number>(()=>0);
@@ -80,7 +103,18 @@ export function WorkspaceApp({courses,user,refresh,error,offline,refreshing,chil
   const direct=useDirectChats();
   const searchCopy=workspaceSearchCopy(locale);
   const searchSources:SearchSources={classes:{loading:Boolean(refreshing),error:Boolean(error)},students:{loading:user.role==="teacher"&&!groupsLoaded&&!groupError,error:user.role==="teacher"&&Boolean(groupError)},chats:{loading:direct.loading,error:direct.error}};
-  useEffect(()=>{const shortcut=(event:KeyboardEvent)=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="k"&&!event.altKey&&!dialogBusy){event.preventDefault();setQuery("");setDialog("search");}};window.addEventListener("keydown",shortcut);return()=>window.removeEventListener("keydown",shortcut);},[dialogBusy]);
+  useEffect(()=>{
+    const shortcut=(event:KeyboardEvent)=>{
+      if(event.defaultPrevented||event.isComposing||event.keyCode===229||event.altKey||dialogBusy||!(event.metaKey||event.ctrlKey)||event.key.toLowerCase()!=="k")return;
+      if((dialog&&dialog!=="search")||lesson||searchFile)return;
+      const otherModal=[...document.querySelectorAll('[role="dialog"][data-state="open"],[role="alertdialog"][data-state="open"],dialog[open]')].some(modal=>!modal.hasAttribute("data-workspace-search"));
+      if(otherModal)return;
+      event.preventDefault();
+      if(dialog==="search"){const input=dialogRef.current?.querySelector<HTMLInputElement>('input[type="search"]');input?.focus();input?.select();return;}
+      setQuery("");setDialog("search");
+    };
+    window.addEventListener("keydown",shortcut);return()=>window.removeEventListener("keydown",shortcut);
+  },[dialog,dialogBusy,lesson,searchFile]);
   const navigate=(target:WorkspacePage)=>{if(children){router.push(`/?view=${encodeURIComponent(target)}`);return;}const url=new URL(window.location.href);url.searchParams.set("view",target);url.searchParams.delete("courseId");url.searchParams.delete("directId");url.searchParams.delete("studentId");url.searchParams.delete("groupId");window.history.pushState(null,"",url.pathname+url.search);window.dispatchEvent(new Event(routeEvent));setQuery("");setActionError("");};
   const navigateTarget=(target:"students"|"chat"|"groups",key:"studentId"|"courseId"|"directId"|"groupId",id:string)=>{const params=new URLSearchParams({view:target,[key]:id});if(key==="studentId")setStudentSelection({id,source:id});setQuery("");setActionError("");if(children){router.push(`/?${params}`);return;}window.history.pushState(null,"",`/?${params}`);window.dispatchEvent(new Event(routeEvent));};
   const openCourse=(course:WorkspaceCourse,section?:CourseWorkspaceSection)=>router.push(courseWorkspacePath(course.id,null,section));
@@ -111,7 +145,7 @@ export function WorkspaceApp({courses,user,refresh,error,offline,refreshing,chil
     {page==="todo"&&<WorkspaceTodo key={user.userId} userId={user.userId} courses={courses} coursesReady={!refreshing&&!error} onOpenCourse={openCourse} onDraft={(draft)=>router.push(courseWorkspacePath(draft.courseId,null,null,draft.id))} onReview={(task)=>router.push(courseWorkspacePath(task.courseId,null,null,null,task.id))} onAssignment={(task)=>router.push(courseWorkspacePath(task.courseId,null,null,null,null,task.id))} onLesson={openLesson} isTeacher={user.role==="teacher"}/>}
     {page==="chat"&&<WorkspaceChat key={`${user.userId}:${chatCourse || ""}:${requestedDirect}`} initialCourseId={chatCourse} initialDirectId={requestedDirect} courses={courses} userId={user.userId} unread={unread} previews={chatPreviews} directChats={direct.chats} directLoading={direct.loading} directError={direct.error} onRefreshDirect={()=>void direct.refresh().catch(()=>{})} onDirectOpened={chat=>{direct.remember(chat);void direct.refresh().catch(()=>{});}} onCourse={openCourse} onLesson={openLesson} now={now}/>}
     {page==="files"&&<WorkspaceDrive key={user.userId}/>}</>}
-    <Dialog open={dialog!==null} onOpenChange={open=>{if(!open&&!dialogBusy)setDialog(null);}}><DialogContent className={dialog==="search"?`${styles.dialog} ${styles.spotlight}`:styles.dialog} overlayClassName={dialog==="search"?styles.spotlightOverlay:undefined} onKeyDown={event=>{if(dialog!=="search"||!['ArrowDown','ArrowUp'].includes(event.key))return;const buttons=[...event.currentTarget.querySelectorAll<HTMLButtonElement>('[data-search-result]')];if(!buttons.length)return;event.preventDefault();const index=buttons.indexOf(document.activeElement as HTMLButtonElement);buttons[index<0?(event.key==='ArrowDown'?0:buttons.length-1):(index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length].focus();}}><DialogTitle className={dialog==="search"?styles.srOnly:undefined}>{dialog==="create"?copy.createClass:dialog==="createLesson"?copy.createLesson:dialog==="join"?copy.joinPublic:dialog==="settings"?copy.settings:dialog==="account"?copy.accountInfo:dialog==="devices"?copy.deviceCheck:dialog==="search"?copy.globalSearch:copy.help}</DialogTitle><DialogDescription className={styles.srOnly}>{dialog==="search"?copy.globalSearch:dialog==="createLesson"?copy.selectClass:copy.account}</DialogDescription>
+    <Dialog open={dialog!==null} onOpenChange={open=>{if(!open&&!dialogBusy)setDialog(null);}}><DialogContent className={dialog==="search"?`${styles.dialog} ${styles.spotlight}`:styles.dialog} overlayClassName={dialog==="search"?styles.spotlightOverlay:undefined} ref={dialogRef} data-workspace-search={dialog==="search"?"":undefined} onKeyDown={dialog==="search"?searchKeyDown:undefined}><DialogTitle className={dialog==="search"?styles.srOnly:undefined}>{dialog==="create"?copy.createClass:dialog==="createLesson"?copy.createLesson:dialog==="join"?copy.joinPublic:dialog==="settings"?copy.settings:dialog==="account"?copy.accountInfo:dialog==="devices"?copy.deviceCheck:dialog==="search"?copy.globalSearch:copy.help}</DialogTitle><DialogDescription className={styles.srOnly}>{dialog==="search"?copy.globalSearch:dialog==="createLesson"?copy.selectClass:copy.account}</DialogDescription>
       {dialog==="create"&&<CreateClass key={user.userId} userId={user.userId} onBusy={setDialogBusy} onDiscard={()=>{setDialog(null);refresh();}} onCreated={course=>{setDialog(null);refresh();openCourse(course);}}/>}
       {dialog==="createLesson"&&<div className={styles.searchResults}>{error&&!offline?<p role="alert">{copy.failed}</p>:refreshing&&!courses.length?<p role="status">{copy.loading}</p>:schedulableWorkspaceCourses(courses,user.userId).length?schedulableWorkspaceCourses(courses,user.userId).map(course=><button key={course.id} type="button" onClick={()=>{setDialog(null);const path=courseWorkspacePath(course.id,null,null,null,null,null,true);if(window.location.pathname===path.split("?")[0])window.dispatchEvent(new CustomEvent("classroom:quick-schedule",{detail:course.id}));else router.push(path);}}><BookOpen size={16}/><span>{course.name}</span><ChevronRight size={14}/></button>):<p>{locale==="zh-TW"?"沒有可排課的班級，請先新增班級。":locale.startsWith("zh")?"没有可排课的班级，请先新建班级。":locale.startsWith("vi")?"Không có lớp phù hợp. Hãy tạo lớp trước.":"No class available for scheduling. Create a class first."}</p>}</div>}
       {dialog==="join"&&<JoinPublic onNavigate={path=>{setDialog(null);router.push(path);}}/>}

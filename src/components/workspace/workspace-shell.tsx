@@ -1,5 +1,5 @@
 "use client";
-import {useEffect,useRef,useState,type ReactNode} from "react";
+import {useEffect,useId,useRef,useState,type ReactNode} from "react";
 import {Home,MessageCircle,Users,LayoutGrid,ListTodo,CalendarDays,Folder,Search,Plus,Ellipsis,Globe2,LogOut,HelpCircle,UserCircle,Headphones,ArrowUpRight} from "lucide-react";
 import {useTranslation} from "@/lib/i18n/context";
 import {useTimeZone} from "@/lib/use-time-zone";
@@ -13,6 +13,9 @@ export function WorkspaceShell({user,page,chatUnread,onNavigate,nextLesson,now,o
   nextLessonState?:"ready"|"loading"|"error";chatUnread:number;now:number;onCreate:()=>void;onCreateLesson?:()=>void;onJoin:()=>void;onSettings:(section:"settings"|"account"|"devices"|"about")=>void;onLogout:()=>void;children:ReactNode;navigation?:ReactNode;
 }){
   const copy=useWorkspaceCopy(),[menu,setMenu]=useState<"create"|"account"|null>(null),menuRef=useRef<HTMLDivElement>(null);
+  const [islandOpen,setIslandOpen]=useState(false),nextDetailsId=useId();
+  const pointerInIsland=useRef(false);
+  const islandExpanded=islandOpen&&nextLessonState==="ready"&&!nextLessonBusy;
   useEffect(()=>{
     if(!menu)return;
     const outside=(event:PointerEvent)=>{if(!menuRef.current?.contains(event.target as Node))setMenu(null);};
@@ -30,9 +33,12 @@ export function WorkspaceShell({user,page,chatUnread,onNavigate,nextLesson,now,o
     <header className={styles.topbar} data-workspace-header>
       <div className={styles.quickActions} data-workspace-header-actions>
         <button type="button" className={styles.iconButton} onClick={onSearch} aria-label={copy.globalSearch}><Search size={17}/></button>
-        <div className={styles.nextIsland} data-has-lesson={Boolean(availableLesson)} data-expandable={nextLessonState==="ready"}>
-          <button type="button" className={styles.nextClass} onClick={()=>availableLesson?onNextLesson():onNavigate("calendar")} title={availableLesson?`${availableLesson.sessionTitle || availableLesson.name} · ${nextTime} · ${timeZone}`:nextLabel} disabled={nextLessonState!=="ready"||nextLessonBusy}><span className={styles.liveDot}/><span className={styles.nextLabel} role="status">{nextLabel}</span>{availableLesson&&!nextLessonBusy&&<><span className={styles.nextTime}>{nextTime}</span><span className={styles.nextEnter}>· {copy.enter}</span></>}</button>
-          {availableLesson&&<div className={styles.nextDetails}><span>{copy.nextLesson}</span><strong>{availableLesson.sessionTitle || availableLesson.name}</strong><p>{availableLesson.name}</p><time dateTime={availableLesson.startTime}>{new Intl.DateTimeFormat(locale,{timeZone,dateStyle:"medium",timeStyle:"short"}).format(new Date(availableLesson.startTime))} · {timeZone}</time><button type="button" disabled={nextLessonBusy} onClick={onNextLesson}>{nextLessonBusy?copy.loading:copy.enter} <ArrowUpRight size={14} aria-hidden="true"/></button></div>}{!availableLesson&&nextLessonState==="ready"&&<div className={styles.nextDetails}><span>{copy.calendar}</span><strong>{copy.noUpcoming}</strong><p>{locale.startsWith("zh")?"查看课表，安排下一次课堂。":"View your schedule and plan your next class."}</p><button type="button" onClick={()=>onNavigate("calendar")}>{copy.calendar}<ArrowUpRight size={14} aria-hidden="true"/></button></div>}
+        <div className={styles.nextIsland} data-has-lesson={Boolean(availableLesson)} data-expandable={nextLessonState==="ready"} data-expanded={islandExpanded}
+          onPointerEnter={()=>{pointerInIsland.current=true;setIslandOpen(true);}} onPointerLeave={event=>{pointerInIsland.current=false;if(!event.currentTarget.contains(document.activeElement))setIslandOpen(false);}}
+          onFocus={()=>setIslandOpen(true)} onBlur={event=>{if(!pointerInIsland.current&&!event.currentTarget.contains(event.relatedTarget))setIslandOpen(false);}}
+          onKeyDown={event=>{if(event.key==="Escape"&&islandExpanded){event.preventDefault();event.stopPropagation();event.currentTarget.querySelector('button')?.focus();setIslandOpen(false);}}}>
+          <button type="button" className={styles.nextClass} aria-expanded={islandExpanded} aria-controls={nextLessonState==="ready"?nextDetailsId:undefined} onClick={()=>availableLesson?onNextLesson():onNavigate("calendar")} title={availableLesson?`${availableLesson.sessionTitle || availableLesson.name} · ${nextTime} · ${timeZone}`:nextLabel} disabled={nextLessonState!=="ready"||nextLessonBusy}><span className={styles.liveDot}/><span className={styles.nextLabel} role="status">{nextLabel}</span>{availableLesson&&!nextLessonBusy&&<><span className={styles.nextTime}>{nextTime}</span><span className={styles.nextEnter}>· {copy.enter}</span></>}</button>
+          {availableLesson&&<div id={nextDetailsId} className={styles.nextDetails} aria-hidden={!islandExpanded} inert={!islandExpanded}><span>{copy.nextLesson}</span><strong>{availableLesson.sessionTitle || availableLesson.name}</strong><p>{availableLesson.name}</p><time dateTime={availableLesson.startTime}>{new Intl.DateTimeFormat(locale,{timeZone,dateStyle:"medium",timeStyle:"short"}).format(new Date(availableLesson.startTime))} · {timeZone}</time><button type="button" disabled={nextLessonBusy} onClick={onNextLesson}>{nextLessonBusy?copy.loading:copy.enter} <ArrowUpRight size={14} aria-hidden="true"/></button></div>}{!availableLesson&&nextLessonState==="ready"&&<div id={nextDetailsId} className={styles.nextDetails} aria-hidden={!islandExpanded} inert={!islandExpanded}><span>{copy.calendar}</span><strong>{copy.noUpcoming}</strong><p>{copy.nextHint}</p><button type="button" onClick={()=>onNavigate("calendar")}>{copy.calendar}<ArrowUpRight size={14} aria-hidden="true"/></button></div>}
         </div>
         <div className={styles.menuAnchor} ref={menu==="create"?menuRef:undefined}>
           <button className={styles.createTrigger} type="button" aria-label={copy.quickCreate} aria-expanded={menu==="create"} onClick={()=>setMenu(menu==="create"?null:"create")}><Plus size={19}/></button>
