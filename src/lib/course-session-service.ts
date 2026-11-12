@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { generateCourseRoomUuid } from "@/lib/course-room";
+import { resolveSessionLeadTeacher } from "@/lib/course-session-teachers";
+import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import {
   expandSessionSchedule,
   SessionScheduleError,
@@ -122,39 +124,24 @@ export async function createCourseSessions(input: CreateCourseSessionsInput) {
       throw new CourseSessionError("包含无权使用的学生组", 403);
     }
   }
-  const leadTeacherId = (input.leadTeacherId || course.teacherId).trim();
-
-  const inheritedTeacherIds = new Set(
-    (course.teachers.length ? course.teachers : [{ teacherId: course.teacherId }])
-      .map((teacher) => teacher.teacherId),
-  );
-  const includedTeacherIds = new Set(
-    teacherRules
-      .filter((teacher) => teacher.action === "include")
-      .map((teacher) => teacher.userId),
-  );
-  const excludedTeacherIds = new Set(
-    teacherRules
-      .filter((teacher) => teacher.action === "exclude")
-      .map((teacher) => teacher.userId),
-  );
-  const leadAvailable =
-    includedTeacherIds.has(leadTeacherId) ||
-    (teacherMode === "inherit" &&
-      inheritedTeacherIds.has(leadTeacherId) &&
-      !excludedTeacherIds.has(leadTeacherId));
-  if (!leadAvailable) {
+  const lead = resolveSessionLeadTeacher({
+    courseTeachers: course.teachers.length ? course.teachers : [course],
+    mode: teacherMode,
+    rules: teacherRules.map((teacher) => ({
+      teacherId: teacher.userId,
+      teacherName: teacher.displayName,
+      teacherAvatar: teacher.avatar,
+      action: teacher.action,
+    })),
+    leadTeacherId: (input.leadTeacherId || course.teacherId).trim(),
+  });
+  if (!lead) {
     throw new CourseSessionError("课次主讲老师必须存在于有效教师名单中");
   }
-
-  const leadRule = teacherRules.find((teacher) => teacher.userId === leadTeacherId);
-  const inheritedLead = course.teachers.find((teacher) => teacher.teacherId === leadTeacherId);
-  const leadTeacherName =
-    leadRule?.displayName || inheritedLead?.teacherName ||
-    (leadTeacherId === course.teacherId ? course.teacherName : leadTeacherId);
-  const leadTeacherAvatar =
-    leadRule?.avatar || inheritedLead?.teacherAvatar ||
-    (leadTeacherId === course.teacherId ? course.teacherAvatar : "");
+  const leadTeacherId = lead.teacherId;
+  const isCourseLead = casdoorUserIdsMatch(leadTeacherId, course.teacherId);
+  const leadTeacherName = lead.teacherName || (isCourseLead ? course.teacherName : leadTeacherId);
+  const leadTeacherAvatar = lead.teacherAvatar || (isCourseLead ? course.teacherAvatar : "");
 
   const seriesId = input.schedule.type === "recurring" ? randomUUID() : null;
   const recurrenceRule: Prisma.InputJsonValue | null = input.schedule.type === "recurring"
@@ -230,7 +217,7 @@ export async function createCourseSessions(input: CreateCourseSessionsInput) {
           teacherName: teacher.displayName,
           teacherAvatar: teacher.avatar,
           action: teacher.action,
-          role: teacher.userId === leadTeacherId ? "teacher" : teacher.role,
+          role: casdoorUserIdsMatch(teacher.userId, leadTeacherId) ? "teacher" : teacher.role,
         }))),
       });
     }

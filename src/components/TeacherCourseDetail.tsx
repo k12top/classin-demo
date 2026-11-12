@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, type WheelEvent } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type WheelEvent } from "react";
 import { copyInvitationText, shareInvitation } from "@/lib/invitation-sharing";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
+import { sessionTeacherFromDirectory } from "@/lib/course-session-teachers";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { Button } from "@/components/ui/button";
@@ -411,6 +412,8 @@ export default function TeacherCourseDetail({
       : [{ teacherId: course.teacherId, teacherName: course.teacherName, teacherAvatar: course.teacherAvatar || "" }];
   }, [course.teacherAvatar, course.teacherId, course.teacherName, course.teachers]);
 
+  const savedCourseTeachers = useMemo(() => baseCourseTeachers(), [baseCourseTeachers]);
+
   useEffect(() => {
     queueMicrotask(() => {
       setSelectedTeachers(baseCourseTeachers());
@@ -430,11 +433,8 @@ export default function TeacherCourseDetail({
     });
   }, [course.id, defaultJoinLinkPasscode]);
 
-  const makeTeacherFromSearchResult = (u: UserSearchResult): CourseTeacherSummary => ({
-    teacherId: u.casdoorUuid || u.id,
-    teacherName: u.displayName || u.name || u.email || u.id,
-    teacherAvatar: u.avatar || "",
-  });
+  const makeTeacherFromSearchResult = (u: UserSearchResult): CourseTeacherSummary =>
+    sessionTeacherFromDirectory(u, selectedTeachers);
 
   const teacherInitial = (teacher: Pick<CourseTeacherSummary, "teacherName" | "teacherId">) =>
     (teacher.teacherName || teacher.teacherId || "T").trim().slice(0, 1).toUpperCase();
@@ -1403,7 +1403,7 @@ export default function TeacherCourseDetail({
             )}
             currentUserIds={[user?.userId || "", user?.name || ""].filter(Boolean)}
             leadTeacherId={course.teacherId}
-            teachers={selectedTeachers}
+            teachers={savedCourseTeachers}
             students={course.students}
             groupLinks={course.groupLinks}
             initialSessions={course.sessions}

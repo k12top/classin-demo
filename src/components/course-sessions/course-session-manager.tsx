@@ -5,6 +5,10 @@ import { copyInvitationText } from "@/lib/invitation-sharing";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
+import {
+  buildSessionTeacherRules,
+  sessionTeacherFromDirectory,
+} from "@/lib/course-session-teachers";
 import { MAX_COURSE_SESSION_OCCURRENCES } from "@/lib/course-session-schedule";
 import {
   CalendarClock,
@@ -221,6 +225,7 @@ export function CourseSessionManager({
   const [teacherQuery, setTeacherQuery] = useState("");
   const [teacherSearchResults, setTeacherSearchResults] = useState<Array<{
     id: string;
+    casdoorUuid?: string | null;
     displayName: string;
     name: string;
     avatar?: string;
@@ -518,7 +523,7 @@ export function CourseSessionManager({
         { credentials: "same-origin" },
       );
       const payload = (await response.json().catch(() => ({}))) as {
-        users?: Array<{ id: string; displayName: string; name: string; avatar?: string }>;
+        users?: Array<{ id: string; casdoorUuid?: string | null; displayName: string; name: string; avatar?: string }>;
         error?: string;
       };
       if (!response.ok) throw new Error(payload.error || t("courseSessions.teacherSearchFailed"));
@@ -532,15 +537,12 @@ export function CourseSessionManager({
 
   const addSessionTeacher = (user: {
     id: string;
+    casdoorUuid?: string | null;
     displayName: string;
     name: string;
     avatar?: string;
   }) => {
-    const teacher = {
-      teacherId: user.id,
-      teacherName: user.displayName || user.name || user.id,
-      teacherAvatar: user.avatar || "",
-    };
+    const teacher = sessionTeacherFromDirectory(user, availableTeachers);
     setExtraTeachers((current) =>
       current.some((item) => item.teacherId === teacher.teacherId)
         ? current
@@ -550,7 +552,7 @@ export function CourseSessionManager({
       current.includes(teacher.teacherId) ? current : [...current, teacher.teacherId],
     );
     setTeacherSearchResults((current) =>
-      current.filter((item) => item.id !== teacher.teacherId),
+      current.filter((item) => item.id !== user.id),
     );
   };
 
@@ -618,15 +620,13 @@ export function CourseSessionManager({
       setError(t("courseSessions.leadRequired"));
       return;
     }
-    const teacherRules = availableTeachers
-      .filter((teacher) => teacherMode === "custom" || !selectedTeachers.includes(teacher.teacherId))
-      .map((teacher) => ({
-        userId: teacher.teacherId,
-        displayName: teacher.teacherName,
-        avatar: teacher.teacherAvatar || "",
-        action: selectedTeachers.includes(teacher.teacherId) ? "include" : "exclude",
-        role: teacher.teacherId === sessionLeadId ? "teacher" : "assistant",
-      }));
+    const teacherRules = buildSessionTeacherRules({
+      courseTeachers: teachers,
+      availableTeachers,
+      selectedTeacherIds: selectedTeachers,
+      leadTeacherId: sessionLeadId,
+      mode: teacherMode,
+    });
     const studentRules = availableStudents
       .filter((student) => studentMode === "custom" || !selectedStudents.includes(student.studentId))
       .map((student) => ({

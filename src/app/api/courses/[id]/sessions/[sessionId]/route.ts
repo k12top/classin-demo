@@ -10,6 +10,8 @@ import {
 } from "@/lib/course-session-roster";
 import { casdoorUserIdCandidates } from "@/lib/course-teacher";
 import { syncCourseStatusFromSessions } from "@/lib/course-session-status";
+import { resolveSessionLeadTeacher } from "@/lib/course-session-teachers";
+import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 
 export const dynamic = "force-dynamic";
 
@@ -161,7 +163,7 @@ export async function PATCH(request: NextRequest, context: Context) {
   const durationMs = endTime.getTime() - startTime.getTime();
   const teacherMode = validMode(body?.teacherMode);
   const studentMode = validMode(body?.studentMode);
-  const requestedLeadId = typeof body?.leadTeacherId === "string"
+  const inputLeadId = typeof body?.leadTeacherId === "string"
     ? body.leadTeacherId.trim()
     : resolved.lesson.leadTeacherId || "";
   const requestedTeacherRules = teacherRulesFrom(
@@ -176,34 +178,22 @@ export async function PATCH(request: NextRequest, context: Context) {
     where: { id: resolved.courseId },
     include: { teachers: true },
   });
-  const effectiveTeacherIds = new Set<string>();
-  if (effectiveTeacherMode === "inherit") {
-    for (const teacher of course.teachers.length
-      ? course.teachers
-      : [{ teacherId: course.teacherId }]) {
-      effectiveTeacherIds.add(teacher.teacherId);
-    }
-  }
-  for (const rule of effectiveTeacherRules) {
-    if (rule.action === "exclude") effectiveTeacherIds.delete(rule.teacherId);
-    else effectiveTeacherIds.add(rule.teacherId);
-  }
-  if (!requestedLeadId || !effectiveTeacherIds.has(requestedLeadId)) {
+  const lead = resolveSessionLeadTeacher({
+    courseTeachers: course.teachers.length ? course.teachers : [course],
+    mode: effectiveTeacherMode,
+    rules: effectiveTeacherRules,
+    leadTeacherId: inputLeadId,
+  });
+  if (!lead) {
     return NextResponse.json(
       { error: "Lesson lead must be part of the effective teaching team" },
       { status: 400 },
     );
   }
-  const leadRule = effectiveTeacherRules.find(
-    (rule) => rule.teacherId === requestedLeadId && rule.action !== "exclude",
-  );
-  const courseLead = course.teachers.find(
-    (teacher) => teacher.teacherId === requestedLeadId,
-  );
-  const leadTeacherName = leadRule?.teacherName || courseLead?.teacherName ||
-    (requestedLeadId === course.teacherId ? course.teacherName : requestedLeadId);
-  const leadTeacherAvatar = leadRule?.teacherAvatar || courseLead?.teacherAvatar ||
-    (requestedLeadId === course.teacherId ? course.teacherAvatar : "");
+  const requestedLeadId = lead.teacherId;
+  const isCourseLead = casdoorUserIdsMatch(requestedLeadId, course.teacherId);
+  const leadTeacherName = lead.teacherName || (isCourseLead ? course.teacherName : requestedLeadId);
+  const leadTeacherAvatar = lead.teacherAvatar || (isCourseLead ? course.teacherAvatar : "");
   const requestedStudentRules = studentRulesFrom(
     body?.students,
     resolved.courseId,
@@ -261,7 +251,7 @@ export async function PATCH(request: NextRequest, context: Context) {
             data: requestedTeacherRules.map((rule) => ({
               ...rule,
               sessionId: target.id,
-              role: rule.teacherId === requestedLeadId ? "teacher" : rule.role,
+              role: casdoorUserIdsMatch(rule.teacherId, requestedLeadId) ? "teacher" : rule.role,
             })),
           });
         }
