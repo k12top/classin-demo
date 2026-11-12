@@ -1,11 +1,16 @@
 "use client";
 
 import { copyInvitationText } from "@/lib/invitation-sharing";
+import { classroomVerifyAccessPath } from "@/lib/classroom/entry-path";
+import { openClassroomWindow, reserveClassroomWindow } from "@/lib/classroom/open-desktop-window";
+import { workspaceRequest } from "@/lib/workspace-client";
+import {parsePendingLesson,pendingLessonKey,validLessonCreationReceipt,type PendingLessonCreation} from "@/lib/course-session-pending";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { MAX_COURSE_SESSION_OCCURRENCES } from "@/lib/course-session-schedule";
+import { needsSessionRosterRule } from "@/lib/course-session-roster-rules";
 import {
   CalendarClock,
   CalendarOff,
@@ -29,7 +34,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useTimeZone } from "@/lib/use-time-zone";
 import { SchedulingTimeZone, ScheduleTimePreview } from "@/components/time-zone-selector";
-import { parseZonedInput, zonedInputValue } from "@/lib/time-zone";
+import { resolveEditedZonedInput, zonedInputValue } from "@/lib/time-zone";
 import { useTranslation } from "@/lib/i18n/context";
 import { usePortalFeedback } from "@/components/portal/portal-feedback";
 import { LargeClassBreakoutManager } from "@/components/classroom/large-class-breakout-manager";
@@ -40,6 +45,7 @@ import {
 } from "@/components/scheduling/teacher-schedule-peek";
 import styles from "./course-session-manager.module.css";
 import { ClassTimingControls } from "@/components/classroom/class-timing-controls";
+import { LimitedSessionEdit } from "./limited-session-edit";
 
 type Teacher = {
   teacherId: string;
@@ -92,6 +98,9 @@ export type CourseSessionItem = {
   leadTeacherId: string | null;
   leadTeacherName: string;
   seriesId: string | null;
+  isDetached?: boolean;
+  programId?: string | null;
+  unitId?: string | null;
   teachers?: TeacherRule[];
   students?: StudentRule[];
   groupLinks?: GroupRule[];
@@ -103,6 +112,8 @@ export type CourseSessionItem = {
   };
   submissionSummary?: { leaveCount: number; requirementsCount: number };
   mySubmission?: StudentSubmissionSnapshot;
+  viewerRole?: "teacher" | "assistant" | "student" | "observer";
+  updatedAt?: string;
 };
 
 type StudentSubmissionSnapshot = {
@@ -135,15 +146,15 @@ type Props = {
   initialSessions?: CourseSessionItem[];
   onManageRoster: (role: "assistant" | "student") => void;
   onSessionsChanged?: () => void | Promise<void>;
+  initialProgramId?: string | null;
+  initialProgramName?: string;
+  initialUnitId?: string | null;
+  initialUnitName?: string;
+  createOnOpen?: boolean;
 };
 
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0] as const;
 const ROOM_TYPES = [0, 4, 2, 10] as const;
-
-function localInputValue(date: Date) {
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-}
 
 function defaultStart() {
   const now = new Date();
@@ -178,6 +189,11 @@ export function CourseSessionManager({
   initialSessions,
   onManageRoster,
   onSessionsChanged,
+  initialProgramId = null,
+  initialProgramName,
+  initialUnitId = null,
+  initialUnitName,
+  createOnOpen = false,
 }: Props) {
   const router = useRouter();
   const { t, locale } = useTranslation();
@@ -186,21 +202,32 @@ export function CourseSessionManager({
   const [sessions, setSessions] = useState<CourseSessionItem[]>(initialSessions ?? []);
   const [loading, setLoading] = useState(initialSessions === undefined);
   const [error, setError] = useState("");
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(createOnOpen);
+  const creationRequest = useRef("");
+  const creationPayload = useRef<string | null>(null);
+  const [creationUncertain, setCreationUncertain] = useState(false);
+  const pendingKey=canManage&&currentUserIds[0]?pendingLessonKey(currentUserIds[0],courseId):"";
+  const recoveryStorageUnavailable=useRef(!pendingKey);
+  const [recovery,setRecovery]=useState<PendingLessonCreation|null>(null),[recoveryInvalid,setRecoveryInvalid]=useState(false),[recoveryScope,setRecoveryScope]=useState<string|null>(null),[recoveryBusy,setRecoveryBusy]=useState(false),[recoveryError,setRecoveryError]=useState("");
+  const previousRecoveryKey=useRef(pendingKey);
+  const recoveryReady=recoveryScope===pendingKey;
+  useEffect(()=>{let active=true;queueMicrotask(()=>{if(!active)return;if(previousRecoveryKey.current!==pendingKey){previousRecoveryKey.current=pendingKey;creationPayload.current=null;creationRequest.current="";recoveryStorageUnavailable.current=!pendingKey;setCreationUncertain(false);setDialogOpen(false);}try{const raw=pendingKey?sessionStorage.getItem(pendingKey):null;const parsed=parsePendingLesson(raw);setRecovery(parsed);setRecoveryInvalid(Boolean(raw&&!parsed));}catch{recoveryStorageUnavailable.current=true;setRecovery(null);setRecoveryInvalid(false);}setRecoveryError("");setRecoveryScope(pendingKey);});return()=>{active=false;};},[pendingKey]);
+  const clearSavedCreation=(requestId:string)=>{try{if(pendingKey&&parsePendingLesson(sessionStorage.getItem(pendingKey))?.requestId===requestId)sessionStorage.removeItem(pendingKey);}catch{/* Current-window state remains authoritative if storage is unavailable. */}};
   const [detailSessionId, setDetailSessionId] = useState<string | null>(null);
   const detailSession = sessions.find((session) => session.id === detailSessionId);
   const [editingSession, setEditingSession] = useState<CourseSessionItem | null>(null);
+  const [editVersions, setEditVersions] = useState<Record<string, string>>({});
+  const [editSnapshot, setEditSnapshot] = useState<CourseSessionItem[]>([]);
+  const [editConflict, setEditConflict] = useState(false);
   const [editScope, setEditScope] = useState<"this" | "future">("this");
   const [saving, setSaving] = useState(false);
   const [scheduleType, setScheduleType] = useState<"single" | "recurring">("single");
   const [initialStart] = useState(() => defaultStart());
   const [title, setTitle] = useState("");
-  const [startTime, setStartTime] = useState(localInputValue(initialStart));
+  const [startTime, setStartTime] = useState(() => zonedInputValue(initialStart, timeZone));
   const [duration, setDuration] = useState(60);
-  const [timezone, setTimezone] = useState(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai",
-  );
-  const [weekdays, setWeekdays] = useState<number[]>([initialStart.getDay()]);
+  const [timezone, setTimezone] = useState(timeZone);
+  const [weekdays, setWeekdays] = useState<number[]>(() => [new Date(zonedInputValue(initialStart, timeZone).slice(0, 10) + "T12:00:00Z").getUTCDay()]);
   const [occurrenceCount, setOccurrenceCount] = useState(8);
   const [teacherMode, setTeacherMode] = useState<"inherit" | "custom">("inherit");
   const [studentMode, setStudentMode] = useState<"inherit" | "custom">("inherit");
@@ -387,17 +414,32 @@ export function CourseSessionManager({
   } = useTeacherSchedules(availableTeacherIds, { enabled: dialogOpen, days: 7 });
   const candidateRange = useMemo(() => {
     let start: Date;
-    try { start = parseZonedInput(startTime, timezone); } catch { return { start: null, end: null }; }
+    try { start = resolveEditedZonedInput(startTime, timezone, editingSession ? {instant:editingSession.startTime,timezone:editingSession.timezone || timeZone} : undefined); } catch { return { start: null, end: null }; }
     return {
       start,
       end: new Date(start.getTime() + duration * 60_000),
     };
-  }, [duration, startTime, timezone]);
+  }, [duration, editingSession, startTime, timezone, timeZone]);
 
-  const enterSession = (sessionId: string) => {
+  const enterSession = async (sessionId: string) => {
     if (enteringSessionId) return;
     setEnteringSessionId(sessionId);
-    router.push(`/classroom?sessionId=${encodeURIComponent(sessionId)}`);
+    let child: Window | null = null;
+    let opened = false;
+    try {
+      child = reserveClassroomWindow();
+      const result = await workspaceRequest<{ allowed?: boolean; classroomUrl?: string; reason?: string }>(classroomVerifyAccessPath(courseId, sessionId));
+      if (!result.allowed || !result.classroomUrl) throw new Error(result.reason || t("classroom.launchError"));
+      const target = new URL(result.classroomUrl, window.location.origin);
+      opened = await openClassroomWindow(target, child);
+      if (!opened) router.push(target.pathname + target.search);
+    } catch (cause) {
+      notify(cause instanceof Error && cause.name !== "AbortError" ? cause.message : t("classroom.launchError"), "error");
+      void loadSessions();
+    } finally {
+      if (!opened) child?.close();
+      setEnteringSessionId(null);
+    }
   };
 
   const toggleId = (
@@ -409,8 +451,14 @@ export function CourseSessionManager({
   };
 
   const openCreateDialog = () => {
+    if(!recoveryReady)return;
+    if(recovery||recoveryInvalid){setDialogOpen(true);return;}
+    creationRequest.current = crypto.randomUUID();
+    creationPayload.current = null;
+    setCreationUncertain(false);
     const nextStart = defaultStart();
     setEditingSession(null);
+    setEditConflict(false);
     setEditScope("this");
     setScheduleType("single");
     setTitle("");
@@ -434,6 +482,14 @@ export function CourseSessionManager({
     setError("");
     setDialogOpen(true);
   };
+
+  useEffect(() => {
+    const open = (event: Event) => {
+      if (canCreateSession && !dialogOpen && (event as CustomEvent).detail === courseId) openCreateDialog();
+    };
+    window.addEventListener("classroom:quick-schedule", open);
+    return () => window.removeEventListener("classroom:quick-schedule", open);
+  });
 
   const openEditDialog = (session: CourseSessionItem) => {
     const teacherRules = session.teachers || [];
@@ -469,6 +525,9 @@ export function CourseSessionManager({
     const start = new Date(session.startTime);
     const end = new Date(session.endTime);
     setEditingSession(session);
+    setEditSnapshot(sessions);
+    setEditVersions(Object.fromEntries(sessions.filter(item => item.updatedAt).map(item => [item.id, item.updatedAt!] )));
+    setEditConflict(false);
     setEditScope("this");
     setScheduleType("single");
     setTitle(session.title || "");
@@ -601,8 +660,9 @@ export function CourseSessionManager({
   };
 
   const submit = async () => {
+    if (editingSession && editConflict) return;
     let start: Date;
-    try { start = parseZonedInput(startTime, timezone); } catch { setError(t("timeZones.invalid")); return; }
+    try { start = resolveEditedZonedInput(startTime, timezone, editingSession ? {instant:editingSession.startTime,timezone:editingSession.timezone || timeZone} : undefined); } catch { setError(t("timeZones.invalid")); return; }
     if (duration < 10) {
       setError(t("courseSessions.invalidSchedule"));
       return;
@@ -619,7 +679,7 @@ export function CourseSessionManager({
       return;
     }
     const teacherRules = availableTeachers
-      .filter((teacher) => teacherMode === "custom" || !selectedTeachers.includes(teacher.teacherId))
+      .filter((teacher) => needsSessionRosterRule(teacherMode, selectedTeachers.includes(teacher.teacherId), teachers.some((base) => casdoorUserIdsMatch(base.teacherId, teacher.teacherId))))
       .map((teacher) => ({
         userId: teacher.teacherId,
         displayName: teacher.teacherName,
@@ -628,7 +688,7 @@ export function CourseSessionManager({
         role: teacher.teacherId === sessionLeadId ? "teacher" : "assistant",
       }));
     const studentRules = availableStudents
-      .filter((student) => studentMode === "custom" || !selectedStudents.includes(student.studentId))
+      .filter((student) => needsSessionRosterRule(studentMode, selectedStudents.includes(student.studentId), students.some((base) => casdoorUserIdsMatch(base.studentId, student.studentId))))
       .map((student) => ({
         userId: student.studentId,
         displayName: student.studentName,
@@ -641,7 +701,8 @@ export function CourseSessionManager({
         groupId: link.group.id,
         action: selectedGroupIds.includes(link.group.id) ? "include" : "exclude",
       }));
-    const end = new Date(start.getTime() + duration * 60_000);
+    const originalDuration=editingSession ? Math.max(10,Math.round((Date.parse(editingSession.endTime)-Date.parse(editingSession.startTime))/60_000)) : null;
+    const end = editingSession && start.getTime()===Date.parse(editingSession.startTime) && duration===originalDuration ? new Date(editingSession.endTime) : new Date(start.getTime() + duration * 60_000);
     const schedule = scheduleType === "single"
       ? { type: "single", timezone, startTime: start.toISOString(), endTime: end.toISOString() }
       : {
@@ -655,7 +716,28 @@ export function CourseSessionManager({
         };
     setSaving(true);
     setError("");
+    if (!editingSession && !creationRequest.current) creationRequest.current = crypto.randomUUID();
+    let uncertain = false;
     try {
+      const body = JSON.stringify({
+        ...(!editingSession ? { programId: initialProgramId, unitId: initialUnitId } : {}),
+        title: title.trim() || undefined, roomType: selectedRoomType,
+        ...(editingSession ? {startTime:start.toISOString(),endTime:end.toISOString(),scope:editScope,timezone,expectedVersions:editVersions,
+          expectedTargetIds:editScope === "future" && editingSession.seriesId
+            ? editSnapshot.filter(item=>item.seriesId===editingSession.seriesId&&item.status==="scheduled"&&!item.isDetached&&Date.parse(item.startTime)>=Date.parse(editingSession.startTime)).map(item=>item.id)
+            : [editingSession.id]} : {schedule}),
+        teacherMode,studentMode,leadTeacherId:sessionLeadId,teachers:teacherRules,students:studentRules,groups:groupRules,
+      });
+      if (!editingSession && !creationPayload.current) creationPayload.current = body;
+      if(!editingSession&&pendingKey){
+        try{
+          const raw=sessionStorage.getItem(pendingKey),saved=parsePendingLesson(raw);
+          if(raw&&(!saved||saved.requestId!==creationRequest.current||saved.body!==creationPayload.current)){setRecovery(saved);setRecoveryInvalid(!saved);setError(locale.startsWith("zh")?"已有待确认的排课请求，请先处理。":"A lesson request is awaiting confirmation. Resolve it first.");return;}
+          sessionStorage.setItem(pendingKey,JSON.stringify({requestId:creationRequest.current,body:creationPayload.current}));
+          recoveryStorageUnavailable.current=false;
+        }catch{recoveryStorageUnavailable.current=true;}
+      }
+      uncertain = !editingSession;
       const response = await fetch(
         editingSession
           ? `/api/courses/${courseId}/sessions/${editingSession.id}`
@@ -663,35 +745,29 @@ export function CourseSessionManager({
         {
         method: editingSession ? "PATCH" : "POST",
         credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: title.trim() || undefined,
-          roomType: selectedRoomType,
-          ...(editingSession
-            ? {
-                startTime: start.toISOString(),
-                endTime: end.toISOString(),
-                scope: editScope,
-                timezone,
-              }
-            : { schedule }),
-          teacherMode,
-          studentMode,
-          leadTeacherId: sessionLeadId,
-          teachers: teacherRules,
-          students: studentRules,
-          groups: groupRules,
-        }),
+        headers: { "Content-Type": "application/json", ...(!editingSession ? { "Idempotency-Key": creationRequest.current } : {}) },
+        body: editingSession ? body : creationPayload.current,
       });
-      const payload = (await response.json().catch(() => ({}))) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || t("courseSessions.createFailed"));
+      const payload = (await response.json().catch(() => ({}))) as { error?: string;sessions?:{id?:unknown}[] };
+      if (editingSession && response.status === 409) {
+        setEditConflict(true);
+        setError(locale.startsWith("zh") ? "课节或教学人员已变更。请刷新后重新编辑，以免覆盖其他人的修改。" : "The lesson or teaching team has changed. Refresh and edit again to avoid overwriting changes.");
+        return;
+      }
+      if (!response.ok) {if(!creationUncertain&&response.status>=400&&response.status<500&&response.status!==408&&response.status!==429)uncertain=false;throw new Error(payload.error || t("courseSessions.createFailed"));}
+      if (!editingSession && !validLessonCreationReceipt(payload,scheduleType==="single"?1:occurrenceCount)) throw new Error("Invalid creation receipt");
+      uncertain = false;
+      clearSavedCreation(creationRequest.current);
+      creationPayload.current = null;
+      setCreationUncertain(false);
       setDialogOpen(false);
       setEditingSession(null);
       setTitle("");
       await loadSessions();
       await onSessionsChanged?.();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("courseSessions.createFailed"));
+      if(uncertain){setCreationUncertain(true);setError(locale.startsWith("zh")?(recoveryStorageUnavailable.current?"暂时无法确认创建结果。本地恢复不可用，请勿刷新并重试确认。":"暂时无法确认是否创建成功，请保持此窗口并重试确认。"):recoveryStorageUnavailable.current?"The result is unconfirmed and local recovery is unavailable. Do not reload; retry here.":"Could not confirm whether the lesson was created. Keep this window open and retry to confirm.");}
+      else{if(!editingSession){clearSavedCreation(creationRequest.current);creationPayload.current=null;setCreationUncertain(false);}setError(cause instanceof Error ? cause.message : t("courseSessions.createFailed"));}
     } finally {
       setSaving(false);
     }
@@ -777,6 +853,31 @@ export function CourseSessionManager({
       casdoorUserIdsMatch(breakoutLeadTeacherId, candidate),
     );
 
+  const retryRecovery=async()=>{
+    if(!recovery||!recoveryReady||recoveryBusy||!canManage)return;
+    setRecoveryBusy(true);setRecoveryError("");
+    try{
+      const response=await fetch(`/api/courses/${encodeURIComponent(courseId)}/sessions`,{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json","Idempotency-Key":recovery.requestId},body:recovery.body});
+      const payload=await response.json().catch(()=>null);
+      if(!response.ok||!validLessonCreationReceipt(payload,recovery.expectedCount))throw new Error("Unconfirmed");
+      clearSavedCreation(recovery.requestId);setRecovery(null);setDialogOpen(false);await loadSessions();await onSessionsChanged?.();
+    }catch{setRecoveryError(locale.startsWith("zh")?"仍无法确认结果，请稍后重试；也可先检查课节列表。":"The result is still unconfirmed. Retry later or check the lesson list.");}
+    finally{setRecoveryBusy(false);}
+  };
+  const discardRecovery=()=>{
+    if(recoveryBusy||!window.confirm(locale.startsWith("zh")?"课节可能已经创建。放弃恢复前请先检查课节列表，避免重复创建。确定放弃吗？":"The lesson may already exist. Check the lesson list before discarding recovery. Discard anyway?"))return;
+    try{if(pendingKey)sessionStorage.removeItem(pendingKey);}catch{/* Storage may be unavailable. */}
+    setRecovery(null);setRecoveryInvalid(false);setRecoveryError("");setDialogOpen(false);
+  };
+  const closeCreationDialog=()=>{
+    if(saving||recoveryBusy)return;
+    if(creationUncertain){
+      if(!window.confirm(locale.startsWith("zh")?"课节可能已经创建。待确认请求会保留在当前窗口，可稍后重试。关闭吗？":"The lesson may already exist. The pending request remains available in this window. Close?"))return;
+      setRecovery(parsePendingLesson(JSON.stringify({requestId:creationRequest.current,body:creationPayload.current})));
+    }
+    creationPayload.current=null;setCreationUncertain(false);setDialogOpen(false);
+  };
+
   return (
     <section className={styles.manager}>
       <header className={styles.header}>
@@ -786,12 +887,14 @@ export function CourseSessionManager({
           <p>{t("courseSessions.description")}</p>
         </div>
         {canCreateSession ? (
-          <button className={styles.createButton} type="button" onClick={openCreateDialog}>
+          <button className={styles.createButton} type="button" disabled={!recoveryReady} onClick={openCreateDialog}>
             <CirclePlus className="h-4 w-4" />
             {t("courseSessions.schedule")}
           </button>
         ) : null}
       </header>
+
+      {recoveryReady&&(recovery||recoveryInvalid)&&<div className={styles.error} role="status">{locale.startsWith("zh")?"有待确认的排课请求。":"A lesson request is awaiting confirmation."} <button type="button" onClick={()=>setDialogOpen(true)}>{locale.startsWith("zh")?"查看并恢复":"Review and recover"}</button></div>}
 
       {error ? <div className={styles.error}>{error}</div> : null}
       {loading ? (
@@ -821,6 +924,7 @@ export function CourseSessionManager({
             const canEnter = !["cancelled", "finished"].includes(effectiveStatus);
             const canManageLifecycle =
               canManageCourseLifecycle ||
+              session.viewerRole === "teacher" ||
               Boolean(
                 session.leadTeacherId &&
                   currentUserIds.some((candidate) =>
@@ -862,7 +966,7 @@ export function CourseSessionManager({
                       </button>
                     ) : null}
                   </div>
-                  {!canManage ? (
+                  {!canManage && session.viewerRole !== "teacher" && session.viewerRole !== "assistant" ? (
                     <div className={styles.studentActions}>
                       <button type="button" onClick={() => void openSubmission(session)}>
                         <MessageSquare className="h-3.5 w-3.5" />
@@ -889,6 +993,7 @@ export function CourseSessionManager({
                       <Pencil className="h-4 w-4" />
                     </button>
                   ) : null}
+                  {!canManage && session.viewerRole === "teacher" && session.status === "scheduled" && !session.endedAt && session.updatedAt ? <LimitedSessionEdit courseId={courseId} lesson={session} onSaved={() => { void loadSessions(); void onSessionsChanged?.(); }} /> : null}
                   {session.roomType === 2 && canManage && canEnter ? (
                     <button type="button" onClick={() => setBreakoutSessionId(breakoutSessionId === session.id ? null : session.id)} title={t("courseSessions.breakouts")}>
                       <Network className="h-4 w-4" />
@@ -973,7 +1078,7 @@ export function CourseSessionManager({
                       className={styles.enterButton}
                       type="button"
                       disabled={Boolean(enteringSessionId)}
-                      onClick={() => enterSession(session.id)}
+                      onClick={() => void enterSession(session.id)}
                     >
                       {enteringSessionId === session.id ? (
                         <>
@@ -1045,13 +1150,19 @@ export function CourseSessionManager({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={(open)=>{if(open)setDialogOpen(true);else closeCreationDialog();}}>
         <DialogContent className={styles.dialog}>
           <header className={styles.dialogHeader}>
             <span>{t("courseSessions.scheduleEyebrow")}</span>
             <DialogTitle>{editingSession ? t("courseSessions.editTitle") : t("courseSessions.scheduleTitle")}</DialogTitle>
             <DialogDescription>{t("courseSessions.scheduleHint")}</DialogDescription>
           </header>
+          {!recoveryReady?<p role="status">{t("common.loading")}</p>:recovery||recoveryInvalid?<>
+            <p>{recoveryInvalid?(locale.startsWith("zh")?"待确认记录无法读取，请先检查课节列表。":"The pending record cannot be read. Check the lesson list first."):(locale.startsWith("zh")?`待确认课节：${recovery?.title||"未命名"}`:`Pending lesson: ${recovery?.title||"Untitled"}`)}</p>
+            {recoveryError&&<div role="alert" className={styles.error}>{recoveryError}</div>}
+            <footer className={styles.dialogFooter}><button type="button" disabled={recoveryBusy} onClick={discardRecovery}>{locale.startsWith("zh")?"放弃恢复":"Discard recovery"}</button>{recovery&&<button type="button" disabled={recoveryBusy} onClick={()=>void retryRecovery()}>{recoveryBusy?t("common.loading"):(locale.startsWith("zh")?"重试确认":"Retry confirmation")}</button>}</footer>
+          </>:<>
+          <fieldset disabled={saving||creationUncertain} style={{border:0,margin:0,padding:0,minWidth:0}}>
           {editingSession ? (
             editingSession.seriesId ? (
               <div className={styles.segmented}>
@@ -1066,11 +1177,12 @@ export function CourseSessionManager({
             </div>
           )}
           <div className={styles.formGrid}>
+            {!editingSession && initialProgramName && <p className={styles.full}>{locale.startsWith("zh") ? "所属课程" : "Course"}: {initialProgramName}{initialUnitName ? ` / ${initialUnitName}` : ""}</p>}
             <label className={styles.full}><span>{t("courseSessions.sessionTitle")}</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t("courseSessions.titlePlaceholder")} /></label>
             <div className="time-zone-session-row"><SchedulingTimeZone value={timezone} onChange={setTimezone} localValue={startTime} /></div>
             <label><span>{t("courseSessions.startTime")}</span><input type="datetime-local" value={startTime} onChange={(event) => setStartTime(event.target.value)} /></label>
             <label><span>{t("courseSessions.duration")}</span><input type="number" min={10} max={720} value={duration} onChange={(event) => setDuration(Number(event.target.value))} /></label>
-            <div className="time-zone-session-conversion"><ScheduleTimePreview value={startTime} timeZone={timezone} /></div>
+            <div className="time-zone-session-conversion"><ScheduleTimePreview value={startTime} timeZone={timezone} knownInstant={editingSession && (editingSession.timezone || timeZone)===timezone ? editingSession.startTime : undefined} /></div>
             <label><span>{t("courseSessions.roomType")}</span><select value={selectedRoomType} onChange={(event) => setSelectedRoomType(Number(event.target.value))}>{ROOM_TYPES.map((value) => <option value={value} key={value}>{t(value === 0 ? "common.roomType1v1" : value === 4 ? "common.roomTypeSmall" : value === 2 ? "common.roomTypeBig" : "common.roomTypePublic")}</option>)}</select></label>
             {!editingSession && scheduleType === "recurring" ? (
               <>
@@ -1197,11 +1309,14 @@ export function CourseSessionManager({
               ) : null}
             </div>
           </div>
-          {error ? <div className={styles.error}>{error}</div> : null}
+          </fieldset>
+          {error ? <div role="alert" className={styles.error}>{error}</div> : null}
           <footer className={styles.dialogFooter}>
-            <button type="button" onClick={() => setDialogOpen(false)}>{t("common.cancel")}</button>
-            <button type="button" disabled={saving} onClick={() => void submit()}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}{editingSession ? t("common.save") : scheduleType === "recurring" ? t("courseSessions.createSeries") : t("courseSessions.create")}</button>
+            <button type="button" disabled={saving} onClick={closeCreationDialog}>{t("common.cancel")}</button>
+            {editConflict && <button type="button" onClick={() => { setDialogOpen(false); setEditingSession(null); void loadSessions(); void onSessionsChanged?.(); }}>{locale.startsWith("zh") ? "刷新课节" : "Refresh lessons"}</button>}
+            <button type="button" disabled={saving || editConflict} onClick={() => void submit()}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}{creationUncertain?(locale.startsWith("zh")?"重试确认":"Retry confirmation"):editingSession ? t("common.save") : scheduleType === "recurring" ? t("courseSessions.createSeries") : t("courseSessions.create")}</button>
           </footer>
+          </>}
         </DialogContent>
       </Dialog>
 

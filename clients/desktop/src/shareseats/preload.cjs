@@ -1,0 +1,2 @@
+const {contextBridge,ipcRenderer}=require('electron');
+if(window.top===window&&window.location.href==='classroom-client://shareseats/index.html')contextBridge.exposeInMainWorld('shareSeats',{ready:()=>ipcRenderer.invoke('shareseats:ready'),members:()=>ipcRenderer.invoke('shareseats:members'),locale:()=>ipcRenderer.invoke('shareseats:locale'),onFrame:callback=>{const listener=(_event,frame)=>{if(typeof frame==='string'&&frame.length<2500000)callback(frame)};ipcRenderer.on('shareseats:frame',listener);return()=>ipcRenderer.removeListener('shareseats:frame',listener)}});

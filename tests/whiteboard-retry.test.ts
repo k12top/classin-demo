@@ -2,8 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   isTransientWhiteboardError,
+  isWhiteboardNotConfigured,
   retryWhiteboardRequest,
 } from "../src/lib/classroom/whiteboard/retry";
+
+test("missing configuration stays recognizable across rolling deployments",()=>{
+  assert.equal(isWhiteboardNotConfigured("whiteboard_not_configured"),true);
+  assert.equal(isWhiteboardNotConfigured("互动白板尚未配置，请设置 WHITEBOARD_APP_IDENTIFIER"),true);
+  assert.equal(isWhiteboardNotConfigured("network error"),false);
+});
 
 test("temporary Netless failures recover without retrying invalid credentials", async () => {
   let attempts = 0;

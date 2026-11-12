@@ -23,10 +23,7 @@ import {
   userCanTeachCourse,
   userOwnsCourse,
 } from "@/lib/course-teacher";
-import {
-  getEffectiveSessionRoster,
-  rosterContainsUser,
-} from "@/lib/course-session-roster";
+import {getViewerSessionRoles} from "@/lib/course-session-viewer";
 
 import { canUploadCoursewareForCourse } from "@/lib/courseware-upload-access";
 
@@ -160,15 +157,11 @@ export async function GET(
         ),
       );
     const visibleSessionIds = new Set<string>();
+    const observerSessionIds = new Set<string>();
     if (!isTeacher) {
-      await Promise.all(
-        course.sessions.map(async (lesson) => {
-          const roster = await getEffectiveSessionRoster(lesson.id);
-          if (roster && rosterContainsUser(roster, identityCandidates)) {
-            visibleSessionIds.add(lesson.id);
-          }
-        }),
-      );
+      const roles = await getViewerSessionRoles(course.sessions.map(lesson=>lesson.id),identityCandidates);
+      for (const id of roles.keys()) visibleSessionIds.add(id);
+      for (const [id,role] of roles) if(role==="observer")observerSessionIds.add(id);
       if (!isCourseStudent && visibleSessionIds.size === 0) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
@@ -179,7 +172,7 @@ export async function GET(
     // do not leak across those overrides.
     const visibleSessions = isTeacher
       ? course.sessions
-      : course.sessions.filter((lesson) => visibleSessionIds.has(lesson.id));
+      : course.sessions.filter((lesson) => visibleSessionIds.has(lesson.id)).map(lesson=>observerSessionIds.has(lesson.id)?{...lesson,teachers:[],students:[],groupLinks:[],_count:{teachers:0,students:0,attendances:0,recordings:lesson._count.recordings}}:lesson);
     type SerializedCourse = Omit<typeof course, "passcode"> & {
       statusLabel: string;
       isCourseOwner: boolean;
@@ -198,6 +191,7 @@ export async function GET(
       ...(!isTeacher && !isCourseStudent
         ? { limitedToSessionId: visibleSessions[0]?.id || null }
         : {}),
+      observerOnly: !isTeacher && !isCourseStudent && visibleSessionIds.size > 0 && observerSessionIds.size === visibleSessionIds.size,
       isCourseOwner: userOwnsCourse(course, session.userId),
       canTeach: isTeacher,
       canUploadCourseware: canUploadCoursewareForCourse(session, course),

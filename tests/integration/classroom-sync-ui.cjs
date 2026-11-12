@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- Actual classroom React page; isolated HTTP/media/signaling fixtures. */
 const {app,BrowserWindow}=require('electron'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),http=require('node:http'),esbuild=require('esbuild'),{execFileSync}=require('node:child_process');
-if(!['--members-only','--captions-only','--sync-only','--sharing-only'].some(flag=>process.argv.includes(flag)))process.argv.push('--sync-only');
+if(!['--members-only','--captions-only','--sync-only','--sharing-only','--remote-teacher-only','--chat-permissions-only','--chat-image-only','--room-retry-only','--room-race-only','--translation-settings-only'].some(flag=>process.argv.includes(flag)))process.argv.push('--sync-only');
 const root=path.resolve(__dirname,'../..');const functionalOnly=process.argv.includes('--functional-only');let win,server;
 async function main(){
  const deltaModule={exports:{}};
@@ -15,20 +15,25 @@ async function main(){
   '@/components/classroom/teacher-assistant':`export const TeacherAssistant=()=>null;`,
   '@/components/classroom/activity-workspace':`export const ActivityNotice=()=>null;export const ActivityWorkspace=()=>null;export const ActivityStagePresentation=()=>null;`,
   '@/components/classroom/fastboard-surface':`import React,{useEffect}from'react';const controller=new Proxy({},{get:()=>()=>{}});export const preloadFastboard=()=>Promise.resolve();export function FastboardSurface(p){useEffect(()=>{p.onControllerChange?.(controller);p.onReadyChange?.(true);return()=>p.onControllerChange?.(null)},[]);return <div className="fixture-board"><h2>集合与不等式</h2><p>已知 a &gt; 0，b &gt; 0，且 a + b = 2</p><strong>求 1/a + 1/b 的最小值</strong><p>先独立思考，再在聊天中写下你的答案。</p></div>}`,
-  '@/lib/classroom/client/provider-factory':`export async function createClassroomMediaProvider(){let notify=()=>{};let snapshot={participants:[],connectionState:'connected',network:{latencyMs:20,uplinkQuality:1,downlinkQuality:1,packetLossPercent:0},local:{microphoneOn:false,cameraOn:false,screenSharing:false}};const emit=()=>notify(structuredClone(snapshot));const provider={subscribe:cb=>{notify=cb;emit();return()=>{}},subscribeCaptions:()=>()=>{},subscribeTokenExpiry:()=>()=>{},getSnapshot:()=>snapshot,getMicrophoneLevel:()=>0,getActualDeviceState:()=>({microphone:snapshot.local.microphoneOn?'on':'off',camera:snapshot.local.cameraOn?'on':'off'}),connect:async credential=>{window.fixtureMediaCredential=credential;snapshot.participants=window.fixturePayload.runtime.members.filter(m=>m.online).map(m=>({id:String(m.rtcUids[0]),displayName:m.displayName,kind:'camera',hasAudio:true,hasVideo:true,isLocal:false}));window.fixtureScreen=on=>{snapshot.participants=snapshot.participants.filter(p=>p.kind!=='screen');if(on)snapshot.participants.push({id:'1000000099',kind:'screen',displayName:'共享屏幕',hasAudio:false,hasVideo:true,isLocal:false});emit()};emit()},attachVideo:(id,target)=>{const canvas=document.createElement('canvas');canvas.width=640;canvas.height=360;const ctx=canvas.getContext('2d');ctx.fillStyle=['#344256','#475569','#52637c','#3b5368'][Number(id)%4];ctx.fillRect(0,0,640,360);ctx.fillStyle='white';ctx.font='28px sans-serif';ctx.textAlign='center';ctx.fillText('模拟视频 · '+id,320,175);ctx.font='18px sans-serif';ctx.fillText('本地测试画面',320,210);const video=document.createElement('video');video.autoplay=true;video.muted=true;video.playsInline=true;video.style='width:100%;height:100%;object-fit:cover';video.srcObject=canvas.captureStream(1);target.replaceChildren(video);video.play().catch(()=>{})},detachVideo:(_id,target)=>{target.querySelector('video')?.srcObject?.getTracks().forEach(t=>t.stop());target.replaceChildren()},disconnect:async()=>{},setPublishingCredential:async value=>{if(value)window.fixtureMediaCredential=value;window.fixtureStats.publishingChanges++;if(!value){snapshot.local.microphoneOn=false;snapshot.local.cameraOn=false;emit()}},toggleMicrophone:async()=>{window.fixtureStats.microphoneToggles++;snapshot.local.microphoneOn=!snapshot.local.microphoneOn;emit();return snapshot.local.microphoneOn},muteMicrophone:async()=>{snapshot.local.microphoneOn=false;emit()},toggleCamera:async()=>{snapshot.local.cameraOn=!snapshot.local.cameraOn;emit();return snapshot.local.cameraOn},startScreenShare:async authorize=>{window.fixtureStats.captureStarts=(window.fixtureStats.captureStarts||0)+1;if(!window.fixtureMediaCredential.screenShare)throw new Error('Missing screen token');if(window.fixtureCancelCapture)throw new DOMException('Capture canceled','NotAllowedError');await authorize?.();snapshot.local.screenSharing=true;snapshot.participants.push({id:String(window.fixtureMediaCredential.screenShare.rtcUid),kind:'screen',hasVideo:true,hasAudio:false,isLocal:true});emit()},stopScreenShare:async()=>{snapshot.local.screenSharing=false;snapshot.participants=snapshot.participants.filter(p=>p.kind!=='screen'||!p.isLocal);emit()},recoverMedia:async()=>{window.fixtureStats.recoveries++},supportsVirtualBackground:()=>false,listDevices:async()=>({microphones:[],cameras:[]})};window.fixtureStopScreen=()=>provider.stopScreenShare();return new Proxy(provider,{get:(target,key)=>key==='then'?undefined:key in target?target[key]:()=>Promise.resolve()})}`,
-  '@/lib/classroom/signaling/provider-factory':`export const createClassroomSignalingProvider=()=>({connect:async(_credential,onEvent,onHealth)=>{window.fixtureStats.signalingConnections++;window.fixtureReceive=onEvent;window.fixtureHealth=ready=>{window.fixtureStats.rtmReady=ready;onHealth?.(ready)};if(window.fixtureRTMFailNext){window.fixtureRTMFailNext=false;window.fixtureHealth(false);throw new Error('simulated RTM connection failure')}window.fixtureHealth(true)},publish:async event=>window.fixtureStats.events.push(event),publishToUser:async()=>{},disconnect:async()=>{}});`,
+  '@/lib/classroom/client/provider-factory':`export async function createClassroomMediaProvider(){let notify=()=>{};let snapshot={participants:[],connectionState:'connected',network:{latencyMs:20,uplinkQuality:1,downlinkQuality:1,packetLossPercent:0},local:{microphoneOn:false,cameraOn:false,screenSharing:false}};const emit=()=>notify(structuredClone(snapshot));const provider={subscribe:cb=>{notify=cb;emit();return()=>{}},subscribeCaptions:()=>()=>{},subscribeTokenExpiry:()=>()=>{},getSnapshot:()=>snapshot,getMicrophoneLevel:()=>0,getActualDeviceState:()=>({microphone:snapshot.local.microphoneOn?'on':'off',camera:snapshot.local.cameraOn?'on':'off'}),connect:async credential=>{window.fixtureMediaCredential=credential;snapshot.participants=window.fixturePayload.runtime.members.filter(m=>m.online).map(m=>({id:String(m.rtcUids[0]),displayName:m.displayName,kind:'camera',hasAudio:true,hasVideo:true,isLocal:false}));window.fixtureScreen=on=>{snapshot.participants=snapshot.participants.filter(p=>p.kind!=='screen');if(on)snapshot.participants.push({id:'1000000099',kind:'screen',displayName:'共享屏幕',hasAudio:false,hasVideo:true,isLocal:false});emit()};emit()},attachVideo:(id,target)=>{const canvas=document.createElement('canvas');canvas.width=640;canvas.height=360;const ctx=canvas.getContext('2d');ctx.fillStyle=['#344256','#475569','#52637c','#3b5368'][Number(id)%4];ctx.fillRect(0,0,640,360);ctx.fillStyle='white';ctx.font='28px sans-serif';ctx.textAlign='center';ctx.fillText('模拟视频 · '+id,320,175);ctx.font='18px sans-serif';ctx.fillText('本地测试画面',320,210);const video=document.createElement('video');video.autoplay=true;video.muted=true;video.playsInline=true;video.style='width:100%;height:100%;object-fit:cover';video.srcObject=canvas.captureStream(1);target.replaceChildren(video);video.play().catch(()=>{})},detachVideo:(_id,target)=>{target.querySelector('video')?.srcObject?.getTracks().forEach(t=>t.stop());target.replaceChildren()},disconnect:async()=>{},renewCredential:async value=>{if(window.fixtureMediaRenewGate)await new Promise(resolve=>window.fixtureReleaseMediaRenew=resolve);window.fixtureStats.renewApplied=value.token},setPublishingCredential:async value=>{if(value)window.fixtureMediaCredential=value;window.fixtureStats.publishingChanges++;if(!value){snapshot.local.microphoneOn=false;snapshot.local.cameraOn=false;emit()}},toggleMicrophone:async()=>{window.fixtureStats.microphoneToggles++;snapshot.local.microphoneOn=!snapshot.local.microphoneOn;emit();return snapshot.local.microphoneOn},muteMicrophone:async()=>{snapshot.local.microphoneOn=false;emit()},toggleCamera:async()=>{snapshot.local.cameraOn=!snapshot.local.cameraOn;emit();return snapshot.local.cameraOn},startScreenShare:async authorize=>{window.fixtureStats.captureStarts=(window.fixtureStats.captureStarts||0)+1;if(!window.fixtureMediaCredential.screenShare)throw new Error('Missing screen token');if(window.fixtureCancelCapture)throw new DOMException('Capture canceled','NotAllowedError');if(window.fixtureCaptureTimeout)throw new Error('AgoraRTCError UNEXPECTED_ERROR: AbortError: Timeout starting video source');await authorize?.();snapshot.local.screenSharing=true;snapshot.participants.push({id:String(window.fixtureMediaCredential.screenShare.rtcUid),kind:'screen',hasVideo:true,hasAudio:false,isLocal:true});emit()},stopScreenShare:async()=>{snapshot.local.screenSharing=false;snapshot.participants=snapshot.participants.filter(p=>p.kind!=='screen'||!p.isLocal);emit()},recoverMedia:async()=>{window.fixtureStats.recoveries++},supportsVirtualBackground:()=>false,listDevices:async()=>({microphones:[],cameras:[]})};window.fixtureLocalShare=on=>{snapshot.local.screenSharing=on;emit()};window.fixtureStopScreen=()=>provider.stopScreenShare();return new Proxy(provider,{get:(target,key)=>key==='then'?undefined:key in target?target[key]:()=>Promise.resolve()})}`,
+  '@/lib/classroom/signaling/provider-factory':`export const createClassroomSignalingProvider=()=>({connect:async(_credential,onEvent,onHealth)=>{window.fixtureStats.signalingConnections++;window.fixtureReceive=onEvent;window.fixtureHealth=ready=>{window.fixtureStats.rtmReady=ready;onHealth?.(ready)};if(window.fixtureRTMFailNext){window.fixtureRTMFailNext=false;window.fixtureHealth(false);throw new Error('simulated RTM connection failure')}window.fixtureHealth(true)},publish:async event=>window.fixtureStats.events.push(event),publishToUser:async(id,event)=>(window.fixtureStats.direct??=[]).push({id,event}),disconnect:async()=>{}});`,
  };
  if(process.argv.includes('--sync-only'))delete stubs['@/components/classroom/activity-workspace'];
- const source=`
+ let source=`
  import React from'react';import{createRoot}from'react-dom/client';import{I18nProvider}from'@/lib/i18n/context';import{ClassroomV3}from'@/components/classroom/classroom-v3';import{classroomCapabilities}from'@/lib/classroom/policy';import{classroomModePolicy}from'@/lib/classroom/mode';import{emptyClassroomComposition,arrangeClassroomVideoGallery}from'@/lib/classroom/composition';import{prepareMainScreenShare,releaseMainScreenShare}from'@/lib/classroom/screen-share-selection';
  window.fixtureVisibility='visible';window.fixtureOnline=true;Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>window.fixtureVisibility});Object.defineProperty(navigator,'onLine',{configurable:true,get:()=>window.fixtureOnline});
  const role=new URLSearchParams(location.search).get('role')||'student';const uid=role==='student'?'student':role;window.fixtureUser={userId:uid,name:uid,displayName:role==='student'?'李明':'陈老师',avatar:'',role:role==='student'?'student':'teacher'};window.fixtureLastAction=null;window.fixtureStats={events:[],requests:[],publishingChanges:0,microphoneToggles:0,recoveries:0,signalingConnections:0};
+ if(new URLSearchParams(location.search).has('desktop-fixture'))window.classroomDesktop={platform:'darwin',setRemoteControlRequest:async value=>{window.fixtureRemotePending=value;return true},startRemoteControl:async value=>{window.fixtureRemoteStarted=value;return true},onRemoteControlRequestState:callback=>{window.fixtureRemoteRequestState=callback;return()=>{}},onRemoteControlState:callback=>{window.fixtureRemoteState=callback;return()=>{}},receiveRemoteControl:async packet=>{(window.fixtureRemotePackets??=[]).push(packet);return true},stopRemoteControl:async()=>{window.fixtureRemoteStops=(window.fixtureRemoteStops||0)+1;return true},setSharingState:async value=>{window.fixtureSharingState=value},setSharingControls:async value=>{window.fixtureSharingControls=value},setSharingSeats:async value=>{window.fixtureSharingSeats=value},setSharingChatSnapshot:async value=>{window.fixtureChatSnapshot=value},onSharingChatTranslationRetry:callback=>{window.fixtureTranslationRetry=callback;return()=>{if(window.fixtureTranslationRetry===callback)delete window.fixtureTranslationRetry}},onSharingChatImage:callback=>{window.fixtureChatImage=callback;return()=>{if(window.fixtureChatImage===callback)delete window.fixtureChatImage}},reportSharingChatImage:async(id,data)=>{(window.fixtureImageResults??={})[id]=data},onSharingCommand:callback=>{window.fixtureSharingCommand=callback;return()=>{if(window.fixtureSharingCommand===callback)delete window.fixtureSharingCommand}}};
  const member=(userId,memberRole)=>({userId,role:memberRole,displayName:memberRole==='student'?'李明':memberRole==='assistant'?'林助教':'陈老师',avatar:'',online:true,connectionStatus:'online',lastSeenAt:new Date().toISOString(),reconnectUntil:new Date(Date.now()+120000).toISOString(),onStage:memberRole!=='student',stageState:memberRole==='student'?'offstage':'accepted',microphoneAllowed:memberRole!=='student',cameraAllowed:memberRole!=='student',whiteboardWritable:memberRole!=='student',screenShareState:'idle',screenShareRequestedAt:null,chatMuted:false,handRaisedAt:null,rewardCount:0,signalingUserIds:[userId+':tab'],rtcUids:[userId==='student'?2:userId==='assistant'?3:1]});
  const start=new Date(Date.now()-600000).toISOString(),end=new Date(Date.now()+3600000).toISOString();const mode=classroomModePolicy(2);const members=[member('teacher','teacher'),member('assistant','assistant'),member('student','student')];
  const credential={provider:'agora',appId:'fixture',channelName:'fixture-channel',userId:uid,rtcUid:uid==='student'?2:1,role,token:'fixture',expiresInSeconds:3600,publishAllowed:role!=='student',scenario:'communication',auxiliaryCamera:role!=='student'?{rtcUid:4,token:'fixture',userId:uid}:undefined};
  const payload={mode:'largeClass',modePolicy:mode,credential,course:{id:'fixture-course',sessionId:'fixture-session',name:'CSCA 培训 · 第 1 课',roomType:2,teacherId:'teacher',teacherName:'陈老师',status:'live',startTime:start,endTime:end},runtime:{revision:1,status:'live',classStartMode:'manual',recordingStartMode:'disabled',startedAt:start,graceEndsAt:new Date(Date.parse(end)+600000).toISOString(),scheduledEndAt:end,scheduledStartAt:start,stageMode:'whiteboard',stageLocked:false,stageStudentLimit:null,stageInviteBypassLimit:true,spotlightUserId:null,activeCoursewareId:null,chatEnabled:true,timerStartedAt:null,timerDurationSec:null,timerPausedAt:null,assistantPermissions:{},interpretation:{enabled:true,provider:'shengwang',sourceLanguage:'zh-CN',targetLanguages:['en-US'],status:'running',error:null},composition:emptyClassroomComposition(),members,presenceObservedAt:new Date().toISOString()},engagement:{activeBuzz:null,selector:null},mediaProfile:{},capabilities:classroomCapabilities(role,mode),signaling:{provider:'agora',appId:'fixture',channelName:'fixture-session',userId:uid+':tab',token:'fixture'},whiteboard:{enabled:true,provider:'netless',appId:'fixture',roomUuid:'fixture',roomToken:'fixture',writable:role!=='student'},spaces:[],questions:[],courseware:[{id:'file',name:'课堂讲义.webp',ext:'webp',size:120000,studentCanView:true,studentCanDownload:true,whiteboardEnabled:false,taskStatus:'Pending',type:'static',previewUrl:'/api/fixture/file?mode=preview',downloadUrl:'/api/fixture/file',conversion:null,conversionError:null}],messages:[{id:'message',senderId:'student-other',senderName:'Tanu',senderRole:'student',scope:'classroom',kind:'text',content:'Terima kasih, guru.',createdAt:new Date().toISOString(),deletedAt:null}],captions:[{id:'caption',speakerId:'teacher',speakerName:'陈老师',text:'请先独立思考，再分享你的答案。',sourceLanguage:'zh-CN',detectedLanguage:'zh-CN',provider:'shengwang',translations:{'en-US':'Think first, then share your answer.'},isFinal:true,occurredAt:new Date().toISOString(),createdAt:new Date().toISOString()}],interpretationAvailability:{shengwang:true,wordly:false},recording:{enabled:false,status:null,mode:null,fallbackFrom:null}};
+ if(new URLSearchParams(location.search).has('student-chat-off'))payload.runtime.chatEnabled=false;
+ if(new URLSearchParams(location.search).has('chat-channels-fixture'))payload.spaces=[{id:'room-1',kind:'breakout',name:'Group 1',status:'open',position:0,capacity:null,memberCount:1,assistantCount:0,isAssigned:true,members:[]}];
  payload.course.name='算法与数学思维 · 第 30 课 / Algorithms and mathematical thinking';
  payload.messages=Array.from({length:18},(_,i)=>({id:'history-'+i,senderId:i%3===0?uid:'student-'+(i%2),senderName:i%3===0?'陈老师':i%2?'李明 · Alex':'Tanu',senderRole:i%3===0?role:'student',scope:'classroom',kind:'text',content:i%3===0?'先试着把两个分数通分，再观察分子有什么变化。':i%2?'老师，这里可以用均值不等式吗？我想再确认一下条件。':'I think the minimum is 2. Could you explain the equality condition?',createdAt:new Date(Date.now()-(18-i)*60000).toISOString(),deletedAt:null}));
+ if(new URLSearchParams(location.search).has('chat-channels-fixture')){payload.messages.unshift({id:'old-room',senderId:'student',senderName:'Student',senderRole:'student',scope:'room',spaceId:'room-1',kind:'text',content:'Group history',createdAt:new Date().toISOString(),deletedAt:null},{id:'old-staff',senderId:'teacher',senderName:'Teacher',senderRole:'teacher',scope:'staff',kind:'text',content:'Staff history',createdAt:new Date().toISOString(),deletedAt:null});for(let i=0;i<301;i++)payload.messages.push({id:'busy-'+i,senderId:'student',senderName:'Student',senderRole:'student',scope:'classroom',kind:'text',content:'Class '+i,createdAt:new Date().toISOString(),deletedAt:null})}
+ if(new URLSearchParams(location.search).has('chat-image-fixture'))payload.messages.push({id:'image-message',senderId:'student',senderName:'Student',senderRole:'student',scope:'classroom',kind:'image',content:JSON.stringify({imageId:'00000000-0000-4000-8000-000000000001',caption:'Example'}),createdAt:new Date().toISOString(),deletedAt:null});
  payload.captions=Array.from({length:16},(_,i)=>({...payload.captions[0],id:'caption-'+i,text:i%2?'当且仅当 a = b 时，等号成立。':'先通分，再利用 a + b = 2 这个条件。',translations:{'en-US':i%2?'Equality holds if and only if a equals b.':'Find a common denominator, then use the condition a + b = 2.'},occurredAt:new Date(Date.now()-(16-i)*30000).toISOString()}));
  members.forEach((m,i)=>{m.onStage=true;m.stageState='accepted';m.displayName=i===0?'首位 · 陈老师':i===1?'林助教':'李明'});
  for(let i=0;i<1;i++){const m=member('stage-'+i,'student');Object.assign(m,{displayName:i===21?'末位 · Nora':'同学 '+(i+1),onStage:true,stageState:'accepted',rtcUids:[100+i]});members.push(m)}
@@ -42,13 +47,23 @@ async function main(){
  const activity={id:'activity-one',title:'互动测试',kind:'poll',status:'active',durationSec:null,startedAt:start,deadlineAt:null,version:1,presented:false,presentedQuestion:0,createdAt:start,updatedAt:start,responseCount:0,questionCount:1};
  window.fixtureActivityList={activities:[activity],nextCursor:null,active:activity,canManage:role!=='student',canAnswer:role==='student',canPrepare:true,live:true};
  window.fixtureActivityDetail={...activity,definition:{questions:[{id:'q',type:'single',prompt:'选择答案',points:0,options:[{id:'a',text:'A'},{id:'b',text:'B'}]}]},ownResponse:null,responses:[],responseCursor:null,statistics:null,roster:[]};
- const originalFetch=window.fetch.bind(window);window.fetch=async(input,init={})=>{const url=new URL(String(input),location.href);window.fixtureStats.requests.push(url.pathname);const body=init.body?JSON.parse(init.body):{};
-  if(new URLSearchParams(location.search).has('sync-fixture')&&url.pathname.includes('/activities')){await new Promise(resolve=>setTimeout(resolve,30));return Response.json(url.pathname.endsWith('/presentation')?{presentation:null}:url.pathname.endsWith('/activities')?fixtureActivityList:fixtureActivityDetail);}
+ const originalFetch=window.fetch.bind(window);window.fetch=async(input,init={})=>{const url=new URL(String(input),location.href);(window.fixtureStats.timeline??=[]).push({path:url.pathname,at:Date.now()});const versionOnly=url.searchParams.get('versionOnly')==='1';if(versionOnly)window.fixtureStats.versionReads=(window.fixtureStats.versionReads||0)+1;else window.fixtureStats.requests.push(url.pathname);const body=init.body?JSON.parse(init.body):{};
+  if(new URLSearchParams(location.search).has('sync-fixture')&&url.pathname.includes('/activities')){await new Promise(resolve=>setTimeout(resolve,30));return Response.json(versionOnly?{revision:window.fixtureActivityRevision||1}:url.pathname.endsWith('/presentation')?{presentation:null}:url.pathname.endsWith('/activities')?fixtureActivityList:fixtureActivityDetail);}
+  if(url.pathname.endsWith('/remote-control')){
+   if(new URLSearchParams(location.search).has('remote-teacher-fixture') && init.method==='POST'){
+    if(body.action==='request'){(window.fixtureRequestIds??=[]).push(body.commandId);window.fixtureRemoteGrants=[{id:'teacher-grant',teacherId:'teacher',studentId:body.studentId,shareClaimId:body.claimId,state:'requested',effectiveState:'requested',keyReady:false,receiverReady:false,requestedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+60000).toISOString()}];return Response.json({grant:window.fixtureRemoteGrants[0]});}
+    if(body.action==='register-key'){window.fixtureRemoteGrants[0].keyReady=true;window.fixtureRemoteGrants[0].receiverReady=true;return Response.json({channel:{sessionId:'fixture-session',grantId:body.grantId,studentId:'student',shareClaimId:'share',studentSignalingId:'student:tab',publicKey:body.publicKey}});}
+    if(body.action==='stop'){(window.fixtureStops??=[]).push(body.grantId);window.fixtureRemoteGrants=[];return Response.json({grant:{teacherId:'teacher',studentId:'student'}});}
+   }
+   if(new URLSearchParams(location.search).has('sharing-fixture')&&init.method==='POST'&&body.action==='stop'){(window.fixtureStops??=[]).push(body.grantId);window.fixtureRemoteGrants=[];return Response.json({grant:{teacherId:'teacher',studentId:'student'}});}
+   return Response.json({grants:window.fixtureRemoteGrants||[]});
+  }
   if(url.pathname==='/api/fixture/file')return originalFetch(input,init);
+  if(url.pathname.endsWith('/spaces/credential')&&window.fixtureRoomAvailable&&!new URLSearchParams(location.search).has('room-race'))return Response.json({credential:{...credential,channelName:'group-recovered'}});
   if(url.pathname==='/api/classroom/session')return Response.json(payload);
   if(url.pathname.includes('publish-credential')){
    if(new URLSearchParams(location.search).has('sharing-fixture')){
-    window.fixtureStats.publishingRequests=(window.fixtureStats.publishingRequests||0)+1;
+    window.fixtureStats.publishingRequests=(window.fixtureStats.publishingRequests||0)+1;const capture={onStage:members.find(m=>m.userId===uid).onStage,share:members.find(m=>m.userId===uid).screenShareState,aborted:false,at:Date.now()};(window.fixtureStats.publishingStates??=[]).push(capture);init.signal?.addEventListener('abort',()=>{capture.aborted=true;});
     if(window.fixturePublishGate)await new Promise(resolve=>window.fixtureReleasePublish=resolve);
     if(window.fixtureDenyPublish)return Response.json({error:'Permission unavailable'},{status:403});
     const allowed=members.find(m=>m.userId===uid).screenShareState==='accepted';
@@ -57,16 +72,18 @@ async function main(){
    return Response.json({credential:{...credential,publishAllowed:true}});
   }
   if(url.pathname.includes('whiteboard-credential'))return Response.json({whiteboard:{...payload.whiteboard,writable:members.find(m=>m.userId===uid).whiteboardWritable}});
-  if(url.pathname.includes('renew-credential'))return Response.json({credential,signaling:payload.signaling});
-  if(url.pathname.endsWith('/translate'))return Response.json({translations:Object.fromEntries(body.messageIds.map(id=>[id,{status:'completed',text:body.language==='zh-CN'?'谢谢老师。':'Thank you, teacher.'}]))});
+  if(url.pathname.includes('renew-credential')){const m=members.find(m=>m.userId===uid);const canPublish=role!=='student'||Boolean(m.onStage&&m.stageState==='accepted');const snapshot={...credential,publishAllowed:canPublish,screenShare:canPublish&&m.screenShareState==='accepted'?{rtcUid:1200000002,token:'screen-fixture',userId:uid}:undefined,auxiliaryCamera:canPublish&&m.cameraAllowed?{rtcUid:4,token:'aux-fixture',userId:uid}:undefined};if(window.fixtureRenewGate)await new Promise(resolve=>window.fixtureReleaseRenew=resolve);return Response.json({credential:snapshot,signaling:payload.signaling});}
+  if(url.pathname.endsWith('/translate')&&window.fixtureTranslationFail)return Response.json({error:'offline'},{status:503});
+  if(url.pathname.endsWith('/translate'))return Response.json({translations:Object.fromEntries(body.messageIds.map(id=>[id,{status:'completed',text:window.fixtureSameTranslation?(payload.messages.find(message=>message.id===id)?.content||''):body.language==='zh-CN'?'谢谢老师。':'Thank you, teacher.'}]))});
   if(url.pathname.endsWith('/state')){
    if(new URLSearchParams(location.search).has('captions-fixture')){
     const response=await originalFetch('/fixture/caption-state'+url.search,{method:'POST',body:JSON.stringify(payload)});
     const result=await response.clone().json();(window.fixtureStats.captionReads??=[]).push({scope:url.searchParams.get('scope'),hasCursor:url.searchParams.has('captionCursor'),count:result.captions?.length,mode:result.captionSync?.mode,bytes:JSON.stringify(result).length});return response;
    }
-   return Response.json(payload);
+   (window.fixtureStateAssignments??=[]).push(payload.spaces[0]?.isAssigned);return Response.json(payload);
   }
-  if(url.pathname.endsWith('/messages')){if(init.method==='POST'){window.fixtureLastSend=body;if(window.fixtureFailSend)return Response.json({error:'fixture failure'},{status:400});const message={id:'sent-'+payload.messages.length,senderId:uid,senderName:'陈老师',senderRole:role,scope:body.scope||'classroom',content:body.content,createdAt:new Date().toISOString(),deletedAt:null};payload.messages.push(message);return Response.json({message,revision:payload.runtime.revision})}return Response.json({messages:payload.messages})};
+  if(url.pathname.endsWith('/messages/image-message/image')){window.fixtureImageUrl=url.href;if(window.fixtureImageGate)await new Promise(resolve=>window.fixtureReleaseImage=resolve);if(window.fixtureImageDeny)return Response.json({error:'Forbidden'},{status:403});if(window.fixtureImageBadType)return new Response('not an image',{headers:{'content-type':'text/html'}});return originalFetch('/api/fixture/file');}
+  if(url.pathname.endsWith('/messages')){if(!init.method||init.method==='GET')(window.fixtureMessageSpaces??=[]).push(url.searchParams.get('spaceId'));if(init.method==='POST'){window.fixtureLastSend=body;if(window.fixtureFailSend)return Response.json({error:'fixture failure'},{status:400});const message={id:'sent-'+payload.messages.length,senderId:uid,senderName:'陈老师',senderRole:role,scope:body.scope||'classroom',content:body.content,createdAt:new Date().toISOString(),deletedAt:null};payload.messages.push(message);return Response.json({message,revision:payload.runtime.revision})}(window.fixtureMessageStatuses??=[]).push(window.fixtureMessageStatus||200);if(window.fixtureMessageStatus)return new Response('unavailable',{status:window.fixtureMessageStatus});return Response.json({messages:payload.messages})};
   if(url.pathname.endsWith('/lifecycle')){localStorage.setItem('fixture-last-lifecycle',JSON.stringify(body));payload.runtime.revision++;const next=body.action==='extend'?new Date(Date.parse(payload.course.endTime)+body.minutes*60000).toISOString():new Date(Date.now()+3600000).toISOString();payload.course.endTime=next;payload.runtime.scheduledEndAt=next;return Response.json({timing:{startTime:start,endTime:next,revision:payload.runtime.revision}})}
   if(url.pathname.endsWith('/actions')){window.fixtureLastAction=body.action;(window.fixtureActions??=[]).push(body.action?.type);if(new URLSearchParams(location.search).has('sharing-fixture')){
     const student=members.find(m=>m.userId==='student');
@@ -80,6 +97,22 @@ async function main(){
  document.cookie='NEXT_LOCALE=zh-CN;path=/';localStorage.setItem('locale','zh-CN');localStorage.setItem('classroom_caption_language','en-US');localStorage.setItem('classroom_caption_mode','bilingual');
  createRoot(document.getElementById('root')).render(<I18nProvider initialLocale="zh-CN"><ClassroomV3/></I18nProvider>);
  `;
+ if(process.argv.includes('--assistant-room-only')){
+  const provider='@/lib/classroom/client/provider-factory';
+  stubs[provider]=stubs[provider].replace('connect:async credential=>{window.fixtureMediaCredential=credential;',"connect:async credential=>{window.fixtureMediaCredential=credential;(window.fixtureProviders??=[]).push({provider,channel:credential.channelName});(window.fixtureRoomEvents??=[]).push('connect:'+credential.channelName);")
+   .replace('muteMicrophone:async()=>{snapshot.local.microphoneOn=false;emit()},',"muteMicrophone:async()=>{(window.fixtureRoomEvents??=[]).push('mute');if(window.fixtureMuteGate)await new Promise(resolve=>window.fixtureReleaseMute=resolve);snapshot.local.microphoneOn=false;emit()},")
+   .replace('disconnect:async()=>{},',"disconnect:async()=>{(window.fixtureRoomEvents??=[]).push('disconnect');if(window.fixtureFailDisconnect)throw new Error('disconnect failed');if(window.fixtureDisconnectGate)await new Promise(resolve=>window.fixtureReleaseDisconnect=resolve);snapshot.local.screenSharing=false;snapshot.local.microphoneOn=false;emit();},");
+  source=source.replace('window.fixturePayload=payload;',"payload.spaces=[{id:'room-1',name:'Group 1',status:'open',kind:'breakout',memberCount:1,capacity:10,isAssigned:true,members:[{userId:'assistant',displayName:'林助教',avatar:'',role:'assistant',active:true,microphoneAllowed:true,cameraAllowed:true,screenShareAllowed:true}]}]; window.fixturePayload=payload;")
+   .replace("if(url.pathname==='/api/classroom/session')return Response.json(payload);","if(url.pathname.endsWith('/spaces/credential'))return Response.json({credential:{...credential,channelName:'group-channel',publishAllowed:true,screenShare:{rtcUid:1200000003,token:'room-screen',userId:uid}}});if(url.pathname==='/api/classroom/session')return Response.json(payload);")
+   .replace("if(url.pathname.endsWith('/actions')){window.fixtureLastAction=body.action;","if(url.pathname.endsWith('/actions')&&body.action?.spaceId==='room-1'&&body.action.type==='startScreenShare'){window.fixtureRoomStart=body.action;payload.runtime.composition.screenShares??={};payload.runtime.composition.screenShares['room-1']={userId:uid,clientId:body.clientId,claimId:body.action.claimId,rtcUid:1200000003};payload.runtime.revision++;return Response.json({runtime:payload.runtime});}if(url.pathname.endsWith('/actions')&&body.action?.spaceId==='room-1'&&body.action.type==='releaseScreenShare'){window.fixtureRoomRelease=body.action;delete payload.runtime.composition.screenShares['room-1'];payload.runtime.revision++;return Response.json({runtime:payload.runtime});}if(url.pathname.endsWith('/actions')){window.fixtureLastAction=body.action;");
+ }
+ if(process.argv.includes('--room-race-only')){
+  source=source.replace("if(url.pathname==='/api/classroom/session')return Response.json(payload);","if(url.pathname.endsWith('/spaces/credential')){if(!window.fixtureRoomAvailable&&!new URLSearchParams(location.search).has('room-connect-race'))await new Promise(resolve=>window.fixtureReleaseRoomCredential=resolve);return Response.json({credential:{...credential,channelName:'group-race'}})}if(url.pathname==='/api/classroom/session')return Response.json(payload);");
+  const provider='@/lib/classroom/client/provider-factory';
+  stubs[provider]=stubs[provider].replace('let notify=()=>{};',"let notify=()=>{},currentChannel='';")
+   .replace('connect:async credential=>{window.fixtureMediaCredential=credential;',"connect:async credential=>{currentChannel=credential.channelName;window.fixtureMediaCredential=credential;if(credential.channelName==='group-race'&&new URLSearchParams(location.search).has('room-connect-race'))await new Promise(resolve=>window.fixtureReleaseRoomConnect=resolve);")
+   .replace('disconnect:async()=>{},',"disconnect:async()=>{(window.fixtureDisconnectedChannels??=[]).push(currentChannel);},");
+ }
  const bundle=await esbuild.build({stdin:{contents:source,resolveDir:root,loader:'tsx'},bundle:true,write:false,outfile:path.join(cache,'fixture.js'),platform:'browser',format:'iife',define:{'process.env':'{}'},tsconfig:path.join(root,'tsconfig.json'),plugins:[{name:'isolated-app',setup(build){build.onLoad({filter:/sync-scheduler\.ts$/},async args=>{if(!process.argv.includes('--sync-only'))return;const contents=(await fs.readFile(args.path,'utf8')).replace('now: Date.now, set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer)','now: ()=>Date.now()*20, set: (fn,ms)=>setTimeout(fn,ms/20), clear: timer=>clearTimeout(timer)');return{contents,loader:'ts',resolveDir:path.dirname(args.path)}});build.onResolve({filter:/.*/},args=>args.path in stubs?{path:args.path,namespace:'stub'}:undefined);build.onLoad({filter:/.*/,namespace:'stub'},args=>({contents:stubs[args.path],loader:'tsx',resolveDir:root}));}}]});
  const cssPath=path.join(cache,'global.css');if(!process.argv.includes('--reuse-css'))execFileSync('node',[require.resolve('tailwindcss/lib/cli.js'),'-i',path.join(root,'src/app/globals.css'),'-o',cssPath,'--minify'],{stdio:'pipe'});
  const css=(await fs.readFile(cssPath,'utf8'))+'\n'+(await Promise.all(['classroom-classin.css','classroom-light.css','classroom-responsive.css'].map(name=>fs.readFile(path.join(root,'src/app',name),'utf8')))).join('\n')+'\n'+(bundle.outputFiles.find(file=>file.path.endsWith('.css'))?.text||'');
@@ -98,9 +131,206 @@ async function main(){
  const settle=()=>new Promise(resolve=>setTimeout(resolve,350));
  const clickText=async text=>{assert.ok(await run(`(()=>{const e=[...document.querySelectorAll('[role^="menuitem"]')].find(e=>e.textContent.trim()===${JSON.stringify(text)});if(!e)return false;e.click();return true})()`),'menu item '+text);await settle()};
  const checks=[];
+ if(process.argv.includes('--translation-settings-only')){
+  win.setContentSize(1440,900);await win.loadURL(url+'&role=teacher');await wait(`document.querySelector('[data-dock-action="chat"]')`);
+  await run(`window.fixtureSameTranslation=true;localStorage.setItem('workspace:translation:'+JSON.stringify('teacher'),JSON.stringify({enabled:false,target:'vi-VN'}));window.dispatchEvent(new Event('workspace:translation-preference'));document.querySelector('[data-dock-action="chat"]').click()`);
+  await wait(`document.querySelector('button[aria-label^="聊天翻译设置"]')`);await run(`document.querySelector('button[aria-label^="聊天翻译设置"]').click()`);
+  await wait(`document.querySelector('[role="dialog"][aria-label^="聊天翻译设置"] input[type="checkbox"]')`);
+  assert.equal(await run(`document.querySelector('[role="dialog"][aria-label^="聊天翻译设置"] input').checked`),false);
+  assert.equal(await run(`document.querySelector('[role="dialog"][aria-label^="聊天翻译设置"] select').value`),'vi-VN');
+  await run(`document.querySelector('[role="dialog"][aria-label^="聊天翻译设置"] input').click()`);
+  await wait(`JSON.parse(localStorage.getItem('workspace:translation:'+JSON.stringify('teacher'))).enabled===true`);
+  await wait(`fixtureStats.requests.some(path=>path.endsWith('/translate'))`);
+  await wait(`!document.querySelector('.classroom-v3-message-translation')`);
+  assert.equal(await run(`document.body.innerText.includes('I think the minimum is 2.')`),true,'same-language messages retain their original text');
+  await run(`(()=>{const select=document.querySelector('[role="dialog"][aria-label^="聊天翻译设置"] select');select.value='en-US';select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await wait(`JSON.parse(localStorage.getItem('workspace:translation:'+JSON.stringify('teacher'))).target==='en-US'`);
+  await run(`localStorage.setItem('workspace:translation:'+JSON.stringify('teacher'),JSON.stringify({enabled:true,target:'auto'}));window.dispatchEvent(new StorageEvent('storage',{key:'workspace:translation:'+JSON.stringify('teacher')}))`);
+  await wait(`document.querySelector('[role="dialog"][aria-label^="聊天翻译设置"] select').value==='auto'`);
+  const second=new BrowserWindow({width:1000,height:800,show:false,webPreferences:{session:win.webContents.session,backgroundThrottling:false}});
+  try{
+   await second.loadURL(url+'&role=teacher');
+   const secondRun=code=>second.webContents.executeJavaScript(code);
+   for(let i=0;i<100&&!await secondRun(`Boolean(document.querySelector('[data-dock-action="chat"]'))`);i++)await new Promise(resolve=>setTimeout(resolve,100));
+   await secondRun(`document.querySelector('[data-dock-action="chat"]').click()`);
+   for(let i=0;i<100&&!await secondRun(`Boolean(document.querySelector('button[aria-label^="聊天翻译设置"]'))`);i++)await new Promise(resolve=>setTimeout(resolve,100));
+   await secondRun(`document.querySelector('button[aria-label^="聊天翻译设置"]').click()`);
+   for(let i=0;i<100&&!await secondRun(`Boolean(document.querySelector('[role="dialog"][aria-label^="聊天翻译设置"] select'))`);i++)await new Promise(resolve=>setTimeout(resolve,100));
+   assert.equal(await secondRun(`document.querySelector('[role="dialog"][aria-label^="聊天翻译设置"] select').value`),'auto');
+   await secondRun(`(()=>{const select=document.querySelector('[role="dialog"][aria-label^="聊天翻译设置"] select');select.value='vi-VN';select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+   await wait(`document.querySelector('[role="dialog"][aria-label^="聊天翻译设置"] select').value==='vi-VN'`);
+  }finally{second.destroy();}
+  console.log('PASS classroom shares account translation preference and follows external changes');return;
+ }
+ if(process.argv.includes('--assistant-room-only')){
+  win.setContentSize(1440,900);await win.loadURL(url+'&role=assistant');await wait(`fixtureProviders?.length===1&&document.querySelector('[data-dock-action="microphone"]')`);
+  await run(`document.querySelector('[data-dock-action="microphone"]').click()`);await wait(`fixtureProviders[0].provider.getSnapshot().local.microphoneOn`);
+  await run(`document.querySelector('button[title="课堂管理"]').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerType:'mouse'}))`);await wait(`[...document.querySelectorAll('[role=menuitem]')].some(e=>e.textContent.trim()==='分组教室')`);await clickText('分组教室');
+  await wait(`document.querySelector('button[title="进入或监听该教室"]')`);
+  await run(`fixtureLocalShare(true);document.querySelector('button[title="进入或监听该教室"]').click()`);await wait(`document.body.innerText.includes('请先停止主课堂屏幕共享')`);assert.equal(await run(`fixtureProviders.length`),1);await run(`fixtureLocalShare(false)`);
+  await run(`window.fixtureMuteGate=true;document.querySelector('button[title="进入或监听该教室"]').click()`);await wait(`typeof fixtureReleaseMute==='function'`);
+  assert.equal(await run(`fixtureProviders.length`),1,'group connection waits for the main microphone');
+  await run(`document.querySelector('[data-dock-action="microphone"]').click()`);assert.equal(await run(`fixtureProviders[0].provider.getSnapshot().local.microphoneOn`),true,'media actions are blocked during the transition');
+  await run(`fixtureReleaseMute()`);await wait(`fixtureProviders.length===2&&document.querySelector('.classroom-v3-room-monitor')`);
+  assert.equal(await run(`fixtureProviders[0].provider.getSnapshot().local.microphoneOn`),false);
+  await run(`document.querySelector('[data-dock-action="microphone"]').click()`);await wait(`fixtureProviders[1].provider.getSnapshot().local.microphoneOn`);assert.equal(await run(`fixtureProviders[0].provider.getSnapshot().local.microphoneOn`),false);
+  await wait(`!!document.querySelector('[data-dock-action="share"]')`);await run(`document.querySelector('[data-dock-action="share"]').click()`);await wait(`!!document.querySelector('.classroom-share-menu button:has(.lucide-monitor-up)')`);await run(`document.querySelector('.classroom-share-menu button:has(.lucide-monitor-up)').click()`);await wait(`fixtureProviders[1].provider.getSnapshot().local.screenSharing`);assert.equal(await run(`fixtureRoomStart.spaceId`),'room-1');assert.equal(await run(`fixtureProviders[0].provider.getSnapshot().local.screenSharing`),false);
+  await run(`window.fixtureMuteGate=false;window.fixtureDisconnectGate=true;[...document.querySelectorAll('.classroom-v3-room-monitor button')].find(b=>b.textContent.includes('返回主课堂')).click()`);await wait(`typeof fixtureReleaseDisconnect==='function'`);
+  await run(`document.querySelector('[data-dock-action="microphone"]').click()`);assert.equal(await run(`fixtureProviders[0].provider.getSnapshot().local.microphoneOn`),false,'main audio stays off while room disconnects');
+  await run(`fixtureReleaseDisconnect()`);await wait(`window.fixtureRoomRelease?.spaceId==='room-1'`);await wait(`!document.querySelector('.classroom-v3-room-monitor')`);await run(`document.querySelector('[data-dock-action="microphone"]').click()`);await wait(`fixtureProviders[0].provider.getSnapshot().local.microphoneOn`);
+  await run(`window.fixtureMuteGate=false;window.fixtureDisconnectGate=false;document.querySelector('button[title="进入或监听该教室"]').click()`);await wait(`fixtureProviders.length===3&&document.querySelector('.classroom-v3-room-monitor')`);
+  await run(`window.fixtureFailDisconnect=true;[...document.querySelectorAll('.classroom-v3-room-monitor button')].find(b=>b.textContent.includes('返回主课堂')).click()`);await wait(`document.body.innerText.includes('无法安全离开分组')`);assert.ok(await run(`!!document.querySelector('.classroom-v3-room-monitor')`),'failed disconnect retains the room');await run(`document.querySelector('[data-dock-action="microphone"]').click()`);assert.equal(await run(`fixtureProviders[0].provider.getSnapshot().local.microphoneOn`),false,'failed disconnect blocks main audio');await run(`window.fixtureFailDisconnect=false;[...document.querySelectorAll('.classroom-v3-room-monitor button')].find(b=>b.textContent.includes('返回主课堂')).click()`);await wait(`!document.querySelector('.classroom-v3-room-monitor')`);await run(`document.querySelector('button[title="进入或监听该教室"]').click()`);await wait(`fixtureProviders.length===4&&document.querySelector('.classroom-v3-room-monitor')`);
+  await run(`fixturePayload.spaces[0].members=[];fixturePayload.runtime.revision++;fixtureReceive({courseId:'fixture-session',topic:'runtime',revision:fixturePayload.runtime.revision},'teacher:tab')`);await wait(`!document.querySelector('.classroom-v3-room-monitor')`);
+  assert.equal(await run(`fixtureProviders[0].provider.getSnapshot().local.microphoneOn`),false,'revocation does not turn on main audio');
+  console.log('PASS assigned assistant switches microphone routing without overlapping channels and leaves on revocation');return;
+ }
+ if(process.argv.includes('--chat-image-only')){
+  win.setContentSize(1440,900);await win.loadURL(url+'&role=teacher&desktop-fixture=1&chat-image-fixture=1&shareAccess=visitor-test');
+  await wait(`typeof fixtureChatImage==='function'&&typeof fixtureReceive==='function'`);
+  await run(`fixtureChatImage({id:'valid',messageId:'image-message'})`);
+  await wait(`Object.hasOwn(window.fixtureImageResults||{},'valid')`);
+  assert.ok(await run(`fixtureImageResults.valid?.startsWith('data:image/webp;base64,')`),'authorized image is forwarded as WebP');
+  assert.equal(await run(`new URL(fixtureImageUrl).searchParams.get('shareAccess')`),'visitor-test','visitor credential stays on the authenticated image request');
+  await run(`fixtureImageDeny=true;fixtureChatImage({id:'denied',messageId:'image-message'})`);
+  await wait(`Object.hasOwn(window.fixtureImageResults,'denied')`);
+  assert.equal(await run(`fixtureImageResults.denied`),null,'authorization failure is not forwarded as an image');
+  await run(`fixtureImageDeny=false;fixtureImageBadType=true;fixtureChatImage({id:'bad-type',messageId:'image-message'})`);
+  await wait(`Object.hasOwn(window.fixtureImageResults,'bad-type')`);
+  assert.equal(await run(`fixtureImageResults['bad-type']`),null,'non-WebP responses are rejected');
+  await run(`fixtureImageBadType=false`);
+  await run(`fixtureChatImage({id:'unknown',messageId:'unknown-message'})`);
+  await wait(`Object.hasOwn(window.fixtureImageResults,'unknown')`);
+  assert.equal(await run(`fixtureImageResults.unknown`),null,'unknown messages are refused before fetching');
+  await run(`fixtureImageGate=true;fixtureChatImage({id:'revoked',messageId:'image-message'})`);
+  await wait(`typeof fixtureReleaseImage==='function'`);
+  const messageReads=await run(`fixtureStats.requests.filter(path=>path.endsWith('/messages')).length`);
+  await run(`fixturePayload.messages=fixturePayload.messages.filter(message=>message.id!=='image-message');fixturePayload.runtime.revision++;fixtureReceive({courseId:'fixture-session',topic:'messages',revision:fixturePayload.runtime.revision},'student:tab')`);
+  await wait(`fixtureStats.requests.filter(path=>path.endsWith('/messages')).length>${messageReads}`);
+  await new Promise(resolve=>setTimeout(resolve,250));
+  await run(`fixtureReleaseImage()`);
+  await wait(`Object.hasOwn(window.fixtureImageResults,'revoked')`);
+  assert.equal(await run(`fixtureImageResults.revoked`),null,'removed message is rejected when its image response arrives');
+  assert.equal(errors.length,0,errors.join('\n'));console.log('PASS classroom image bridge and removal');return;
+ }
+ if(process.argv.includes('--room-race-only')){
+  await win.loadURL(url+'&role=student&chat-channels-fixture=1&room-race=1');
+  await wait(`typeof fixtureReleaseRoomCredential==='function'`);
+  const stateReads=await run(`fixtureStats.requests.filter(path=>path.endsWith('/state')).length`);
+  await run(`fixturePayload.spaces[0].isAssigned=false;fixturePayload.runtime.revision++;fixtureHealth(false);fixtureReceive({courseId:'fixture-session',topic:'runtime',revision:fixturePayload.runtime.revision},'teacher:other')`);
+  await wait(`fixtureStats.requests.filter(path=>path.endsWith('/state')).length>${stateReads}`);await wait(`fixtureMessageSpaces?.at(-1)===null`);
+  await run(`fixtureRoomAvailable=true;fixtureReleaseRoomCredential()`);await settle();
+  assert.notEqual(await run(`fixtureMediaCredential.channelName`),'group-race','late credential cannot join a revoked group');
+  await win.loadURL(url+'&role=student&chat-channels-fixture=1&room-race=1&room-connect-race=1');
+  await wait(`typeof fixtureReleaseRoomConnect==='function'`);
+  const readsDuringConnect=await run(`fixtureStats.requests.filter(path=>path.endsWith('/state')).length`);
+  await run(`fixturePayload.spaces[0].isAssigned=false;fixturePayload.runtime.revision++;fixtureHealth(false);fixtureReceive({courseId:'fixture-session',topic:'runtime',revision:fixturePayload.runtime.revision},'teacher:other')`);
+  await wait(`fixtureStats.requests.filter(path=>path.endsWith('/state')).length>${readsDuringConnect}`);await wait(`fixtureMessageSpaces?.at(-1)===null`);
+  await run(`fixtureReleaseRoomConnect()`);
+  await wait(`window.fixtureDisconnectedChannels?.includes('group-race')`);
+  assert.equal(await run(`window.fixtureDisconnectedChannels.includes('fixture-channel')`),false,'main classroom connection stays active');
+  console.log('PASS group assignment change during credential request');return;
+ }
+ if(process.argv.includes('--room-retry-only')){
+  await win.loadURL(url+'&role=student&chat-channels-fixture=1');
+  await wait(`fixtureStats.requests.some(path=>path.endsWith('/spaces/credential'))`);
+  await new Promise(resolve=>setTimeout(resolve,2400));
+  const requests=await run(`fixtureStats.timeline.filter(item=>item.path.endsWith('/spaces/credential')).map(item=>item.at)`);
+  assert.ok(requests.length>=2&&requests.length<=3,`failed automatic joins use bounded retries: ${JSON.stringify(requests)}`);
+  assert.ok(requests[1]-requests[0]>=850,`first retry waits after failure: ${JSON.stringify(requests)}`);
+  await run(`fixtureRoomAvailable=true`);
+  await wait(`fixtureMediaCredential?.channelName==='group-recovered'`);
+  console.log('PASS bounded automatic room retries',requests.length);return;
+ }
+ if(process.argv.includes('--chat-permissions-only')){
+  win.setContentSize(1440,900);
+  for(const role of ['teacher','assistant','student']){
+   await win.loadURL(url+'&role='+role+'&desktop-fixture=1&student-chat-off=1&chat-channels-fixture=1');
+   await wait(`typeof fixtureLocalShare==='function'&&typeof fixtureReceive==='function'`);
+   await wait(`document.querySelector('[data-dock-action="chat"]')`);
+   await run(`document.querySelector('[data-dock-action="chat"]').click()`);
+   await wait(`document.querySelector('#conversation-chat textarea')`);
+   const disabled=await run(`document.querySelector('#conversation-chat textarea').disabled`);
+   assert.equal(disabled,role==='student',`${role} classroom input`);
+   if(role==='teacher')await run(`window.fixtureTranslationFail=true`);
+   await run(`fixtureLocalShare(true)`);
+   await wait(`Boolean(window.fixtureChatSnapshot)`);
+   if(role==='teacher'){
+    await wait(`fixtureChatSnapshot.translationState==='failed'&&typeof fixtureTranslationRetry==='function'`);
+    await run(`window.fixtureTranslationFail=false;fixtureTranslationRetry()`);
+    await wait(`fixtureChatSnapshot.messages.some(message=>typeof message.translation==='string'&&message.translation.length>0)`);
+    await run(`localStorage.setItem('workspace:translation:'+JSON.stringify('teacher'),JSON.stringify({enabled:false,target:'auto'}));window.dispatchEvent(new Event('workspace:translation-preference'))`);
+    await wait(`fixtureChatSnapshot.messages.every(message=>!message.translation)`);
+    await run(`localStorage.setItem('workspace:translation:'+JSON.stringify('teacher'),JSON.stringify({enabled:true,target:'auto'}));window.dispatchEvent(new Event('workspace:translation-preference'))`);
+    await wait(`fixtureChatSnapshot.messages.some(message=>typeof message.translation==='string'&&message.translation.length>0)`);
+   }
+   assert.equal(await run(`fixtureChatSnapshot.disabled`),role==='student',`${role} sharing chat input`);
+   assert.equal(await run(`fixtureChatSnapshot.channels.some(channel=>channel.scope==='room'&&channel.spaceId==='room-1')`),true,`${role} assigned room channel`);
+   assert.equal(await run(`fixtureChatSnapshot.channels.some(channel=>channel.scope==='staff')`),role!=='student',`${role} staff channel`);
+   assert.equal(await run(`fixtureChatSnapshot.messages.some(message=>message.id==='old-room')`),true,`${role} group history survives busy classroom`);
+   assert.equal(await run(`fixtureChatSnapshot.messages.some(message=>message.id==='old-staff')`),role!=='student',`${role} staff history is restricted`);
+   assert.equal(await run(`fixtureChatSnapshot.messages.filter(message=>message.scope==='classroom').length`),100,`${role} classroom history is bounded`);
+   await wait(`fixtureMessageSpaces?.includes('room-1')`);
+
+
+
+   await run(`fixturePayload.spaces[0].id='room-2';fixturePayload.runtime.revision++;fixtureReceive({courseId:'fixture-session',topic:'runtime',revision:fixturePayload.runtime.revision},'teacher:other')`);
+   await wait(`fixtureMessageSpaces?.includes('room-2')`);
+   await wait(`!fixtureChatSnapshot.messages.some(message=>message.id==='old-room')||fixtureSharingState===false`);
+   if(role==='teacher'){
+    await run(`fixturePayload.messages.find(message=>message.id==='busy-300').deletedAt=new Date().toISOString();fixtureReceive({courseId:'fixture-session',topic:'messages',revision:++fixturePayload.runtime.revision},'teacher:other')`);
+    await wait(`!fixtureChatSnapshot.messages.some(message=>message.id==='busy-300')`);
+   }
+
+   await run(`fixturePayload.runtime.chatEnabled=true;fixturePayload.runtime.revision++;fixtureReceive({courseId:'fixture-session',topic:'runtime',revision:fixturePayload.runtime.revision},'teacher:other')`);
+   await wait(`!document.querySelector('#conversation-chat textarea').disabled`);
+   await run(`fixturePayload.runtime.members.find(member=>member.userId===${JSON.stringify(role)}).chatMuted=true;fixturePayload.runtime.revision++;fixtureReceive({courseId:'fixture-session',topic:'runtime',revision:fixturePayload.runtime.revision},'teacher:other')`);
+   await wait(`document.querySelector('#conversation-chat textarea').disabled===${role==='student'}`);
+   if(role==='teacher'){
+    const refresh=async status=>{const reads=await run(`fixtureMessageStatuses.length`);await run(`fixtureMessageStatus=${status};fixtureReceive({courseId:'fixture-session',topic:'messages',revision:++fixturePayload.runtime.revision},'teacher:other')`);await wait(`fixtureMessageStatuses.slice(${reads}).includes(${status||200})`);await settle();};
+    await refresh(503);assert.ok(await run(`fixtureChatSnapshot.messages.length>0`),'temporary failure retains messages');
+    await refresh(403);await wait(`fixtureChatSnapshot.messages.length===0`);
+    await refresh(0);await wait(`fixtureChatSnapshot.messages.length>0`);
+    await refresh(401);await wait(`fixtureChatSnapshot.messages.length===0`);
+    await refresh(0);await wait(`fixtureChatSnapshot.messages.length>0`);
+   }
+   console.log('PASS chat permission',role);
+  }
+  assert.equal(errors.length,0,errors.join('\n'));return;
+ }
+ if(process.argv.includes('--remote-teacher-only')){
+  win.setContentSize(1440,900);await win.loadURL(url+'&role=teacher&remote-teacher-fixture=1');
+  await wait(`typeof fixtureReceive==='function'&&typeof fixtureScreen==='function'`);
+  await run(`fixturePayload.runtime.composition.screenShares={main:{userId:'student',clientId:'student-client',claimId:'share',rtcUid:1000000099}};fixturePayload.runtime.revision++;fixtureReceive({courseId:'fixture-session',topic:'runtime',revision:fixturePayload.runtime.revision},'student:tab');fixtureScreen(true)`);
+  await wait(`document.querySelector('.classroom-remote-control-toolbar button:not(:disabled)')`);
+  await capture('teacher-remote-request.png');
+  await run(`document.querySelector('.classroom-remote-control-toolbar button').click()`);
+  await wait(`fixtureRemoteGrants?.[0]?.state==='requested'`);
+  await run(`fixtureRemoteGrants[0].state='rejected';fixtureRemoteGrants[0].effectiveState='rejected';fixtureReceive({courseId:'fixture-session',topic:'remote-control-hint',revision:0,actorId:'student',targetUserId:'teacher'},'student:tab')`);
+  await wait(`document.querySelector('.classroom-remote-control-toolbar')?.textContent.includes('请求被拒绝或已结束')`);
+  await run(`document.querySelector('.classroom-remote-control-toolbar button').click()`);
+  await wait(`fixtureRequestIds?.length===2`);
+  assert.notEqual(await run(`fixtureRequestIds[0]`),await run(`fixtureRequestIds[1]`),'a new request after rejection has a new idempotency key');
+  await run(`fixtureRemoteGrants[0].state='granted';fixtureRemoteGrants[0].effectiveState='granted';fixtureReceive({courseId:'fixture-session',topic:'remote-control-hint',revision:0,actorId:'student',targetUserId:'teacher'},'student:tab')`);
+  await wait(`fixtureRemoteGrants?.[0]?.keyReady`);
+  await run(`fixtureReceive({courseId:'fixture-session',topic:'remote-control-hint',revision:0,actorId:'student',targetUserId:'teacher'},'student:tab')`);
+  await wait(`[...document.querySelectorAll('.classroom-remote-control-toolbar button:not(:disabled)')].some(button=>button.textContent==='开始控制')`);
+  await capture('teacher-remote-ready.png');
+  await run(`[...document.querySelectorAll('.classroom-remote-control-toolbar button')].find(button=>button.textContent==='开始控制').click()`);
+  await wait(`document.querySelector('.classroom-remote-control-surface')&&fixtureStats.direct?.some(x=>x.event.packet.event.type==='heartbeat')`);
+  await run(`document.querySelector('.classroom-remote-control-surface').dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,code:'KeyA',key:'a'}))`);
+  await wait(`fixtureStats.direct.some(x=>x.event.packet.event.type==='key'&&x.event.packet.event.code==='KeyA')`);
+  assert.ok(await run(`fixtureStats.direct.every(x=>x.id==='student:tab'&&x.event.targetUserId==='student')`));
+  await capture('teacher-remote-active.png');
+  await run(`window.dispatchEvent(new Event('blur'))`);
+  await wait(`fixtureStops?.includes('teacher-grant')&&!document.querySelector('.classroom-remote-control-surface')`);
+  assert.equal(errors.length,0,errors.join('\n'));
+  console.log('PASS teacher remote control: request, consent readiness, signed input, focus loss and revoke (mock RTC and authorization)');return;
+ }
  if(process.argv.includes('--sharing-only')){
-  win.setContentSize(1440,900);await win.loadURL(url+'&role=student&sharing-fixture=1');
+  win.setContentSize(1440,900);await win.loadURL(url+'&role=student&sharing-fixture=1&desktop-fixture=1');
   await wait(`typeof fixtureReceive==='function'&&document.querySelector('.classroom-minimal-header')`);
+  await run(`window.fixtureRemotePackets=[];window.fixtureRemoteStops=0;const event={courseId:'fixture-session',topic:'remote-control-input',revision:0,targetUserId:'student',packet:{grantId:'g',sequence:1,event:{type:'move',x:.2,y:.3},signature:'test'}};fixtureReceive({...event,targetUserId:'other'},'teacher:tab');fixtureReceive(event);fixtureReceive(event,'teacher:tab');fixtureHealth(false)`);
+  await wait(`fixtureRemotePackets.length===1&&fixtureRemoteStops===1`);await run(`fixtureHealth(true)`);
   await run(`fixturePayload.runtime.revision=50;fixtureReceive({courseId:'fixture-session',topic:'member-permissions',actorId:'teacher',revision:50,scope:'member',targetUserId:'teacher',microphoneAllowed:true},'teacher:tab');const m=fixturePayload.runtime.members.find(m=>m.userId==='student');m.screenShareState='requested';m.screenShareRequestedAt=new Date().toISOString();fixtureReceive({courseId:'fixture-session',topic:'screen-share-request',actorId:'teacher',revision:49,targetUserId:'student',requestedAt:m.screenShareRequestedAt},'teacher:tab')`);
   await wait(`document.querySelector('.is-screen-share .is-accept')`);
   await run(`document.querySelector('.is-screen-share .is-accept').click()`);
@@ -112,25 +342,58 @@ async function main(){
   await run(`fixtureDenyPublish=false;document.querySelector('.is-screen-share-ready .is-accept').click()`);
   await wait(`document.querySelector('.is-screen-share-ready .is-accept')?.textContent.includes('开始共享')&&!document.querySelector('.is-screen-share-ready .is-accept').disabled`);
   const choose=async()=>{await run(`document.querySelector('.is-screen-share-ready .is-accept').click()`);await wait(`document.querySelector('.classroom-share-menu')`);await run(`document.querySelector('.classroom-share-menu button[aria-pressed]').click()`)};
-  await choose();await wait(`document.querySelector('.classroom-screen-prepared')&&fixturePayload.runtime.composition.screenShares?.['main:1200000002']?.userId==='student'`);
+  await choose();await wait(`fixturePayload.runtime.composition.screenShares?.['main:1200000002']?.userId==='student'`);
   assert.equal(await run(`fixturePayload.runtime.composition.screenShares.main`),undefined,'student preparation never selects its own screen');
   await run(`fixturePayload.runtime.composition.screenShares.main=fixturePayload.runtime.composition.screenShares['main:1200000002'];fixturePayload.runtime.revision++;fixtureReceive({courseId:'fixture-session',topic:'runtime',revision:fixturePayload.runtime.revision},'teacher:other')`);
   await wait(`document.querySelector('.classroom-v3-stage-layer.is-screen-share')`);
+  await wait(`fixtureSharingSeats?.width>0`);assert.ok(await run(`fixtureSharingSeats.width<document.querySelector('.classroom-v3-seats').getBoundingClientRect().width`),'floating view excludes unused rail space');
+  await wait(`fixtureSharingControls&&fixtureSharingState===true`);assert.equal(await run(`fixtureSharingControls.microphoneEnabled`),false,'student microphone permission is respected');
+  await run(`window.fixtureRemoteGrants=[{id:'control-grant',teacherId:'teacher',studentId:'student',shareClaimId:'share',state:'requested',effectiveState:'requested',keyReady:false,receiverReady:false,requestedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+60000).toISOString()}];fixtureReceive({courseId:'fixture-session',topic:'remote-control-hint',revision:0,actorId:'teacher',targetUserId:'student'},'teacher:tab')`);
+  await wait(`window.fixtureRemotePending?.grantId==='control-grant'`);
+  await run(`window.classroomDesktop.platform='win32';fixtureRemoteRequestState({grantId:'control-grant',pending:true,error:true})`);
+  await wait(`document.body.textContent.includes('老师请求控制你的屏幕')&&document.body.textContent.includes('macOS')`);
+  await new Promise(resolve=>setTimeout(resolve,200));
+  assert.equal(await run(`(()=>{const text=[...document.querySelectorAll('.classroom-v3-invite strong')].find(e=>e.textContent.includes('老师请求控制你的屏幕'));if(!text)return false;const r=text.getBoundingClientRect(),top=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return r.width>0&&r.height>0&&!!top&&(top===text||text.contains(top))})()`),true,'remote control request is visibly above the shared screen');
+  if(process.env.CLASSROOM_TEST_ARTIFACTS)await fs.writeFile(path.join(process.env.CLASSROOM_TEST_ARTIFACTS,'remote-request-fallback.png'),(await win.webContents.capturePage()).toPNG());
+  await run(`window.classroomDesktop.platform='darwin';fixtureRemoteRequestState({grantId:'control-grant',pending:true,decision:'noop',teacherId:'teacher'})`);
+  await wait(`!document.body.textContent.includes('老师请求控制你的屏幕')`);
+  await run(`fixtureRemoteGrants[0]={...fixtureRemoteGrants[0],state:'granted',effectiveState:'granted',keyReady:true};fixtureRemoteRequestState({grantId:'control-grant',pending:false,decision:'granted',teacherId:'teacher'})`);
+  await wait(`window.fixtureRemoteStarted?.grantId==='control-grant'`);
+  await run(`fixtureRemoteState({grantId:'control-grant',active:true})`);await wait(`fixtureStats.events.some(e=>e.topic==='remote-control-hint'&&e.targetUserId==='teacher')`);
+  await run(`window.classroomDesktop.startRemoteControl=async()=>{throw new Error('IPC unavailable')};fixtureRemoteGrants=[{id:'failed-grant',teacherId:'teacher',studentId:'student',shareClaimId:'share',state:'granted',effectiveState:'granted',keyReady:true,receiverReady:false,requestedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+60000).toISOString()}];fixtureRemoteRequestState({grantId:'failed-grant',pending:false,decision:'granted',teacherId:'teacher'})`);
+  await wait(`window.fixtureStops?.includes('failed-grant')`);
+
+  await run(`{const m=fixturePayload.runtime.members.find(m=>m.userId==='student');m.microphoneAllowed=true;m.cameraAllowed=true;fixturePayload.runtime.revision++;fixtureReceive({courseId:'fixture-session',topic:'member-permissions',actorId:'teacher',revision:fixturePayload.runtime.revision,scope:'member',targetUserId:'student',microphoneAllowed:true,cameraAllowed:true},'teacher:tab')}`);
+  await wait(`fixtureSharingControls?.microphoneEnabled&&fixtureSharingControls?.cameraEnabled`);await run(`fixtureSharingCommand('microphone')`);await wait(`fixtureStats.microphoneToggles===1&&fixtureSharingControls?.microphoneOn===true`);
+  await run(`fixtureSharingCommand('camera')`);await wait(`fixtureSharingControls?.cameraOn===true`);
   assert.equal(await run('fixtureStats.captureStarts'),1);assert.equal(await run(`fixtureActions.filter(t=>t==='startScreenShare').length`),1,'capture then one committed claim');
   await settle();await run(`fixtureStopScreen()`);await wait(`!fixturePayload.runtime.composition.screenShares?.main`);await settle();
   await wait(`document.querySelector('.is-screen-share-ready .is-accept')&&!document.querySelector('.is-screen-share-ready .is-accept').disabled`);
   const claims=await run(`fixtureActions.filter(t=>t==='startScreenShare').length`);
   await run(`fixtureCancelCapture=true`);await choose();await wait(`fixtureStats.captureStarts===2`);await settle();
   assert.equal(await run(`fixtureActions.filter(t=>t==='startScreenShare').length`),claims,'canceling the browser picker never claims the slot');
+  await run(`fixtureCancelCapture=false;fixtureCaptureTimeout=true`);await choose();await wait(`document.body.textContent.includes('屏幕画面启动超时')`);
+  assert.equal(await run(`fixtureActions.filter(t=>t==='startScreenShare').length`),claims,'capture timeout does not claim a share slot');
+  await wait(`document.querySelector('.is-screen-share-ready .is-accept')&&!document.querySelector('.is-screen-share-ready .is-accept').disabled`);
+  await run(`fixtureCaptureTimeout=false`);
   await run(`fixtureCancelCapture=false;fixturePayload.runtime.composition.screenShares={main:{userId:'teacher',clientId:'other-tab',claimId:'other-claim',rtcUid:1000000099}};fixturePayload.runtime.revision++;fixtureReceive({courseId:'fixture-session',topic:'runtime',revision:fixturePayload.runtime.revision},'teacher:other')`);
   await wait(`document.querySelector('.is-screen-share-ready .is-accept')&&!document.querySelector('.is-screen-share-ready .is-accept').disabled`);
   await choose();await wait(`fixturePayload.runtime.composition.screenShares?.['main:1200000002']?.userId==='student'`);
   assert.equal(await run(`fixturePayload.runtime.composition.screenShares.main.claimId`),'other-claim','a student can prepare while another screen remains selected');
   await win.loadURL(url+'&role=student&sharing-fixture=1&offstage=1');await wait(`typeof fixtureReceive==='function'&&document.querySelector('.classroom-minimal-header')`);
+  await run(`fixtureRenewGate=true;window.dispatchEvent(new Event('focus'))`);await wait(`typeof fixtureReleaseRenew==='function'`);
   await run(`fixturePublishGate=false;fixtureDenyPublish=false;const m=fixturePayload.runtime.members.find(m=>m.userId==='student');m.screenShareState='requested';m.screenShareRequestedAt=new Date().toISOString();fixturePayload.runtime.revision++;fixtureReceive({courseId:'fixture-session',topic:'screen-share-request',actorId:'teacher',revision:fixturePayload.runtime.revision,targetUserId:'student',requestedAt:m.screenShareRequestedAt},'teacher:tab')`);
   await wait(`document.querySelector('.is-screen-share .is-accept')`);await run(`document.querySelector('.is-screen-share .is-accept').click()`);
   await wait(`document.querySelector('.is-screen-share-ready .is-accept')?.textContent.includes('开始共享')&&!document.querySelector('.is-screen-share-ready .is-accept').disabled`);
-  assert.equal(await run('fixtureStats.publishingRequests'),1,'offstage acceptance prepares primary and screen publishing together');await choose();await wait(`fixturePayload.runtime.composition.screenShares?.['main:1200000002']?.userId==='student'`);
+  assert.equal(await run('fixtureStats.publishingRequests'),1,'offstage acceptance prepares primary and screen publishing together: '+JSON.stringify(await run('({states:fixtureStats.publishingStates,timeline:fixtureStats.timeline})')));
+  await run('fixtureRenewGate=false;fixtureReleaseRenew()');await settle();assert.equal(await run('fixtureStats.publishingRequests'),1,'an older renewal cannot replace a newer publishing credential');await choose();await wait(`fixturePayload.runtime.composition.screenShares?.['main:1200000002']?.userId==='student'`);
+  await win.loadURL(url+'&role=student&sharing-fixture=1&offstage=1');await wait(`typeof fixtureReceive==='function'&&document.querySelector('.classroom-minimal-header')`);
+  await run(`fixturePublishGate=false;fixtureDenyPublish=false;fixtureMediaRenewGate=true;window.dispatchEvent(new Event('focus'))`);await wait(`typeof fixtureReleaseMediaRenew==='function'`);
+  await run(`const m=fixturePayload.runtime.members.find(m=>m.userId==='student');m.screenShareState='requested';m.screenShareRequestedAt=new Date().toISOString();fixturePayload.runtime.revision++;fixtureReceive({courseId:'fixture-session',topic:'screen-share-request',actorId:'teacher',revision:fixturePayload.runtime.revision,targetUserId:'student',requestedAt:m.screenShareRequestedAt},'teacher:tab')`);
+  await wait(`document.querySelector('.is-screen-share .is-accept')`);await run(`document.querySelector('.is-screen-share .is-accept').click()`);
+  await wait(`document.querySelector('.is-screen-share-ready .is-accept')?.textContent.includes('开始共享')&&!document.querySelector('.is-screen-share-ready .is-accept').disabled`);
+  await run(`fixtureMediaRenewGate=false;fixtureReleaseMediaRenew()`);await settle();
+  assert.equal(await run('fixtureStats.publishingRequests'),1,'an SDK renewal finishing after the grant cannot overwrite the newer session credential');await choose();await wait(`fixturePayload.runtime.composition.screenShares?.['main:1200000002']?.userId==='student'`);
   await win.loadURL(url+'&role=student&sharing-fixture=1');await wait(`typeof fixtureReceive==='function'&&document.querySelector('.classroom-minimal-header')`);
   await run(`fixtureDenyPublish=false;const m=fixturePayload.runtime.members.find(m=>m.userId==='student');m.screenShareState='requested';m.screenShareRequestedAt=new Date().toISOString();fixturePayload.runtime.revision++;fixtureReceive({courseId:'fixture-session',topic:'screen-share-request',actorId:'teacher',revision:fixturePayload.runtime.revision,targetUserId:'student',requestedAt:m.screenShareRequestedAt},'teacher:tab')`);
   await wait(`document.querySelector('.is-screen-share .is-accept')`);await run(`document.querySelector('.is-screen-share .is-accept').click()`);await wait(`typeof fixtureReleasePublish==='function'`);
@@ -153,6 +416,8 @@ async function main(){
   await wait(`fixtureStats.requests.filter(p=>p.endsWith('/activities')).length>${initial}`);await settle();
   assert.equal(await listCount(),initial+1,'notice and feed share one GET for a burst of fifty RTM events');
   const quiet=await dataCount();await new Promise(resolve=>setTimeout(resolve,900));assert.equal(await dataCount(),quiet,'healthy RTM avoids old 3/5/8-second widget loops (20x scheduler clock)');
+  assert.ok(await run('fixtureStats.versionReads>0'),'lightweight version checks continue while realtime is healthy');
+  const beforeVersion=await listCount();await run('window.fixtureActivityRevision=2');await wait(`fixtureStats.requests.filter(p=>p.endsWith('/activities')).length>${beforeVersion}`);await settle();
   assert.ok(await run(`fixtureActions?.filter(t=>t==='heartbeat').length>=1`),'presence lease remains alive');
   await run(`fixtureHealth(false)`);await settle();const fallback=await dataCount();await new Promise(resolve=>setTimeout(resolve,600));assert.ok(await dataCount()>fallback,'RTM loss enables fallback reads '+JSON.stringify({fallback,count:await dataCount(),stats:await run('({ready:fixtureStats.rtmReady,connections:fixtureStats.signalingConnections,requests:fixtureStats.requests.slice(-20)})')}));
   await run(`fixtureVisibility='hidden';document.dispatchEvent(new Event('visibilitychange'))`);await settle();const hidden=await dataCount();const leases=await run(`fixtureActions.filter(t=>t==='heartbeat').length`);await new Promise(resolve=>setTimeout(resolve,900));assert.equal(await dataCount(),hidden,'hidden page pauses data reads');assert.ok(await run(`fixtureActions.filter(t=>t==='heartbeat').length`)>leases,'hidden page keeps one lease');
@@ -160,7 +425,7 @@ async function main(){
   await run(`fixtureOnline=true;fixtureVisibility='visible';window.dispatchEvent(new Event('online'))`);await wait(`fixtureStats.signalingConnections>=2`);await settle();assert.ok(await dataCount()>hidden,'returning online repairs the visible list');
   await run(`fixture.end()`);await wait(`document.querySelector('.classroom-v3-shell')?.dataset.runtimeStatus==='ended'`);await settle();const ended=await dataCount();const endedLeases=await run(`fixtureActions.filter(t=>t==='heartbeat').length`);await new Promise(resolve=>setTimeout(resolve,900));assert.equal(await dataCount(),ended);assert.equal(await run(`fixtureActions.filter(t=>t==='heartbeat').length`),endedLeases,'ending cancels the owner');
   assert.equal(errors.length,0,errors.join('\n'));
-  await fs.writeFile(path.join(output,'sync-checks.json'),JSON.stringify({passed:true,boundary:'Actual ClassroomV3, activity notice/feed/detail hooks and shared scheduler in Chromium; scheduler clock accelerated 20x; mocked HTTP authorization, RTC and signaling.',initialListRequests:initial,burstListRequests:1,checks:['event burst coalesced','same activity GET shared','quiet realtime','loss fallback','hidden lease only','offline pause','resume repair','end cancellation']},null,2));
+  await fs.writeFile(path.join(output,'sync-checks.json'),JSON.stringify({passed:true,boundary:'Actual ClassroomV3, activity notice/feed/detail hooks and shared scheduler in Chromium; scheduler clock accelerated 20x; mocked HTTP authorization, RTC and signaling.',initialListRequests:initial,burstListRequests:1,checks:['event burst coalesced','same activity GET shared','quiet realtime','version change repairs missed event','loss fallback','hidden lease only','offline pause','resume repair','end cancellation']},null,2));
   console.log('PASS shared classroom sync: event burst, GET coalescing, quiet realtime, RTM fallback, hidden/offline lease and end cancellation');return;
  }
  if(process.argv.includes('--captions-only')){
@@ -186,6 +451,9 @@ async function main(){
   for(const [width,height] of [[1440,900],[1024,768],[390,844],[320,740],[740,390]]){
    win.setContentSize(width,height);await win.loadURL(url+'&role=assistant&members-fixture=1');
    await wait(`document.querySelector('.classroom-header-members strong')?.textContent==='5'`);
+   const titleGeometry=await run(`(()=>{const b=document.querySelector('.classroom-minimal-course'),n=b.querySelector('.classroom-minimal-course-name'),icon=b.querySelector('svg'),r=b.getBoundingClientRect();return {width:r.width,content:n.getBoundingClientRect().width+(icon&&getComputedStyle(icon).display!=='none'?icon.getBoundingClientRect().width:0)+30}})()`);
+   assert.ok(titleGeometry.width<=titleGeometry.content+3,'title hover area fits its content '+width);
+   assert.ok(await run(`(()=>{const b=document.querySelector('.classroom-minimal-course'),n=b.querySelector('.classroom-minimal-course-name'),old=n.textContent;n.textContent='很长的课程标题'.repeat(30);const r=b.getBoundingClientRect(),next=b.nextElementSibling?.getBoundingClientRect(),fits=r.left>=0&&r.right<=innerWidth&&(!next||r.right<=next.left+1)&&n.scrollWidth>n.clientWidth;n.textContent=old;return fits})()`),'long title truncates without overlapping controls '+width);
    const bounds=await run(`(()=>{const e=document.querySelector('.classroom-header-members'),r=e.getBoundingClientRect(),h=document.querySelector('.classroom-minimal-header').getBoundingClientRect();return {x:r.x,right:r.right,width:r.width,height:r.height,headerRight:h.right,visible:getComputedStyle(e).display}})()`);
    assert.notEqual(bounds.visible,'none');assert.ok(bounds.width>=44&&bounds.height>=44&&bounds.x>=0&&bounds.right<=width,'visible touch target '+width);
    assert.ok(await run(`(()=>{const buttons=[...document.querySelector('.classroom-minimal-header').children].filter(e=>getComputedStyle(e).display!=='none'&&e.getBoundingClientRect().width>0);return buttons.every((b,i)=>{const r=b.getBoundingClientRect();return r.left>=-1&&r.right<=innerWidth+1&&(i===0||r.left>=buttons[i-1].getBoundingClientRect().right-1)})})()`),'header controls fit '+width);
@@ -194,7 +462,8 @@ async function main(){
    await wait(`document.querySelector('.classroom-roster-summary')?.textContent.includes('学生 3')`);
    assert.equal(await run(`document.querySelector('.classroom-header-members').getAttribute('aria-expanded')`),'true');
    assert.ok(await run(`document.querySelector('.classroom-roster-summary').textContent.includes('教师 1')&&document.querySelector('.classroom-roster-summary').textContent.includes('助教 1')&&document.querySelector('.classroom-roster-summary').textContent.includes('重连中 1')`));
-   assert.equal(await run(`document.querySelectorAll('.classroom-v3-member-list article').length`),6,'includes offstage and reconnecting, excludes departed');
+   assert.equal(await run(`document.querySelectorAll('.classroom-v3-member-list article').length`),7,'includes offstage, reconnecting and departed members');
+   assert.ok(await run(`(()=>{const row=[...document.querySelectorAll('.classroom-v3-member-list article')].find(e=>e.textContent.includes('已离开的学生'));return !!row&&!row.querySelector('.classroom-v3-member-actions')})()`),'departed member is listed without management actions');
    await capture('members-list-'+width+'.png');
    await run(`document.querySelector('.classroom-header-members').click()`);await wait(`!document.querySelector('.classroom-roster-summary')`);
    await run(`document.querySelector('.classroom-minimal-header .classroom-header-more').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`);await wait(`document.querySelector('[role="menu"]')`);

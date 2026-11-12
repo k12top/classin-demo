@@ -6,23 +6,21 @@ import { useAuth } from "@/lib/auth-context";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { AlertTriangle, Key, Loader2 } from "lucide-react";
+import { Key, Loader2 } from "lucide-react";
 
 import { buildAccessDeniedUrl } from "@/lib/access-denied-codes";
 import TeacherCourseDetail from "@/components/TeacherCourseDetail";
 import StudentCourseDetail from "@/components/StudentCourseDetail";
+import { CourseWorkspace } from "@/components/workspace/course-workspace";
+import { WorkspaceSubpage } from "@/components/workspace/workspace-subpage";
+import { WorkspacePageError } from "@/components/workspace/workspace-page-error";
+import { workspaceCopyForLocale } from "@/components/workspace/workspace-copy";
 import { PageLoadingState } from "@/components/ui/page-loading-state";
 import { useTranslation } from "@/lib/i18n/context";
-import {
-  readCourseDetailCache,
-  writeCourseDetailCache,
-} from "@/lib/course-detail-client-cache";
-import {
-  PortalShell,
-  type PortalPage,
-} from "@/components/portal/portal-shell";
+import { courseWorkspacePath, courseWorkspaceSection } from "@/lib/course-schedule";
+import { hasCourseEntryAccess } from "@/lib/course-entry-permission";
+import { openClassroomWindow, reserveClassroomWindow } from "@/lib/classroom/open-desktop-window";
+import passcodeStyles from "@/components/workspace/passcode-gate.module.css";
 
 interface CourseDetail {
   id: string;
@@ -40,6 +38,7 @@ interface CourseDetail {
   isCourseOwner?: boolean;
   canTeach?: boolean;
   canUploadCourseware?: boolean;
+  limitedToSessionId?: string | null;
   status: string;
   startTime: string | null;
   endTime: string | null;
@@ -55,19 +54,27 @@ interface CourseDetail {
   }[];
 }
 
-export default function CourseDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default function CourseDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sessionId?: string | string[]; section?: string | string[]; draftId?: string | string[]; reviewId?: string | string[]; assignmentId?: string | string[]; createLesson?:string|string[] }> }) {
   const { id } = use(params);
-  const { user, loading: authLoading, logout } = useAuth();
-  const { t } = useTranslation();
+  const query = use(searchParams);
+  const requestedSessionId = typeof query.sessionId === "string" ? query.sessionId : "";
+  const requestedSection = courseWorkspaceSection(query.section);
+  const requestedDraftId = typeof query.draftId === "string" ? query.draftId : "";
+  const requestedReviewId = typeof query.reviewId === "string" ? query.reviewId : "";
+  const requestedAssignmentId = typeof query.assignmentId === "string" ? query.assignmentId : "";
+  const requestedCreateLesson = query.createLesson === "1";
+  const { user, loading: authLoading } = useAuth();
+  const { t, locale } = useTranslation();
   const router = useRouter();
-  const [course, setCourse] = useState<CourseDetail | null>(() =>
-    readCourseDetailCache<CourseDetail>(id),
-  );
-  const [loading, setLoading] = useState(() => !readCourseDetailCache<CourseDetail>(id));
+  const [course, setCourse] = useState<CourseDetail | null>(null);
+  const [courseOwner, setCourseOwner] = useState("");
+  const [loading, setLoading] = useState(true);
   const [redirecting, setRedirecting] = useState(false);
   const [enterLoading, setEnterLoading] = useState(false);
   const [error, setError] = useState("");
   const requestedCourseRef = useRef("");
+  const accountId = user?.userId || "";
+  const requestKey = JSON.stringify([id, accountId]);
 
   const fetchCourse = useCallback(async () => {
     let keepLoadingForRedirect = false;
@@ -76,43 +83,48 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
       if (res.status === 401 && (await tryOAuthRefresh())) {
         res = await fetch(`/api/courses/${id}`, { credentials: "same-origin" });
       }
+      if (requestedCourseRef.current !== requestKey) return;
       if (res.status === 401) {
         keepLoadingForRedirect = true;
         setRedirecting(true);
-        redirectToSsoLogin(`/courses/${id}`);
+        redirectToSsoLogin(courseWorkspacePath(id,requestedSessionId,requestedSection,requestedDraftId,requestedReviewId,requestedAssignmentId,requestedCreateLesson));
         return;
       }
       if (res.ok) {
         const data = await res.json();
-        setCourse(writeCourseDetailCache(id, data.course));
+        if (requestedCourseRef.current !== requestKey) return;
+        if(!data?.course || typeof data.course.id!=="string" || data.course.id!==id)throw new Error("Invalid course response");
+        setCourse(data.course);
+        setCourseOwner(accountId);
+        setError("");
       } else {
-        setError("not_found");
+        setError(res.status===403||res.status===404?"not_found":"load_failed");
       }
     } catch {
-      setError("load_failed");
+      if (requestedCourseRef.current === requestKey) setError("load_failed");
     } finally {
-      if (!keepLoadingForRedirect) {
+      if (!keepLoadingForRedirect && requestedCourseRef.current === requestKey) {
         setLoading(false);
       }
     }
-  }, [id]);
+  }, [id,accountId,requestKey,requestedSessionId,requestedSection,requestedDraftId,requestedReviewId,requestedAssignmentId,requestedCreateLesson]);
 
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
       queueMicrotask(() => {
-        redirectToSsoLogin(`/courses/${id}`);
+        redirectToSsoLogin(courseWorkspacePath(id,requestedSessionId,requestedSection,requestedDraftId,requestedReviewId,requestedAssignmentId,requestedCreateLesson));
       });
       return;
     }
-    if (requestedCourseRef.current === id) return;
-    const cachedCourse = readCourseDetailCache<CourseDetail>(id);
+    if (requestedCourseRef.current === requestKey) return;
     setError("");
-    setCourse(cachedCourse);
-    setLoading(!cachedCourse);
-    requestedCourseRef.current = id;
+    setCourse(null);
+    setCourseOwner("");
+    setLoading(true);
+    requestedCourseRef.current = requestKey;
     void fetchCourse();
-  }, [authLoading, fetchCourse, id, user]);
+  }, [authLoading, fetchCourse, id, user, requestKey, requestedSessionId,requestedSection,requestedDraftId,requestedReviewId,requestedAssignmentId,requestedCreateLesson]);
 
   const isTeacher = Boolean(user && course?.canTeach);
   const redirectingToLogin = redirecting || (!authLoading && !user);
@@ -121,8 +133,11 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
     if (!course || !user) return;
     setEnterLoading(true);
     let navigating = false;
+    let child: Window | null = null;
+    let opened = false;
 
     try {
+      child = reserveClassroomWindow();
       const res = await fetch(`/api/courses/${id}/verify-access`);
       if (!res.ok) {
         setError("verify_failed");
@@ -149,11 +164,17 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
         setEnterLoading(false);
         return;
       }
-      router.push(data.classroomUrl);
-      navigating = true;
+      const target = new URL(data.classroomUrl, window.location.origin);
+      if (target.origin !== window.location.origin || target.pathname !== "/classroom") throw new Error("Invalid classroom");
+      opened = await openClassroomWindow(target, child);
+      if (!opened) {
+        router.push(target.pathname + target.search);
+        navigating = true;
+      }
     } catch {
       setError("verify_failed");
     } finally {
+      if (!opened) child?.close();
       if (!navigating) setEnterLoading(false);
     }
   };
@@ -168,50 +189,23 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   }
 
 
-  if (loading && user) {
+  if ((loading || (course && (course.id !== id || courseOwner !== accountId))) && user) {
     return (
-      <PortalShell
-        role={user.role}
-        user={user}
-        activePage="courses"
-        onPageChange={(page: PortalPage) =>
-          router.push(`/?view=${encodeURIComponent(page)}`)
-        }
-        onLogout={logout}
-      >
+      <WorkspaceSubpage user={user}>
         <PageLoadingState
           message={t("common.loading")}
           variant="course"
           embedded
         />
-      </PortalShell>
+      </WorkspaceSubpage>
     );
   }
 
   if (error || !course) {
+    const copy=workspaceCopyForLocale(locale),canRetry=error==="load_failed"||error==="verify_failed";
+    const title=error==="not_found"?`${t("join.courseNotExist")} / ${t("classroom.noAccess")}`:error==="verify_failed"?t("classroom.verifyFailed"):error==="load_failed"?t("common.failed"):error||t("join.courseNotExist");
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background p-6">
-        <div className="max-w-md w-full text-center space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="mx-auto w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center">
-            <AlertTriangle className="h-8 w-8 text-red-400" />
-          </div>
-          <h2 className="text-2xl font-bold">
-            {error === "not_found"
-              ? `${t("join.courseNotExist")} / ${t("classroom.noAccess")}`
-              : error === "load_failed"
-              ? t("common.failed")
-              : error === "verify_failed"
-              ? t("classroom.verifyFailed")
-              : error || t("join.courseNotExist")}
-          </h2>
-          <p className="text-muted-foreground">
-            {error === "not_found" ? t("join.notFound") : ""}
-          </p>
-          <Button onClick={() => router.push("/")} className="bg-purple-600 hover:bg-purple-700 text-white">
-            {t("common.backToHome")}
-          </Button>
-        </div>
-      </div>
+      <WorkspaceSubpage user={user!}><WorkspacePageError title={title} description={error==="not_found"?t("join.notFound"):undefined} backLabel={t("common.backToHome")} retryLabel={copy.retry} onBack={()=>router.push("/")} onRetry={canRetry?()=>{if(error==="verify_failed"&&course){setError("");void handleEnterClassroom();return;}setLoading(true);setError("");void fetchCourse();}:undefined}/></WorkspaceSubpage>
     );
   }
 
@@ -223,57 +217,39 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
       gl.group?.members?.some((m) => casdoorUserIdsMatch(m.userId, user.userId))
     )
   );
-  const isEnrolled = isTeacher || isDirectStudent || isGroupStudent;
+  const isEnrolled = hasCourseEntryAccess({canTeach:isTeacher,directStudent:isDirectStudent,groupStudent:isGroupStudent,limitedToSessionId:course.limitedToSessionId});
+
+  if (isEnrolled || course.roomType !== 10 || !course.requiresPasscode) {
+    return <CourseWorkspace key={course.id} requestedSessionId={requestedSessionId} requestedSection={requestedSection} requestedDraftId={requestedDraftId} requestedReviewId={requestedReviewId} requestedAssignmentId={requestedAssignmentId} requestedCreateLesson={requestedCreateLesson} course={course} user={user!} canTeach={isTeacher} renderManagement={(tab,onChange,options) => isTeacher ?
+      <TeacherCourseDetail course={course} user={user} onEnterClassroom={handleEnterClassroom} enterLoading={enterLoading} fetchCourse={fetchCourse} workspaceTab={tab} onWorkspaceTabChange={onChange} workspaceProgram={options} /> :
+      <StudentCourseDetail course={course} user={user} onEnterClassroom={handleEnterClassroom} enterLoading={enterLoading} fetchCourse={fetchCourse} workspaceTab={tab} onWorkspaceTabChange={onChange} />
+    } />;
+  }
 
   return (
-    <PortalShell
-      role={isTeacher ? "teacher" : "student"}
-      user={user!}
-      activePage="courses"
-      onPageChange={(page: PortalPage) =>
-        router.push(`/?view=${encodeURIComponent(page)}`)
-      }
-      onLogout={logout}
-    >
-      <main className={`max-w-6xl mx-auto ${!isEnrolled && course.roomType === 10 && course.requiresPasscode ? "flex justify-center items-center min-h-[calc(100vh-10rem)]" : ""}`}>
-        {isTeacher ? (
-          <TeacherCourseDetail 
-            course={course} 
-            user={user} 
-            onEnterClassroom={handleEnterClassroom} 
-            enterLoading={enterLoading}
-            fetchCourse={fetchCourse}
-          />
-        ) : !isEnrolled && course.roomType === 10 && course.requiresPasscode ? (
+    <WorkspaceSubpage user={user!}>
           <PasscodeGate 
             course={course}
             t={t}
+            locale={locale}
             onSuccess={async () => {
               await fetchCourse();
               void handleEnterClassroom();
             }}
           />
-        ) : (
-          <StudentCourseDetail 
-            course={course} 
-            user={user} 
-            onEnterClassroom={handleEnterClassroom} 
-            enterLoading={enterLoading}
-            fetchCourse={fetchCourse}
-          />
-        )}
-      </main>
-    </PortalShell>
+    </WorkspaceSubpage>
   );
 }
 
 function PasscodeGate({
   course,
   t,
+  locale,
   onSuccess,
 }: {
   course: Pick<CourseDetail, "id" | "name" | "teacherName">;
   t: (key: string) => string;
+  locale: string;
   onSuccess: () => Promise<void>;
 }) {
   const [digits, setDigits] = useState<string[]>(Array(6).fill(""));
@@ -319,6 +295,7 @@ function PasscodeGate({
         newDigits[i] = pasteData[i] || "";
       }
       setDigits(newDigits);
+      setError("");
       const focusIndex = Math.min(pasteData.length, 5);
       const nextInput = document.getElementById(`digit-${focusIndex}`);
       nextInput?.focus();
@@ -327,6 +304,7 @@ function PasscodeGate({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(submitting)return;
     const passcode = digits.join("");
     if (passcode.length !== 6) {
       setError(t("teacherDashboard.errPasscodeInvalid"));
@@ -356,26 +334,16 @@ function PasscodeGate({
   };
 
   return (
-    <Card className="border border-border/60 bg-card/60 backdrop-blur-xl p-8 sm:p-12 text-center flex flex-col items-center max-w-lg w-full relative overflow-hidden rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 animate-in fade-in zoom-in">
-      <div className="absolute top-[-20%] right-[-10%] w-[250px] h-[250px] bg-primary/5 dark:bg-primary/10 rounded-full blur-[80px] pointer-events-none" />
-      
-      <div className="mx-auto w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-6">
-        <Key className="h-5 w-5 text-primary" />
+    <main className={passcodeStyles.page}><section className={passcodeStyles.panel} aria-labelledby="passcode-title">
+      <span className={passcodeStyles.icon}><Key size={20} aria-hidden="true"/></span>
+      <h1 id="passcode-title">{t("passcodeGate.title")}</h1>
+      <p className={passcodeStyles.description}>{t("passcodeGate.desc")}</p>
+      <div className={passcodeStyles.course}>
+        <small>{t("teacherDashboard.fieldName")}</small><strong>{course.name}</strong>
+        <span>{t("courseDetail.teacherInfo").replace("{name}", course.teacherName)}</span>
       </div>
-
-      <h2 className="text-2xl font-bold text-foreground mb-2">{t("passcodeGate.title")}</h2>
-      <p className="text-sm text-muted-foreground mb-6 max-w-sm">
-        {t("passcodeGate.desc")}
-      </p>
-
-      <div className="px-4 py-3 bg-muted/50 dark:bg-muted/30 rounded-xl border border-border/40 space-y-1 w-full text-left mb-6">
-        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{t("teacherDashboard.fieldName")}</div>
-        <div className="text-base font-semibold text-foreground truncate">{course.name}</div>
-        <div className="text-xs text-primary font-medium mt-1">{t("courseDetail.teacherInfo").replace("{name}", course.teacherName)}</div>
-      </div>
-
-      <form onSubmit={handleSubmit} className="w-full space-y-6">
-        <div className="flex justify-center gap-2.5">
+      <form onSubmit={handleSubmit} className={passcodeStyles.form}>
+        <div className={passcodeStyles.digits}>
           {digits.map((digit, idx) => (
             <input
               key={idx}
@@ -385,36 +353,38 @@ function PasscodeGate({
               pattern="[0-9]*"
               maxLength={1}
               value={digit}
+              aria-label={`${locale==="zh-TW"?"密碼第":locale.startsWith("zh")?"密码第":locale.startsWith("vi")?"Chữ số mật mã":"Passcode digit"} ${idx+1}${locale.startsWith("zh")?"位":""}`}
+              aria-invalid={Boolean(error)}
+              disabled={submitting}
               onChange={(e) => handleDigitChange(idx, e.target.value)}
               onKeyDown={(e) => handleKeyDown(idx, e)}
               onPaste={handlePaste}
-              className="w-12 h-14 bg-background border border-input hover:border-primary/40 focus:border-primary rounded-lg text-center text-2xl font-bold text-foreground focus:ring-2 focus:ring-primary/20 focus-visible:outline-none transition-all font-mono shadow-sm"
               autoFocus={idx === 0}
             />
           ))}
         </div>
 
         {error && (
-          <p className="text-xs text-destructive bg-destructive/10 py-2.5 px-4 rounded border border-destructive/20 animate-in fade-in duration-200">
+          <p role="alert" className={passcodeStyles.error}>
             {error}
           </p>
         )}
 
-        <Button
+        <button
           type="submit"
           disabled={submitting || digits.some(d => !d)}
-          className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-6 text-base rounded-xl transition-all duration-300 shadow-sm"
+          className={passcodeStyles.submit}
         >
           {submitting ? (
-            <span className="flex items-center justify-center gap-2">
-              <Loader2 className="h-5 w-5 animate-spin" />
+            <span>
+              <Loader2 size={14} className="animate-spin" aria-hidden="true" />
               {t("common.submitting")}
             </span>
           ) : (
             t("passcodeGate.btnJoin")
           )}
-        </Button>
+        </button>
       </form>
-    </Card>
+    </section></main>
   );
 }

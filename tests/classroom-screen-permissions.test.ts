@@ -12,6 +12,7 @@ test("being on stage does not grant screen sharing, and assistant management def
   assert.equal(canShareClassroomScreen({ ...input, member: { ...input.member, screenShareState: "requested" } }), false);
   const accepted = { ...input, member: { ...input.member, screenShareState: "accepted" } };
   assert.equal(canShareClassroomScreen(accepted), true);
+  assert.equal(canShareClassroomScreen({ ...accepted, role: "observer" }), false);
   assert.equal(canShareClassroomScreen({ ...accepted, studentSharingSupported: false }), false);
   assert.equal(canShareClassroomScreen({ ...accepted, member: { ...accepted.member, onStage: false } }), false);
   assert.equal(canShareClassroomScreen({ ...input, role: "assistant" }), true);

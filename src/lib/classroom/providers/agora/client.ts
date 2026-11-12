@@ -4,6 +4,7 @@ import { createSharePortrait, normalizeScreenShareOptions, screenShareProfile, s
 import type { ClassroomScreenShareOptions } from "@/lib/classroom/types";
 import { screenVideoPlan } from "@/lib/classroom/screen-video-plan";
 import { classroomScreenLowStream, createNetworkDirectionPolicy, networkVideoEncoder, worseVideoMode, type NetworkVideoMode } from "@/lib/classroom/network-adaptation";
+import {withDeviceCaptureTimeout} from "@/lib/classroom/device-capture-timeout";
 
 
 import AgoraRTC, {
@@ -57,6 +58,11 @@ if (!classroomAgoraGlobal.__classroomVirtualBackgroundExtension) {
 
 function participantId(uid: UID): string {
   return String(uid);
+}
+
+/** A browser permission prompt may never settle; close any track arriving after timeout. */
+export function awaitDeviceCapture<T extends {close():void}>(capture:Promise<T>,timeoutMs=20_000):Promise<T>{
+  return withDeviceCaptureTimeout(capture,track=>track.close(),timeoutMs);
 }
 
 function connectionState(
@@ -1053,10 +1059,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         this.microphoneTrack = null;
         this.microphonePublished = false;
         if (old) { await client.unpublish(old).catch(() => undefined); old.close(); }
-        const track = await AgoraRTC.createMicrophoneAudioTrack({
+        const track = await awaitDeviceCapture(AgoraRTC.createMicrophoneAudioTrack({
           ...(this.preferredMicrophoneId && { microphoneId: this.preferredMicrophoneId }),
           AEC: true, AGC: true, ANS: true, encoderConfig: "speech_standard",
-        });
+        }));
         if (this.client !== client || !this.microphoneAllowed || !this.credential || !credentialCanPublish(this.credential)) {
           track.close(); throw new DOMException("Microphone authorization changed", "AbortError");
         }
@@ -1158,7 +1164,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       };
       let cameraTrack: ICameraVideoTrack;
       try {
-        cameraTrack = await AgoraRTC.createCameraVideoTrack(cameraOptions);
+        cameraTrack = await awaitDeviceCapture(AgoraRTC.createCameraVideoTrack(cameraOptions));
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
         if (!touchCamera || !/NotFound|Overconstrained|DEVICE_NOT_FOUND/i.test(message)) {
@@ -1167,9 +1173,9 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
         // A remembered device id can become invalid after switching cameras
         // or granting permission. Retry once with the browser's default lens.
         this.preferredCameraId = undefined;
-        cameraTrack = await AgoraRTC.createCameraVideoTrack({
+        cameraTrack = await awaitDeviceCapture(AgoraRTC.createCameraVideoTrack({
           ...cameraOptions, cameraId: undefined,
-        });
+        }));
       }
       if (this.client !== client || !this.credential || !credentialCanPublish(this.credential)) {
         cameraTrack.close();
@@ -1264,11 +1270,11 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     let client: IAgoraRTCClient | null = null;
     try {
       // Capture on the initiating click; join and publication follow asynchronously.
-      track = await AgoraRTC.createCameraVideoTrack({
+      track = await awaitDeviceCapture(AgoraRTC.createCameraVideoTrack({
         cameraId: deviceId,
         encoderConfig: this.cameraEncoder(),
         optimizationMode: "detail",
-      });
+      }));
       if (!current()) { track.close(); return; }
       const capturedId = track.getMediaStreamTrack().getSettings().deviceId || deviceId;
       if (capturedId === (this.snapshot.local.cameraDeviceId || this.preferredCameraId)) {
@@ -1647,11 +1653,14 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.snapshot.local.screenShareCorner = undefined;
     this.snapshot.local.screenShareOptions = undefined;
     this.portraitCameraSuppressed = false;
-    composite?.dispose();
-    if (capture && capture !== track) capture.close();
-    // Stop sending content immediately, before network unpublish completes.
-    if (track) track.getMediaStreamTrack().enabled = false;
-    if (audioTrack) audioTrack.getMediaStreamTrack().enabled = false;
+    const failures: unknown[] = [];
+    const attempt = (operation: () => void) => { try { operation(); } catch (error) { failures.push(error); } };
+    // Stop capture and publication before cleanup or network operations can fail.
+    for (const local of [track, capture, audioTrack]) {
+      if (local) attempt(() => { local.getMediaStreamTrack().enabled = false; });
+    }
+    if (composite) attempt(() => composite.dispose());
+    if (capture && capture !== track) attempt(() => capture.close());
 
     // Reflect the user's second click before the Agora teardown finishes.
     // Unpublishing and leaving the secondary screen-share client can take a
@@ -1666,10 +1675,11 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     if (client && track) {
       await client.unpublish(audioTrack ? [track, audioTrack] : track).catch(() => undefined);
     }
-    track?.close();
-    audioTrack?.close();
+    if (track) attempt(() => track.close());
+    if (audioTrack) attempt(() => audioTrack.close());
     await client?.leave().catch(() => undefined);
-    await this.syncCameraPublication();
+    try { await this.syncCameraPublication(); } catch (error) { failures.push(error); }
+    if (failures.length) throw failures[0];
   }
 
   async focusParticipant(participantIdToFocus: string | null): Promise<void> {
@@ -1980,6 +1990,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.microphonePublished = false;
     const client = this.client;
     this.client = null;
+    // Stop local capture immediately even if a later SDK teardown fails.
+    for (const track of [this.microphoneTrack, this.cameraTrack]) {
+      if (track) track.getMediaStreamTrack().enabled = false;
+    }
     for (const observer of this.videoTargetObservers.values()) observer.disconnect();
     this.videoTargetObservers.clear();
     this.remoteVideoStreamTypes.clear();
@@ -1990,8 +2004,10 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
     this.remoteVideoUpdateScheduled = false;
     const auxiliaryStopping = this.stopAuxiliaryCamera();
     if (this.credential) this.credential = { ...this.credential, auxiliaryCamera: undefined };
-    await this.stopScreenShare();
-    await auxiliaryStopping;
+    const stopped = await Promise.allSettled([
+      Promise.resolve().then(() => this.stopScreenShare()),
+      auxiliaryStopping,
+    ]);
     if (client) {
       const localTracks = [
         this.microphoneTrack,
@@ -2006,7 +2022,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       await client.leave().catch(() => undefined);
       client.removeAllListeners();
     }
-    await this.releaseVirtualBackgroundProcessor();
+    const background = await Promise.allSettled([this.releaseVirtualBackgroundProcessor()]);
     this.microphoneTrack?.close();
     this.cameraTrack?.close();
     this.microphoneTrack = null;
@@ -2038,5 +2054,7 @@ export class AgoraRtcMediaProvider implements ClassroomMediaProvider {
       focusedParticipantId: null,
     };
     this.emit();
+    const failure = [...stopped, ...background].find(result => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
   }
 }

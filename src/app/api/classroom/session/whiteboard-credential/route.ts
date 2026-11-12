@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { resolveClassroomRequestAccess } from "@/lib/classroom/server/request-access";
 import { getWhiteboardProvider } from "@/lib/classroom/whiteboard/provider-factory";
 import { resolveRecorderAccess } from "@/lib/classroom/server/recorder-access";
+import { classroomMayWriteWhiteboard } from "@/lib/classroom/policy";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -71,12 +72,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "课堂成员不存在" }, { status: 404 });
   }
 
-  const teachingRole =
-    resolved.access.role === "teacher" ||
-    resolved.access.role === "assistant";
-  const writable =
-    teachingRole ||
-    member.whiteboardWritable;
+  const writable = classroomMayWriteWhiteboard(
+    resolved.access.role,
+    member.whiteboardWritable,
+  );
   const whiteboard = await getWhiteboardProvider().issueJoinCredential({
     courseId,
     sessionId,

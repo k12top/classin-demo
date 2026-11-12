@@ -7,6 +7,9 @@ import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { redirectToSsoLogin } from "@/lib/auth-login";
 import { Button } from "@/components/ui/button";
 import { CoursewareUploader } from "@/components/courseware-uploader";
+import { CourseMembersWorkspace } from "@/components/workspace/course-members-workspace";
+import { CourseTeachingTeamSettings } from "@/components/workspace/course-teaching-team-settings";
+import { workspaceRequest } from "@/lib/workspace-client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -228,13 +231,21 @@ export default function TeacherCourseDetail({
   user,
   onEnterClassroom,
   enterLoading,
-  fetchCourse
+  fetchCourse,
+  initialTab = "sessions",
+  workspaceTab,
+  onWorkspaceTabChange,
+  workspaceProgram,
 }: { 
   course: TeacherCourse;
   user?: AuthUser | null;
   onEnterClassroom: () => void;
   enterLoading: boolean;
   fetchCourse: () => void | Promise<void>;
+  initialTab?: string;
+  workspaceTab?: string;
+  onWorkspaceTabChange?: (tab: string) => void;
+  workspaceProgram?: {programId:string|null;programName:string;unitId:string|null;unitName:string;createLesson:boolean};
 }) {
   const { t, locale } = useTranslation();
   const { notify, confirmAction } = usePortalFeedback();
@@ -245,7 +256,14 @@ export default function TeacherCourseDetail({
   const [courseNameDraft, setCourseNameDraft] = useState("");
   const [courseNameSaving, setCourseNameSaving] = useState(false);
   const [courseNameError, setCourseNameError] = useState("");
-  const [activeTab, setActiveTab] = useState("sessions");
+  const [localTab, setLocalTab] = useState(initialTab);
+  const activeTab = workspaceTab ?? localTab;
+  const [classTeamEditing,setClassTeamEditing] = useState(false);
+  const needsTeacherDirectory = workspaceTab === undefined || (activeTab === "teachers" && classTeamEditing);
+  const needsCourseware = workspaceTab === undefined || activeTab === "courseware";
+  const needsLegacyGroups = workspaceTab === undefined && course.roomType !== 0;
+  const needsJoinLinks = workspaceTab === undefined || activeTab === "sharing";
+  const setActiveTab = (tab: string) => workspaceTab !== undefined && onWorkspaceTabChange ? onWorkspaceTabChange(tab) : setLocalTab(tab);
   const sessionsPanelRef = useRef<HTMLDivElement>(null);
   const [sessionsNavigationRequest, setSessionsNavigationRequest] = useState(0);
 
@@ -485,11 +503,11 @@ export default function TeacherCourseDetail({
   };
 
   useEffect(() => {
-    if (!isCourseOwner) return;
+    if (!isCourseOwner || !needsTeacherDirectory) return;
     queueMicrotask(() => {
       void fetchTeacherOptions();
     });
-  }, [fetchTeacherOptions, isCourseOwner]);
+  }, [fetchTeacherOptions, isCourseOwner, needsTeacherDirectory]);
 
   const handleSaveTeachers = async () => {
     const primaryTeacher =
@@ -503,20 +521,13 @@ export default function TeacherCourseDetail({
     setTeacherSaving(true);
     setTeacherError("");
     try {
-      const res = await fetch(`/api/courses/${course.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({
-          primaryTeacher,
-          teachers: selectedTeachers,
-        }),
+      const data = await workspaceRequest<{course:{id:string}}>(`/api/courses/${encodeURIComponent(course.id)}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({primaryTeacher,teachers:selectedTeachers}),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || t("common.failed"));
-      }
+      if(data?.course?.id!==course.id)throw new Error(t("common.failed"));
       await fetchCourse();
+      setClassTeamEditing(false);
     } catch (error) {
       setTeacherError(error instanceof Error ? error.message : t("common.failed"));
     } finally {
@@ -537,12 +548,12 @@ export default function TeacherCourseDetail({
   }, [course.id]);
 
   useEffect(() => {
-    if (course.canTeach) {
+    if (course.canTeach && needsCourseware) {
       queueMicrotask(() => {
         void fetchCourseware();
       });
     }
-  }, [course.canTeach, fetchCourseware]);
+  }, [course.canTeach, fetchCourseware, needsCourseware]);
 
   /** 一对一 (roomType 0) 仅支持直配学生，不使用学生组。 */
   const supportsStudentGroups = course.roomType !== 0;
@@ -568,8 +579,8 @@ export default function TeacherCourseDetail({
   useEffect(() => {
     if (isCourseOwner) {
       queueMicrotask(() => {
-        if (supportsStudentGroups) void fetchMyGroups();
-        void fetchJoinLinks();
+        if (needsLegacyGroups) void fetchMyGroups();
+        if (needsJoinLinks) void fetchJoinLinks();
       });
     }
   }, [
@@ -577,7 +588,8 @@ export default function TeacherCourseDetail({
     fetchMyGroups,
     fetchJoinLinks,
     isCourseOwner,
-    supportsStudentGroups,
+    needsLegacyGroups,
+    needsJoinLinks,
   ]);
 
   const copyText = async (text: string, hint: string) => {
@@ -918,6 +930,10 @@ export default function TeacherCourseDetail({
     }
   }, [course.id, locale]);
 
+  useEffect(() => {
+    if (workspaceTab === "playback-progress") queueMicrotask(() => void fetchPlaybackProgress());
+  }, [workspaceTab, fetchPlaybackProgress]);
+
   const exportPlaybackProgressCsv = () => {
     window.location.href = `/api/courses/${course.id}/playback-progress?format=csv`;
   };
@@ -1152,7 +1168,7 @@ export default function TeacherCourseDetail({
   return (
     <div className={`${workspaceStyles.workspace} max-w-6xl mx-auto space-y-4 pb-10 pt-3`}>
       {/* Header Card */}
-      <Card className={workspaceStyles.hero}>
+      <Card className={workspaceStyles.hero} style={workspaceTab !== undefined ? {display:"none"} : undefined}>
         <CardContent className={workspaceStyles.heroContent}>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
             <div className="space-y-4 flex-1">
@@ -1328,7 +1344,7 @@ export default function TeacherCourseDetail({
 
       {/* Main Tabs Area */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <div className={`${workspaceStyles.tabsShell} mb-6`}>
+        <div className={`${workspaceStyles.tabsShell} mb-6`} style={workspaceTab !== undefined ? {display:"none"} : undefined}>
           <div
             ref={tabsScrollerRef}
             className={workspaceStyles.tabsScroller}
@@ -1394,6 +1410,11 @@ export default function TeacherCourseDetail({
           <CourseSessionManager
             courseId={course.id}
             courseName={course.name}
+            initialProgramId={workspaceProgram?.programId}
+            initialProgramName={workspaceProgram?.programName}
+            initialUnitId={workspaceProgram?.unitId}
+            initialUnitName={workspaceProgram?.unitName}
+            createOnOpen={workspaceProgram?.createLesson}
             courseKind={course.courseKind}
             roomType={course.roomType}
             canManage={Boolean(course.canTeach)}
@@ -1403,7 +1424,7 @@ export default function TeacherCourseDetail({
             )}
             currentUserIds={[user?.userId || "", user?.name || ""].filter(Boolean)}
             leadTeacherId={course.teacherId}
-            teachers={selectedTeachers}
+            teachers={selectedTeachers.length ? selectedTeachers : baseCourseTeachers()}
             students={course.students}
             groupLinks={course.groupLinks}
             initialSessions={course.sessions}
@@ -1415,6 +1436,7 @@ export default function TeacherCourseDetail({
         </TabsContent>
 
         <TabsContent value="teachers" className="mt-0">
+          {workspaceTab !== undefined ? <CourseTeachingTeamSettings teachers={classTeamEditing?selectedTeachers:baseCourseTeachers()} primaryId={classTeamEditing?primaryTeacherId:course.teacherId} directory={teacherResults.map(makeTeacherFromSearchResult)} owner={isCourseOwner} expanded={classTeamEditing} loading={teacherSearching} saving={teacherSaving} error={teacherError} locale={locale} onExpanded={value=>{setTeacherError("");setSelectedTeachers(baseCourseTeachers());setPrimaryTeacherId(course.teacherId);setClassTeamEditing(value);}} onAdd={handleSelectTeacher} onRemove={removeSelectedTeacher} onPrimary={setPrimaryTeacherId} onSave={()=>void handleSaveTeachers()} onReload={()=>void fetchTeacherOptions(true)}/> : <>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <Card className="border border-border/60 bg-card rounded-2xl shadow-sm lg:col-span-2">
               <CardHeader className="border-b border-border/40 pb-4">
@@ -1592,9 +1614,11 @@ export default function TeacherCourseDetail({
               </Card>
             )}
           </div>
+          </>}
         </TabsContent>
 
         <TabsContent value="members" className="mt-0">
+          {workspaceTab !== undefined ? <CourseMembersWorkspace course={course} locale={locale} manageGroups={supportsStudentGroups && isCourseOwner} onRefresh={fetchCourse}/> : <>
           <div className={`grid grid-cols-1 ${supportsStudentGroups && isCourseOwner ? "lg:grid-cols-2" : ""} gap-6`}>
             {/* Left Side: Direct Students */}
             <Card className="border border-border/60 bg-card flex flex-col h-[600px] rounded-2xl shadow-sm">
@@ -1807,6 +1831,7 @@ export default function TeacherCourseDetail({
               </Card>
             )}
           </div>
+          </>}
         </TabsContent>
 
         <TabsContent value="sharing" className="mt-0">
@@ -2016,14 +2041,14 @@ export default function TeacherCourseDetail({
         </TabsContent>
 
         <TabsContent value="courseware" className="mt-0">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" data-class-courseware-grid>
             {/* Left Side: Upload / Add Courseware */}
-            <Card className="border border-border/60 bg-card rounded-2xl shadow-sm lg:col-span-1">
-              <CardHeader>
-                <CardTitle className="text-lg font-bold">{t("courseDetail.addCourseware")}</CardTitle>
+            <Card className="border border-border/60 bg-card rounded-2xl shadow-sm lg:col-span-1" data-class-courseware-card>
+              <CardHeader data-class-courseware-header>
+                <CardTitle className="text-lg font-bold" data-class-courseware-title>{t("courseDetail.addCourseware")}</CardTitle>
                 <CardDescription className="text-xs">{t("courseDetail.addCoursewareDesc")}</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent data-class-courseware-content>
                 <CoursewareUploader key={course.id} courseId={course.id}
                   canUpload={course.canUploadCourseware ?? (user?.role === "teacher" && Boolean(course.canTeach))}
                   onUploaded={fetchCourseware} />
@@ -2031,14 +2056,14 @@ export default function TeacherCourseDetail({
             </Card>
 
             {/* Right Side: Courseware Library */}
-            <Card className="border border-border/60 bg-card rounded-2xl shadow-sm lg:col-span-2">
-              <CardHeader>
-                <CardTitle className="text-lg font-bold">{t("courseDetail.coursewareLibrary")}</CardTitle>
+            <Card className="border border-border/60 bg-card rounded-2xl shadow-sm lg:col-span-2" data-class-courseware-card>
+              <CardHeader data-class-courseware-header>
+                <CardTitle className="text-lg font-bold" data-class-courseware-title>{t("courseDetail.coursewareLibrary")}</CardTitle>
                 <CardDescription className="text-xs">{t("courseDetail.coursewareLibraryCurrentDescription")}</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent data-class-courseware-content>
                 {courseware.length === 0 ? (
-                  <div className="text-center py-12 border border-dashed border-border/60 rounded-xl bg-muted/10">
+                  <div className="text-center py-12 border border-dashed border-border/60 rounded-xl bg-muted/10" data-class-courseware-empty>
                     <FileText className="h-12 w-12 text-muted-foreground/40 mx-auto mb-3" />
                     <p className="text-muted-foreground text-sm font-medium">{t("courseDetail.noCourseware")}</p>
                     <p className="text-xs text-muted-foreground/60 mt-1">{t("courseDetail.addCoursewareHint")}</p>
@@ -2048,7 +2073,7 @@ export default function TeacherCourseDetail({
                     {courseware.map((item) => (
                       <div
                         key={item.id}
-                        className="flex items-center justify-between p-4 rounded-xl bg-muted/20 border border-border/40 hover:border-primary/20 transition-all"
+                        className="flex items-center justify-between p-4 rounded-xl bg-muted/20 border border-border/40 hover:border-primary/20 transition-all" data-class-courseware-row
                       >
                         <div className="flex items-center gap-3">
                           {getFileIcon(item.ext)}

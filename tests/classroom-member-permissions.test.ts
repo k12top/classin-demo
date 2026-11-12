@@ -20,6 +20,13 @@ const runtime: ClassroomRuntimeSnapshot = { status: "live", revision: 10, assist
 };
 const patch: ClassroomMemberPermissionUpdate = { courseId: "lesson", topic: "member-permissions", actorId: "teacher", revision: 11, scope: "students", microphoneAllowed: false };
 
+test("a targeted signal cannot grant media to a read-only role",()=>{
+  const viewer={...member("viewer","student"),role:"observer" as ClassroomMemberSnapshot["role"],microphoneAllowed:false,cameraAllowed:false};
+  const input={...runtime,members:[...runtime.members,viewer]};
+  const updated=applyClassroomMemberPermissionUpdate(input,{...patch,scope:"member",targetUserId:"viewer",microphoneAllowed:true,cameraAllowed:true},"teacher:tab")!;
+  assert.equal(updated.members.at(-1)?.microphoneAllowed,false);assert.equal(updated.members.at(-1)?.cameraAllowed,false);
+});
+
 test("confirmed permission messages apply immediately and preserve unrelated member state", () => {
   const updated = applyClassroomMemberPermissionUpdate(runtime, patch, "teacher:tab")!;
   assert.equal(updated.revision, 11);

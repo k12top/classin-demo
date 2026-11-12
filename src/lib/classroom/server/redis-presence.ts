@@ -81,3 +81,27 @@ export async function claimRedisEmptyClassroom(sessionId: string, token: string,
 export async function releaseRedisEmptyClassroom(sessionId: string, token: string, ended: boolean) {
   await classroomRedisCommand(["EVAL",RELEASE_EMPTY,"1",classroomRedisKey(sessionId,"control"),token,ended ? "1":"0"]);
 }
+
+// Read both participants under one verified Redis control snapshot. This is a
+// liveness check only; the caller must also verify PG connection and roster.
+const REMOTE_CONTROL_PRESENCE = `
+local raw=redis.call('GET',KEYS[1]);if not raw then return nil end
+local ok,c=pcall(cjson.decode,raw);if not ok or type(c)~='table' then return nil end
+local clock=redis.call('TIME');local now=tonumber(clock[1])*1000+math.floor(tonumber(clock[2])/1000)
+if not tonumber(c.verifiedUntil) or tonumber(c.verifiedUntil)<now or (c.status~='waiting' and c.status~='live') or (c.closing and tonumber(c.closingUntil or 0)>now) then return nil end
+local result={}
+for i=1,2 do
+ local value=redis.call('HGET',KEYS[2],ARGV[i]);if not value then result[i]=0 else
+  local valid,lease=pcall(cjson.decode,value)
+  if not valid or type(lease)~='table' then return nil end
+  local seen=tonumber(lease.lastSeenAt)
+  if lease.id==ARGV[i] and lease.userId==ARGV[i+2] and (lease.leftAt==nil or lease.leftAt==cjson.null) and (lease.replacedAt==nil or lease.replacedAt==cjson.null) and seen and seen<=now and now-seen<tonumber(ARGV[5]) then result[i]=1 else result[i]=0 end
+ end
+end
+return result`;
+export async function readRemoteControlRedisPresence(sessionId:string,teacherId:string,teacherClientId:string,studentId:string,studentClientId:string,windowMs:number):Promise<{teacherConnected:boolean;studentConnected:boolean}|null>{
+ const ids=[`${sessionId}:${teacherId}:${teacherClientId}`,`${sessionId}:${studentId}:${studentClientId}`];
+ const result=await classroomRedisCommand(['EVAL',REMOTE_CONTROL_PRESENCE,'2',classroomRedisKey(sessionId,'control'),classroomRedisKey(sessionId,'connections'),...ids,teacherId,studentId,String(windowMs)]);
+ if(!Array.isArray(result)||result.length!==2||!result.every(value=>value===0||value===1))return null;
+ return {teacherConnected:result[0]===1,studentConnected:result[1]===1};
+}

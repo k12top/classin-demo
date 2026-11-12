@@ -25,6 +25,7 @@ export async function classroomConnectionReplaced(sessionId: string, userId: str
 type DeviceAdmission = {
   deviceId?: string; deviceLabel?: string; mode?: ClassroomDeviceEntryMode;
   initializeMember?: (tx: Prisma.TransactionClient) => Promise<ClassroomMemberState>;
+  validateRole?: (tx: Prisma.TransactionClient) => Promise<void>;
 };
 type JoinedConnection = { entryMode: "primary" | ClassroomDeviceEntryMode; member?: ClassroomMemberState };
 type HeartbeatConnection = { status: string; refreshed: boolean; reason: string };
@@ -82,6 +83,9 @@ export async function touchClassroomConnection(sessionId: string, userId: string
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${sessionId} FOR UPDATE`;
     const runtime = await tx.classroomRuntime.findUnique({ where: { sessionId }, select: { status: true } });
     if (!runtime || runtime.status === "ended") throw new ClassroomConnectionEndedError();
+    // The roster check takes the same session-row lock as staff assignment,
+    // before any member record or publisher credential can be created.
+    if (admission?.validateRole) await admission.validateRole(tx);
     const id = `${sessionId}:${identity}`;
     const own = await tx.classroomConnection.findUnique({ where: { id } });
     // Replaced tabs cannot resurrect themselves through bootstrap retries.

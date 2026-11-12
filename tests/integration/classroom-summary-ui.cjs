@@ -25,6 +25,7 @@ async function main() {
     build.onResolve({ filter: /.*/ }, args => args.path in stubs ? { path: args.path, namespace: "stub" } : undefined);
     build.onLoad({ filter: /.*/, namespace: "stub" }, args => ({ contents: stubs[args.path], loader: "tsx", resolveDir: root }));
     build.onLoad({ filter: /\.module\.css$/ }, () => ({ contents: "export default {};", loader: "js" }));
+    build.onLoad({ filter: /\.css$/ }, () => ({ contents: "", loader: "js" }));
   } }] });
   let cssPath = process.env.SUMMARY_UI_CSS;
   if (!cssPath) {
@@ -34,6 +35,7 @@ async function main() {
   }
   const css = await fs.readFile(cssPath, "utf8");
   let summary = null, generation = null, ensureRequests = 0, manualRequests = 0, manualRuns = 0, transientReads = 0;
+  let noFinalCaptions = false;
   let failNextMetadataRead = false;
   const finish = overview => {
     const now = new Date().toISOString();
@@ -55,6 +57,7 @@ async function main() {
         const { action } = JSON.parse(input);
         if (action === "ensure") {
           ensureRequests++;
+          if (noFinalCaptions) return json({ summary: null, generation: null });
           generation = { status: "queued", requestId: "automatic", error: null };
           failNextMetadataRead = true;
           setTimeout(() => finish("课堂结束后自动生成的总结，无需手动点击。"), 500);
@@ -62,6 +65,7 @@ async function main() {
         }
         if (action === "generate") {
           manualRequests++;
+          if (noFinalCaptions) return json({ error: "No final captions are available", code: "no_final_captions" }, 409);
           if (generation?.status !== "running") {
             manualRuns++;
             generation = { status: "running", requestId: "manual", error: null };
@@ -75,7 +79,7 @@ async function main() {
         if (failNextMetadataRead) { failNextMetadataRead = false; transientReads++; return json({ error: "Temporary proxy failure" }, 502); }
         return json({ summary, generation, canManage: true });
       }
-      return json({ summary, generation, canManage: true, captions: [{ id: "c1", speakerName: "王老师", text: "今天我们复习方程，先整理已知条件再求解。", translations: {}, occurredAt: "2026-10-17T01:01:00Z" }], nextCaptionCursor: null });
+      return json({ summary, generation, canManage: true, captions: noFinalCaptions ? [] : [{ id: "c1", speakerName: "王老师", text: "今天我们复习方程，先整理已知条件再求解。", translations: {}, occurredAt: "2026-10-17T01:01:00Z" }], nextCaptionCursor: null });
     }
     if (url.pathname.startsWith("/api/")) return json({});
     response.end('<!doctype html><html class="light" lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/fixture.css"><body><div id="root"></div><script src="/fixture.js"></script></body></html>');
@@ -113,6 +117,15 @@ async function main() {
   assert.ok(await run("document.documentElement.scrollWidth <= innerWidth"));
   await fs.writeFile(path.join(output, "mobile.png"), (await window.webContents.capturePage()).toPNG());
   assert.deepEqual(errors, []);
+  noFinalCaptions = true; summary = null; generation = null;
+  await window.reload();
+  await waitFor("Array.from(document.querySelectorAll('#lesson-summary button')).some(button=>button.textContent.includes('生成课后总结'))");
+  await run("Array.from(document.querySelectorAll('#lesson-summary button')).find(button=>button.textContent.includes('生成课后总结')).click()");
+  await waitFor("Boolean(document.querySelector('#lesson-summary [role=alert]')?.textContent)");
+  assert.ok(await run("document.querySelector('#lesson-summary [role=alert]').textContent.includes('字幕')"));
+  await new Promise(resolve => setTimeout(resolve, 1200));
+  assert.ok(await run("document.querySelector('#lesson-summary [role=alert]')?.textContent.includes('字幕')"), "status polling must not erase the explanation");
+  console.log("PASS missing final captions show a persistent explanation after manual generation");
   console.log("PASS production playback page: automatic enqueue, generation progress, recovery from transient status failure and lost submit response, completed summary without refresh, desktop/mobile. HTTP APIs and model results are simulated.");
 }
 main().then(() => cleanup(0), error => { console.error(error); cleanup(1); });

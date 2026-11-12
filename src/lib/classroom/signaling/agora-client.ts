@@ -3,6 +3,7 @@
 import type {
   ClassroomSignalingEvent,
   ClassroomDeviceAck,
+  ClassroomRemoteControlInput,
   ClassroomSignalingProvider,
 } from "@/lib/classroom/signaling/types";
 import type { ClassroomSignalingCredential } from "@/lib/classroom/types";
@@ -104,6 +105,9 @@ export class AgoraRtmSignalingProvider
       if (generation !== this.generation || typeof raw !== "string" || raw.length > 32_000) return;
       try {
         const parsed = JSON.parse(raw) as ClassroomSignalingEvent;
+        // Remote input must arrive as a bounded direct user message; the
+        // receiver still verifies every signature against its server lease.
+        if (parsed?.topic === "remote-control-input" && (event.channelType !== "USER" || typeof event.publisher !== "string" || !event.publisher || raw.length > 2048)) return;
         if (
           parsed &&
           typeof parsed.courseId === "string" &&
@@ -159,7 +163,7 @@ export class AgoraRtmSignalingProvider
     });
   }
 
-  async publishToUser(userId: string, event: ClassroomDeviceAck): Promise<void> {
+  async publishToUser(userId: string, event: ClassroomDeviceAck | ClassroomRemoteControlInput): Promise<void> {
     if (!this.client || !this.ready) throw new Error("CLASSROOM_SIGNALING_UNAVAILABLE");
     await this.client.publish(userId, JSON.stringify(event), { channelType: "USER" });
   }

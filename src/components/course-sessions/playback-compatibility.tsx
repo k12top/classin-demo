@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
 import { useTranslation } from "@/lib/i18n/context";
+import { replayReviewCopy } from "@/lib/replay-review-copy";
 import { connectPlaybackMedia, type PlaybackIssue, type PlaybackQuality, type PlaybackQualityInfo } from "@/lib/playback-media";
 
 const fetchPlaybackSource: typeof fetch = async (input, init) => {
@@ -52,17 +53,17 @@ export function PlaybackQualityControl({ quality, onChange, info }: {
   quality: PlaybackQuality; onChange: (quality: PlaybackQuality) => void; info: PlaybackQualityInfo;
 }) {
   const { locale } = useTranslation();
-  const zh = locale.startsWith("zh");
+  const copy = replayReviewCopy(locale);
   return <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm" data-playback-quality>
     {info.canSelect && <label className="flex items-center gap-2">
-      <span>{zh ? "画质" : "Quality"}</span>
-      <select aria-label={zh ? "回放画质" : "Playback quality"} value={quality} onChange={event => onChange(event.target.value as PlaybackQuality)}
+      <span>{copy.quality}</span>
+      <select aria-label={copy.playbackQuality} value={quality} onChange={event => onChange(event.target.value as PlaybackQuality)}
         className="min-h-11 max-w-full rounded-md border border-white/30 bg-transparent px-2 text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
-        <option className="bg-background text-foreground" value="auto">{zh ? "自动" : "Auto"}</option>
-        <option className="bg-background text-foreground" value="high">{zh ? "高画质（原始录像）" : "High (original recording)"}</option>
+        <option className="bg-background text-foreground" value="auto">{copy.auto}</option>
+        <option className="bg-background text-foreground" value="high">{copy.high}</option>
       </select>
     </label>}
-    {info.height && <span className="text-white/80" role="status">{info.height}p{!info.canSelect ? zh ? " · 源画质" : " · Source quality" : ""}</span>}
+    {info.height && <span className="text-white/80" role="status">{info.height}p{!info.canSelect ? ` · ${copy.sourceQuality}` : ""}</span>}
   </div>;
 }
 

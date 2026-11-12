@@ -6,9 +6,10 @@ import { validTimeZone, isExplicitInstant } from "@/lib/time-zone";
  * POST /api/courses — create a new course (teacher only)
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionFromRequest } from "@/lib/session";
+import { getSessionFromRequest, type SessionPayload } from "@/lib/session";
 import { prisma, withDatabaseReadRetry } from "@/lib/db";
 import { databaseUnavailableResponse } from "@/lib/database-response";
+import { courseCreationHash } from "@/lib/course-creation-idempotency";
 import { buildCourseShareUrl, buildJoinUrl, joinLinkStatus } from "@/lib/join-link";
 import { serializeCourse, serializeCourses } from "@/lib/course-serialize";
 import { promoteCoursesIfDue } from "@/lib/course-promote";
@@ -19,6 +20,9 @@ import {
   userOwnsCourse,
 } from "@/lib/course-teacher";
 import { generateCourseRoomUuid } from "@/lib/course-room";
+import {getViewerSessionRoles} from "@/lib/course-session-viewer";
+import {scopeListedCourse} from "@/lib/course-list-visibility";
+import {casdoorUserIdsMatch} from "@/lib/casdoor-user";
 import { defaultAutoStudentOnStage } from "@/lib/classroom/mode";
 import {
   applyCourseListSort,
@@ -29,6 +33,21 @@ import {
 } from "@/lib/course-list-query";
 
 export const dynamic = "force-dynamic";
+class CourseCreationConflict extends Error {}
+
+async function existingCreatedCourse(requestId:string,actorId:string,payloadHash:string){
+  const receipt=await prisma.courseCreationReceipt.findUnique({where:{requestId}});
+  if(!receipt){
+    // Older records did not retain a request fingerprint; never disclose or
+    // guess whether an old request is equivalent.
+    if(await prisma.course.findUnique({where:{creationRequestId:requestId},select:{id:true}}))throw new CourseCreationConflict();
+    return null;
+  }
+  if(receipt.actorId!==actorId||receipt.payloadHash!==payloadHash)throw new CourseCreationConflict();
+  const course=await prisma.course.findFirst({where:{id:receipt.courseId,ownerId:actorId},include:{teachers:{orderBy:{createdAt:"asc"}},sessions:{orderBy:{position:"asc"}}}});
+  if(!course)throw new CourseCreationConflict();
+  return course;
+}
 
 function sessionStudentIdCandidates(session: { userId: string; name?: string }): string[] {
   const values = [session.userId, session.name || ""].flatMap((value) => {
@@ -40,12 +59,7 @@ function sessionStudentIdCandidates(session: { userId: string; name?: string }):
   return Array.from(new Set(values.filter(Boolean)));
 }
 
-async function getCoursesOnce(request: NextRequest) {
-  const session = await getSessionFromRequest(request);
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+async function getCoursesOnce(request: NextRequest, session: SessionPayload) {
   const sortParsed = parseCourseListSort(request.nextUrl.searchParams);
   if ("error" in sortParsed) {
     return NextResponse.json({ error: sortParsed.error }, { status: 400 });
@@ -117,7 +131,7 @@ async function getCoursesOnce(request: NextRequest) {
               },
             },
             ...(groupIds.length > 0
-              ? [{ groupLinks: { some: { groupId: { in: groupIds } } } }]
+              ? [{ groupLinks: { some: { groupId: { in: groupIds } } } },{ sessions: { some: { groupLinks: { some: { groupId: { in: groupIds }, action: "include" } } } } }]
               : []),
           ],
           ...statusWhere,
@@ -174,9 +188,15 @@ async function getCoursesOnce(request: NextRequest) {
         orderBy,
       });
       const origin = request.nextUrl.origin.replace(/\/$/, "");
+      const teacherCourseIds = new Set(coursesRaw.filter(course=>userCanTeachCourse(course,userIdCandidates)).map(course=>course.id));
+      const roles = await getViewerSessionRoles(coursesRaw.filter(course=>!teacherCourseIds.has(course.id)).flatMap(course=>course.sessions.map(lesson=>lesson.id)),userIdCandidates);
+      const eligibleCourses = coursesRaw.filter(course=>teacherCourseIds.has(course.id)||course.sessions.some(lesson=>roles.has(lesson.id))||course.students.some(student=>studentIdCandidates.some(id=>casdoorUserIdsMatch(student.studentId,id)))||course.groupLinks.some(link=>link.group.members.some(member=>studentIdCandidates.some(id=>casdoorUserIdsMatch(member.userId,id)))));
       const courses = applyCourseListSort(
-        serializeCourses(coursesRaw.map(({ joinLinks, ...course }) => {
-          const canTeach = userCanTeachCourse(course, userIdCandidates);
+        serializeCourses(eligibleCourses.map(({ joinLinks, ...original }) => {
+          const canTeach = teacherCourseIds.has(original.id);
+          const course = canTeach ? original : scopeListedCourse(original,roles);
+          const lessonTeaching = !canTeach && course.sessions.some(lesson=>["teacher","assistant"].includes(roles.get(lesson.id)||""));
+          const lessonObserving = !canTeach && !lessonTeaching && course.sessions.some(lesson=>roles.get(lesson.id)==="observer") && !course.sessions.some(lesson=>roles.get(lesson.id)==="student");
           return {
             ...course,
             passcode: canTeach ? course.passcode : undefined,
@@ -188,7 +208,9 @@ async function getCoursesOnce(request: NextRequest) {
                 userOwnsCourse(course, candidate)
               ),
             canTeach,
-            joinedAs: canTeach ? "teacher" : "student",
+            lessonTeaching,
+            lessonObserving,
+            joinedAs: canTeach || lessonTeaching ? "teacher" : "student",
             activeJoinLinks: canTeach
               ? joinLinks
                   .filter(
@@ -245,6 +267,7 @@ async function getCoursesOnce(request: NextRequest) {
         where: {
           OR: [
             { students: { some: { studentId: { in: studentIdCandidates } } } },
+            { sessions: { some: { teachers: { some: { teacherId: { in: studentIdCandidates }, action:"include", role:"observer" } } } } },
             {
               sessions: {
                 some: {
@@ -361,22 +384,22 @@ async function getCoursesOnce(request: NextRequest) {
         orderBy,
       });
 
+      const enrolledCourses = [...new Map([...directCourses,...groupCourses].map(course=>[course.id,course])).values()];
+      const roles = await getViewerSessionRoles(enrolledCourses.flatMap(course=>course.sessions.map(lesson=>lesson.id)),studentIdCandidates);
+      const enrolledIds = new Set(enrolledCourses.map(course=>course.id));
       const courses = applyCourseListSort(
         serializeCourses([
-          ...directCourses.map((course) => ({
-            ...course,
-            requiresPasscode: course.roomType === 10 && Boolean(course.passcode),
+          ...enrolledCourses.map((original) => ({
+            ...scopeListedCourse(original,roles),
+            lessonObserving: original.sessions.some(lesson=>roles.get(lesson.id)==="observer") && !original.sessions.some(lesson=>roles.has(lesson.id)&&roles.get(lesson.id)!=="observer"),
+            students: [],
+            requiresPasscode: original.roomType === 10 && Boolean(original.passcode),
             publicListing: false,
             passcode: undefined,
           })),
-          ...groupCourses.map((course) => ({
+          ...publicCourses.filter(course=>!enrolledIds.has(course.id)).map((course) => ({
             ...course,
-            requiresPasscode: course.roomType === 10 && Boolean(course.passcode),
-            publicListing: false,
-            passcode: undefined,
-          })),
-          ...publicCourses.map((course) => ({
-            ...course,
+            students: [],
             requiresPasscode: Boolean(course.passcode),
             publicListing: true,
             passcode: undefined,
@@ -400,6 +423,8 @@ async function getCoursesOnce(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const session=await getSessionFromRequest(request);
+    if(!session)return NextResponse.json({error:"Unauthorized"},{status:401});
     // Status promotion is an idempotent write, so keep it outside the read-only
     // retry boundary. Provider reconciliation remains owned by the minute cron.
     await promoteCoursesIfDue(undefined, { reconcileRecordings: false }).catch(
@@ -407,7 +432,7 @@ export async function GET(request: NextRequest) {
         console.warn("Course status promotion was deferred:", error);
       },
     );
-    return await withDatabaseReadRetry(() => getCoursesOnce(request));
+    return await withDatabaseReadRetry(() => getCoursesOnce(request,session));
   } catch (error) {
     console.error("Failed to fetch courses:", error);
     return (
@@ -426,13 +451,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Only teachers can create courses" }, { status: 403 });
   }
 
-  const creationRequestId = request.headers
-    .get("idempotency-key")
-    ?.trim()
-    .slice(0, 160) || null;
+  const suppliedKey = request.headers.get("idempotency-key");
+  if(suppliedKey!==null && (!suppliedKey.trim() || suppliedKey.trim().length>160))return NextResponse.json({error:"Invalid request id"},{status:400});
+  const creationRequestId = suppliedKey?.trim() || null;
+  let payloadHash:string|null=null;
 
   try {
     const body = await request.json();
+    if(creationRequestId)payloadHash=courseCreationHash(body);
     const {
       name,
       description,
@@ -462,7 +488,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let normalizedCaptionStartPreferences;
+    let normalizedCaptionStartPreferences: ReturnType<typeof validateCaptionStartPreferences> | undefined;
     if (captionStartPreferences !== undefined) {
       try { normalizedCaptionStartPreferences = validateCaptionStartPreferences(captionStartPreferences); }
       catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid caption settings" }, { status: 400 }); }
@@ -553,13 +579,7 @@ export async function POST(request: NextRequest) {
     const leadTeacher = normalizedTeachers[0] ?? fallbackTeacher;
 
     if (creationRequestId) {
-      const existingRequest = await prisma.course.findUnique({
-        where: { creationRequestId },
-        include: {
-          teachers: { orderBy: { createdAt: "asc" } },
-          sessions: { orderBy: { position: "asc" } },
-        },
-      });
+      const existingRequest = await existingCreatedCourse(creationRequestId,session.userId,payloadHash!);
       if (existingRequest) {
         return NextResponse.json({
           course: serializeCourse(existingRequest),
@@ -580,11 +600,17 @@ export async function POST(request: NextRequest) {
       },
     });
     if (existing) {
+      // The first transaction may have committed after the receipt lookup but
+      // before this duplicate-name check. Recheck its idempotency receipt.
+      if(creationRequestId){
+        const previous=await existingCreatedCourse(creationRequestId,session.userId,payloadHash!);
+        if(previous)return NextResponse.json({course:serializeCourse(previous),duplicate:true});
+      }
       return NextResponse.json({ error: "检测到重复提交，请勿在 5 秒内重复创建相同课程" }, { status: 409 });
     }
 
     const initialRoomUuid = parsedStartTime ? generateCourseRoomUuid() : null;
-    const course = await prisma.course.create({
+    const createCourse = (client:Pick<typeof prisma,"course">) => client.course.create({
       data: {
         roomUuid: initialRoomUuid,
         name: name.trim(),
@@ -639,26 +665,20 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    const course=creationRequestId?await prisma.$transaction(async tx=>{
+      const created=await createCourse(tx);
+      await tx.courseCreationReceipt.create({data:{requestId:creationRequestId,actorId:session.userId,courseId:created.id,payloadHash:payloadHash!}});
+      return created;
+    }):await createCourse(prisma);
     return NextResponse.json({ course: serializeCourse(course) }, { status: 201 });
   } catch (error) {
-    console.error("Failed to create course:", error);
-    if (creationRequestId) {
-      const existingRequest = await prisma.course
-        .findUnique({
-          where: { creationRequestId },
-          include: {
-            teachers: { orderBy: { createdAt: "asc" } },
-            sessions: { orderBy: { position: "asc" } },
-          },
-        })
-        .catch(() => null);
-      if (existingRequest) {
-        return NextResponse.json({
-          course: serializeCourse(existingRequest),
-          duplicate: true,
-        });
-      }
+    if(error instanceof CourseCreationConflict)return NextResponse.json({error:"Request id already used or class unavailable"},{status:409});
+    if (creationRequestId && payloadHash) {
+      try { const existingRequest=await existingCreatedCourse(creationRequestId,session.userId,payloadHash);
+        if(existingRequest)return NextResponse.json({course:serializeCourse(existingRequest),duplicate:true});
+      } catch(cause) { if(cause instanceof CourseCreationConflict)return NextResponse.json({error:"Request id already used or class unavailable"},{status:409}); }
     }
+    console.error("Failed to create course:", error);
     const unavailable = databaseUnavailableResponse(error);
     if (unavailable) return unavailable;
     return NextResponse.json({ error: "Failed to create course" }, { status: 500 });

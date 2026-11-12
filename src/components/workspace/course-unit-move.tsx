@@ -1,0 +1,11 @@
+"use client";
+import {useRef,useState} from "react";
+import {workspaceRequest} from "@/lib/workspace-client";
+import styles from "./course-workspace.module.css";
+import {courseWorkspaceText} from "./course-workspace-copy";
+export type CourseUnit={id:string;name:string;version:number;programId:string|null};
+export function CourseUnitMove({courseId,programId,unitId,itemId,kind,units,locale,onMoved,onBusyChange}:{courseId:string;programId:string|null;unitId:string|null;itemId:string;kind:"lesson"|"resource"|"draft";units:CourseUnit[];locale:string;onMoved:()=>void;onBusyChange?:(busy:boolean)=>void}){
+ const [busy,setBusy]=useState(false),[error,setError]=useState<"failed"|"uncertain"|null>(null),locked=useRef(false);
+ const move=async(value:string)=>{if(locked.current)return;locked.current=true;onBusyChange?.(true);setBusy(true);setError(null);try{const target=value||null;const result=await workspaceRequest<{itemId?:unknown;unitId?:unknown}>(`/api/courses/${encodeURIComponent(courseId)}/units/placement`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind,itemId,programId,unitId:target,previousUnitId:unitId})});if(!result||result.itemId!==itemId||result.unitId!==target)throw new Error("Invalid placement receipt");onMoved();}catch(failure){const status=typeof failure==="object"&&failure!==null&&"status" in failure?Number(failure.status):0;setError(status>=400&&status<500&&status!==408&&status!==429?"failed":"uncertain");}finally{locked.current=false;setBusy(false);onBusyChange?.(false);}};
+ return <span className={styles.unitMove}><label><span className={styles.srOnly}>{courseWorkspaceText(locale,"移动到单元","Move to unit")}</span><select aria-label={courseWorkspaceText(locale,"移动到单元","Move to unit")} value={unitId||""} disabled={busy} onChange={event=>void move(event.target.value)}><option value="">{courseWorkspaceText(locale,"未分单元","Unassigned")}</option>{units.map(unit=><option key={unit.id} value={unit.id}>{unit.name}</option>)}</select></label>{error&&<small role="alert">{error==="uncertain"?courseWorkspaceText(locale,"移动结果未确认，请刷新后检查。","The move could not be confirmed. Refresh and check."):courseWorkspaceText(locale,"移动失败，请刷新重试","Move failed. Refresh and retry.")}</small>}</span>;
+}

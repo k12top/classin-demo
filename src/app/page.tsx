@@ -1,189 +1,50 @@
 "use client";
+import {useCallback,useEffect,useRef,useState} from "react";
+import {useAuth} from "@/lib/auth-context";
+import {redirectToSsoLogin} from "@/lib/auth-login";
+import {useTranslation} from "@/lib/i18n/context";
+import {workspaceRequest} from "@/lib/workspace-client";
+import type {WorkspaceCourse} from "@/lib/workspace-model";
+import {WorkspaceApp} from "@/components/workspace/workspace-app";
+import {PageLoadingState} from "@/components/ui/page-loading-state";
+import {watchWorkspaceRefresh} from "@/lib/workspace-refresh";
 
-import { useState, useEffect, useCallback } from "react";
-import { useAuth } from "@/lib/auth-context";
-import { tryOAuthRefresh } from "@/lib/auth-refresh-client";
-import { redirectToSsoLogin } from "@/lib/auth-login";
-import { useTranslation } from "@/lib/i18n/context";
-import StudentDashboard from "@/components/StudentDashboard";
-import TeacherDashboard from "@/components/TeacherDashboard";
-import { PageLoadingState } from "@/components/ui/page-loading-state";
-
-interface Course {
-  id: string;
-  name: string;
-  description: string;
-  roomType: number;
-  ownerId?: string;
-  ownerName?: string;
-  ownerAvatar?: string;
-  teacherId: string;
-  teacherName: string;
-  teacherAvatar?: string;
-  teachers?: { id?: string; teacherId: string; teacherName: string; teacherAvatar?: string }[];
-  isCourseOwner?: boolean;
-  canTeach?: boolean;
-  status: string;
-  startTime: string | null;
-  endTime: string | null;
-  studentRemarks: string;
-  createdAt: string;
-  updatedAt: string;
-  students?: { studentId: string; studentName: string; studentAvatar?: string }[];
-  groupLinks?: {
-    id: string;
-    group: {
-      id: string;
-      name: string;
-      members?: { userId: string; userName?: string; userAvatar?: string }[];
-    };
-  }[];
-  activeJoinLinks?: { id: string; label: string; joinUrl: string; useCount: number }[];
-  activeCourseShareLinks?: { id: string; label: string; courseShareUrl: string; useCount: number }[];
-}
-
-let dashboardCourseCache: Course[] | null = null;
-let dashboardCourseRequest: Promise<Course[]> | null = null;
-const DASHBOARD_CACHE_KEY = "classroom:dashboard:courses:v1";
-
-function storedCourses(): Course[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const value = JSON.parse(sessionStorage.getItem(DASHBOARD_CACHE_KEY) || "[]");
-    return Array.isArray(value) ? (value as Course[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function LoadingView({ message }: { message: string }) {
-  return <PageLoadingState message={message} variant="dashboard" />;
-}
-
-export default function DashboardPage() {
-  const { user, loading: authLoading } = useAuth();
-  const [courses, setCourses] = useState<Course[]>(() => dashboardCourseCache ?? []);
-  const [loading, setLoading] = useState(() => !dashboardCourseCache);
-  const [offline, setOffline] = useState(false);
-
-  const fetchCourses = useCallback(async () => {
-    try {
-      dashboardCourseRequest ??= (async () => {
-        let res = await fetch("/api/courses", {
-          credentials: "same-origin",
-        });
-        if (res.status === 401 && (await tryOAuthRefresh())) {
-          res = await fetch("/api/courses", { credentials: "same-origin" });
-        }
-        if (res.status === 401) {
-          redirectToSsoLogin();
-          return [];
-        }
-        if (!res.ok) throw new Error(`Course request failed: ${res.status}`);
-        const data = (await res.json()) as { courses?: Course[] };
-        return data.courses ?? [];
-      })();
-      const nextCourses = await dashboardCourseRequest;
-      dashboardCourseCache = nextCourses;
-      sessionStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(nextCourses));
-      setCourses(nextCourses);
-      setOffline(false);
-    } catch (err) {
-      console.error("Failed to fetch courses:", err);
-      const cached = dashboardCourseCache ?? storedCourses();
-      if (cached.length) setCourses(cached);
-      setOffline(true);
-    } finally {
-      dashboardCourseRequest = null;
-      setLoading(false);
+type CourseState={owner:string;courses:WorkspaceCourse[];loading:boolean;error:string;offline:boolean};
+export default function DashboardPage(){
+  const {user,loading:authLoading}=useAuth(),{t}=useTranslation();
+  const [state,setState]=useState<CourseState>({owner:"",courses:[],loading:true,error:"",offline:false});
+  const generation=useRef(0),accountId=user?.userId || "";
+  const fetchCourses=useCallback(async(silent=false)=>{
+    if(!accountId)return;
+    const request=++generation.current;
+    setState(previous=>previous.owner===accountId?{...previous,loading:silent?previous.loading:true}:{owner:accountId,courses:[],loading:true,error:"",offline:false});
+    try{
+      const desktop=window.classroomDesktop?.getCachedCourses;
+      const result=desktop?await desktop(accountId):null;
+      if(result&&!result.ok)throw Object.assign(new Error(result.error||"Unable to load courses"),{status:result.status});
+      if(desktop&&!Array.isArray(result?.data?.courses))throw Object.assign(new Error("Invalid course response"),{status:502});
+      const courses=result?.data?.courses??(desktop?[]:(await workspaceRequest<{courses:WorkspaceCourse[]}>("/api/courses"))?.courses);
+      if(!Array.isArray(courses))throw new Error("Invalid course response");
+      if(request===generation.current)setState({owner:accountId,courses,loading:false,error:result?.cached?"offline-cache":"",offline:Boolean(result?.cached)});
+    }catch(error){
+      if(request!==generation.current)return;
+      if((error as {status?:number}).status===401){setState({owner:"",courses:[],loading:false,error:"",offline:false});redirectToSsoLogin();return;}
+      setState(previous=>({owner:accountId,courses:([403,409].includes((error as {status?:number}).status??0)?[]:previous.owner===accountId?previous.courses:[]),loading:false,error:error instanceof Error?error.message:t("common.failed"),offline:false}));
     }
-  }, []);
-
-  useEffect(() => {
-    if (!authLoading && user) {
-      const cached = dashboardCourseCache ?? storedCourses();
-      queueMicrotask(() => {
-        if (cached.length) {
-          dashboardCourseCache = cached;
-          setCourses(cached);
-          setLoading(false);
-        }
-        void fetchCourses();
-      });
-    }
-  }, [authLoading, user, fetchCourses]);
-
-  useEffect(() => {
-    if (authLoading || !user) return;
-    let lastRefreshAt = 0;
-    const refreshWhenReturning = () => {
-      if (document.visibilityState !== "visible") return;
-      const now = Date.now();
-      if (now - lastRefreshAt < 10_000) return;
-      lastRefreshAt = now;
-      void fetchCourses();
-    };
-    window.addEventListener("focus", refreshWhenReturning);
-    document.addEventListener("visibilitychange", refreshWhenReturning);
-    return () => {
-      window.removeEventListener("focus", refreshWhenReturning);
-      document.removeEventListener("visibilitychange", refreshWhenReturning);
-    };
-  }, [authLoading, fetchCourses, user]);
-
-  useEffect(() => {
-    if (!authLoading && !user) {
-      redirectToSsoLogin();
-    }
-  }, [authLoading, user]);
-
-  const { t } = useTranslation();
-
-  if (authLoading || !user) {
-    return <LoadingView message={authLoading ? t("common.loading") : t("login.redirecting")} />;
-  }
-
-  if (loading) {
-    return <LoadingView message={t("teacherDashboard.searching")} />;
-  }
-
-  if (user.role === "teacher") {
-    return (
-      <>
-        {offline ? <OfflineStatus /> : null}
-        <TeacherDashboard courses={courses} user={user} fetchCourses={fetchCourses} />
-      </>
-    );
-  }
-
-  return (
-    <>
-      {offline ? <OfflineStatus /> : null}
-      <StudentDashboard courses={courses} user={user} fetchCourses={fetchCourses} />
-    </>
-  );
-}
-
-function OfflineStatus() {
-  const { t } = useTranslation();
-  return (
-    <div
-      role="status"
-      style={{
-        position: "fixed",
-        zIndex: 80,
-        insetInlineEnd: "1rem",
-        bottom: "1rem",
-        border: "1px solid hsl(var(--border))",
-        borderRadius: "999px",
-        background: "hsl(var(--background) / .92)",
-        color: "hsl(var(--muted-foreground))",
-        padding: ".45rem .75rem",
-        fontSize: ".72rem",
-        backdropFilter: "blur(18px)",
-      }}
-    >
-      {t("common.offlineCached")}
-    </div>
-  );
+  },[accountId,t]);
+  const invalidateRequests=useCallback(()=>{generation.current++;},[]);
+  useEffect(()=>{
+    if(authLoading)return;
+    if(!accountId){generation.current++;redirectToSsoLogin();return;}
+    queueMicrotask(()=>{void fetchCourses();});
+    return invalidateRequests;
+  },[accountId,authLoading,fetchCourses,invalidateRequests]);
+  useEffect(()=>{
+    if(!accountId)return;
+    return watchWorkspaceRefresh(()=>void fetchCourses(true));
+  },[accountId,fetchCourses]);
+  if(authLoading||!user)return <PageLoadingState message={t("common.loading")} variant="dashboard"/>;
+  // The previous account's loaded state never reaches the next account's UI.
+  const current=state.owner===accountId?state:{owner:accountId,courses:[],loading:true,error:"",offline:false};
+  return <WorkspaceApp key={accountId} courses={current.courses} user={user} refresh={()=>void fetchCourses()} error={current.error} offline={current.offline} refreshing={current.loading}/>;
 }

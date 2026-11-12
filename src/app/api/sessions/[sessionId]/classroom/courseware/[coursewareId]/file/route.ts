@@ -15,6 +15,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!file) return Response.json({ error: "not_found" }, { status: 404 });
   const teaching = access.access.role === "teacher" || access.access.role === "assistant";
   if (!await isCoursewareAvailableInSession(file, access.access.sessionId) || (!teaching && (!file.studentCanView || (!preview && !file.studentCanDownload)))) return Response.json({ error: "Forbidden" }, { status: 403 });
-  try { return await coursewareFileResponse(file, preview); }
+  try { return await coursewareFileResponse(file, preview, request.headers.get("range")); }
   catch { return Response.json({ error: "file_unavailable" }, { status: 502 }); }
 }

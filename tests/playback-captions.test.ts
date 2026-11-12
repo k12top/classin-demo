@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { activeCaptionIndex, captionPosition, captionSeekPosition } from "../src/lib/classroom/playback-captions";
+import { activeCaptionIndex, captionDataForSession, captionPosition, captionSeekPosition } from "../src/lib/classroom/playback-captions";
+
+test("switching lessons hides the previous transcript and its pagination cursor", () => {
+  const loaded = {sessionId:"lesson-a",items:[{id:"private-a"}],cursor:"cursor-a"};
+  assert.equal(captionDataForSession(loaded,"lesson-b"),null);
+  assert.equal(captionDataForSession(loaded,""),null);
+  assert.equal(captionDataForSession(loaded,"lesson-a"),loaded);
+  const next = {sessionId:"lesson-b",items:[{id:"private-b"}],cursor:null};
+  assert.deepEqual(captionDataForSession(next,"lesson-b")?.items,[{id:"private-b"}]);
+  assert.equal(captionDataForSession(next,"lesson-a"),null);
+});
 
 const recordings = [
   { id: "first", startedAt: "2026-09-27T10:00:00.000Z", stoppedAt: "2026-09-27T10:05:00.000Z" },
@@ -12,6 +22,14 @@ test("caption positions select the matching recording segment", () => {
   assert.deepEqual(captionPosition("2026-09-27T10:11:30.000Z", recordings), { recordingId: "second", seconds: 90 });
   assert.equal(captionPosition("2026-09-27T10:07:00.000Z", recordings), null);
   assert.equal(captionPosition("not-a-date", recordings), null);
+});
+
+test("overlapping recordings prefer the segment currently being played",()=>{
+ const overlap=[recordings[0],{id:"overlap",startedAt:"2026-09-27T10:02:00.000Z",stoppedAt:"2026-09-27T10:07:00.000Z"}];
+ assert.deepEqual(captionPosition("2026-09-27T10:03:00Z",overlap,"overlap"),{recordingId:"overlap",seconds:60});
+ assert.deepEqual(captionPosition("2026-09-27T10:03:00Z",overlap,"first"),{recordingId:"first",seconds:180});
+ assert.deepEqual(captionPosition("2026-09-27T10:06:00Z",overlap,"first"),{recordingId:"overlap",seconds:240});
+ assert.deepEqual(captionPosition("2026-09-27T10:05:00Z",overlap,"overlap"),{recordingId:"overlap",seconds:180});
 });
 
 test("active caption follows media time within the selected segment", () => {

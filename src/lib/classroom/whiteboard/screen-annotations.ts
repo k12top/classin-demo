@@ -1,7 +1,32 @@
 import type { ApplianceNames, Room, View } from "white-web-sdk";
 import type { ClassroomWhiteboardController } from "@/components/classroom/fastboard-surface";
+import type { ClassroomScreenShareLease } from "@/lib/classroom/types";
+import { isScreenInkUrlAllowed, screenInkRegion, type ScreenInkStroke } from "./screen-ink";
 
 const ANNOTATION_WIDTH = 1280;
+
+/** Insert a completed desktop stroke into the same screen scene as web viewers. */
+export async function insertDesktopScreenInk(room: Room, view: View, stroke: ScreenInkStroke, isActive: () => boolean, upload: (data: string) => Promise<string>) {
+  const region=screenInkRegion(stroke);
+  if (!region || !isActive() || !room.isWritable || room.phase !== "connected") return false;
+  const canvas=document.createElement("canvas");canvas.width=Math.max(1,Math.ceil(region.width));canvas.height=Math.max(1,Math.ceil(region.height));
+  const context=canvas.getContext("2d");if(!context)return false;
+  context.strokeStyle=stroke.color;context.fillStyle=stroke.color;context.lineWidth=region.strokeWidth;context.lineCap="round";context.lineJoin="round";
+  context.beginPath();const first=region.points[0];context.moveTo(first.x-region.left,first.y-region.top);
+  if(region.points.length===1){context.arc(first.x-region.left,first.y-region.top,region.strokeWidth/2,0,Math.PI*2);context.fill();}
+  else {for(const point of region.points.slice(1))context.lineTo(point.x-region.left,point.y-region.top);context.stroke();}
+  const data=canvas.toDataURL("image/png"),source=await upload(data);
+  let url:URL;try{url=new URL(source);}catch{return false;}
+  if(!isScreenInkUrlAllowed(url)||!isActive()||!room.isWritable||room.phase!=="connected")return false;
+  const uuid=crypto.randomUUID();view.insertImage({uuid,centerX:region.centerX,centerY:region.centerY,width:region.width,height:region.height,locked:true});view.completeImageUpload(uuid,url.href);return true;
+}
+
+/** A new capture must never inherit drawings from an earlier capture on the same RTC uid. */
+export function screenAnnotationSceneId(source:"main"|"room",rtcUid:string,lease:ClassroomScreenShareLease|undefined,authoritative:boolean):string|null {
+  if (!authoritative) return `${source}-${rtcUid}`; // Legacy rooms without share claims.
+  if (!lease || String(lease.rtcUid)!==rtcUid || !lease.claimId) return null;
+  return JSON.stringify([source,rtcUid,lease.claimId]);
+}
 
 /** Match the contained video, including letterboxing, on every viewer's stage. */
 export function screenAnnotationViewport(
@@ -87,5 +112,6 @@ export function createScreenAnnotationController(
     // Board imports belong to the teaching board; never redirect a screen view
     // to a scene that other viewers are not displaying.
     importBoard: () => Promise.reject(new Error("SCREEN_ANNOTATION_IMPORT_UNSUPPORTED")),
+    insertDesktopInk: (stroke, upload) => insertDesktopScreenInk(room, view, stroke, isActive, upload),
   };
 }

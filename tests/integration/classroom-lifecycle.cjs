@@ -35,7 +35,7 @@ async function main() {
     "next/server": 'export class NextResponse extends Response { static json(body, init) { return new NextResponse(JSON.stringify(body), {...init, headers: {"Content-Type": "application/json"}}); } } export function after() {}',
     "@/lib/session": 'export async function getSessionFromRequest() { return {userId:"teacher", name:"teacher", displayName:"Teacher", role:"teacher"}; }',
     "@/lib/classroom/server/recording-orchestrator": 'export async function stopActiveRecordingsForCourse() {} export async function stopRecordingAttempt() {} export async function retryFailedLiveRecordings() {} export async function reconcilePendingRecordings() {} export async function requestRecordingStart(courseId, sessionId, tx = globalThis.lifecycleDb) { return tx.classroomRecording.create({data:{courseId,sessionId,provider:"fixture",channelName:"fixture-channel",recorderUserId:"fixture-bot",status:"starting"}}); } export async function processRecordingStart() {} export async function recoverInterruptedRecordingForSession() {}',
-    "@/lib/classroom/server/transcription-orchestrator": 'export async function stopClassroomTranscription(_courseId, sessionId) { await globalThis.lifecycleDb.classroomRuntime.updateMany({where:{sessionId,status:"ended"},data:{transcriptionStatus:"stopped"}}); } export async function syncClassroomTranscription() {} export async function reconcileActiveClassroomTranscriptions() {}',
+    "@/lib/classroom/server/transcription-orchestrator": 'export async function stopClassroomTranscription(_courseId, sessionId, options) { globalThis.lifecycleStops=(globalThis.lifecycleStops||0)+1; globalThis.lifecycleStopOptions=options; if(globalThis.lifecycleStopFailure)throw Error("stop failed"); await globalThis.lifecycleDb.classroomRuntime.updateMany({where:{sessionId,status:"ended"},data:{transcriptionStatus:"stopped"}}); } export async function syncClassroomTranscription() {} export async function reconcileActiveClassroomTranscriptions() {}',
     "@/lib/course-session-summary": 'export async function generateCourseSessionSummary() {} export async function reconcileCourseSessionSummaries() {}',
     "@/lib/course-session-summary-generation": 'export async function queueCourseSessionSummary() {} export async function processCourseSessionSummaryGeneration() {}',
   };
@@ -64,6 +64,58 @@ async function main() {
     return response.json();
   };
   try {
+    const observerLesson=await fixture();
+    await db.courseSessionTeacher.create({data:{courseId:course.id,sessionId:observerLesson.id,teacherId:'teacher',teacherName:'Teacher',role:'observer',action:'include'}});
+    for(const action of ['end','extend','reopen','cancel','restore']){
+      const response=await api.lifecycle(new Request('http://localhost/api/lifecycle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,minutes:15})}),context(observerLesson));
+      assert.equal(response.status,403,`observer must not ${action}`);
+    }
+    assert.equal((await db.classroomRuntime.findUniqueOrThrow({where:{sessionId:observerLesson.id}})).status,'waiting');
+    assert.equal((await db.courseSession.findUniqueOrThrow({where:{id:observerLesson.id}})).status,'scheduled');
+    for(const action of ['end','extend','cancel','restore','reopen']){
+      const lesson=await fixture();
+      if(action==='restore')await db.courseSession.update({where:{id:lesson.id},data:{status:'cancelled',endedAt:new Date()}});
+      if(action==='reopen'){
+        await db.courseSession.update({where:{id:lesson.id},data:{status:'finished',endedAt:new Date()}});
+        await db.classroomRuntime.update({where:{sessionId:lesson.id},data:{status:'ended',transcriptionStatus:'stopping'}});
+        globalThis.lifecycleStops=0;
+      }
+      let unlock;const held=new Promise(resolve=>{unlock=resolve});let ready;const locked=new Promise(resolve=>{ready=resolve});
+      const writer=db.$transaction(async tx=>{
+        await tx.$queryRaw`SELECT "id" FROM "CourseSession" WHERE "id" = ${lesson.id} FOR UPDATE`;
+        await tx.courseSessionTeacher.create({data:{courseId:course.id,sessionId:lesson.id,teacherId:'teacher',teacherName:'Teacher',role:'observer',action:'include'}});
+        ready();await held;
+      },{timeout:10000});
+      await locked;
+      const pending=api.lifecycle(new Request('http://localhost/api/lifecycle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,minutes:15})}),context(lesson));
+      let waiting=false;
+      try{
+        for(let i=0;i<100;i++){
+          const rows=await db.$queryRaw`SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%CourseSession%FOR UPDATE%'`;
+          if(rows.length){waiting=true;break;}await new Promise(resolve=>setTimeout(resolve,10));
+        }
+      }finally{unlock();}
+      await writer;assert.equal(waiting,true,`${action} must wait on the lesson lock`);
+      assert.equal((await pending).status,403,`${action} must recheck revoked access after the lock`);
+      if(action==='reopen'){assert.equal(globalThis.lifecycleStops,0,'revoked reopen must not stop transcription');assert.equal((await db.classroomRuntime.findUniqueOrThrow({where:{sessionId:lesson.id}})).transcriptionStatus,'stopping');}
+    }
+    const recovery=await fixture();
+    await db.courseSession.update({where:{id:recovery.id},data:{status:'finished',endedAt:new Date()}});
+    await db.classroomRuntime.update({where:{sessionId:recovery.id},data:{status:'ended',transcriptionStatus:'stopping'}});
+    globalThis.lifecycleStops=0;
+    await lifecycle(recovery,'reopen');
+    assert.equal(globalThis.lifecycleStops,1);assert.equal(globalThis.lifecycleStopOptions.claimed,true);
+    const recovered=await db.classroomRuntime.findUniqueOrThrow({where:{sessionId:recovery.id}});
+    assert.equal(recovered.status,'live');assert.equal(recovered.transcriptionSyncLeaseUntil,null);
+    await db.classroomIntegrationEvent.deleteMany({where:{sessionId:recovery.id}});
+    const failedRecovery=await fixture();
+    await db.courseSession.update({where:{id:failedRecovery.id},data:{status:'finished',endedAt:new Date()}});
+    await db.classroomRuntime.update({where:{sessionId:failedRecovery.id},data:{status:'ended',transcriptionStatus:'stopping'}});
+    globalThis.lifecycleStopFailure=true;
+    await assert.rejects(api.lifecycle(new Request('http://localhost/api/lifecycle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'reopen'})}),context(failedRecovery)),/stop failed/);
+    globalThis.lifecycleStopFailure=false;
+    const failedState=await db.classroomRuntime.findUniqueOrThrow({where:{sessionId:failedRecovery.id}});
+    assert.equal(failedState.status,'ended');assert.equal(failedState.transcriptionSyncLeaseUntil,null);
     const lesson = await fixture();
     const teacher = { userId: "teacher", name: "teacher", displayName: "Teacher", avatar: "" };
     const start = () => api.applyClassroomAction({ courseId: course.id, sessionId: lesson.id, session: teacher, role: "teacher", action: { type: "startClass" } });

@@ -293,18 +293,19 @@ export function bringClassroomBoardItemToFront(
 /** Same arrangement for instant UI preview and authoritative server persistence. */
 export function arrangeClassroomVideoGallery(
   composition: ClassroomCompositionSnapshot,
-  members: readonly { userId: string; role: "teacher" | "assistant" | "student" }[],
+  members: readonly { userId: string; role: "teacher" | "assistant" | "student" | "observer" }[],
   layout: "grid" | "rail" = "grid",
 ): ClassroomCompositionSnapshot {
   const retainedItems = composition.boardItems.filter(item => item.kind !== "camera");
   if (layout === "rail") return { ...composition, boardItems: retainedItems, videoLayout: undefined };
-  if (!members.length) return composition;
+  const presenters = members.filter((member): member is typeof member & {role:"teacher"|"assistant"|"student"} => member.role !== "observer");
+  if (!presenters.length) return composition;
   const roleOrder = { teacher: 0, assistant: 1, student: 2 };
   // The server reports capacity errors. Keep the optimistic view unchanged
   // rather than silently dropping an onstage member or another board object.
-  if (members.length + retainedItems.length > MAX_CLASSROOM_BOARD_ITEMS) return composition;
+  if (presenters.length + retainedItems.length > MAX_CLASSROOM_BOARD_ITEMS) return composition;
   const seatIndex = new Map(composition.seatOrder.map((id, index) => [id, index]));
-  const order = [...members].sort((a, b) => roleOrder[a.role] - roleOrder[b.role] ||
+  const order = [...presenters].sort((a, b) => roleOrder[a.role] - roleOrder[b.role] ||
     (seatIndex.get(a.userId) ?? Number.MAX_SAFE_INTEGER) - (seatIndex.get(b.userId) ?? Number.MAX_SAFE_INTEGER));
   const columns = Math.ceil(Math.sqrt(order.length));
   const rows = Math.ceil(order.length / columns);

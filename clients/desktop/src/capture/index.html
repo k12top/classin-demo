@@ -1,1 +1,7 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; base-uri 'none'; form-action 'none'"><title>选择共享窗口</title><link rel="stylesheet" href="capture.css"></head><body><header><h1>选择共享的屏幕或窗口</h1><button id="cancel">取消</button></header><p>仅共享你选择的内容；关闭此窗口即可取消。</p><div id="sources" role="list" aria-label="可共享的屏幕和窗口"></div><p id="error" role="alert"></p><script src="capture.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; base-uri 'none'; form-action 'none'"><title>选择共享内容</title><link rel="stylesheet" href="capture.css"></head><body>
+<header><div><h1 id="title">选择共享内容</h1><p id="description">选择一个屏幕或窗口，确认后开始分享。</p></div><button id="refresh" type="button">刷新列表</button></header>
+<nav aria-label="共享内容类型"><button id="screens" type="button" aria-pressed="true">屏幕</button><button id="windows" type="button" aria-pressed="false">窗口</button></nav>
+<main><div id="sources" role="group" aria-label="可共享的屏幕"></div><p id="status" role="status"></p><p id="error" role="alert"></p></main>
+<footer><span id="selection" aria-live="polite">请选择要分享的内容</span><button id="cancel" type="button">取消</button><button id="share" class="primary" type="button" disabled>开始分享</button></footer>
+<script src="capture.js"></script></body></html>

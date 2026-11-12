@@ -9,6 +9,16 @@ export type ActivityOverview = {
   participants: number; submissions: number; participation: number; quality: ActivityQuality; accuracy: number | null;
   activities: ActivityOverviewItem[]; students?: ActivityStudentQuality[];
 };
+export type ActivityOverviewSummary = {
+  canManage: boolean; activityCount: number; participants: number | null;
+  submissions: number; accuracy: number | null;
+};
+/** Compact summary retains the exact scope applied by the underlying overview. */
+export function activityOverviewSummary(overview: ActivityOverview): ActivityOverviewSummary {
+  return { canManage: overview.canManage, activityCount: overview.activityCount,
+    participants: overview.canManage ? overview.participants : null,
+    submissions: overview.submissions, accuracy: overview.accuracy };
+}
 export type ActivityReportSource = { activity: ActivitySummary; definition: ActivityDefinition; responses: ActivityResponse[]; resultsVisible: boolean };
 export const emptyActivityQuality = (): ActivityQuality => ({ answered: 0, correct: 0, incorrect: 0, partial: 0, pending: 0, withheld: 0, earnedPoints: 0, gradedPoints: 0 });
 export function activityAccuracy(q: ActivityQuality) { const graded = q.correct + q.incorrect + q.partial; return graded ? q.correct / graded * 100 : null; }

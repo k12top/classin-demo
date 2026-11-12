@@ -129,6 +129,24 @@ function rolesForUser(
   return roles;
 }
 
+/** Resolve every supplied identity against a complete, available directory. */
+export async function resolveDirectoryStudents(ids:readonly string[]):Promise<DirectoryUser[]|null> {
+  const [users,roles]=await Promise.all([
+    searchCasdoorUsers("",{studentsOnly:false,limit:Number.MAX_SAFE_INTEGER,strict:true}),
+    getCasdoorRoles({strict:true}),
+  ]);
+  const memberships=roleMembershipsByUser(roles);
+  const resolved:DirectoryUser[]=[];
+  for(const id of ids){
+    const matches=users.filter(user=>userReferenceCandidates(user).some(candidate=>casdoorUserIdsMatch(candidate,id)));
+    if(matches.length!==1)return null;
+    const user=matches[0];
+    if(determineRole(rolesForUser(user,memberships),user.groups)!=="student")return null;
+    resolved.push({id:resolveCasdoorUserId(user),casdoorUuid:user.id,name:user.name,displayName:user.displayName||user.name,email:user.email,avatar:user.avatar,groups:user.groups??[],role:"student"});
+  }
+  return resolved;
+}
+
 export async function listDirectoryUsers(
   options: ListDirectoryUsersOptions = {}
 ): Promise<DirectoryUser[]> {

@@ -140,16 +140,15 @@ export function PortalFeedbackProvider({ children }: { children: ReactNode }) {
               className={styles.dialog}
               data-tone={confirmation.options.tone || "default"}
               role="alertdialog"
-              aria-describedby="portal-confirm-description"
             >
             <div className={styles.dialogBody}>
               <span className={styles.dialogIcon}>
                 <AlertTriangle aria-hidden="true" />
               </span>
-              <DialogPrimitive.Title id="portal-confirm-title">
+              <DialogPrimitive.Title>
                 {confirmation.options.title || t("common.pleaseConfirm")}
               </DialogPrimitive.Title>
-              <DialogPrimitive.Description id="portal-confirm-description">
+              <DialogPrimitive.Description>
                 {confirmation.options.description}
               </DialogPrimitive.Description>
             </div>

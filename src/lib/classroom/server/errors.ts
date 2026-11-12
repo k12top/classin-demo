@@ -41,6 +41,10 @@ export class ClassroomConnectionEndedError extends Error {
   constructor() { super("Classroom has ended"); this.name = "ClassroomConnectionEndedError"; }
 }
 
+export class ClassroomAccessChangedError extends Error {
+  constructor() { super("Classroom role changed; retry entry"); this.name = "ClassroomAccessChangedError"; }
+}
+
 export class ClassroomDeviceConflictError extends Error {
   constructor(readonly devices: string[]) { super("Account is already in this classroom"); this.name = "ClassroomDeviceConflictError"; }
 }

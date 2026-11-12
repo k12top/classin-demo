@@ -2,6 +2,7 @@ import type {
   ClassroomBoardRect,
   ClassroomSignalingCredential,
 } from "@/lib/classroom/types";
+import type {SignedRemotePacket} from "@/lib/classroom/remote-control-signature";
 
 export type ClassroomInvalidation = {
   courseId: string;
@@ -32,7 +33,14 @@ export type ClassroomSignalingEvent =
   | ClassroomScreenShareRequest
   | ClassroomHandRaiseUpdate
   | ClassroomCompositionPreview
+  | ClassroomRemoteControlHint
+  | ClassroomRemoteControlInput
   | ClassroomDeviceAck;
+
+/** Untrusted wake-up hint; the recipient must read the authorized API. */
+export type ClassroomRemoteControlHint = {courseId:string;topic:"remote-control-hint";revision:0;actorId:string;targetUserId:string};
+/** Signed content is still untrusted until checked against the server-bound key. */
+export type ClassroomRemoteControlInput = {courseId:string;topic:"remote-control-input";revision:0;targetUserId:string;packet:SignedRemotePacket};
 
 export type ClassroomHandRaiseUpdate = {
   commandId?: string;
@@ -80,6 +88,6 @@ export interface ClassroomSignalingProvider {
     onHealth?: (ready: boolean) => void,
   ): Promise<void>;
   publish(event: ClassroomSignalingEvent): Promise<void>;
-  publishToUser?(userId: string, event: ClassroomDeviceAck): Promise<void>;
+  publishToUser?(userId: string, event: ClassroomDeviceAck | ClassroomRemoteControlInput): Promise<void>;
   disconnect(): Promise<void>;
 }

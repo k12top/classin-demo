@@ -2,7 +2,7 @@ import { captionStartPreferences } from "../caption-start-preferences";
 import "server-only";
 import { createHash } from "node:crypto";
 import { Prisma, type ClassroomActivity, type ClassroomActivitySubmission } from "@prisma/client";
-import { getEffectiveSessionRoster } from "@/lib/course-session-roster";
+import { getEffectiveSessionRostersSequential } from "@/lib/course-session-roster";
 import { casdoorUserIdCandidates } from "@/lib/course-teacher";
 import { prisma } from "@/lib/db";
 import type { ClassroomRole } from "@/lib/classroom/types";
@@ -63,11 +63,11 @@ function answerReceipt(row: ClassroomActivity, saved: ClassroomActivitySubmissio
   return { responseId: saved.id, response: response(saved, resultsVisible), definition: publicDefinition(row.definition as ActivityDefinition, resultsVisible), resultsVisible, revision };
 }
 async function enrolledStudents(tx: Tx, actor: ActivityActor) {
-  const [roster, overrides, members] = await Promise.all([
-    getEffectiveSessionRoster(actor.sessionId, tx),
-    tx.courseSessionStudent.findMany({ where: { sessionId: actor.sessionId } }),
-    tx.classroomMemberState.findMany({ where: { sessionId: actor.sessionId, role: "student" } }),
-  ]);
+  // An interactive transaction uses one database connection. Keep its
+  // queries sequential rather than queueing concurrent calls on the client.
+  const [roster] = await getEffectiveSessionRostersSequential([actor.sessionId], tx);
+  const overrides = await tx.courseSessionStudent.findMany({ where: { sessionId: actor.sessionId } });
+  const members = await tx.classroomMemberState.findMany({ where: { sessionId: actor.sessionId, role: "student" } });
   const key = (id: string) => casdoorUserIdCandidates(id).at(-1)?.toLowerCase() || id.toLowerCase();
   const denied = new Set(overrides.filter(s => s.action === "exclude").map(s => key(s.studentId)));
   const rows = new Map((roster?.students || []).map(s => [key(s.userId), { userId: s.userId, displayName: s.displayName, avatar: s.avatar, online: false }]));
@@ -122,7 +122,12 @@ export async function listActivities(actor: ActivityActor, cursor?: string | nul
     const rows = await tx.classroomActivity.findMany({ where,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 51, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}), include: { _count: { select: { submissions: true } } } });
     const active = await tx.classroomActivity.findFirst({ where: { sessionId: actor.sessionId, status: "active" }, include: { _count: { select: { submissions: true } } } });
-    return { activities: rows.slice(0, 50).map(summary), active: active ? summary(active) : null, nextCursor: rows.length > 50 ? rows[49].id : null,
+    const personalOnly = !ctx.canManage && !ctx.live;
+    const ids = personalOnly && actor.role !== "observer" ? [...new Set([...rows.map(row => row.id), ...(active ? [active.id] : [])])] : [];
+    const own = ids.length ? await tx.classroomActivitySubmission.findMany({ where: { activityId: { in: ids }, userId: actor.userId }, select: { activityId: true } }) : [];
+    const answered = new Set(own.map(row => row.activityId));
+    const visibleSummary = (row: ClassroomActivity & { _count: { submissions: number } }) => ({ ...summary(row), ...(personalOnly ? { responseCount: answered.has(row.id) ? 1 : 0 } : {}) });
+    return { activities: rows.slice(0, 50).map(visibleSummary), active: active ? visibleSummary(active) : null, nextCursor: rows.length > 50 ? rows[49].id : null,
       canManage: ctx.canManage, canAnswer: ctx.canAnswer, canPrepare: ctx.canPrepare, live: ctx.live };
   });
 }
@@ -131,7 +136,7 @@ export async function activityDetail(actor: ActivityActor, id: string, cursor?: 
     const ctx = await context(tx, actor, false);
     const row = await tx.classroomActivity.findFirst({ where: { id, sessionId: actor.sessionId, ...(ctx.canManage ? {} : studentVisibility) }, include: { _count: { select: { submissions: true } } } });
     if (!row) throw new ActivityError("Activity not found", 404);
-    const own = await tx.classroomActivitySubmission.findUnique({ where: { activityId_userId: { activityId: id, userId: actor.userId } } });
+    const own = actor.role === "observer" ? null : await tx.classroomActivitySubmission.findUnique({ where: { activityId_userId: { activityId: id, userId: actor.userId } } });
     const resultsVisible = activityResultsVisible(row, Boolean(own));
     const reveal = ctx.canManage || resultsVisible;
     if (cursor && (!ctx.canManage || !(await tx.classroomActivitySubmission.findFirst({ where: { id: cursor, activityId: id }, select: { id: true } })))) throw new ActivityError("Invalid response cursor", 400);
@@ -140,7 +145,7 @@ export async function activityDetail(actor: ActivityActor, id: string, cursor?: 
     const rows = allResponses.slice(offset, offset + 51);
     let statistics: Record<string, Record<string, number>> | null = null;
     const definition = row.definition as ActivityDefinition;
-    if (reveal) {
+    if (reveal && (ctx.canManage || ctx.live)) {
       statistics = Object.fromEntries(definition.questions.map(q => [q.id, Object.fromEntries(q.options.map(o => [o.id, 0]))]));
       // Never expose other students' identifiers or free text in aggregate results.
       const answers = ctx.canManage ? allResponses : await tx.classroomActivitySubmission.findMany({ where: { activityId: id }, select: { answers: true } });
@@ -154,7 +159,7 @@ export async function activityDetail(actor: ActivityActor, id: string, cursor?: 
     // Historical responders remain inspectable even after leaving the roster.
     for (const saved of allResponses) if (!roster.some(member => member.userId === saved.userId)) roster.push({ userId: saved.userId, displayName: saved.displayName, avatar: "", online: false });
     const responseMap = new Map(allResponses.map(r => [r.userId, r]));
-    return { ...summary(row), resultsVisible, definition: publicDefinition(definition, reveal), ownResponse: own ? response(own, reveal) : null,
+    return { ...summary(row), ...(!ctx.canManage && !ctx.live ? { responseCount: own ? 1 : 0 } : {}), resultsVisible, definition: publicDefinition(definition, reveal), ownResponse: own ? response(own, reveal) : null,
       responses: rows.slice(0, 50).map(r => response(r, true)), responseCursor: rows.length > 50 ? rows[49].id : null, statistics,
       ...(ctx.canManage ? { roster: roster.map(m => ({ ...m, response: responseMap.has(m.userId) ? response(responseMap.get(m.userId)!, true) : null })), lastRemindedAt: lastReminder?.createdAt.toISOString() || null } : { reminder: !own && row.status === "active" && lastReminder ? { id: lastReminder.id, createdAt: lastReminder.createdAt.toISOString() } : null }) };
   });
@@ -169,7 +174,7 @@ export async function activityOverview(actor: ActivityActor): Promise<ActivityOv
     }
     const ctx = await context(tx, actor, false);
     const rows = await tx.classroomActivity.findMany({ where: { sessionId: actor.sessionId, startedAt: { not: null }, ...(ctx.canManage ? {} : studentVisibility) }, orderBy: [{ startedAt: "desc" }, { id: "desc" }] });
-    const saved = rows.length ? await tx.classroomActivitySubmission.findMany({ where: { activityId: { in: rows.map(row => row.id) }, ...(ctx.canManage ? {} : { userId: actor.userId }) } }) : [];
+    const saved = rows.length && actor.role !== "observer" ? await tx.classroomActivitySubmission.findMany({ where: { activityId: { in: rows.map(row => row.id) }, ...(ctx.canManage ? {} : { userId: actor.userId }) } }) : [];
     const roster = ctx.canManage ? await enrolledStudents(tx, actor) : [];
     const byActivity = new Map<string, ClassroomActivitySubmission[]>();
     for (const answer of saved) { const group = byActivity.get(answer.activityId) || []; group.push(answer); byActivity.set(answer.activityId, group); }
@@ -179,9 +184,37 @@ export async function activityOverview(actor: ActivityActor): Promise<ActivityOv
     }), roster, ctx.canManage, ctx.live);
   });
 }
+
+/** Resolve preview targets without loading or grading the entire class's answers. */
+export async function replayPreviewStudents(actor:ActivityActor,studentId?:string|null) {
+  return activityRead(async tx=>{
+    const runtime=await tx.classroomRuntime.findUnique({where:{sessionId:actor.sessionId},select:{id:true}});
+    if(!runtime){
+      const lesson=await tx.courseSession.findFirst({where:{id:actor.sessionId,courseId:actor.courseId},select:{roomType:true}});
+      if(!lesson)throw new ActivityError("Lesson not found",404);
+      const canManage=lesson.roomType!==10&&(actor.role==="teacher"||actor.role==="assistant");
+      if(!canManage)return {canManage:false,live:false,students:[]};
+      const roster=(await enrolledStudents(tx,actor)).map(({userId,displayName})=>({userId,displayName}));
+      return {canManage:true,live:false,students:studentId?roster.filter(person=>person.userId===studentId):roster};
+    }
+    const ctx=await context(tx,actor,false);
+    if(!ctx.canManage||ctx.live)return {canManage:ctx.canManage,live:ctx.live,students:[]};
+    const roster=(await enrolledStudents(tx,actor)).map(({userId,displayName})=>({userId,displayName}));
+    if(studentId){
+      const found=roster.find(person=>person.userId===studentId);
+      if(found)return {canManage:true,live:false,students:[found]};
+      const historical=await tx.classroomActivitySubmission.findFirst({where:{userId:studentId,activity:{sessionId:actor.sessionId,startedAt:{not:null}}},select:{userId:true,displayName:true}});
+      return {canManage:true,live:false,students:historical?[historical]:[]};
+    }
+    const historical=await tx.classroomActivitySubmission.groupBy({by:["userId"],where:{activity:{sessionId:actor.sessionId,startedAt:{not:null}}},_max:{displayName:true}});
+    const ids=new Set(roster.map(person=>person.userId));
+    for(const row of historical)if(!ids.has(row.userId)){roster.push({userId:row.userId,displayName:row._max.displayName||row.userId});ids.add(row.userId);}
+    return {canManage:true,live:false,students:roster};
+  });
+}
 export async function createActivity(actor: ActivityActor, value: unknown, requestId: string, launch = false) {
   if (!/^[\w-]{8,100}$/.test(requestId)) throw new ActivityError("Invalid request ID");
-  if (actor.role === "student") throw new ActivityError("Only authorized teachers can create activities", 403);
+  if (actor.role !== "teacher" && actor.role !== "assistant") throw new ActivityError("Only authorized teachers can create activities", 403);
   const normalized = validateActivity(value);
   const creationFingerprint = fingerprint(launch ? { ...normalized, launch: true } : normalized);
   const lesson = await prisma.courseSession.findFirst({ where: { id: actor.sessionId, courseId: actor.courseId } });

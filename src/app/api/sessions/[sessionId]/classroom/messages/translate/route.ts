@@ -20,6 +20,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!chatTranslationConfig()) return Response.json({ code: "translation_unavailable" }, { status: 503 });
     const messages = await prisma.classroomMessage.findMany({ where: { AND: [classroomMessageAccess(access.access.sessionId, access.session.userId, access.access.role), { id: { in: [...new Set<string>(body.messageIds)] }, deletedAt: null, kind: "text" }] }, select: { id: true, content: true } });
     const translations = await classroomMessageTranslations(access.access.sessionId, messages, body.language);
-    return Response.json({ translations }, { headers: { "Cache-Control": "no-store" } });
+    if (!messages.length) return Response.json({ translations: {} }, { headers: { "Cache-Control": "no-store" } });
+    // Model calls may take seconds. Recheck membership and the original text
+    // before returning a cached or newly generated translation.
+    const current = await resolveClassroomRequestAccess(request, sessionId, typeof body.shareAccess === "string" ? body.shareAccess : null);
+    if (!current.ok) return Response.json({ error: current.error }, { status: current.status });
+    if (current.session.userId !== access.session.userId || current.access.sessionId !== access.access.sessionId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    const visible = await prisma.classroomMessage.findMany({ where: { AND: [classroomMessageAccess(current.access.sessionId, current.session.userId, current.access.role), { id: { in: messages.map(message => message.id) }, deletedAt: null, kind: "text" }] }, select: { id: true, content: true } });
+    const originals = new Map(messages.map(message => [message.id, message.content]));
+    const authorized = Object.fromEntries(visible.filter(message => originals.get(message.id) === message.content && Object.hasOwn(translations, message.id)).map(message => [message.id, translations[message.id]]));
+    return Response.json({ translations: authorized }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return databaseUnavailableResponse(error, { route: "classroom/messages/translate", sessionId, operation: "translate" }) || Response.json({ code: "translation_failed" }, { status: 503 }); }
 }

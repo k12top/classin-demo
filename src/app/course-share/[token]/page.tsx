@@ -1,18 +1,9 @@
 /**
  * Course-share entry: valid token + auth session -> enroll student -> course page.
  */
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AlertCircle, BookOpen, CalendarX, Home } from "lucide-react";
 import JoinLinkPasscodeGate from "@/components/JoinLinkPasscodeGate";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { ShareLinkError } from "@/components/ShareLinkError";
 import { ensureShareLinkCourseAccess } from "@/lib/course-enrollment";
 import { prisma } from "@/lib/db";
 import { getServerTranslation } from "@/lib/i18n/server";
@@ -22,109 +13,6 @@ import {
   resolveJoinLinkForPurpose,
 } from "@/lib/join-link";
 import { getSession } from "@/lib/session";
-
-function CourseShareError({
-  title,
-  message,
-  hint,
-  backLabel,
-  linkLabel,
-  courseName,
-  detailHref,
-  detailLabel,
-  tone = "warning",
-}: {
-  title: string;
-  message: string;
-  hint: string;
-  backLabel: string;
-  linkLabel: string;
-  courseName?: string;
-  detailHref?: string;
-  detailLabel?: string;
-  tone?: "warning" | "neutral";
-}) {
-  const toneStyles = {
-    warning: {
-      badge: "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-      iconWrap: "border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-300",
-      hint: "border-amber-500/20 bg-amber-500/10 text-amber-950 dark:text-amber-100",
-      Icon: CalendarX,
-    },
-    neutral: {
-      badge: "border-primary/20 bg-primary/10 text-primary",
-      iconWrap: "border-primary/20 bg-primary/10 text-primary",
-      hint: "border-border bg-muted/50 text-foreground",
-      Icon: AlertCircle,
-    },
-  }[tone];
-  const Icon = toneStyles.Icon;
-
-  return (
-    <main className="min-h-screen bg-background px-5 py-10 text-foreground sm:px-6">
-      <div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-xl flex-col items-center justify-center gap-6">
-        <div className="flex items-center gap-3 text-sm font-medium text-muted-foreground">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
-            <BookOpen className="h-5 w-5" />
-          </span>
-          <span>{linkLabel}</span>
-        </div>
-
-        <Card className="w-full overflow-hidden rounded-2xl border-border/70 bg-card shadow-sm">
-          <CardHeader className="items-center px-6 pb-4 pt-8 text-center sm:px-8">
-            <div
-              className={`mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border ${toneStyles.iconWrap}`}
-            >
-              <Icon className="h-8 w-8" />
-            </div>
-            <div
-              className={`mb-3 rounded-full border px-3 py-1 text-xs font-semibold ${toneStyles.badge}`}
-            >
-              {title}
-            </div>
-            <CardTitle className="max-w-md text-balance text-2xl font-bold leading-tight tracking-normal sm:text-3xl">
-              {message}
-            </CardTitle>
-            {courseName ? (
-              <p className="mt-3 max-w-md rounded-xl border border-border/70 bg-muted/40 px-4 py-3 text-sm font-medium text-foreground">
-                {courseName}
-              </p>
-            ) : null}
-          </CardHeader>
-
-          <CardContent className="px-6 pb-6 sm:px-8">
-            <div
-              className={`rounded-xl border px-4 py-4 text-sm leading-6 ${toneStyles.hint}`}
-            >
-              {hint}
-            </div>
-          </CardContent>
-
-          <CardFooter className="flex flex-col gap-3 border-t border-border/70 bg-muted/20 px-6 py-5 sm:flex-row sm:justify-center sm:px-8">
-            <Button asChild className="w-full rounded-xl sm:w-auto">
-              <Link href="/">
-                <Home className="h-4 w-4" />
-                {backLabel}
-              </Link>
-            </Button>
-            {detailHref && detailLabel ? (
-              <Button
-                asChild
-                variant="outline"
-                className="w-full rounded-xl sm:w-auto"
-              >
-                <Link href={detailHref}>
-                  <BookOpen className="h-4 w-4" />
-                  {detailLabel}
-                </Link>
-              </Button>
-            ) : null}
-          </CardFooter>
-        </Card>
-      </div>
-    </main>
-  );
-}
 
 export default async function CourseSharePage({
   params,
@@ -156,7 +44,7 @@ export default async function CourseSharePage({
       expired: t("join.expired"),
     };
     return (
-      <CourseShareError
+      <ShareLinkError
         title={t("accessDenied.title")}
         message={messages[resolved.reason]}
         hint={copy.invalidHint}
@@ -192,7 +80,7 @@ export default async function CourseSharePage({
 
   if (!course) {
     return (
-      <CourseShareError
+      <ShareLinkError
         title={t("accessDenied.title")}
         message={t("join.courseNotExist")}
         hint={copy.invalidHint}
@@ -205,7 +93,7 @@ export default async function CourseSharePage({
 
   if (course.lifecycleStatus === "archived") {
     return (
-      <CourseShareError
+      <ShareLinkError
         title={copy.closedTitle}
         message={copy.closedMessage}
         hint={copy.closedHint}

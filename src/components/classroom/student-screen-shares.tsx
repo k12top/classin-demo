@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { MonitorUp, X } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
 import { mainScreenShareCandidates, type ScreenShareLeases } from "@/lib/classroom/screen-share-selection";
@@ -14,21 +14,27 @@ export function StudentScreenShares({ members, shares, busy, onAction, onClose, 
   onAction: (action: ClassroomAction) => Promise<boolean>; onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const [inviting, setInviting] = useState(false);
-  useEffect(() => { if (inviteInitially) setInviting(true); }, [inviteInitially]);
+  const [inviting, setInviting] = useState(inviteInitially);
+  const [previousInvite, setPreviousInvite] = useState(inviteInitially);
+  if (previousInvite !== inviteInitially) {
+    setPreviousInvite(inviteInitially);
+    if (inviteInitially) setInviting(true);
+  }
   const [selected, setSelected] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
   const candidates = mainScreenShareCandidates(shares);
   const students = members.filter(m => m.role === "student" && m.online);
+  const eligibleStudents = students.filter(m => (m.screenShareState !== "requested" && !(m.screenShareState === "accepted" && m.screenShareRequestedAt)) && !candidates.some(c => c.userId === m.userId));
+  const eligibleSelected = selected.filter(id => eligibleStudents.some(member => member.userId === id));
   const outstanding = members.filter(m => m.screenShareState === "requested" || (m.screenShareState === "accepted" && Boolean(m.screenShareRequestedAt)))
     .filter(m => !candidates.some(c => c.userId === m.userId));
   const unavailable = busy || sending;
   const invite = async () => {
     setSending(true);
-    const remaining = [...selected];
+    const remaining = [...eligibleSelected];
     try {
-      for (const userId of selected) {
-        if (!await onAction({ type: "requestScreenShare", targetUserId: userId, autoDisplay: selected.length === 1 })) break;
+      for (const userId of eligibleSelected) {
+        if (!await onAction({ type: "requestScreenShare", targetUserId: userId, autoDisplay: eligibleSelected.length === 1 })) break;
         remaining.splice(remaining.indexOf(userId), 1);
       }
       setSelected(remaining);
@@ -41,8 +47,8 @@ export function StudentScreenShares({ members, shares, busy, onAction, onClose, 
     <Button variant="outline" disabled={unavailable} onClick={() => setInviting(!inviting)}><MonitorUp className="mr-2 h-4 w-4" />{t("classroomMultiShare.invite")}</Button>
     {inviting && <fieldset disabled={unavailable} className={styles.invite}>
       <legend>{t("classroomMultiShare.choose")}</legend>
-      {students.filter(m => (m.screenShareState !== "requested" && !(m.screenShareState === "accepted" && m.screenShareRequestedAt)) && !candidates.some(c => c.userId === m.userId)).map(member => <label key={member.userId}><input type="checkbox" checked={selected.includes(member.userId)} onChange={event => setSelected(current => event.target.checked ? [...current, member.userId] : current.filter(id => id !== member.userId))} />{member.displayName}</label>)}
-      <Button disabled={!selected.length || unavailable} onClick={() => void invite()}>{t("classroomMultiShare.send", { count: selected.length })}</Button>
+      {eligibleStudents.map(member => <label key={member.userId}><input type="checkbox" checked={selected.includes(member.userId)} onChange={event => setSelected(current => event.target.checked ? [...current, member.userId] : current.filter(id => id !== member.userId))} />{member.displayName}</label>)}
+      <Button disabled={!eligibleSelected.length || unavailable} onClick={() => void invite()}>{t("classroomMultiShare.send", { count: eligibleSelected.length })}</Button>
     </fieldset>}
     <div className={styles.list}>
       {candidates.map(lease => {

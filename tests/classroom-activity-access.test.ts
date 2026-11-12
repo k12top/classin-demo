@@ -23,6 +23,8 @@ const stubs: Record<string, string> = {
       return {id,courseId:'course',title:'Lesson',status:f.status,startTime:f.startTime,endTime:f.endTime,endedAt:null,roomUuid:'room',roomType:4};
     }
     export async function getEffectiveSessionRoster(){return {leadTeacherId:'teacher',teachers:[{userId:'teacher',displayName:'Teacher',avatar:'',role:'teacher'}]};}
+    export async function getCourseSessionWithRoster(id){const session=await resolveCourseSessionReference(id);return session?{session,roster:await getEffectiveSessionRoster()}:null;}
+    export function rosterHasObserver(){return false;}
     export function rosterContainsUser(roster,ids){
       if(ids.includes('teacher'))return {kind:'teacher',member:roster.teachers[0]};
       if(ids.includes('student')&&globalThis.__activityAccessFixture.enrolled)return {kind:'student',member:{temporary:false}};
@@ -71,6 +73,13 @@ test("review still requires login and enrollment and rechecks a revoked roster",
   assert.ok(!(await api.activityActor(request(), "lesson", undefined, "activities") instanceof NextResponse));
   fixture.enrolled = false;
   assert.equal((await api.activityActor(request(), "lesson", undefined, "activities") as NextResponse).status, 403);
+});
+test("classroom requests recheck a revoked roster without waiting for a cache timeout",async()=>{
+  fixture.status="live";
+  fixture.startTime=new Date(Date.now()-60_000);fixture.endTime=new Date(Date.now()+3_600_000);
+  assert.ok(!(await api.activityActor(request(),"lesson") instanceof NextResponse));
+  fixture.enrolled=false;
+  assert.equal((await api.activityActor(request(),"lesson") as NextResponse).status,403);
 });
 test("preparation bypasses early-entry timing only for activities; cancellation stays denied", async () => {
   fixture.status = "scheduled";

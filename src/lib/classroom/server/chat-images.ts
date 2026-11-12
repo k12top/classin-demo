@@ -12,6 +12,7 @@ import { CLASSROOM_IMAGE_MAX_BYTES, isChatImageId } from "../chat-image-message"
 type Storage={put:(key:string,data:Buffer)=>Promise<unknown>;get:(key:string)=>Promise<Buffer>;delete:(key:string)=>Promise<unknown>};
 function storage():Storage{const client=getAliyunOssClient();return {put:(key,data)=>client.put(key,data,{mime:'image/webp'}),get:async key=>Buffer.from((await client.get(key)).content),delete:key=>client.delete(key)}}
 export async function saveChatImage(actor:ActivityActor,id:string,input:Buffer,objects?:Storage){
+ if(actor.role!=='teacher'&&actor.role!=='assistant'&&actor.role!=='student')throw new ActivityError('Chat is not allowed',403);
  if(!isChatImageId(id))throw new ActivityError('Invalid upload ID');
  const hash=createHash('sha256').update(input).digest('hex');
  const prior=await prisma.classroomChatImage.findUnique({where:{id}});

@@ -10,6 +10,10 @@ type SeekableVideo = {
 
 type PlayableVideo = Pick<SeekableVideo, "play">;
 
+export function recordingRetryDelay(failures: number): number {
+  return Math.min(60_000, 5_000 * 2 ** Math.min(Math.max(0, failures - 1), 4));
+}
+
 export type PlaybackBufferingEvent =
   | "loadstart"
   | "waiting"
@@ -45,6 +49,11 @@ export function updatePlaybackBuffering(
 export function requestPlayback(video: PlayableVideo | null): void {
   if (!video) return;
   void video.play().catch(() => undefined);
+}
+
+/** Do not resume the old player while a different recording is loading. */
+export function requestPlaybackForRecording(video:PlayableVideo|null,currentId:string|undefined,targetId:string):void {
+  if(currentId===targetId)requestPlayback(video);
 }
 
 export function scrollToPlayback(player: PlaybackScroller | null): void {

@@ -1,0 +1,7 @@
+const text={
+ en:{files:"Drive files",searchingFiles:"Searching files…",fileError:"File search unavailable.",retry:"Retry",moreFiles:"Showing 20 recently updated matches. Refine the file name for more.",noPreview:"Preview is unavailable. Download to open this file.",download:"Download",prompt:'Search names or features, such as microphone, calendar or drive.',keys:'↑ ↓ Select · Return to open',noMatches:'No matches. Try another name.'},
+ 'zh-CN':{files:"云盘文件",searchingFiles:"正在搜索文件…",fileError:"文件搜索暂不可用。",retry:"重试",moreFiles:"显示最近更新的 20 个匹配文件，请输入更具体的名称。",noPreview:"此文件暂不支持预览，请下载查看。",download:"下载",prompt:'搜索名称或功能，例如“麦克风”“排课”“云盘”。',keys:'↑ ↓ 选择 · 回车打开',noMatches:'没有找到匹配内容，请尝试其他名称。'},
+ 'zh-TW':{files:"雲端硬碟檔案",searchingFiles:"正在搜尋檔案…",fileError:"暫時無法搜尋檔案。",retry:"重試",moreFiles:"顯示最近更新的 20 個符合檔案，請輸入更完整的名稱。",noPreview:"此檔案暫不支援預覽，請下載查看。",download:"下載",prompt:'搜尋名稱或功能，例如「麥克風」「排課」「雲端硬碟」。',keys:'↑ ↓ 選擇 · Return 開啟',noMatches:'找不到符合的內容，請嘗試其他名稱。'},
+ vi:{files:"Tệp trong ổ đĩa",searchingFiles:"Đang tìm tệp…",fileError:"Không thể tìm tệp lúc này.",retry:"Thử lại",moreFiles:"Hiển thị 20 kết quả mới cập nhật. Nhập tên cụ thể hơn để tìm thêm.",noPreview:"Không thể xem trước. Tải tệp xuống để mở.",download:"Tải xuống",prompt:'Tìm tên hoặc chức năng, như micrô, lịch hoặc ổ đĩa.',keys:'↑ ↓ Chọn · Enter để mở',noMatches:'Không có kết quả. Hãy thử tên khác.'},
+};
+export function workspaceSearchCopy(locale:string){return text[locale as keyof typeof text]||(locale.startsWith('zh')?text['zh-CN']:text.en);}

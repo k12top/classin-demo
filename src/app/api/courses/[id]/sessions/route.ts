@@ -7,14 +7,14 @@ import {
   createCourseSessions,
   serializeCourseSession,
 } from "@/lib/course-session-service";
-import {
-  getEffectiveSessionRoster,
-  rosterContainsUser,
-} from "@/lib/course-session-roster";
+import {getViewerSessionRoles} from "@/lib/course-session-viewer";
 import { casdoorUserIdCandidates } from "@/lib/course-teacher";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import { serializeStudentSubmission } from "@/lib/course-session-submission";
 import { syncCourseStatusFromSessions } from "@/lib/course-session-status";
+import { createHash } from "node:crypto";
+import { taskRequestId } from "@/lib/workspace-task-validation";
+import { supportedSessionTeacherRules } from "@/lib/course-session-roster-rules";
 
 export const dynamic = "force-dynamic";
 
@@ -58,16 +58,8 @@ export async function GET(
       ...casdoorUserIdCandidates(session.name || ""),
     ]),
   );
-  const visible = canManage
-    ? sessions
-    : (
-        await Promise.all(
-          sessions.map(async (item) => {
-            const roster = await getEffectiveSessionRoster(item.id);
-            return roster && rosterContainsUser(roster, aliases) ? item : null;
-          }),
-        )
-      ).filter((item): item is (typeof sessions)[number] => Boolean(item));
+  const viewerRoles = canManage ? new Map<string, "teacher"|"assistant"|"student">() : await getViewerSessionRoles(sessions.map(item=>item.id),aliases);
+  const visible = canManage ? sessions : sessions.filter(item=>viewerRoles.has(item.id));
 
   return NextResponse.json({
     canManage,
@@ -92,8 +84,10 @@ export async function GET(
       );
       return {
         ...serialized,
+        ...(viewerRoles.get(item.id)==="observer"?{teachers:[],students:[],groupLinks:[],_count:{recordings:item._count.recordings}}:{}),
         studentSubmissions: undefined,
-        mySubmission: serializeStudentSubmission(mine),
+        viewerRole: viewerRoles.get(item.id),
+        mySubmission: viewerRoles.get(item.id)==="observer"?null:serializeStudentSubmission(mine),
       };
     }),
   });
@@ -112,6 +106,12 @@ export async function POST(
 
   try {
     const body = await request.json();
+    if (!supportedSessionTeacherRules(body?.teachers)) throw new CourseSessionError("Unsupported lesson staff role");
+    if (body?.programId != null && (typeof body.programId !== "string" || !body.programId || body.programId.length > 100)) throw new CourseSessionError("Invalid course");
+    if (body?.unitId != null && (typeof body.unitId !== "string" || !body.unitId || body.unitId.length > 100)) throw new CourseSessionError("Invalid unit");
+    const rawRequestId = request.headers.get("Idempotency-Key");
+    let requestId: string | undefined;
+    if (rawRequestId !== null) { try { requestId = taskRequestId(rawRequestId); } catch { throw new CourseSessionError("Invalid request id"); } }
     const sessions = await createCourseSessions({
       courseId,
       createdBy: session.userId,
@@ -124,6 +124,9 @@ export async function POST(
       teachers: Array.isArray(body?.teachers) ? body.teachers : undefined,
       students: Array.isArray(body?.students) ? body.students : undefined,
       groups: Array.isArray(body?.groups) ? body.groups : undefined,
+      programId: body?.programId || null,
+      unitId: body?.unitId || null,
+      creationRequest: requestId ? { id: requestId, fingerprint: createHash("sha256").update(JSON.stringify(body)).digest("hex") } : undefined,
     });
     await syncCourseStatusFromSessions(courseId);
     return NextResponse.json(

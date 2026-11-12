@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
+const net = require("node:net");
 const { execFileSync, spawnSync } = require("node:child_process");
 const root = path.resolve(__dirname, "..");
 const docker = process.env.DOCKER_BIN || (fs.existsSync("/Users/houshuai/.docker/bin/docker") ? "/Users/houshuai/.docker/bin/docker" : "docker");
@@ -28,6 +29,19 @@ async function verify() {
     if (Date.now() > until) throw new Error("Temporary PostgreSQL did not become ready");
     await new Promise(r => setTimeout(r, 250));
   }
+  // Container readiness can precede Docker's host-port forwarding. Wait for
+  // the same loopback endpoint Prisma will use before starting migrations.
+  while (true) {
+    const reachable = await new Promise(resolve => {
+      const socket = net.createConnection({ host: "127.0.0.1", port: Number(port) });
+      const done = value => { socket.destroy(); resolve(value); };
+      socket.setTimeout(500); socket.once("connect", () => done(true));
+      socket.once("error", () => done(false)); socket.once("timeout", () => done(false));
+    });
+    if (reachable) break;
+    if (Date.now() > until) throw new Error("Temporary PostgreSQL host port did not become ready");
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
   run(path.join(root, "node_modules/.bin/prisma"), ["migrate", "deploy"], { env });
   const drift = run(path.join(root, "node_modules/.bin/prisma"), ["migrate", "diff", "--from-config-datasource", "--to-schema", "prisma/schema.prisma", "--script"], { env });
   if (/^(CREATE|ALTER|DROP)\s/m.test(drift)) throw new Error("Fresh schema differs from Prisma schema:\n" + drift);
@@ -42,11 +56,19 @@ INSERT INTO "Courseware" ("id", "courseId", "name", "ext", "url", "updatedAt", "
   if (before !== after) throw new Error("Baseline repair changed existing course/courseware data");
   run(docker, psql, { input: `DELETE FROM "Course" WHERE "id"='legacy-verification';` });
   console.log("Verified the complete migration chain, Prisma schema parity and existing course/courseware preservation on isolated PostgreSQL.");
+  if (process.argv.includes("--drive-search")) {
+    run(process.execPath, ["tests/integration/workspace-file-search-db.cjs"], { env, stdio: "inherit" });
+    return;
+  }
+  if (process.argv.includes("--replay-preview")) {
+    run(process.execPath, ["tests/integration/replay-preview-students.cjs"], { env, stdio: "inherit" });
+    return;
+  }
   if (process.argv.includes("--overview-preview")) {
     run(process.execPath, ["tests/fixtures/activity-overview-preview.cjs"], { env, stdio: "inherit" });
     return;
   }
-  const reportDir = path.join(root, "clients/desktop/dist/verification"); await fsp.mkdir(reportDir, { recursive: true });
+  const reportDir = process.env.CLASSROOM_ACTIVITY_REPORT_DIR || path.join(root, "clients/desktop/dist/verification"); await fsp.mkdir(reportDir, { recursive: true });
   await fsp.writeFile(path.join(reportDir, "activities-migrations.json"), JSON.stringify({ passed: true, database: "isolated PostgreSQL16", checks: ["empty database full migration chain", "no Prisma schema drift", "guarded baseline preserves existing course and courseware rows, dates, permissions and conversion metadata"], productionDatabaseChanged: false }, null, 2));
   run(process.execPath, ["tests/integration/classroom-activities.cjs"], { env, stdio: "inherit" });
   run(process.execPath, ["tests/integration/classroom-activity-release-scopes.cjs"], { env, stdio: "inherit" });

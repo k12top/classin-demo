@@ -3,6 +3,7 @@ import { publishActivityInvalidation } from "@/lib/classroom/signaling/server-pu
 import { activityActor, activityFailure, activityBody } from "@/lib/classroom/server/activity-route";
 import { activityOverview, createActivity, listActivities } from "@/lib/classroom/server/activities";
 import { prisma } from "@/lib/db";
+import { activityOverviewSummary } from "@/lib/classroom/activity-overview";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export async function GET(request: NextRequest, { params }: { params: Promise<{ sessionId: string }> }) {
@@ -10,7 +11,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const actor = await activityActor(request, sessionId, request.nextUrl.searchParams.get("shareAccess") || undefined, "activities");
   if (actor instanceof NextResponse) return actor;
   try {
-    if (request.nextUrl.searchParams.get("overview") === "1") return NextResponse.json(await activityOverview(actor), { headers: { "Cache-Control": "private, no-store" } });
+    const overview = request.nextUrl.searchParams.get("overview");
+    if (overview === "1" || overview === "summary") {
+      const result = await activityOverview(actor);
+      return NextResponse.json(overview === "summary" ? activityOverviewSummary(result) : result, { headers: { "Cache-Control": "private, no-store" } });
+    }
     if (request.nextUrl.searchParams.get("versionOnly") === "1") {
       const runtime = await prisma.classroomRuntime.findUnique({ where: { sessionId: actor.sessionId }, select: { activityRevision: true } });
       return NextResponse.json({ revision: runtime?.activityRevision ?? 0 }, { headers: { "Cache-Control": "private, no-store" } });

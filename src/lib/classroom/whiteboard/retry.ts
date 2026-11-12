@@ -1,3 +1,8 @@
+/** Accept the previous server message while mixed versions are deployed. */
+export function isWhiteboardNotConfigured(error:unknown):boolean {
+  return typeof error === "string" && (error === "whiteboard_not_configured" || error.startsWith("互动白板尚未配置"));
+}
+
 export function isTransientWhiteboardError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /(?:pong timeout|timed? ?out|fetch failed|network ?error|websocket|econnreset|etimedout|eai_again)/i.test(

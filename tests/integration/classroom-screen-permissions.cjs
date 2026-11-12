@@ -16,7 +16,7 @@ async function main() {
     '@/lib/course-session-access': 'export const resolveCourseSessionAccess=async()=>({ok:true,...globalThis.screenAccess});',
     '@/lib/classroom/server/request-access': 'export const resolveClassroomRequestAccess=async()=>({ok:true,session:globalThis.screenActor,access:globalThis.screenAccess});',
     '@/lib/classroom/server/integration-events': 'export const enqueueClassroomEvent=async()=>{};',
-    '@/lib/course-attendance': 'export const closeOpenAttendanceSessionsForLesson=async()=>{};',
+    '@/lib/course-attendance': 'export const closeOpenAttendanceSessionsForLesson=async()=>{};export const closeAllOpenAttendanceForLesson=async()=>{};',
     '@/lib/classroom/server/recorder-token': 'export const verifyRecorderToken=async()=>false;',
     '@/lib/classroom/server/recording-orchestrator': 'export const recoverInterruptedRecordingForSession=async()=>{};',
     '@/lib/classroom/server/transcription-orchestrator': 'export const classroomInterpretationAvailability=async()=>({shengwang:false,wordly:false});',
@@ -56,58 +56,67 @@ async function main() {
       await api.touchClassroomConnection(lesson.id, session.userId, clientId, true);
     }
     await creds(student, 'student', false);
-    await creds(assistant, 'assistant', false);
-    for (const [session, role] of [[student, 'student'], [assistant, 'assistant']]) await assert.rejects(action(session, role, { type: 'startScreenShare', claimId: crypto.randomUUID() }), error => error.status === 403);
-    console.log('PASS automatic stage entry and assistant role do not grant sharing in any credential endpoint or start action');
+    await creds(assistant, 'assistant', true);
+    await assert.rejects(action(student, 'student', { type: 'startScreenShare', claimId: 'unapproved-claim' }), error => error.status === 403);
+    console.log('PASS students require approval while assistants have teaching-role share credentials');
     await grant(student); await creds(student, 'student', true);
     let runtime = await action(student, 'student', { type: 'startScreenShare', claimId: 'student-claim' });
     runtime = await action(student, 'student', { type: 'releaseScreenShare', claimId: 'student-claim' });
     assert.equal(runtime.composition.screenShares.main, undefined);
     assert.equal(runtime.members.find(m => m.userId === student.userId).screenShareState, 'accepted');
     await creds(student, 'student', true);
-    runtime = await action(student, 'student', { type: 'startScreenShare', claimId: 'student-claim' });
-    console.log('PASS failed or stopped captures release their slot while retaining the teacher screen grant');
-    const original = runtime.members.find(m => m.userId === student.userId);
+    await action(student, 'student', { type: 'startScreenShare', claimId: 'student-claim' });
     await grant(second);
-    await assert.rejects(action(second, 'student', { type: 'startScreenShare', claimId: 'second-claim' }), error => error.status === 409);
+    runtime = await action(second, 'student', { type: 'startScreenShare', claimId: 'second-claim' });
+    const leases = () => Object.values(runtime.composition.screenShares);
+    assert.ok(leases().some(lease => lease.claimId === 'student-claim'));
+    assert.ok(leases().some(lease => lease.claimId === 'second-claim'));
     runtime = await action(teacher, 'teacher', { type: 'startScreenShare', claimId: 'teacher-claim' });
     assert.equal(runtime.composition.screenShares.main.userId, teacher.userId);
-    const replaced = runtime.members.find(m => m.userId === student.userId);
-    for (const key of ['onStage', 'stageState', 'microphoneAllowed', 'cameraAllowed', 'chatMuted', 'online']) if (key in original) assert.equal(replaced[key], original[key], key);
-    assert.equal(replaced.screenShareState, 'idle');
+    assert.ok(leases().some(lease => lease.claimId === 'student-claim'));
+    await creds(student, 'student', true);
+    await assert.rejects(action(second, 'student', { type: 'startScreenShare', claimId: 'teacher-claim' }), error => error.status === 409);
+    runtime = await action(assistant, 'assistant', { type: 'stopScreenShare', targetUserId: student.userId });
+    assert.ok(!leases().some(lease => lease.claimId === 'student-claim'));
+    assert.ok(leases().some(lease => lease.claimId === 'second-claim'));
+    assert.equal(runtime.composition.screenShares.main.claimId, 'teacher-claim');
     await creds(student, 'student', false);
-    console.log('PASS host takeover replaces the presenter and revokes only the student screen grant');
     runtime = await action(student, 'student', { type: 'releaseScreenShare', claimId: 'student-claim' });
     assert.equal(runtime.composition.screenShares.main.claimId, 'teacher-claim');
-    await assert.rejects(action(second, 'student', { type: 'startScreenShare', claimId: 'teacher-claim' }), error => error.status === 409);
-    await action(teacher, 'teacher', { type: 'setAssistantPermission', targetUserId: assistant.userId, allowed: true });
-    await assert.rejects(action(assistant, 'assistant', { type: 'stopScreenShare', targetUserId: teacher.userId }), error => error.status === 403);
-    runtime = await action(teacher, 'teacher', { type: 'startScreenShare', claimId: 'teacher-second', }, 'other-client-123');
+    console.log('PASS concurrent presenters, teacher display, assistant revocation and stale release isolation');
+    await assert.rejects(action(teacher, 'teacher', { type: 'setAssistantPermission', targetUserId: assistant.userId, allowed: false }), error => error.status === 400);
+    await creds(assistant, 'assistant', true);
+    await api.touchClassroomConnection(lesson.id, teacher.userId, 'other-client-123', true);
+    runtime = await action(teacher, 'teacher', { type: 'startScreenShare', claimId: 'teacher-second' }, 'other-client-123');
     runtime = await action(teacher, 'teacher', { type: 'releaseScreenShare', claimId: 'teacher-claim' });
     assert.equal(runtime.composition.screenShares.main.claimId, 'teacher-second');
-    console.log('PASS stale stops, copied claim ids and other tabs cannot remove or steal the active host share');
     await api.leaveClassroomConnection(lesson.id, teacher.userId, 'other-client-123');
     runtime = await api.getClassroomRuntimeSnapshot(course.id, lesson.id);
-    assert.equal(runtime.composition.screenShares.main, undefined);
-    await creds(assistant, 'assistant', true);
+    assert.ok(!leases().some(lease => lease.claimId === 'teacher-second'));
     await action(assistant, 'assistant', { type: 'startScreenShare', claimId: 'assistant-claim' });
-    runtime = await action(teacher, 'teacher', { type: 'setAssistantPermission', targetUserId: assistant.userId, allowed: false });
-    assert.equal(runtime.composition.screenShares.main, undefined);
-    await creds(assistant, 'assistant', false);
-    console.log('PASS tab departure frees the presenter slot and revoked assistant permissions strip screen credentials');
+    runtime = await action(assistant, 'assistant', { type: 'releaseScreenShare', claimId: 'assistant-claim' });
+    assert.ok(!leases().some(lease => lease.claimId === 'assistant-claim'));
+    console.log('PASS stale tab releases and assistant sharing retain connection ownership');
     await grant(student);
     const concurrent = await Promise.allSettled([action(student, 'student', { type: 'startScreenShare', claimId: 'race-student' }), action(second, 'student', { type: 'startScreenShare', claimId: 'race-second' })]);
-    assert.equal(concurrent.filter(result => result.status === 'fulfilled').length, 1);
-    assert.equal(concurrent.find(result => result.status === 'rejected').reason.status, 409);
-    console.log('PASS simultaneous authorized starts commit exactly one publisher');
+    assert.equal(concurrent.filter(result => result.status === 'fulfilled').length, 2);
+    runtime = await api.getClassroomRuntimeSnapshot(course.id, lesson.id);
+    assert.ok(leases().some(lease => lease.claimId === 'race-student'));
+    assert.ok(leases().some(lease => lease.claimId === 'race-second'));
+    console.log('PASS simultaneous authorized students retain distinct publishers');
     await db.courseSession.update({ where: { id: lesson.id }, data: { roomType: 2 } });
     const space = await db.classroomSpace.create({ data: { courseId: course.id, sessionId: lesson.id, kind: 'breakout', name: 'Room', position: 1, status: 'open', channelName: 'test-breakout' } });
     await db.classroomSpaceMember.create({ data: { courseId: course.id, sessionId: lesson.id, spaceId: space.id, userId: assistant.userId, displayName: assistant.displayName, role: 'assistant' } });
     const roomAccess = () => api.getClassroomSpaceCredentialAccess({ courseId: course.id, sessionId: lesson.id, spaceId: space.id, viewerId: assistant.userId, role: 'assistant' });
     assert.equal((await roomAccess()).allowScreenShare, false);
+    const unassigned = await api.getClassroomSpaceCredentialAccess({ courseId: course.id, sessionId: lesson.id, spaceId: space.id, viewerId: 'unassigned-assistant', role: 'assistant' });
+    assert.equal(unassigned.publisher, false);assert.equal(unassigned.allowScreenShare, false);
     await assert.rejects(action(assistant, 'assistant', { type: 'startScreenShare', claimId: 'room-claim', spaceId: space.id }), error => error.status === 403);
-    await assert.rejects(api.updateClassroomSpace({ courseId: course.id, sessionId: lesson.id, spaceId: space.id, actorId: assistant.userId, actorRole: 'assistant', action: 'permissions', targetUserId: assistant.userId, screenShareAllowed: true }), error => error.status === 403);
-    await db.classroomSpaceMember.updateMany({ where: { spaceId: space.id, userId: assistant.userId }, data: { screenShareAllowed: true } });
+    globalThis.screenActor = assistant;
+    globalThis.screenAccess = { courseId: course.id, sessionId: lesson.id, role: 'assistant' };
+    const beforeGrant = await api.roomCredential(new Request('http://localhost/api/space-credential', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({spaceId:space.id,clientId})}), {params:Promise.resolve({id:lesson.id})});
+    assert.equal(beforeGrant.status, 200);assert.equal((await beforeGrant.json()).credential.screenShare, undefined);
+    await api.updateClassroomSpace({ courseId: course.id, sessionId: lesson.id, spaceId: space.id, actorId: assistant.userId, actorRole: 'assistant', action: 'permissions', targetUserId: assistant.userId, screenShareAllowed: true });
     assert.equal((await roomAccess()).allowScreenShare, true);
     runtime = await action(assistant, 'assistant', { type: 'startScreenShare', claimId: 'room-claim', spaceId: space.id });
     assert.equal(runtime.composition.screenShares[space.id].userId, assistant.userId);
@@ -116,7 +125,7 @@ async function main() {
     const response = await api.roomCredential(new Request('http://localhost/api/space-credential', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({spaceId:space.id,clientId})}), {params:Promise.resolve({id:lesson.id})});
     assert.equal(response.status, 200);
     assert.equal((await response.json()).credential.screenShare.rtcUid, runtime.composition.screenShares[space.id].rtcUid, 'room tokens must use the same tab identity as publisher ownership');
-    console.log('PASS breakout assistants also require an explicit grant and cannot grant themselves permission');
+    console.log('PASS breakout sharing checks room grant and binds token to the active tab');
     const returningLesson = await db.courseSession.create({ data: { courseId: course.id, position: 2, roomUuid: crypto.randomUUID(), roomType: 0, title: 'Re-entry', createdBy: teacher.userId, startTime: new Date(), endTime: new Date(Date.now()+3600000) } });
     const a = actor('returning-a'), b = actor('returning-b');
     const enter = (person, joining = true) => api.touchClassroomMember(course.id, person, 'student', undefined, returningLesson.id, joining);

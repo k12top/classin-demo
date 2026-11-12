@@ -10,12 +10,14 @@ import {
 } from "@/lib/course-session-roster";
 import { casdoorUserIdCandidates } from "@/lib/course-teacher";
 import { syncCourseStatusFromSessions } from "@/lib/course-session-status";
+import { supportedSessionTeacherRules } from "@/lib/course-session-roster-rules";
 
 export const dynamic = "force-dynamic";
 
 type Context = {
   params: Promise<{ id: string; sessionId: string }>;
 };
+class SessionRosterConflict extends Error {}
 
 async function managedCourse(request: NextRequest, context: Context) {
   const session = await getSessionFromRequest(request);
@@ -112,6 +114,7 @@ export async function PATCH(request: NextRequest, context: Context) {
   const resolved = await managedCourse(request, context);
   if ("error" in resolved) return resolved.error;
   const body = await request.json();
+  if (!supportedSessionTeacherRules(body?.teachers)) return NextResponse.json({ error: "Unsupported lesson staff role" }, { status: 400 });
   if (body?.timezone !== undefined && !validTimeZone(body.timezone)) return NextResponse.json({ error: "Invalid time zone" }, { status: 400 });
   const nextStart = parseOptionalDate(body?.startTime);
   const nextEnd = parseOptionalDate(body?.endTime);
@@ -146,6 +149,29 @@ export async function PATCH(request: NextRequest, context: Context) {
         orderBy: { startTime: "asc" },
       })
     : [resolved.lesson];
+  if (!targets.length) return NextResponse.json({ error: "Lesson or series changed; refresh and retry" }, { status: 409 });
+  // New clients submit the snapshot from when the editor opened. Continue to
+  // accept legacy clients while preventing an old form from replacing a newer
+  // roster, including newly added lessons in a recurring series.
+  if (body?.expectedVersions !== undefined) {
+    const versions = body.expectedVersions;
+    if (!versions || typeof versions !== "object" || Array.isArray(versions)) {
+      return NextResponse.json({ error: "Invalid lesson versions" }, { status: 400 });
+    }
+    if (targets.some(target => typeof versions[target.id] !== "string" || versions[target.id] !== target.updatedAt.toISOString())) {
+      return NextResponse.json({ error: "Lesson or staff changed; refresh and retry" }, { status: 409 });
+    }
+  }
+  if (body?.expectedTargetIds !== undefined) {
+    const ids = body.expectedTargetIds;
+    if (!Array.isArray(ids) || ids.some((id: unknown) => typeof id !== "string") || new Set(ids).size !== ids.length) {
+      return NextResponse.json({ error: "Invalid lesson targets" }, { status: 400 });
+    }
+    const expected = new Set(ids);
+    if (expected.size !== targets.length || targets.some(target => !expected.has(target.id))) {
+      return NextResponse.json({ error: "Lesson or series changed; refresh and retry" }, { status: 409 });
+    }
+  }
   const deltaMs = startTime.getTime() - resolved.lesson.startTime.getTime();
   const shiftedStarts = new Map<string, Date>();
   try {
@@ -186,7 +212,8 @@ export async function PATCH(request: NextRequest, context: Context) {
   }
   for (const rule of effectiveTeacherRules) {
     if (rule.action === "exclude") effectiveTeacherIds.delete(rule.teacherId);
-    else effectiveTeacherIds.add(rule.teacherId);
+    else if (rule.role === "teacher" || rule.role === "assistant") effectiveTeacherIds.add(rule.teacherId);
+    else effectiveTeacherIds.delete(rule.teacherId);
   }
   if (!requestedLeadId || !effectiveTeacherIds.has(requestedLeadId)) {
     return NextResponse.json(
@@ -195,7 +222,7 @@ export async function PATCH(request: NextRequest, context: Context) {
     );
   }
   const leadRule = effectiveTeacherRules.find(
-    (rule) => rule.teacherId === requestedLeadId && rule.action !== "exclude",
+    (rule) => rule.teacherId === requestedLeadId && rule.action !== "exclude" && (rule.role === "teacher" || rule.role === "assistant"),
   );
   const courseLead = course.teachers.find(
     (teacher) => teacher.teacherId === requestedLeadId,
@@ -230,14 +257,16 @@ export async function PATCH(request: NextRequest, context: Context) {
     }
   }
 
-  await prisma.$transaction(async (transaction) => {
-    for (const target of targets) {
+  try { await prisma.$transaction(async (transaction) => {
+    // Lock each lesson in a consistent order before reading or replacing its
+    // roster. The staff-grant transaction updates the same lesson rows.
+    for (const target of [...targets].sort((a,b)=>a.id.localeCompare(b.id))) {
       const targetStart = shiftedStarts.get(target.id)!;
       const targetEnd = nextEnd || nextStart
         ? new Date(targetStart.getTime() + durationMs)
         : target.endTime;
-      await transaction.courseSession.update({
-        where: { id: target.id },
+      const changed = await transaction.courseSession.updateMany({
+        where: { id: target.id, courseId: resolved.courseId, updatedAt: target.updatedAt },
         data: {
           ...(typeof body?.title === "string" && { title: body.title.trim() }),
           ...(nextStart && { startTime: targetStart }),
@@ -249,10 +278,14 @@ export async function PATCH(request: NextRequest, context: Context) {
           leadTeacherId: requestedLeadId,
           leadTeacherName,
           leadTeacherAvatar,
+          updatedAt: new Date(Math.max(Date.now(),target.updatedAt.getTime()+1)),
           ...(scope === "this" && resolved.lesson.seriesId && { isDetached: true }),
         },
       });
+      if (!changed.count) throw new SessionRosterConflict("Lesson changed; refresh and retry");
       if (requestedTeacherRules) {
+        const observer = await transaction.courseSessionTeacher.findFirst({where:{sessionId:target.id,role:"observer"},select:{id:true}});
+        if (observer) throw new SessionRosterConflict("Lesson contains read-only staff; use staff management");
         await transaction.courseSessionTeacher.deleteMany({
           where: { sessionId: target.id },
         });
@@ -293,7 +326,12 @@ export async function PATCH(request: NextRequest, context: Context) {
         }
       }
     }
-  });
+  }); } catch (error) {
+    if (error instanceof SessionRosterConflict || (typeof error === "object" && error !== null && "code" in error && error.code === "P2034")) {
+      return NextResponse.json({ error: "Lesson or staff changed; refresh and retry" }, { status: 409 });
+    }
+    throw error;
+  }
 
   const updated = await prisma.courseSession.findUniqueOrThrow({
     where: { id: resolved.lesson.id },

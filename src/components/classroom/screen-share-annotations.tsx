@@ -10,10 +10,11 @@ import {
   screenAnnotationViewport,
 } from "@/lib/classroom/whiteboard/screen-annotations";
 
-export function ScreenShareAnnotations({ app, screenId, writable, onControllerChange }: {
+export function ScreenShareAnnotations({ app, screenId, writable, hidden = false, onControllerChange }: {
   app: FastboardApp | null;
   screenId: string;
   writable: boolean;
+  hidden?: boolean;
   onControllerChange: (controller: ClassroomWhiteboardController | null) => void;
 }) {
   const targetRef = useRef<HTMLDivElement>(null);
@@ -98,5 +99,5 @@ export function ScreenShareAnnotations({ app, screenId, writable, onControllerCh
     };
   }, [app, screenId, writable, onControllerChange]);
 
-  return <div ref={targetRef} className="classroom-v3-screen-annotations" data-writable={writable} />;
+  return <div ref={targetRef} className="classroom-v3-screen-annotations" data-writable={writable} aria-hidden={hidden || undefined} style={hidden ? { visibility: "hidden", pointerEvents: "none" } : undefined} />;
 }

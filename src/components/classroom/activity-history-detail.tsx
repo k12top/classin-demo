@@ -1,6 +1,8 @@
 "use client";
 import { useState } from "react";
 import { useTranslation } from "@/lib/i18n/context";
+import { useTimeZone } from "@/lib/use-time-zone";
+import { activityDisplayTime } from "@/lib/classroom/activity-display-time";
 import { activityOverviewCopy } from "@/lib/classroom/activity-overview-copy";
 import { useActivityDetail } from "@/lib/classroom/use-activity-detail";
 import { activityAnswerText, type ActivityResponse } from "@/lib/classroom/activities";
@@ -11,10 +13,11 @@ import { ActivityChoiceOptions } from "./activity-choice-options";
 import interaction from "./activity-interaction.module.css";
 import styles from "./activity-overview.module.css";
 
-export function ActivityHistoryDetail({ sessionId, activityId, shareAccess, canManage }: { sessionId: string; activityId: string; shareAccess?: string | null; canManage: boolean }) {
-  const { locale } = useTranslation(), c = activityOverviewCopy(locale), { detail, reload, error } = useActivityDetail(sessionId, activityId, shareAccess);
+export function ActivityHistoryDetail({ sessionId, activityId, shareAccess, canManage, previewStudentId }: { sessionId: string; activityId: string; shareAccess?: string | null; canManage: boolean; previewStudentId?: string | null }) {
+  const { locale } = useTranslation(), c = activityOverviewCopy(locale), { detail, reload, error } = useActivityDetail(sessionId, activityId, shareAccess, true, previewStudentId);
+  const {timeZone}=useTimeZone();
   const [selected, setSelected] = useState("");
-  if (!detail) return <div role="status" className={styles.detail}>{error ? <button onClick={() => void reload().catch(() => undefined)}>{c.retry}</button> : c.loading}</div>;
+  if (!detail) return <div role="status" className={styles.detail}>{error ? <>{c.failedInitial} <button onClick={() => void reload().catch(() => undefined)}>{c.retry}</button></> : c.loading}</div>;
   const responses = canManage ? [...new Map<string, ActivityResponse>([...detail.responses, ...(detail.roster || []).flatMap(member => member.response ? [member.response] : [])].map(response => [response.id, response])).values()] : [];
   const response = canManage ? responses.find(response => response.id === selected) || null : detail.ownResponse;
   const reveal = canManage || (detail.resultsVisible ?? detail.status === "published");
@@ -23,7 +26,7 @@ export function ActivityHistoryDetail({ sessionId, activityId, shareAccess, canM
     {error && <p role="status">{c.failed} <button onClick={() => void reload().catch(() => undefined)}>{c.retry}</button></p>}
     {canManage && <label className={styles.responsePicker}>{c.selectResponse}<select aria-label={c.selectResponse} value={response?.id || ""} onChange={event => setSelected(event.target.value)}>
       <option value="">{c.reference} · {c.allResponses} {responses.length}</option>
-      {responses.map(answer => <option key={answer.id} value={answer.id}>{answer.displayName} · {new Date(answer.submittedAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}</option>)}
+      {responses.map(answer => <option key={answer.id} value={answer.id}>{answer.displayName} · {activityDisplayTime(answer.submittedAt,locale,timeZone)} ({timeZone})</option>)}
     </select></label>}
     {!referenceOnly && reveal && detail.kind !== "poll" ? <>
       {detail.questionCount === 1 && <MarkdownContent content={detail.definition.questions[0].prompt} />}

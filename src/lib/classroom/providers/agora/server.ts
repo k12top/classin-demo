@@ -27,6 +27,7 @@ import {
 } from "@/lib/classroom/recording-storage";
 import { getAliyunOssClient } from "@/lib/aliyun-oss";
 import { recordingResourceExpired, shouldRecoverRecordingFromStorage } from "@/lib/classroom/recording-reconciliation";
+import { classroomMayPublish } from "@/lib/classroom/policy";
 
 const AGORA_ALIYUN_VENDOR_ID = 2;
 const AGORA_REQUEST_TIMEOUT_MS = 15_000;
@@ -98,7 +99,7 @@ export class AgoraClassroomServerProvider implements ClassroomServerProvider {
     input: IssueClassroomCredentialInput,
   ): ClassroomJoinCredential {
     const { appId } = agoraAppCredentials();
-    const publisher = input.publisher ?? input.role !== "student";
+    const publisher = classroomMayPublish(input.role,input.publisher);
     const allowScreenShare =
       input.allowScreenShare ?? input.role === "teacher";
     const expiresInSeconds = classroomRuntimeDefaults.rtcTokenTtlSeconds;

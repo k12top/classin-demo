@@ -15,6 +15,7 @@ import { resolveSessionUserId } from "@/lib/casdoor-user";
 import { attachSessionCookies, buildSessionCookies } from "@/lib/session";
 import { resolveUserAvatar } from "@/lib/user-profile";
 import { classroomAuthOrigin } from "@/lib/auth-origin";
+import { isTransientDatabaseError } from "@/lib/db";
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -31,7 +32,15 @@ export async function GET(request: NextRequest) {
     const casdoorUser = parseJwtPayload(tokens.access_token);
     const role = determineRole(casdoorUser.roles || [], casdoorUser.groups);
     const userId = resolveSessionUserId(casdoorUser, role);
-    const avatar = await resolveUserAvatar(userId, casdoorUser.avatar || "");
+    // A customized avatar is optional; a temporary profile read failure must
+    // not discard a successful OAuth exchange and its rotated refresh token.
+    let avatar = casdoorUser.avatar || "";
+    try {
+      avatar = await resolveUserAvatar(userId, avatar);
+    } catch (error) {
+      if (!isTransientDatabaseError(error)) throw error;
+      console.warn("[auth:callback] profile temporarily unavailable; using upstream avatar");
+    }
 
     const built = await buildSessionCookies(
       {
@@ -59,7 +68,7 @@ export async function GET(request: NextRequest) {
     console.error("OAuth callback error:", error);
     return NextResponse.redirect(
       new URL(
-        `/login?error=auth_failed&message=${encodeURIComponent(String(error))}`,
+        "/login?error=auth_failed",
         origin
       )
     );

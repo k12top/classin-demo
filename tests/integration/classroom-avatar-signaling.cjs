@@ -9,7 +9,7 @@ const output = path.join(root, "node_modules/.cache/classroom-avatar-signaling.c
 const compiled = (async () => {
   await fs.mkdir(path.dirname(output), { recursive: true });
   const stubs = {
-    "agora-rtm": `export default {RTM:class {constructor(appId,userId){this.userId=userId;globalThis.fixtureRtm=this;}addEventListener(name,listener){this.listener=listener;}async login(){}async subscribe(){}async publish(){}async unsubscribe(){}async logout(){}}};`,
+    "agora-rtm": `export default {RTM:class {constructor(appId,userId){this.userId=userId;globalThis.fixtureRtm=this;}addEventListener(name,listener){this.listener=listener;}async login(){}async subscribe(){}async publish(...args){globalThis.fixturePublished=args;}async unsubscribe(){}async logout(){}}};`,
   };
   await esbuild.build({ stdin: { contents: `export {GET} from '@/app/api/classroom/avatar/route';export {AgoraRtmSignalingProvider} from '@/lib/classroom/signaling/agora-client';`, resolveDir: root }, outfile: output, bundle: true, format: "cjs", platform: "node", packages: "external", tsconfig: path.join(root, "tsconfig.json"), plugins: [{ name: "upstream-fixtures", setup(build) {
     build.onResolve({ filter: /.*/ }, args => args.path in stubs ? { path: args.path, namespace: "fixture" } : undefined);
@@ -55,5 +55,20 @@ test("RTM passes the authenticated publisher separately from untrusted message f
   assert.equal(received[1].publisher, undefined);
   globalThis.fixtureRtm.listener({ message: "invalid JSON", publisher: "teacher:tab" });
   assert.equal(received.length, 2);
+  await provider.disconnect();
+});
+
+test("remote control input uses direct user messages and rejects channel broadcasts", async () => {
+  const { AgoraRtmSignalingProvider } = await compiled;
+  const provider=new AgoraRtmSignalingProvider(),received=[];
+  await provider.connect({appId:'fixture',userId:'student:device',token:'fixture',channelName:'lesson'},(event,publisher)=>received.push({event,publisher}));
+  const message={courseId:'lesson',topic:'remote-control-input',revision:0,targetUserId:'student',packet:{grantId:'grant',sequence:1,event:{type:'move',x:.5,y:.5},signature:'fixture'}};
+  await provider.publishToUser('student:device',message);assert.equal(globalThis.fixturePublished[0],'student:device');assert.equal(globalThis.fixturePublished[2].channelType,'USER');
+  globalThis.fixtureRtm.listener({message:JSON.stringify(message),publisher:'teacher:device',channelType:'MESSAGE'});
+  globalThis.fixtureRtm.listener({message:JSON.stringify(message),channelType:'USER'});
+  globalThis.fixtureRtm.listener({message:JSON.stringify({...message,padding:'x'.repeat(2048)}),publisher:'teacher:device',channelType:'USER'});
+  assert.equal(received.length,0);
+  globalThis.fixtureRtm.listener({message:JSON.stringify(message),publisher:'teacher:device',channelType:'USER'});
+  assert.equal(received.length,1);assert.equal(received[0].publisher,'teacher:device');
   await provider.disconnect();
 });

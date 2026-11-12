@@ -56,15 +56,23 @@ export default function StudentCourseDetail({
   course, 
   onEnterClassroom,
   enterLoading,
+  initialTab = "sessions",
+  workspaceTab,
+  onWorkspaceTabChange,
 }: { 
   course: StudentCourse;
   user: StudentCourseUser | null;
   onEnterClassroom: () => void;
   enterLoading: boolean;
   fetchCourse: () => void | Promise<void>;
+  initialTab?: string;
+  workspaceTab?: string;
+  onWorkspaceTabChange?: (tab: string) => void;
 }) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState("sessions");
+  const [localTab, setLocalTab] = useState(initialTab);
+  const activeTab = workspaceTab ?? localTab;
+  const setActiveTab = (tab: string) => workspaceTab !== undefined && onWorkspaceTabChange ? onWorkspaceTabChange(tab) : setLocalTab(tab);
   const { t } = useTranslation();
 
   const [courseware, setCourseware] = useState<CoursewareItem[]>([]);
@@ -113,7 +121,7 @@ export default function StudentCourseDetail({
   return (
     <div className={`${workspaceStyles.workspace} max-w-5xl mx-auto space-y-4 pb-10 pt-3`}>
       {/* Header Card */}
-      <Card className={workspaceStyles.hero}>
+      <Card className={workspaceStyles.hero} style={workspaceTab !== undefined ? {display:"none"} : undefined}>
         <CardContent className={workspaceStyles.heroContent}>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
             <div className="space-y-4">
@@ -182,7 +190,7 @@ export default function StudentCourseDetail({
 
       {/* Main Tabs Area */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <div className={`${workspaceStyles.tabsShell} mb-6`}>
+        <div className={`${workspaceStyles.tabsShell} mb-6`} style={workspaceTab !== undefined ? {display:"none"} : undefined}>
           <div className={workspaceStyles.tabsScroller}>
             <TabsList className={`inline-flex ${workspaceStyles.tabs}`}>
               <TabsTrigger value="sessions" className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm font-medium text-sm">

@@ -11,8 +11,8 @@ test("activity request parsing bounds streamed bytes and accepts all supported p
   try {
     const output = path.join(dir, "body.cjs");
     await build({ entryPoints: ["src/lib/classroom/server/activity-route.ts"], outfile: output, bundle: true, format: "cjs", platform: "node", packages: "external", tsconfig: "tsconfig.json", plugins: [{ name: "body-only", setup(b) {
-      b.onResolve({ filter: /^(@\/lib\/classroom\/server\/request-access|server-only)$/ }, args => ({ path: args.path, namespace: "mock" }));
-      b.onLoad({ filter: /.*/, namespace: "mock" }, args => ({ contents: args.path === "server-only" ? "" : "export const resolveClassroomRequestAccess=()=>{}", loader: "js" }));
+      b.onResolve({ filter: /^(@\/lib\/classroom\/server\/request-access|@\/lib\/database-response|server-only)$/ }, args => ({ path: args.path, namespace: "mock" }));
+      b.onLoad({ filter: /.*/, namespace: "mock" }, args => ({ contents: args.path === "server-only" ? "" : args.path === "@/lib/database-response" ? "export const databaseUnavailableResponse=()=>null" : "export const resolveClassroomRequestAccess=()=>{}", loader: "js" }));
     } }] });
     const { activityBody } = createRequire(import.meta.url)(output) as { activityBody(request: Request): Promise<Record<string, unknown>> };
     const request = (body: string) => new Request("https://example.test/activity", { method: "POST", body });

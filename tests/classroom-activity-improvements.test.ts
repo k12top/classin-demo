@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { activityResultsVisible, mergeActivityAnswer, type ActivityDetail, type ActivityQuestion, type ActivityRosterMember } from "../src/lib/classroom/activities";
+import { activityResultsVisible, mergeActivityAnswer, mergeActivitySnapshot, type ActivityDetail, type ActivityQuestion, type ActivityRosterMember } from "../src/lib/classroom/activities";
 import { assertDraftSelection, removeActivityOption } from "../src/lib/classroom/activity-editor";
 import { activityAnswerGroups } from "../src/lib/classroom/activity-statistics";
 import { activityRequest } from "../src/lib/classroom/use-activity-detail";
@@ -43,19 +43,51 @@ test("a delayed answer receipt cannot conceal already released answers or replac
   assert.equal(mergeActivityAnswer(detail, { revision: 1, response, resultsVisible: false, definition: { questions: [{ ...question, correct: undefined }] } }), detail);
   assert.equal(mergeActivityAnswer({ ...detail, ownResponse: { ...response, version: 3 } }, { revision: 1, response, resultsVisible: true })?.ownResponse?.version, 3);
 });
+test("a delayed detail read cannot undo a newer saved answer or released result",()=>{
+ const saved=person("s1",["a"]).response!;
+ const detail={id:"activity",version:3,resultsVisible:true,ownResponse:{...saved,version:2},definition:{questions:[question]}} as ActivityDetail;
+ const older={...detail,version:2,resultsVisible:false,ownResponse:null};
+ assert.equal(mergeActivitySnapshot(detail,older),detail);
+ const changedViewer={...detail,version:3,ownResponse:null};
+ assert.equal(mergeActivitySnapshot(detail,changedViewer).ownResponse,null,"a new authorized snapshot may remove access to an answer");
+ const newer={...detail,version:4,ownResponse:{...saved,version:3}};
+ assert.equal(mergeActivitySnapshot(detail,newer),newer);
+});
 test("a lost mutation acknowledgement retries the identical versioned answer; authorization errors do not retry", async () => {
   const original = globalThis.fetch, sent: string[] = [];
   try {
     globalThis.fetch = async (_input, init) => {
       sent.push(String(init?.body));
       if (sent.length === 1) throw new TypeError("Response lost after commit");
-      return Response.json({ revision: 9 });
+      return Response.json({ revision: 9, response: { id: "response", userId: "student", version: 1, answers: { q: ["a"] } } });
     };
-    assert.deepEqual(await activityRequest("https://fixture.invalid", { action: "answer", expectedVersion: 0, answers: { q: ["a"] } }), { revision: 9 });
+    assert.deepEqual(await activityRequest("https://fixture.invalid", { action: "answer", expectedVersion: 0, answers: { q: ["a"] } }), { revision: 9, response: { id: "response", userId: "student", version: 1, answers: { q: ["a"] } } });
     assert.equal(sent.length, 2); assert.equal(sent[0], sent[1]);
     let calls = 0;
     globalThis.fetch = async () => { calls++; return Response.json({ error: "Forbidden" }, { status: 403 }); };
     await assert.rejects(activityRequest("https://fixture.invalid", { action: "release", scope: "all" }), /Forbidden/);
     assert.equal(calls, 1);
+    calls = 0;
+    globalThis.fetch = async () => { calls++; return new Response('<html>Forbidden</html>', { status: 403 }); };
+    await assert.rejects(activityRequest("https://fixture.invalid", { action: "answer" }), error => (error as {status?:number}).status === 403);
+    assert.equal(calls, 1, "non-JSON authorization errors must not retry a mutation");
+    calls = 0;
+    globalThis.fetch = async () => { calls++; return Response.json("unexpected success"); };
+    await assert.rejects(activityRequest("https://fixture.invalid", { action: "answer" }), /Invalid activity response/);
+    assert.equal(calls, 2, "a malformed success is not treated as a confirmed answer");
+    calls = 0;
+    globalThis.fetch = async () => { calls++; return Response.json({ revision: 9 }); };
+    await assert.rejects(activityRequest("https://fixture.invalid", { action: "answer", answers: { q: ["a"] } }), /Invalid activity response/);
+    assert.equal(calls, 2, "an answer without a receipt cannot discard the student's draft");
+    calls = 0;
+    globalThis.fetch = async () => { calls++; return Response.json({ revision: 9, response: { id: "response", userId: "student", version: 1, answers: { q: ["b"] } } }); };
+    await assert.rejects(activityRequest("https://fixture.invalid", { action: "answer", answers: { q: ["a"] } }), /Invalid activity response/);
+    assert.equal(calls, 2, "a different saved answer is not an acknowledgement of this answer");
+    calls = 0;
+    globalThis.fetch = async () => { calls++; return Response.json({ revision: 9, id: "other" }); };
+    await assert.rejects(activityRequest("https://fixture.invalid/activities/expected", { action: "release", scope: "all" }), /Invalid activity response/);
+    assert.equal(calls, 2, "a receipt for another question cannot confirm this release");
+    globalThis.fetch = async () => Response.json({ revision: 9, id: "expected", reminded: 2 });
+    assert.deepEqual(await activityRequest("https://fixture.invalid/activities/expected", { action: "remind", requestId: "request-1" }), { revision: 9, id: "expected", reminded: 2 });
   } finally { globalThis.fetch = original; }
 });

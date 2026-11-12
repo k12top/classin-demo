@@ -84,6 +84,29 @@ test("a stream of notifications cannot bypass failed-request backoff", async () 
   await f.advance(1_000);assert.equal(reads, 2);f.scheduler.stop();
 });
 
+test("interactive reads retry quickly even when healthy realtime reconciliation is slow", async () => {
+  const f = fixture();let reads=0;
+  f.scheduler.setRealtime(true);
+  f.scheduler.register({topics:["activities"],interval:()=>60_000,maxRetryMs:8_000,run:async()=>{reads++;if(reads===1)throw Error("lost release read");}});
+  await f.advance(50);assert.equal(reads,1);
+  for(let i=0;i<100;i++)f.scheduler.invalidate("activities");
+  await f.advance(1_999);assert.equal(reads,1,"notifications preserve the bounded retry delay");
+  await f.advance(1);assert.equal(reads,2,"a failed read must not wait a full healthy reconciliation interval");
+  await f.advance(59_999);assert.equal(reads,2,"success restores the normal quiet realtime interval");
+  await f.advance(1);assert.equal(reads,3);f.scheduler.stop();
+});
+
+test("interactive failures back off to their cap without notification storms",async()=>{
+  const f=fixture();let reads=0;
+  f.scheduler.setRealtime(true);
+  f.scheduler.register({topics:["activities"],interval:()=>60_000,maxRetryMs:8_000,run:async()=>{reads++;throw Error("offline");}});
+  await f.advance(50);await f.advance(2_000);assert.equal(reads,2);
+  await f.advance(4_000);assert.equal(reads,3);
+  for(let i=0;i<100;i++)f.scheduler.invalidate("activities");
+  await f.advance(7_999);assert.equal(reads,3);await f.advance(1);assert.equal(reads,4);
+  await f.advance(8_000);assert.equal(reads,5);f.scheduler.stop();
+});
+
 test("shared GET consumers cancel independently, requests are never cached across changes", async () => {
   const reads = new ClassroomSharedReads();let calls = 0, release!: (value: number) => void;let underlying: AbortSignal | undefined;
   const load = (signal: AbortSignal) => { calls++;underlying = signal;return new Promise<number>(resolve => { release = resolve; }); };

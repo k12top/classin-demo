@@ -16,7 +16,7 @@ export async function applyClassroomMemberPermissions(input: {
   action: ClassroomMicrophonePermissionAction;
 }): Promise<ClassroomMemberPermissionUpdate> {
   const { courseId, sessionId, actorId, role, action } = input;
-  if (role === "student") throw new ClassroomActionError("你没有管理发言权限", 403);
+  if (role !== "teacher" && role !== "assistant") throw new ClassroomActionError("你没有管理发言权限", 403);
   if (action.type === "setMediaAllowed" && (typeof action.targetUserId !== "string" ||
     typeof action.microphoneAllowed !== "boolean" || typeof action.cameraAllowed !== "boolean")) {
     throw new ClassroomActionError("音视频权限无效", 400);
@@ -44,7 +44,7 @@ export async function applyClassroomMemberPermissions(input: {
       }
     }
     const result = await tx.classroomMemberState.updateMany({
-      where: action.type === "setMediaAllowed" ? { sessionId, userId: action.targetUserId } : { sessionId, role: "student" },
+      where: action.type === "setMediaAllowed" ? { sessionId, userId: action.targetUserId, role: { in: ["teacher", "assistant", "student"] } } : { sessionId, role: "student" },
       data: { microphoneAllowed, ...(action.type === "setMediaAllowed" && { cameraAllowed: action.cameraAllowed }), ...(admit && { onStage: true, stageState: "accepted", handRaisedAt: null }) },
     });
     if (action.type === "setMediaAllowed" && !result.count) throw new ClassroomActionError("课堂成员不存在", 404);

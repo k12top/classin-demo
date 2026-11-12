@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   applyPlaybackSeek,
+  recordingRetryDelay,
+  requestPlaybackForRecording,
   scrollToPlayback,
 } from "../src/lib/playback-navigation";
 import * as playbackNavigation from "../src/lib/playback-navigation";
@@ -10,8 +12,19 @@ import * as playbackNavigation from "../src/lib/playback-navigation";
 const playbackPageSource = readFileSync(new URL("../src/app/courses/[id]/playback/page.tsx", import.meta.url), "utf8");
 const replayPosterSource = readFileSync(new URL("../public/classroom/replay-placeholder.svg", import.meta.url), "utf8");
 
+test("recording retries back off and remain bounded",()=>{
+ assert.deepEqual([1,2,3,4,5,20].map(recordingRetryDelay),[5000,10000,20000,40000,60000,60000]);
+});
+
 test("replay poster artwork shares the video center with the buffering indicator", () => {
   assert.match(replayPosterSource, /<g transform="translate\(0 70\)">/);
+});
+
+test("seeking another recording does not resume the old player",()=>{
+ let plays=0;const video={play:async()=>{plays++;}};
+ requestPlaybackForRecording(video,"first","second");assert.equal(plays,0);
+ requestPlaybackForRecording(video,"first","first");assert.equal(plays,1);
+ requestPlaybackForRecording(null,"first","first");assert.equal(plays,1);
 });
 
 test("replay buffering replaces native controls with one custom indicator", () => {

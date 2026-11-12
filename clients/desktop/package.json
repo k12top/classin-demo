@@ -7,10 +7,13 @@
   "scripts": {
     "dev": "electron .",
     "package": "electron-builder --dir",
+    "icon:generate": "node scripts/generate-icon.cjs",
     "dist": "electron-builder",
     "test": "node --test test/*.test.cjs",
     "design:preview": "electron design/classin-v5/preview.cjs",
-    "design:preview:v4": "electron design/pc-v4/preview.cjs"
+    "design:preview:v4": "electron design/pc-v4/preview.cjs",
+    "native:build": "node scripts/build-remote-helper.cjs",
+    "native:build:windows": "node scripts/build-windows-remote-helper.cjs"
   },
   "devDependencies": {
     "electron": "^37.2.3",
@@ -24,17 +27,35 @@
       "package.json",
       "design/classin-v5/style.css",
       "design/classin-v5/assets/*.png",
-      "design/classin-v5/time.js"
+      "design/classin-v5/time.js",
+      "resources/app-icon.png"
     ],
     "mac": {
       "category": "public.app-category.education",
       "extendInfo": {
         "NSCameraUsageDescription": "在课堂中开启摄像头，让老师和同学看到你的画面。",
         "NSMicrophoneUsageDescription": "在课堂中使用麦克风发言。"
-      }
+      },
+      "extraResources": [
+        {
+          "from": ".native/remote-control/RemoteInput",
+          "to": "remote-control/RemoteInput"
+        }
+      ],
+      "binaries": [
+        "Contents/Resources/remote-control/RemoteInput"
+      ],
+      "icon": "resources/app-icon.icns"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "resources/app-icon.ico",
+      "extraResources": [{"from":".native/remote-control/RemoteInput.exe","to":"remote-control/RemoteInput.exe"}]
+    },
+    "beforePack": "scripts/before-pack.cjs",
+    "nsis": {
+      "installerIcon": "resources/app-icon.ico",
+      "uninstallerIcon": "resources/app-icon.ico"
     }
   }
 }

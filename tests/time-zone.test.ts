@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseZonedInput, zonedInputValue, zonedDateKey, isExplicitInstant, rescheduleZonedOccurrence } from "../src/lib/time-zone";
+import { parseZonedInput, resolveEditedZonedInput, zonedInputValue, zonedDateKey, isExplicitInstant, rescheduleZonedOccurrence } from "../src/lib/time-zone";
 import { searchTimeZones, timeZoneCity, timeZoneOffset, compactOffsetName } from "../src/lib/time-zone-catalog";
 import { expandSessionSchedule } from "../src/lib/course-session-schedule";
 import { monthSchedule, buildCourseSchedule } from "../src/lib/course-schedule";
@@ -18,6 +18,14 @@ test("invalid dates, nonexistent and ambiguous DST times fail explicitly", () =>
   for (const [value, zone] of [["2026-02-30T09:00", "Asia/Shanghai"], ["2026-03-08T02:30", "America/New_York"], ["2026-11-01T01:30", "America/New_York"], ["2026-10-23T09:00", "Invalid/Zone"]]) assert.throws(() => parseZonedInput(value, zone));
   assert.throws(() => parseZonedInput("2026-04-05T01:45", "Australia/Lord_Howe"));
 });
+test("an unchanged repeated local hour preserves the existing occurrence",()=>{
+ for(const instant of ["2026-11-01T05:30:00.000Z","2026-11-01T06:30:00.000Z"]){
+  const original={instant,timezone:"America/New_York"};
+  assert.equal(resolveEditedZonedInput("2026-11-01T01:30",original.timezone,original).toISOString(),instant);
+  assert.throws(()=>resolveEditedZonedInput("2026-11-01T01:45",original.timezone,original));
+  assert.equal(resolveEditedZonedInput("2026-11-01T01:30","Asia/Shanghai",original).toISOString(),"2026-10-31T17:30:00.000Z");
+ }
+});
 test("network timestamps require explicit UTC or offset", () => {
   assert.equal(isExplicitInstant("2026-10-23T13:00"), false);
   assert.equal(isExplicitInstant("2026-10-23T13:00:00+07:00"), true);
@@ -30,6 +38,11 @@ test("future series edits preserve local hours across DST and across selected ci
   assert.equal(rescheduleZonedOccurrence(target, original, next, "America/New_York", "America/New_York").toISOString(), "2026-03-08T14:00:00.000Z");
   const london = parseZonedInput("2026-03-01T10:00", "Europe/London");
   assert.equal(zonedInputValue(rescheduleZonedOccurrence(target, original, london, "America/New_York", "Europe/London"), "Europe/London"), "2026-03-08T10:00");
+});
+test("unchanged series timing preserves repeated-hour occurrences and seconds",()=>{
+ const original=new Date("2026-11-01T05:30:22.000Z"),target=new Date("2027-11-07T06:30:45.000Z");
+ assert.equal(rescheduleZonedOccurrence(original,original,new Date(original),"America/New_York","America/New_York").toISOString(),original.toISOString());
+ assert.equal(rescheduleZonedOccurrence(target,original,new Date(original),"America/New_York","America/New_York").toISOString(),target.toISOString());
 });
 test("calendar month and day boundaries use the display zone", () => {
   assert.equal(zonedDateKey("2026-10-31T16:30:00Z", "Asia/Shanghai"), "2026-11-01");

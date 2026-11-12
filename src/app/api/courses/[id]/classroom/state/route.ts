@@ -54,7 +54,7 @@ async function getState(
       : scope === "captions"
         ? await readCaptions()
         : { courseware: await classroomSharedRead(sessionId, `conversion-courseware:${resolved.access.role}`, () => getClassroomCourseware(resolvedCourseId, resolved.access.role, sessionId, true)) };
-    return NextResponse.json(section, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ ...section, viewerRole: resolved.access.role }, { headers: { "Cache-Control": "no-store" } });
   }
 
   const lesson = await prisma.courseSession.findUnique({
@@ -109,6 +109,7 @@ async function getState(
   return NextResponse.json(
     {
       runtime: runtimeSnapshot,
+      viewerRole: resolved.access.role,
       engagement,
       courseware,
       ...captionDelta,

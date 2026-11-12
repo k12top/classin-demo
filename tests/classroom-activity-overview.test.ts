@@ -37,3 +37,15 @@ test("all published interactions are included beyond the first history page", ()
   const result = summarizeActivities(Array.from({ length: 75 }, (_, i) => source(String(i), 10)), [], true, false);
   assert.equal(result.activityCount, 75); assert.equal(result.activities.length, 75); assert.equal(result.students?.[0].submissions, 75); assert.equal(result.accuracy, 100);
 });
+
+test("compact overview preserves the student's own scope and omits roster data", async () => {
+  const { activityOverviewSummary } = await import("../src/lib/classroom/activity-overview");
+  const teacher = summarizeActivities([source("a", 10, true)], [], true, false);
+  const student = summarizeActivities([source("a", 10, false)], [], false, false);
+  const a = activityOverviewSummary(teacher), b = activityOverviewSummary(student);
+  assert.equal(a.participants, 1);
+  assert.equal(b.participants, null);
+  assert.equal(b.accuracy, null);
+  assert.equal("students" in b, false);
+  assert.equal("activities" in b, false);
+});

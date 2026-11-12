@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { classroomMemberPresence, isEndedClassroomResponse } from "../src/lib/classroom/session-lifecycle";
+import { classroomMemberPresence, isEndedClassroomResponse, isObserverAccessRevoked } from "../src/lib/classroom/session-lifecycle";
 import { stopDisallowedMicrophone } from "../src/lib/classroom/media-permissions";
 import { requestClassroomAction } from "../src/lib/classroom/action-request";
 import type { ClassroomMediaProvider } from "../src/lib/classroom/types";
@@ -17,6 +17,15 @@ test("ended and cancelled lessons stop live work, including legacy error respons
   for (const [status, body] of [[503, { error: "课次已结束" }], [403, { code: "forbidden" }], [409, { code: "stale_revision" }], [200, { code: "course_finished" }], [403, null], [403, "课次已结束"]] as const) {
     assert.equal(isEndedClassroomResponse(status, body), false);
   }
+});
+
+test("observer exits only on an authoritative denial or changed role",()=>{
+ for(const code of ["not_enrolled","observer_previous_participant"])assert.equal(isObserverAccessRevoked(403,{code}),true);
+ assert.equal(isObserverAccessRevoked(404,{code:"not_found"}),true);
+ assert.equal(isObserverAccessRevoked(409,{code:"classroom_access_changed"}),true);
+ assert.equal(isObserverAccessRevoked(200,{viewerRole:"teacher"}),true);
+ assert.equal(isObserverAccessRevoked(200,{viewerRole:"student"}),true);
+ for(const [status,body] of [[200,{viewerRole:"observer"}],[200,{}],[401,{code:"unauthorized"}],[403,{code:"forbidden"}],[503,{code:"not_enrolled"}],[409,{code:"stale_revision"}],[0,null]] as const)assert.equal(isObserverAccessRevoked(status,body),false);
 });
 
 test("heartbeat delays and disconnected devices do not revoke accepted stage authorization", () => {

@@ -15,6 +15,7 @@ loadEnvConfig(packageDir);
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
+  allowedDevOrigins: ["127.0.0.1"],
   serverExternalPackages: ["agora-token", "ali-oss"],
   webpack(config, { webpack }) {
     // White Web SDK optionally probes Agora Foundation for local diagnostic

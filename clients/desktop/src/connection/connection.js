@@ -1,0 +1,14 @@
+'use strict';
+const strings={
+  en:{title:'Unable to connect to the classroom',detail:'Check your connection, then try again.',timeout:'The page is taking longer than expected. You can try again or return to the workspace.',crash:'This window stopped responding. Reopen the page to continue.',retry:'Try again',home:'Back to workspace',busy:'Connecting…',failed:'Still unable to connect. Please try again.',online:'Your network is available. You can try again.',offline:'Your network appears to be offline. You can still try connecting.'},
+  'zh-CN':{title:'暂时无法连接课堂',detail:'请检查网络连接后重试。',timeout:'页面等待时间较长，可以重试或返回工作台。',crash:'当前窗口暂时没有响应，重新打开页面即可继续。',retry:'重新连接',home:'返回工作台',busy:'正在连接…',failed:'暂时仍无法连接，请稍后重试。',online:'网络已连接，可以重新尝试。',offline:'当前网络可能已断开，仍可尝试重新连接。'},
+  'zh-TW':{title:'暫時無法連線課堂',detail:'請檢查網路連線後重試。',timeout:'頁面等待時間較長，可以重試或返回工作台。',crash:'目前視窗暫時沒有回應，重新開啟頁面即可繼續。',retry:'重新連線',home:'返回工作台',busy:'正在連線…',failed:'暫時仍無法連線，請稍後重試。',online:'網路已連線，可以重新嘗試。',offline:'目前網路可能已中斷，仍可嘗試重新連線。'},
+  vi:{title:'Chưa thể kết nối lớp học',detail:'Kiểm tra kết nối mạng rồi thử lại.',timeout:'Trang đang tải lâu hơn dự kiến. Bạn có thể thử lại hoặc quay về không gian làm việc.',crash:'Cửa sổ này ngừng phản hồi. Mở lại trang để tiếp tục.',retry:'Kết nối lại',home:'Về không gian làm việc',busy:'Đang kết nối…',failed:'Vẫn chưa thể kết nối. Vui lòng thử lại.',online:'Mạng đã kết nối. Bạn có thể thử lại.',offline:'Mạng có thể đang ngoại tuyến. Bạn vẫn có thể thử kết nối.'},
+};
+let copy=strings.en,busy=false;
+const main=document.querySelector('main'),retry=document.getElementById('retry'),home=document.getElementById('home'),status=document.getElementById('status');
+function render(value={}){const locale=String(value.locale||navigator.language).toLowerCase();const language=locale.startsWith('zh-tw')||locale.startsWith('zh-hk')?'zh-TW':locale.startsWith('zh')?'zh-CN':locale.startsWith('vi')?'vi':'en';copy=strings[language];document.documentElement.lang=language;document.title=copy.title;document.getElementById('title').textContent=copy.title;document.getElementById('detail').textContent=copy[value.reason]||copy.detail;retry.textContent=copy.retry;home.textContent=copy.home;}
+async function navigate(action){if(busy)return;busy=true;main.setAttribute('aria-busy','true');retry.disabled=home.disabled=true;status.textContent=copy.busy;try{const result=await window.classroomConnection[action]();if(!result?.ok)throw Error('connection');}catch{status.textContent=copy.failed;}finally{busy=false;main.setAttribute('aria-busy','false');retry.disabled=home.disabled=false;}}
+retry.addEventListener('click',()=>void navigate('retry'));home.addEventListener('click',()=>void navigate('home'));
+window.addEventListener('online',()=>{if(!busy)status.textContent=copy.online;});window.addEventListener('offline',()=>{if(!busy)status.textContent=copy.offline;});
+render();window.classroomConnection.state().then(render).catch(()=>undefined);

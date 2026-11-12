@@ -1,4 +1,4 @@
-.manager { color: hsl(var(--foreground)); }
+.manager { color: hsl(var(--foreground)); container-type:inline-size; }
 .header { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.8rem .15rem; border-bottom:1px solid hsl(var(--border)/.55); }
 .header span,.dialogHeader span { color:hsl(var(--primary)); font-size:.67rem; font-weight:750; letter-spacing:.16em; text-transform:uppercase; }
 .header>div>span { display:none; }
@@ -78,6 +78,17 @@
 @media (max-width:760px){.rowActions{flex-wrap:wrap;justify-content:flex-start}.rowActions>button:not(.enterButton):not(.detailsButton){width:44px;height:44px}.studentActions button,.weekdays button{min-height:44px}.weekdays button{width:44px;height:44px}.dialog,.submissionDialog{max-height:calc(100dvh - 16px);overscroll-behavior:contain}.dialogFooter{padding-bottom:calc(1rem + env(safe-area-inset-bottom))}.formGrid input,.formGrid select,.inheritance select,.memberSearch input,.submissionForm textarea{font-size:1rem}}
 @media (hover:none){.rowActions>button:not(.enterButton):not(.detailsButton){opacity:1;transform:none;pointer-events:auto}.rowActions>button:disabled:not(.enterButton):not(.detailsButton){opacity:.45}.studentActions{opacity:1;visibility:visible;transform:none}}
 @media (prefers-reduced-motion:reduce){.sessionRow,.rowActions>button,.studentActions{transition:none}}
+
+/* The lesson panel can be narrow even in a desktop-sized window because the
+   workspace has its own navigation and member rail. Size by the panel itself. */
+@container (max-width:620px){
+  .sessionRow{grid-template-columns:1rem minmax(0,1fr);gap:.35rem .65rem;padding:.75rem .25rem;min-height:0}
+  .rail{grid-column:1;grid-row:1 / span 3}
+  .sessionRow time,.sessionMain,.rowActions{grid-column:2;min-width:0}
+  .sessionTitle h3{white-space:normal;overflow-wrap:anywhere;min-width:0}
+  .metadata{flex-wrap:wrap;row-gap:.3rem}
+  .rowActions{flex-wrap:wrap;justify-content:flex-start}
+}
 
 .rowActions > button.detailsButton { display:inline-flex; align-items:center; justify-content:center; gap:.35rem; width:auto; min-height:2rem; height:auto; padding:0 .65rem; border:1px solid hsl(var(--border)); border-radius:.45rem; color:hsl(var(--foreground)); background:hsl(var(--background)); font-size:.7rem; font-weight:680; white-space:nowrap; opacity:1; transform:none; pointer-events:auto; }
 .rowActions > button.detailsButton:focus-visible { outline:2px solid hsl(var(--primary)); outline-offset:3px; }

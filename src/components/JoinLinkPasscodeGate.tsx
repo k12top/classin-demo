@@ -3,15 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, KeyboardEvent, ClipboardEvent, useState } from "react";
-import { BookOpen, Home, Key, Loader2, Video } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { ArrowLeft, Key, Loader2 } from "lucide-react";
+import {useTranslation} from "@/lib/i18n/context";
+import styles from "@/components/workspace/passcode-gate.module.css";
+import accessStyles from "@/components/access-denied.module.css";
 
 type JoinLinkPasscodeGateProps = {
   token: string;
@@ -48,7 +43,8 @@ export default function JoinLinkPasscodeGate({
   const [digits, setDigits] = useState<string[]>(Array(6).fill(""));
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const Icon = purpose === "live" ? Video : BookOpen;
+  const {locale}=useTranslation();
+  const activeLocale=lang||locale;
 
   const handleDigitChange = (index: number, value: string) => {
     const cleanValue = value.replace(/\D/g, "");
@@ -95,6 +91,7 @@ export default function JoinLinkPasscodeGate({
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    if(submitting)return;
     const passcode = digits.join("");
     if (passcode.length !== 6) {
       setError(errorFallback);
@@ -118,7 +115,10 @@ export default function JoinLinkPasscodeGate({
         setError(typeof data.error === "string" ? data.error : errorFallback);
         return;
       }
-      router.replace(typeof data.redirectTo === "string" ? data.redirectTo : "/");
+      if(typeof data.redirectTo!=="string")throw new Error("Invalid redirect");
+      const target=new URL(data.redirectTo,window.location.origin);
+      if(target.origin!==window.location.origin)throw new Error("Invalid redirect");
+      router.replace(target.pathname+target.search+target.hash);
     } catch {
       setError(errorFallback);
     } finally {
@@ -127,97 +127,25 @@ export default function JoinLinkPasscodeGate({
   };
 
   return (
-    <main className="min-h-screen bg-background px-5 py-10 text-foreground sm:px-6">
-      <div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-xl flex-col items-center justify-center gap-6">
-        <div className="flex items-center gap-3 text-sm font-medium text-muted-foreground">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
-            <Icon className="h-5 w-5" />
-          </span>
-          <span>{linkLabel}</span>
-        </div>
-
-        <Card className="w-full overflow-hidden rounded-2xl border-border/70 bg-card shadow-sm">
-          <CardHeader className="items-center px-6 pb-4 pt-8 text-center sm:px-8">
-            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary">
-              <Key className="h-8 w-8" />
-            </div>
-            <CardTitle className="max-w-md text-balance text-2xl font-bold leading-tight tracking-normal sm:text-3xl">
-              {title}
-            </CardTitle>
-            <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-              {description}
-            </p>
-            {courseName ? (
-              <div className="mt-4 w-full max-w-md rounded-xl border border-border/70 bg-muted/40 px-4 py-3 text-left">
-                <div className="truncate text-sm font-semibold text-foreground">
-                  {courseName}
-                </div>
-                {teacherName ? (
-                  <div className="mt-1 truncate text-xs font-medium text-muted-foreground">
-                    {teacherName}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </CardHeader>
-
-          <CardContent className="px-6 pb-8 sm:px-8">
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="flex justify-center gap-2.5">
-                {digits.map((digit, index) => (
-                  <input
-                    key={index}
-                    id={`join-link-digit-${index}`}
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={1}
-                    value={digit}
-                    onChange={(event) =>
-                      handleDigitChange(index, event.target.value)
-                    }
-                    onKeyDown={(event) => handleKeyDown(index, event)}
-                    onPaste={handlePaste}
-                    aria-label={`Passcode digit ${index + 1}`}
-                    className="h-14 w-11 rounded-lg border border-input bg-background text-center font-mono text-2xl font-bold text-foreground shadow-sm transition-all hover:border-primary/40 focus:border-primary focus:ring-2 focus:ring-primary/20 focus-visible:outline-none sm:w-12"
-                    autoFocus={index === 0}
-                  />
-                ))}
-              </div>
-
-              {error ? (
-                <p className="rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-center text-xs font-medium text-destructive">
-                  {error}
-                </p>
-              ) : null}
-
-              <Button
-                type="submit"
-                disabled={submitting || digits.some((digit) => !digit)}
-                className="h-12 w-full rounded-xl font-semibold active:scale-[0.98]"
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {buttonLabel}
-                  </>
-                ) : (
-                  buttonLabel
-                )}
-              </Button>
-            </form>
-          </CardContent>
-
-          <CardFooter className="justify-center border-t border-border/70 bg-muted/20 px-6 py-5 sm:px-8">
-            <Button asChild variant="ghost" className="rounded-xl">
-              <Link href="/">
-                <Home className="h-4 w-4" />
-                {backLabel}
-              </Link>
-            </Button>
-          </CardFooter>
-        </Card>
-      </div>
-    </main>
+    <div className={accessStyles.page} data-workspace-shell>
+      <header className={accessStyles.header} data-workspace-header data-access-header><div data-workspace-header-actions><Link href="/" className={accessStyles.back}><ArrowLeft size={16} aria-hidden="true"/><span>{backLabel}</span></Link></div><span className={accessStyles.brand}>{linkLabel}</span></header>
+    <main className={`${styles.page} ${styles.linkMain}`}>
+      <section className={styles.panel} aria-labelledby="join-link-title">
+        <span className={styles.icon}><Key size={20} aria-hidden="true"/></span>
+        <h1 id="join-link-title">{title}</h1>
+        <p className={styles.description}>{description}</p>
+        {courseName&&<div className={styles.course}><strong>{courseName}</strong>{teacherName&&<span>{teacherName}</span>}</div>}
+        <form onSubmit={handleSubmit} className={styles.form}>
+          <div className={styles.digits}>
+            {digits.map((digit,index)=><input key={index} id={`join-link-digit-${index}`} type="text" inputMode="numeric" pattern="[0-9]*" maxLength={1} value={digit}
+              aria-label={`${activeLocale==="zh-TW"?"密碼第":activeLocale.startsWith("zh")?"密码第":activeLocale.startsWith("vi")?"Chữ số mật mã":"Passcode digit"} ${index+1}${activeLocale.startsWith("zh")?"位":""}`}
+              aria-invalid={Boolean(error)} disabled={submitting} onChange={event=>handleDigitChange(index,event.target.value)} onKeyDown={event=>handleKeyDown(index,event)} onPaste={handlePaste} autoFocus={index===0}/>)}
+          </div>
+          {error&&<p role="alert" className={styles.error}>{error}</p>}
+          <button type="submit" disabled={submitting||digits.some(digit=>!digit)} className={styles.submit}>{submitting&&<Loader2 size={14} className="animate-spin" aria-hidden="true"/>}{buttonLabel}</button>
+        </form>
+        <Link href="/" className={styles.back}><ArrowLeft size={14} aria-hidden="true"/>{backLabel}</Link>
+      </section>
+    </main></div>
   );
 }

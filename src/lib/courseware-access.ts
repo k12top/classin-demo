@@ -3,8 +3,10 @@ import { casdoorUserIdCandidates, userCanTeachCourse } from "@/lib/course-teache
 import {
   getEffectiveSessionRoster,
   rosterContainsUser,
+  rosterHasObserver,
 } from "@/lib/course-session-roster";
 import { prisma } from "@/lib/db";
+import {getViewerSessionRoles} from "@/lib/course-session-viewer";
 import type { SessionPayload } from "@/lib/session";
 
 type CoursewareIdentity = Pick<SessionPayload, "userId" | "name">;
@@ -26,6 +28,7 @@ export type CoursewareAccessScope = {
   scope: "course" | "session" | "none";
   sessionId: string | null;
   lessons?: Awaited<ReturnType<typeof getCoursewareLessons>>;
+  observer?: boolean;
 };
 
 /**
@@ -74,6 +77,28 @@ export async function resolveCoursewareAccess(
       ),
     );
 
+  // A concrete lesson must use its current roster even for enrolled class
+  // students: custom rosters and explicit exclusions override inheritance.
+  // Course teachers retain management access; observer rules take precedence.
+  if (requestedSessionId) {
+    const lesson = await prisma.courseSession.findFirst({where:{id:requestedSessionId,courseId},select:{id:true}});
+    if (lesson) {
+      const roster = await getEffectiveSessionRoster(lesson.id);
+      if (roster && rosterHasObserver(roster,candidates)) return {
+        allowed:true, canTeachCourse:false, teaching:false,
+        scope:"session", sessionId:lesson.id, observer:true,
+      };
+      if (!canTeach) {
+        const member=roster ? rosterContainsUser(roster,candidates) : null;
+        if(member)return {allowed:true,canTeachCourse:false,teaching:member.kind==="teacher",scope:isCourseStudent?"course":"session",sessionId:lesson.id};
+      }
+      if (canTeach && roster) return {allowed:true,canTeachCourse:true,teaching:true,scope:"course",sessionId:lesson.id};
+    }
+    // Never fall back to broad class membership for a missing, foreign or
+    // excluded lesson. The same guard protects media, summaries and replay chat.
+    return {allowed:false,canTeachCourse:false,teaching:false,scope:"none",sessionId:null};
+  }
+
   if (canTeach || isCourseStudent) {
     return {
       allowed: true,
@@ -82,26 +107,6 @@ export async function resolveCoursewareAccess(
       scope: "course",
       sessionId: requestedSessionId || null,
     };
-  }
-
-  if (requestedSessionId) {
-    const lesson = await prisma.courseSession.findFirst({
-      where: { id: requestedSessionId, courseId },
-      select: { id: true },
-    });
-    if (lesson) {
-      const roster = await getEffectiveSessionRoster(lesson.id);
-      const member = roster ? rosterContainsUser(roster, candidates) : null;
-      if (member) {
-        return {
-          allowed: true,
-          canTeachCourse: false,
-          teaching: member.kind === "teacher",
-          scope: "session",
-          sessionId: lesson.id,
-        };
-      }
-    }
   }
 
   // Course detail accepts lesson-only members too. Keep the library entry
@@ -171,10 +176,6 @@ export async function getCoursewareLessons(session: CoursewareIdentity, courseId
     orderBy: [{ startTime: "asc" }, { position: "asc" }],
   });
   const candidates = identityCandidates(session);
-  const results = await Promise.all(lessons.map(async lesson => {
-    const roster = await getEffectiveSessionRoster(lesson.id);
-    const member = roster && rosterContainsUser(roster, candidates);
-    return member ? { ...lesson, teaching: member.kind === "teacher" } : null;
-  }));
-  return results.filter((lesson): lesson is NonNullable<typeof lesson> => lesson !== null);
+  const roles = await getViewerSessionRoles(lessons.map(lesson=>lesson.id),candidates);
+  return lessons.flatMap(lesson=>{const role=roles.get(lesson.id);return role?[{...lesson,teaching:role==="teacher"||role==="assistant"}]:[];});
 }

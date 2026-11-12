@@ -184,17 +184,18 @@ export function determineRole(
  * Get roles from the auth provider. Casdoor's get-users response may omit
  * user.roles, while get-roles carries role.users membership.
  */
-export async function getCasdoorRoles(): Promise<CasdoorRole[]> {
+export async function getCasdoorRoles(options: {strict?: boolean} = {}): Promise<CasdoorRole[]> {
   const base = getCasdoorServerUrl();
   const org = getOrgName();
   const clientId = getClientId();
   const clientSecret = getClientSecret();
-  if (!base || !org) return [];
+  if (!base || !org) { if(options.strict) throw new Error("Directory unavailable"); return []; }
 
   try {
     const url = `${base.replace(/\/$/, "")}/api/get-roles?owner=${encodeURIComponent(org)}&clientId=${encodeURIComponent(clientId)}&clientSecret=${encodeURIComponent(clientSecret)}`;
-    const res = await fetch(url, { cache: "no-store" });
+    const res = await fetch(url, { cache: "no-store", ...(options.strict ? {signal:AbortSignal.timeout(10_000)} : {}) });
     if (!res.ok) {
+      if(options.strict) throw new Error("Directory unavailable");
       console.error("Auth get-roles HTTP", res.status, await res.text());
       return [];
     }
@@ -203,11 +204,14 @@ export async function getCasdoorRoles(): Promise<CasdoorRole[]> {
       data?: CasdoorRole[];
     };
     if (data.status && data.status !== "ok") {
+      if(options.strict) throw new Error("Directory unavailable");
       console.error("Auth get-roles status", data);
       return [];
     }
+    if(options.strict && !Array.isArray(data.data)) throw new Error("Directory unavailable");
     return Array.isArray(data.data) ? data.data : [];
   } catch (error) {
+    if(options.strict) throw error;
     console.error("getCasdoorRoles:", error);
     return [];
   }
@@ -240,6 +244,8 @@ export type SearchCasdoorUsersOptions = {
   /** When true, omit users in teacher groups. */
   studentsOnly?: boolean;
   limit?: number;
+  strict?: boolean;
+  timeoutMs?: number;
 };
 
 /**
@@ -253,14 +259,16 @@ export async function searchCasdoorUsers(
   const org = getOrgName();
   const clientId = getClientId();
   const clientSecret = getClientSecret();
-  if (!base || !org) return [];
+  if (!base || !org) { if(options.strict) throw new Error("Directory unavailable"); return []; }
 
   const limit = options.limit ?? 50;
 
   try {
     const url = `${base.replace(/\/$/, "")}/api/get-users?owner=${encodeURIComponent(org)}&clientId=${encodeURIComponent(clientId)}&clientSecret=${encodeURIComponent(clientSecret)}`;
-    const res = await fetch(url, { cache: "no-store" });
+    const timeoutMs=Number.isFinite(options.timeoutMs)?Math.max(100,Math.min(10_000,Math.floor(options.timeoutMs!))):10_000;
+    const res = await fetch(url, { cache: "no-store", signal:AbortSignal.timeout(timeoutMs) });
     if (!res.ok) {
+      if(options.strict) throw new Error("Directory unavailable");
       console.error("Auth get-users HTTP", res.status, await res.text());
       return [];
     }
@@ -269,10 +277,12 @@ export async function searchCasdoorUsers(
       data?: CasdoorUser[];
     };
     if (data.status && data.status !== "ok") {
+      if(options.strict) throw new Error("Directory unavailable");
       console.error("Auth get-users status", data);
       return [];
     }
 
+    if(options.strict && !Array.isArray(data.data)) throw new Error("Directory unavailable");
     let users: CasdoorUser[] = Array.isArray(data.data)
       ? data.data.map((raw) => {
           const u = raw as CasdoorUser & { groups?: string[] };
@@ -308,6 +318,7 @@ export async function searchCasdoorUsers(
 
     return users.slice(0, limit);
   } catch (e) {
+    if(options.strict) throw e;
     console.error("searchAuthUsers:", e);
     return [];
   }

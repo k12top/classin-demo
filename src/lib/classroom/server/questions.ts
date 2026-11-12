@@ -65,7 +65,9 @@ export async function getClassroomQuestions(input: {
   const sessionId = input.sessionId || input.courseId;
   const where = (input.role === "teacher" || input.role === "assistant")
     ? { sessionId }
-    : { sessionId, OR: [{ askerId: input.viewerId }, { status: { in: ["promoted", "answered"] } }] };
+    : input.role === "student"
+      ? { sessionId, OR: [{ askerId: input.viewerId }, { status: { in: ["promoted", "answered"] } }] }
+      : { sessionId, status: { in: ["promoted", "answered"] } };
   const questions = await prisma.classroomQuestion.findMany({
     where,
     include: { space: { select: { name: true } } },
@@ -85,9 +87,8 @@ export async function createClassroomQuestion(input: {
   requestedSpaceId?: string | null;
 }) {
   const sessionId = input.sessionId || input.courseId;
-  if ((input.role === "teacher" || input.role === "assistant")) {
-    throw new ClassroomQuestionError("主讲老师无需提交课堂提问", 409);
-  }
+  if (input.role === "teacher" || input.role === "assistant") throw new ClassroomQuestionError("主讲老师无需提交课堂提问", 409);
+  if (input.role !== "student") throw new ClassroomQuestionError("只有学生可以提交课堂提问", 403);
   const content = input.content.trim();
   if (!content || content.length > 500) {
     throw new ClassroomQuestionError("提问长度应为 1–500 个字符");
@@ -136,7 +137,7 @@ export async function updateClassroomQuestion(input: {
   answer?: string;
 }) {
   const sessionId = input.sessionId || input.courseId;
-  if (input.role === "student") {
+  if (input.role !== "teacher" && input.role !== "assistant") {
     throw new ClassroomQuestionError("只有教师可以处理课堂提问", 403);
   }
   const question = await prisma.classroomQuestion.findFirst({

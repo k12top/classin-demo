@@ -1,0 +1,3 @@
+const image=document.getElementById('seats');image.onload=()=>{void window.shareSeats.ready().catch(()=>{});};window.shareSeats.onFrame(frame=>{image.src='data:image/jpeg;base64,'+frame;});
+const open=document.getElementById('open');open.addEventListener('click',()=>{void window.shareSeats.members().catch(()=>{});});
+void window.shareSeats.locale().then(locale=>{const lang=locale.toLowerCase(),label=lang.startsWith('zh-tw')?'查看課堂':lang.startsWith('zh')?'查看课堂':lang.startsWith('vi')?'Xem lớp học':'View classroom';document.documentElement.lang=locale;open.setAttribute('aria-label',label);document.getElementById('hint').textContent=label;}).catch(()=>{});

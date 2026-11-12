@@ -1,0 +1,31 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- standalone Electron fixture */
+const assert=require('node:assert/strict'),http=require('node:http'),path=require('node:path'),fs=require('node:fs'),os=require('node:os');
+const {app,BrowserWindow}=require('electron'),esbuild=require('esbuild');
+const root=path.resolve(__dirname,'../..'),temp=fs.mkdtempSync(path.join(os.tmpdir(),'todo-dirty-'));app.setPath('userData',temp);app.on('window-all-closed',()=>{});
+let server,win;const writes=[];
+const wait=async(expr)=>{for(let i=0;i<100;i++){if(await win.webContents.executeJavaScript(expr))return;await new Promise(r=>setTimeout(r,50));}throw Error(`Timed out: ${expr}`);};
+async function main(){await app.whenReady();
+ const mocks={'@/lib/i18n/context':'export const useTranslation=()=>({locale:"zh-CN",t:(key)=>key});','@/lib/use-time-zone':'export const useTimeZone=()=>({timeZone:"UTC"});'};
+ const source=`import React from 'react';import{createRoot}from'react-dom/client';import{WorkspaceTodo}from'@/components/workspace/workspace-todo';createRoot(document.getElementById('root')).render(<WorkspaceTodo userId="u" courses={[]} coursesReady isTeacher={false} onOpenCourse={()=>{}} onLesson={()=>{}} onDraft={()=>{}} onReview={()=>{}} onAssignment={()=>{}}/>);`;
+ const bundle=await esbuild.build({stdin:{contents:source,loader:'tsx',resolveDir:root},bundle:true,write:false,outfile:'app.js',format:'iife',platform:'browser',define:{'process.env.NODE_ENV':'"production"','process.env':'{}'},tsconfig:path.join(root,'tsconfig.json'),plugins:[{name:'fixture-context',setup(build){build.onResolve({filter:/.*/},a=>a.path in mocks?{path:a.path,namespace:'mock'}:undefined);build.onLoad({filter:/.*/,namespace:'mock'},a=>({contents:mocks[a.path],loader:'js'}));}}]});
+ const js=bundle.outputFiles.find(f=>f.path.endsWith('.js')).contents;
+ server=http.createServer(async(req,res)=>{if(req.url==='/app.js'){res.setHeader('content-type','text/javascript');return res.end(js);}if(req.url==='/api/workspace/tasks'&&req.method==='POST'){let body='';for await(const chunk of req)body+=chunk;writes.push({body,key:req.headers['idempotency-key']});res.setHeader('content-type','application/json');if(writes.length===1)return res.end('null');const input=JSON.parse(body);return res.end(JSON.stringify({task:{id:'saved',...input,dueDate:input.dueDate||null,completed:false,version:0}}));}if(req.url.startsWith('/api/')){res.setHeader('content-type','application/json');return res.end(JSON.stringify({tasks:[],nextCursor:null}));}res.setHeader('content-type','text/html');res.end('<div id="root"></div><script src="/app.js"></script>');});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ win=new BrowserWindow({show:false,webPreferences:{backgroundThrottling:false}});await win.loadURL(`http://127.0.0.1:${server.address().port}`);await wait(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent.includes('新建任务'))`);
+ const open=`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('新建任务')).click()`;await win.webContents.executeJavaScript(open,true);await wait(`!!document.querySelector('[role=dialog] input')`);
+ await win.webContents.executeJavaScript(`window.confirmCalls=0;window.confirm=()=>{window.confirmCalls++;return false};const input=document.querySelector('[role=dialog] input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'待保存内容');input.dispatchEvent(new Event('input',{bubbles:true}));`);await new Promise(r=>setTimeout(r,100));
+ await win.webContents.executeJavaScript(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);await new Promise(r=>setTimeout(r,100));assert.equal(await win.webContents.executeJavaScript('window.confirmCalls'),1);assert.equal(await win.webContents.executeJavaScript(`document.querySelector('[role=dialog] input').value`),'待保存内容');
+ const prevented=await win.webContents.executeJavaScript(`(()=>{const e=new Event('beforeunload',{cancelable:true});window.dispatchEvent(e);return e.defaultPrevented})()`);assert.equal(prevented,true);
+ await win.webContents.executeJavaScript(`window.confirm=()=>true;document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);await wait(`!document.querySelector('[role=dialog]')`);
+ assert.equal(await win.webContents.executeJavaScript(`(()=>{const e=new Event('beforeunload',{cancelable:true});window.dispatchEvent(e);return e.defaultPrevented})()`),false);
+ await win.webContents.executeJavaScript(open,true);await wait(`!!document.querySelector('[role=dialog] input')`);
+ await win.webContents.executeJavaScript(`(()=>{const input=document.querySelector('[role=dialog] input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'恢复测试');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+ await win.webContents.executeJavaScript(`document.querySelector('[role=dialog] form').requestSubmit()`);await wait(`document.body.textContent.includes('重试确认')`);
+ assert.equal(writes.length,1);assert.equal(await win.webContents.executeJavaScript(`document.querySelector('[role=dialog] input').value`),'恢复测试');
+ await win.reload();await wait(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent.includes('新建任务'))`);await win.webContents.executeJavaScript(open,true);await wait(`document.body.textContent.includes('重试确认')`);
+ assert.equal(await win.webContents.executeJavaScript(`document.querySelector('[role=dialog] input').value`),'恢复测试');
+ await win.webContents.executeJavaScript(`document.querySelector('[role=dialog] form').requestSubmit()`);await wait(`!document.querySelector('[role=dialog]')`);
+ assert.equal(writes.length,2);assert.deepEqual(writes[1],writes[0],'recovery keeps the original body and idempotency key');
+ console.log('Malformed task creation receipt retains the form and survives reload with the same request');
+ console.log('Todo unsaved edits survive cancelled close and register a navigation warning');
+}
+main().then(()=>{win?.destroy();server?.close();fs.rmSync(temp,{recursive:true,force:true});app.exit(0);}).catch(err=>{console.error(err);win?.destroy();server?.close();fs.rmSync(temp,{recursive:true,force:true});app.exit(1);});

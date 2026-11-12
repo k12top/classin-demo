@@ -64,7 +64,7 @@ function fixture(touch = false) {
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/config.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: mediaConfig });
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/share-portrait.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: portraitHelpers, require: name => { if (name === './config') return mediaConfig; throw Error(name); } });
   const profile = { width: 1280, height: 720, frameRate: 30, bitrateKbps: 1200 };
-  vm.runInNewContext(source, { exports, console, DOMException, Error, ResizeObserver, Date: FixtureDate, window: { matchMedia: () => ({ matches: touch }) },
+  vm.runInNewContext(source, { exports, console, DOMException, Error, ResizeObserver, setTimeout, clearTimeout, Date: FixtureDate, window: { matchMedia: () => ({ matches: touch }) },
     require(name) {
       if (name.endsWith("/network-adaptation")) {
         const policy = {};
@@ -72,6 +72,11 @@ function fixture(touch = false) {
         return policy;
       }
       if (name === "agora-rtc-sdk-ng") return sdk;
+      if (name.endsWith("/device-capture-timeout")) {
+        const capture = {};
+        vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/device-capture-timeout.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports:capture, setTimeout, clearTimeout, Error });
+        return capture;
+      }
       if (name === "agora-extension-virtual-background") return class {};
       if (name.endsWith("/share-portrait")) return {
         supportsSharePortrait: () => true,
@@ -93,7 +98,7 @@ function fixture(touch = false) {
       throw new Error("Unexpected import: " + name);
     },
   }, { filename });
-  return { provider: new exports.AgoraRtcMediaProvider(), clients, tracks, sdk, makeTrack, subscriptions, streamTypes, observers, composites,
+  return { provider: new exports.AgoraRtcMediaProvider(), awaitDeviceCapture: exports.awaitDeviceCapture, clients, tracks, sdk, makeTrack, subscriptions, streamTypes, observers, composites,
     async network(at, up, down, index = 0) {
       networkNow = at;
       clients[index].emit("network-quality", {uplinkNetworkQuality:up, downlinkNetworkQuality:down});
@@ -101,11 +106,38 @@ function fixture(touch = false) {
     },
   };
 }
+
+test("device permission timeout closes a late camera track", async () => {
+  const {awaitDeviceCapture,makeTrack}=fixture();
+  let finish;
+  const capture=new Promise(resolve=>{finish=resolve;});
+  await assert.rejects(awaitDeviceCapture(capture,10),/DEVICE_CAPTURE_TIMEOUT/);
+  const late=makeTrack("late-camera");finish(late);await new Promise(setImmediate);
+  assert.equal(late.closed,true);
+  const timely=makeTrack("timely-camera");
+  assert.equal(await awaitDeviceCapture(Promise.resolve(timely),100),timely);
+  assert.notEqual(timely.closed,true);
+});
 const credential = { appId: "test", channelName: "lesson", rtcUid: 1, userId: "teacher", role: "teacher", scenario: "communication", token: "main",
  screenShare: { rtcUid: 1_000_000_001, token: "screen", userId: "teacher::screen" } };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const permissions = {};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../../src/lib/classroom/media-permissions.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: permissions });
+
+test("disconnect still stops local media and leaves the channel when screen cleanup fails", async () => {
+  const {provider,clients,tracks}=fixture();await provider.connect(credential,"Teacher");await provider.toggleMicrophone();await provider.toggleCamera();
+  let fail;provider.stopScreenShare=()=>new Promise((_,reject)=>{fail=()=>reject(new Error("screen teardown failed"));});
+  const closing=provider.disconnect();assert.ok(tracks.every(track=>!track.mediaTrack.enabled),'capture stops before asynchronous screen teardown');
+  await tick();fail();await assert.rejects(closing,/screen teardown failed/);
+  assert.equal(clients[0].left,true);assert.ok(tracks.every(track=>track.closed&&!track.mediaTrack.enabled));
+  assert.equal(provider.getSnapshot().connectionState,"disconnected");
+});
+
+test("disconnect still closes local tracks when virtual background cleanup fails", async () => {
+  const {provider,clients,tracks}=fixture();await provider.connect(credential,"Teacher");await provider.toggleMicrophone();
+  provider.releaseVirtualBackgroundProcessor=async()=>{throw new Error("processor failed")};
+  await assert.rejects(provider.disconnect(),/processor failed/);assert.equal(clients[0].left,true);assert.ok(tracks[0].closed&&!tracks[0].mediaTrack.enabled);
+});
 
 test("moderation stops native audio immediately and restores it without leaving the channel", async () => {
   const { provider, clients, tracks } = fixture();
@@ -210,6 +242,28 @@ test("foreground recovery waits for token renewal and uses the fresh credential"
   await tick(); assert.equal(clients[0].joined[2], "main", "recovery must not join with the previous token");
   finish(); await renewing; await recovering;
   assert.equal(clients[0].joined[2], "fresh-main");
+  await provider.disconnect();
+});
+
+test("a new student sharing grant follows an in-flight older SDK renewal", async () => {
+  const { provider, clients } = fixture();
+  const student = { ...credential, role: "student", publishAllowed: false, screenShare: undefined };
+  await provider.connect(student, "学生");
+  let finish, started;
+  const entered = new Promise(resolve => { started = resolve; });
+  clients[0].renewToken = async token => {
+    if (token === "old-audience") { started(); await new Promise(resolve => { finish = resolve; }); }
+    clients[0].token = token;
+  };
+  const oldRenewal = provider.renewCredential({ ...student, token: "old-audience" });
+  await entered;
+  const grant = provider.setPublishingCredential({ ...student, publishAllowed: true, token: "new-publisher", screenShare: credential.screenShare });
+  await tick();
+  assert.equal(clients[0].token, undefined, "the publishing grant waits for the older SDK renewal");
+  finish(); await oldRenewal; await grant;
+  assert.equal(clients[0].token, "new-publisher");
+  await provider.startScreenShare();
+  assert.equal(provider.getSnapshot().local.screenSharing, true, "the latest grant can start sharing");
   await provider.disconnect();
 });
 
@@ -857,6 +911,17 @@ test("camera opened during a portrait share stays inside the composite; camera-o
   await provider.toggleCamera();assert.equal(composites[0].camera(),null);
   await provider.stopScreenShare();assert.equal(clients[0].published,undefined);assert.equal(provider.getSnapshot().local.cameraOn,false);
   await provider.toggleCamera();assert.ok(clients[0].published);assert.equal(provider.getSnapshot().local.cameraOn,true);
+});
+
+test("screen teardown still disables and closes capture when portrait disposal fails", async () => {
+  const {provider,clients,tracks,composites}=fixture();await provider.connect(credential,"Teacher");await provider.toggleCamera();
+  await provider.startScreenShare(undefined,{mode:"portrait"});
+  const capture=tracks.find(track=>track.deviceId==="screen"),output=tracks.find(track=>track.deviceId==="composite-output");
+  composites[0].dispose=()=>{throw new Error("portrait disposal failed")};
+  await assert.rejects(provider.stopScreenShare(),/portrait disposal failed/);
+  assert.equal(capture.mediaTrack.enabled,false);assert.equal(capture.closed,true);assert.equal(output.mediaTrack.enabled,false);assert.equal(output.closed,true);
+  assert.equal(clients[1].left,true);assert.equal(provider.getSnapshot().local.screenSharing,false);assert.equal(provider.getSnapshot().local.cameraOn,true);
+  await provider.disconnect();
 });
 
 test("live layout changes resize one output and suppress/restore the independent camera", async () => {

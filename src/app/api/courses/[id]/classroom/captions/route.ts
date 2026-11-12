@@ -68,7 +68,7 @@ async function postCaption(
       { status: resolved.status },
     );
   }
-  if (resolved?.ok && resolved.access.role === "student") {
+  if (resolved?.ok && resolved.access.role !== "teacher" && resolved.access.role !== "assistant") {
     return NextResponse.json({ error: "Only teaching roles can ingest captions" }, { status: 403 });
   }
   const recorderLesson = recorder

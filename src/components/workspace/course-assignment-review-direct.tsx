@@ -1,0 +1,18 @@
+"use client";
+import {useCallback,useEffect,useRef,useState} from "react";
+import {workspaceRequest} from "@/lib/workspace-client";
+import type {WorkspaceReviewTask} from "@/lib/workspace-assignment-reviews";
+import {Dialog,DialogContent,DialogDescription,DialogTitle} from "@/components/ui/dialog";
+import {CourseAssignmentResponses} from "./course-assignment-responses";
+import {courseWorkspaceText as text} from "./course-workspace-copy";
+import styles from "./course-workspace.module.css";
+
+export function CourseAssignmentReviewDirect({courseId,assignmentId,locale,onResolved,onClose}:{courseId:string;assignmentId:string;locale:string;onResolved:(task:WorkspaceReviewTask)=>void;onClose:()=>void}){
+ const [task,setTask]=useState<WorkspaceReviewTask|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(false),[retry,setRetry]=useState(0),[busy,setBusy]=useState(false),[dirty,setDirty]=useState(false),[noLongerPending,setNoLongerPending]=useState(false);
+ const edit=useRef({busy:false,dirty:false});
+ const onBusy=useCallback((value:boolean)=>{edit.current.busy=value;setBusy(value);},[]),onDirty=useCallback((value:boolean)=>{edit.current.dirty=value;setDirty(value);},[]);
+ useEffect(()=>{const controller=new AbortController();queueMicrotask(()=>{if(controller.signal.aborted)return;setLoading(true);setError(false);void workspaceRequest<{tasks:WorkspaceReviewTask[]}>(`/api/courses/${encodeURIComponent(courseId)}/assignment-review-tasks`,{signal:controller.signal}).then(value=>{if(controller.signal.aborted)return;const found=value.tasks.find(item=>item.id===assignmentId);if(found){const resolved={...found,courseId};setNoLongerPending(false);setTask(resolved);onResolved(resolved);}else if(edit.current.busy||edit.current.dirty){setNoLongerPending(true);}else {setTask(null);setNoLongerPending(false);}}).catch(failure=>{if(!controller.signal.aborted){const status=(failure as {status?:number})?.status;if(status===401||status===403||status===404){setTask(null);setNoLongerPending(false);onDirty(false);onBusy(false);}setError(true);}}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});});return()=>controller.abort();},[courseId,assignmentId,onResolved,retry,onDirty,onBusy]);
+ const visibleTask=noLongerPending&&!dirty&&!busy?null:task;
+ useEffect(()=>{if(!dirty&&!busy)return;const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue="";};window.addEventListener("beforeunload",warn);return()=>window.removeEventListener("beforeunload",warn);},[dirty,busy]);
+ return <Dialog open onOpenChange={open=>{if(!open&&!busy&&(!dirty||window.confirm(text(locale,"当前编辑尚未保存，关闭后内容将丢失。确定关闭吗？","Your changes are not saved. Close and discard them?"))))onClose();}}><DialogContent className={styles.dialog}><DialogTitle>{visibleTask?.title||text(locale,"待批改","To review")}</DialogTitle><DialogDescription>{text(locale,"查看学生作答并批改。","View and review student submissions.")}</DialogDescription>{loading&&<p role="status">{text(locale,"正在加载作业…","Loading assignments…")}</p>}{error&&<p role="alert">{text(locale,"作业加载失败","Unable to load assignments")} <button type="button" onClick={()=>setRetry(value=>value+1)}>{text(locale,"重试","Retry")}</button></p>}{!loading&&!error&&!visibleTask&&<p>{text(locale,"此作业当前没有待批改的作答。","There are no submissions awaiting review for this assignment.")}</p>}{noLongerPending&&visibleTask&&<p role="status">{text(locale,"此作业已不在待批改列表中；请先完成或关闭当前编辑。","This assignment is no longer awaiting review. Finish or close the current edit first.")}</p>}{visibleTask&&<CourseAssignmentResponses courseId={courseId} assignmentId={assignmentId} locale={locale} onBusy={onBusy} onDirtyChange={onDirty}/>}</DialogContent></Dialog>;
+}

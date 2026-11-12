@@ -1,0 +1,1 @@
+ALTER INDEX "CoursePublishedAssignment_courseId_programId_unitId_publishedAt" RENAME TO "CoursePublishedAssignment_courseId_programId_unitId_publish_idx";

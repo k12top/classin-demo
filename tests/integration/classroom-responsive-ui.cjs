@@ -50,7 +50,7 @@ async function main(){
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  win=new BrowserWindow({width:390,height:844,show:false,webPreferences:{backgroundThrottling:false,partition:'feedback-'+Date.now()}});
  const errors=[];win.webContents.on('console-message',event=>{if(event.level==='error'||event.level>=3){errors.push(event.message);console.error('BROWSER',event.message)}});win.webContents.on('render-process-gone',(_event,details)=>console.error(details));
- const run=code=>win.webContents.executeJavaScript(code),wait=async code=>{for(let i=0;i<100;i++){if(await run(code))return;await new Promise(resolve=>setTimeout(resolve,100));}throw new Error('Timed out: '+code+'\n'+errors.join('\n')+'\n'+await run('document.body.innerText.slice(0,1200)')+'\n'+await run('JSON.stringify({requests:window.fixtureStats?.requests.slice(-40),navigation:window.fixtureNavigation})'))};
+ const run=async code=>{try{return await win.webContents.executeJavaScript(code)}catch(error){throw new Error(`Renderer script failed: ${code}`,{cause:error})}},wait=async code=>{for(let i=0;i<100;i++){if(await run(code))return;await new Promise(resolve=>setTimeout(resolve,100));}throw new Error('Timed out: '+code+'\n'+errors.join('\n')+'\n'+await run('document.body.innerText.slice(0,1200)')+'\n'+await run('JSON.stringify({requests:window.fixtureStats?.requests.slice(-40),navigation:window.fixtureNavigation})'))};
  const url=`http://127.0.0.1:${server.address().port}/classroom?sessionId=fixture-session`;
  const output=path.join(root,'outputs/classroom-responsive-2026-10-24');await fs.mkdir(output,{recursive:true});
  const capture=async name=>{if(functionalOnly)return;await new Promise(resolve=>setTimeout(resolve,300));await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');await fs.writeFile(path.join(output,name),(await win.webContents.capturePage(undefined,{stayAwake:true})).toPNG())};
@@ -62,6 +62,21 @@ async function main(){
  if(whiteboardDefaultOnly){console.log('PASS whiteboard default tool: pencil is selected and applied first.');return}
  const click=async selector=>{await run(`document.querySelector(${JSON.stringify(selector)}).click()`)};
  const openChat=async()=>{await run(`document.querySelector('.classroom-v3-dock [data-dock-action=chat]').click()`);await wait(`!!document.querySelector('.classroom-v3-drawer[data-conversation=true]')`)};
+ if(process.argv.includes('--draft-only')){
+  await openChat();
+  await run(`(()=>{const input=document.querySelector('.classroom-v3-chat-form textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'尚未发送的草稿');input.dispatchEvent(new Event('input',{bubbles:true}));const file=document.querySelector('.classroom-v3-chat-form input[type=file]');const data=new DataTransfer();data.items.add(new File(['image'],'draft.png',{type:'image/png'}));file.files=data.files;file.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+  await wait(`!!document.querySelector('.classroom-v3-chat-form img')`);
+  await click('.classroom-conversation-close');await wait(`document.querySelector('.classroom-v3-drawer')?.hidden`);
+  await openChat();
+  assert.equal(await run(`document.querySelector('.classroom-v3-chat-form textarea').value`),'尚未发送的草稿');
+  assert.ok(await run(`!!document.querySelector('.classroom-v3-chat-form img')`),'attachment survives closing the panel');
+  await click('.classroom-header-members');await wait(`document.querySelector('.classroom-v3-drawer')?.dataset.panel==='members'`);
+  assert.equal(await run(`document.querySelector('#conversation-chat').hidden`),true,'chat is hidden while members are open');
+  await openChat();
+  assert.equal(await run(`document.querySelector('.classroom-v3-chat-form textarea').value`),'尚未发送的草稿','switching panels retains the draft');
+  assert.ok(await run(`!!document.querySelector('.classroom-v3-chat-form img')`),'switching panels retains the attachment');
+  console.log('PASS classroom chat retains text and attachment after closing and switching panels. HTTP and media are simulated.');return;
+ }
  const dimensions=async()=>run(`(()=>{const stage=document.querySelector('.classroom-v3-stage').getBoundingClientRect();const drawer=document.querySelector('.classroom-v3-drawer')?.getBoundingClientRect();const header=document.querySelector('.classroom-v3-topbar');return {stage:{x:stage.x,y:stage.y,width:stage.width,height:stage.height},drawer:drawer?{x:drawer.x,y:drawer.y,width:drawer.width,height:drawer.height}:null,overflow:header.scrollWidth>header.clientWidth+1,headerBottom:header.getBoundingClientRect().bottom,viewport:{width:innerWidth,height:innerHeight}}})()`);
  // Rapid real control clicks must reach the provider while a microphone operation is pending.
  await run(`window.fixtureDelayMicrophone=true;for(let i=0;i<3;i++)document.querySelector('[data-dock-action=microphone]').click()`);
@@ -104,17 +119,18 @@ async function main(){
  assert.equal(await run(`document.querySelectorAll('.classroom-v3-seat.is-sharing').length`),1,'one sharing identity seat');
  await capture('actual-share-portrait.png');
  await win.setContentSize(390,844);await run(`if(!document.querySelector('.classroom-conversation-close'))document.querySelector('.classroom-v3-dock [data-dock-action=chat]').click()`);await wait(`!!document.querySelector('.classroom-conversation-close')`);await wait(`(()=>{const e=document.querySelector('.classroom-seat-sharing'),m=e.closest('.classroom-v3-seat').querySelector('.classroom-v3-seat-media-state');if(!m)return true;const a=e.getBoundingClientRect(),b=m.getBoundingClientRect();return a.top>=b.bottom||a.right<=b.left||a.left>=b.right})()`);await capture('actual-share-mobile-portrait.png');await win.setContentSize(1440,900);
- await run(`document.querySelector('.classroom-v3-dock button[title=共享设置]').click()`);
+ const openShareSettings=async()=>{await run(`document.querySelector('.classroom-v3-dock .classroom-header-more').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerType:'mouse'}))`);await wait(`[...document.querySelectorAll('.classroom-header-menu [role=menuitem]')].some(e=>e.textContent.includes('共享设置'))`);await run(`[...document.querySelectorAll('.classroom-header-menu [role=menuitem]')].find(e=>e.textContent.includes('共享设置')).click()`);};
+ await openShareSettings();
  await wait(`!!document.querySelector('.classroom-share-corners')`);
  await capture('actual-share-settings.png');
  await run(`document.querySelector('.classroom-share-corners button[aria-label="左上"]').click()`);
  await wait(`window.fixtureShareOptions.corner==='tl'`);
- await run(`document.querySelector('.classroom-v3-dock button[title=共享设置]').click()`);
+ await openShareSettings();
  await wait(`!!document.querySelector('.classroom-share-menu .is-danger')`);
  await run(`document.querySelector('.classroom-share-menu .is-danger').click()`);
  await wait(`!document.querySelector('.classroom-seat-sharing')`);
  assert.equal(await run(`document.querySelectorAll('.classroom-v3-seat.is-sharing').length`),0);
- if(functionalOnly)await openChat();await click('[data-conversation-tab="chat"]');
+ if(functionalOnly && !await run(`!!document.querySelector('.classroom-v3-drawer[data-conversation=true]:not([hidden])')`))await openChat();await click('[data-conversation-tab="chat"]');
  await run(`document.querySelector('.classroom-conversation-resizer').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))`);
  await wait(`Number(document.querySelector('.classroom-conversation-resizer').getAttribute('aria-valuenow'))===Number(document.querySelector('.classroom-conversation-resizer').getAttribute('aria-valuemax'))`);
  await run(`new Promise(r=>setTimeout(r,150))`);
@@ -130,6 +146,10 @@ async function main(){
  await run(`(()=>{const input=document.querySelector('.classroom-v3-chat-form textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'尚未发送的草稿');input.dispatchEvent(new Event('input',{bubbles:true}))})()`);
  await click('[data-conversation-tab="captions"]');await click('[data-conversation-tab="chat"]');
  assert.equal(await run(`document.querySelector('.classroom-v3-chat-form textarea').value`),'尚未发送的草稿');
+ await click('.classroom-conversation-close');
+ await wait(`document.querySelector('.classroom-v3-drawer')?.hidden`);
+ await openChat();
+ assert.equal(await run(`document.querySelector('.classroom-v3-chat-form textarea').value`),'尚未发送的草稿','closing chat retains its draft');
  // Chinese composition and Shift+Enter do not send; failures restore the same retry key.
  const setDraft=async value=>run(`(()=>{const input=document.querySelector('.classroom-v3-chat-form textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event('input',{bubbles:true}))})()`);
  await setDraft('输入法测试与失败重试');
@@ -147,8 +167,9 @@ async function main(){
  await run(`document.querySelector('.classroom-v3-stage').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))`);
  assert.ok(await run(`!!document.querySelector('.classroom-conversation-close')`));
  // Network recovery retrieves messages immediately even with a healthy-looking RTM connection.
+ await new Promise(resolve=>setTimeout(resolve,2100)); // Let the initial focus recovery debounce expire.
  const recoveryBefore=await run(`({requests:fixtureStats.requests.length,recoveries:fixtureStats.recoveries,rtm:fixtureStats.signalingConnections})`);
- await run(`window.fixturePayload.messages.push({...window.fixturePayload.messages[0],id:'after-network',content:'网络恢复后补回的消息'});window.dispatchEvent(new Event('online'))`);
+ await run(`window.fixturePayload.messages.push({...window.fixturePayload.messages[0],id:'after-network',content:'网络恢复后补回的消息',createdAt:new Date().toISOString()});Object.defineProperty(navigator,'onLine',{configurable:true,value:false});window.dispatchEvent(new Event('offline'));Object.defineProperty(navigator,'onLine',{configurable:true,value:true});window.dispatchEvent(new Event('online'))`);
  await wait(`document.querySelector('.classroom-v3-message-list').textContent.includes('网络恢复后补回的消息') && fixtureStats.recoveries>${recoveryBefore.recoveries} && fixtureStats.signalingConnections>${recoveryBefore.rtm}`);
  const resumeRequests=await run(`fixtureStats.requests.slice(${recoveryBefore.requests})`);
  assert.ok(resumeRequests.some(p=>p.endsWith('/messages')));assert.ok(resumeRequests.some(p=>p.endsWith('/state')));
@@ -176,7 +197,7 @@ async function main(){
  // Course and settings menus use anchored portals with keyboard-accessible submenus.
  await run(`document.querySelector('.classroom-minimal-course').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerType:'mouse'}))`);await wait(`!!document.querySelector('.classroom-course-menu')`);await capture('actual-course-menu.png');await run(`document.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,key:'Escape'}))`);
  await run(`document.querySelector('.classroom-minimal-settings').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerType:'mouse'}))`);await wait(`!!document.querySelector('.classroom-quick-settings')`);await capture('actual-settings-menu.png');
- await run(`(()=>{const e=[...document.querySelectorAll('.classroom-quick-settings [role=menuitem]')].find(e=>e.textContent.includes('语言'));e.focus();e.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,key:'ArrowRight'}))})()`);await wait(`[...document.querySelectorAll('[role=menuitemradio]')].some(e=>e.textContent==='English')`);await capture('actual-language-menu.png');await run(`[...document.querySelectorAll('[role=menuitemradio]')].find(e=>e.textContent==='English').click()`);await wait(`document.querySelector('.classroom-minimal-course').textContent.includes('算法') && document.querySelector('.classroom-header-more').getAttribute('aria-label').startsWith('More')`);
+ await run(`(()=>{const e=[...document.querySelectorAll('.classroom-quick-settings [role=menuitem]')].find(e=>e.textContent.includes('语言'));e.focus();e.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,key:'ArrowRight'}))})()`);await wait(`[...document.querySelectorAll('[role=menuitemradio]')].some(e=>e.textContent==='English')`);await capture('actual-language-menu.png');await run(`[...document.querySelectorAll('[role=menuitemradio]')].find(e=>e.textContent==='English').click()`);await wait(`document.querySelector('.classroom-minimal-course').textContent.includes('算法') && document.body.innerText.includes('Good')`);
  const phases=[];for(const [phase,tone] of [['waiting','neutral'],['ready','warning'],['live','active'],['overtime','warning'],['closing','danger'],['ended','neutral']]){await win.loadURL(url+'&role=teacher&phase='+phase);await wait(`document.querySelector('.classroom-lesson-clock')?.dataset.phase==='${phase}'`);const state=await run(`(()=>{const c=document.querySelector('.classroom-lesson-clock'),h=document.querySelector('.classroom-v3-topbar');return {phase:c.dataset.phase,tone:c.dataset.tone,color:getComputedStyle(c).color,text:c.textContent,header:getComputedStyle(h).backgroundColor,background:getComputedStyle(document.querySelector('.classroom-v3-shell')).backgroundColor,warning:!!document.querySelector('.classroom-minimal-connection-warning')}})()`);assert.equal(state.tone,tone);assert.equal(state.header,'rgb(255, 255, 255)');assert.equal(state.background,'rgb(245, 245, 247)');if(phase==='live')assert.equal(state.color,'rgb(67, 56, 202)');if(phase==='overtime')assert.equal(state.color,'rgb(133, 83, 8)');if(phase==='closing')assert.equal(state.color,'rgb(175, 38, 61)');if(phase==='ended')assert.equal(state.warning,false);phases.push(state);await capture('actual-phase-'+phase+'.png')}
  if(!functionalOnly)await fs.writeFile(path.join(output,'lifecycle-ui.json'),JSON.stringify({passed:true,phases,evidence:'Actual React page with server-time HTTP fixture'},null,2));
  await win.setContentSize(390,844);await capture('phone-tab-switch.png');

@@ -10,8 +10,10 @@ import {
   playbackProgressPolicy,
 } from "@/lib/playback-progress";
 import { isHlsPlaybackUrl, isMp4PlaybackUrl } from "@/lib/playback-url";
-import { getSessionFromRequest } from "@/lib/session";
-import { userCanTeachCourse } from "@/lib/course-teacher";
+import { getSessionFromRequest, type SessionPayload } from "@/lib/session";
+import { casdoorUserIdCandidates, userCanTeachCourse } from "@/lib/course-teacher";
+import { getViewerSessionRoles } from "@/lib/course-session-viewer";
+import { recordingReplayAssets } from "@/lib/classroom/recording-playback";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +103,27 @@ async function getCourseAccess(courseId: string, userIds: string[]) {
     teacher,
     student: directStudent || groupStudent || openPublicCourse,
   };
+}
+
+/** Lesson access is rechecked on every heartbeat, including explicit exclusions.
+ * A lesson-only student never inherits access to the legacy class recording. */
+async function trackingAccess(identity: Pick<SessionPayload, "userId" | "name">, courseId: string, lessonId: string | null) {
+  if (!lessonId) {
+    const access = await getCourseAccess(courseId, [identity.userId, identity.name]);
+    if (!access) return { error: "Course not found", status: 404 } as const;
+    if (access.teacher) return { preview: true } as const;
+    if (!access.student) return { error: "Forbidden", status: 403 } as const;
+    return { trackable: access.course.status === "finished" && (isMp4PlaybackUrl(access.course.recordUrl) || isHlsPlaybackUrl(access.course.recordUrl)) } as const;
+  }
+  const lesson = await prisma.courseSession.findFirst({ where: { id: lessonId, courseId }, select: { id: true, status: true } });
+  if (!lesson) return { error: "Session not found", status: 404 } as const;
+  const aliases = [...new Set([identity.userId, identity.name || ""].flatMap(casdoorUserIdCandidates))];
+  const role = (await getViewerSessionRoles([lessonId], aliases)).get(lessonId);
+  if (!role) return { error: "Forbidden", status: 403 } as const;
+  if (role !== "student") return { preview: true } as const;
+  if (!["finished", "afterClass"].includes(lesson.status)) return { trackable: false } as const;
+  const recordings = await prisma.classroomRecording.findMany({ where: { sessionId: lessonId, courseId }, select: { status: true, playbackObjectKey: true, playbackFormat: true, files: true, providerState: true, stopRequestedAt: true, stoppedAt: true } });
+  return { trackable: recordings.some(recording => recordingReplayAssets(recording).length > 0) } as const;
 }
 
 export async function GET(
@@ -194,18 +217,15 @@ export async function POST(
   if (!session) return noStoreJson({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  const access = await getCourseAccess(id, [session.userId, session.name]);
-  if (!access) return noStoreJson({ error: "Course not found" }, { status: 404 });
-  if (access.teacher) return noStoreJson({ tracked: false, reason: "teacher_preview" });
-  if (!access.student) return noStoreJson({ error: "Forbidden" }, { status: 403 });
-  if (
-    access.course.status !== "finished" ||
-    (!isMp4PlaybackUrl(access.course.recordUrl) && !isHlsPlaybackUrl(access.course.recordUrl))
-  ) {
-    return noStoreJson({ error: "Playback is not trackable" }, { status: 409 });
-  }
-
   const body = await request.json().catch(() => ({}));
+  if (!body || typeof body !== "object" || Array.isArray(body) || (body.lessonId !== undefined && (typeof body.lessonId !== "string" || !body.lessonId.trim() || body.lessonId.length > 100))) {
+    return noStoreJson({ error: "Invalid playback lesson" }, { status: 400 });
+  }
+  const lessonId = body.lessonId ?? null;
+  const access = await trackingAccess(session, id, lessonId);
+  if ("error" in access) return noStoreJson({ error: access.error }, { status: access.status });
+  if ("preview" in access) return noStoreJson({ tracked: false, reason: "teacher_preview" });
+  if (!access.trackable) return noStoreJson({ error: "Playback is not trackable" }, { status: 409 });
   if (!isFinitePlaybackPosition(body.positionSec)) {
     return noStoreJson({ error: "Invalid playback position" }, { status: 400 });
   }
@@ -229,6 +249,7 @@ export async function POST(
       lastViewedAt: now,
       sessionCount: 1,
       activeSessionId,
+      playbackLessonId: lessonId,
       heartbeatNonceHash: challenge.hash,
       lastHeartbeatAt: now,
       lastPositionSec: body.positionSec,
@@ -241,6 +262,7 @@ export async function POST(
       lastViewedAt: now,
       sessionCount: { increment: 1 },
       activeSessionId,
+      playbackLessonId: lessonId,
       heartbeatNonceHash: challenge.hash,
       lastHeartbeatAt: now,
       lastPositionSec: body.positionSec,
@@ -282,12 +304,6 @@ export async function PATCH(
     return noStoreJson({ error: "Invalid heartbeat" }, { status: 400 });
   }
 
-  const access = await getCourseAccess(id, [session.userId, session.name]);
-  if (!access) return noStoreJson({ error: "Course not found" }, { status: 404 });
-  if (access.teacher || !access.student) {
-    return noStoreJson({ error: "Forbidden" }, { status: 403 });
-  }
-
   const now = new Date();
   const progress = await prisma.coursePlaybackProgress.findUnique({
     where: { courseId_studentId: { courseId: id, studentId: session.userId } },
@@ -300,6 +316,12 @@ export async function PATCH(
   ) {
     return noStoreJson({ error: "Playback session expired" }, { status: 409 });
   }
+
+  // The binding comes from the saved watch session, never from this heartbeat.
+  const access = await trackingAccess(session, id, progress.playbackLessonId);
+  if ("error" in access) return noStoreJson({ error: access.error }, { status: access.status });
+  if ("preview" in access) return noStoreJson({ error: "Forbidden" }, { status: 403 });
+  if (!access.trackable) return noStoreJson({ error: "Playback is not trackable" }, { status: 409 });
 
   const elapsedMs = now.getTime() - progress.lastHeartbeatAt.getTime();
   const terminal = body.state !== "playing";

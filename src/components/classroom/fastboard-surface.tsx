@@ -8,7 +8,7 @@ import type {
   ClassroomCoursewareSnapshot,
   ClassroomWhiteboardCredential,
 } from "@/lib/classroom/types";
-import { isTransientWhiteboardError } from "@/lib/classroom/whiteboard/retry";
+import { isTransientWhiteboardError, isWhiteboardNotConfigured } from "@/lib/classroom/whiteboard/retry";
 import { useTranslation } from "@/lib/i18n/context";
 
 let fastboardModulePromise: Promise<typeof import("@netless/fastboard")> | null = null;
@@ -53,6 +53,7 @@ export type ClassroomWhiteboardController = {
   redo(): void;
   clear(): void;
   insertImage(dataUrl: string): Promise<void>;
+  insertDesktopInk?(stroke: import("@/lib/classroom/whiteboard/screen-ink").ScreenInkStroke, upload: (data: string) => Promise<string>): Promise<boolean>;
   capture(): Promise<Blob>;
   exportBoard(): Promise<Blob>;
   importBoard(file: Blob): Promise<void>;
@@ -519,7 +520,7 @@ export function FastboardSurface({
           )}
         </strong>
         {!pending && (
-          <p>{credential.error || t("classroom.v3.whiteboardConfigureHint")}</p>
+          <p>{isWhiteboardNotConfigured(credential.error) ? t("classroom.v3.whiteboardConfigureHint") : credential.error || t("classroom.v3.whiteboardConfigureHint")}</p>
         )}
         {!pending && onRetry && (
           <button type="button" onClick={onRetry}>

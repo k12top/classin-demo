@@ -14,7 +14,7 @@ async function main() {
     "@/lib/session": "export const getSessionFromRequest=async r=>({userId:r.headers.get('x-user')||'teacher',name:'teacher',displayName:'Teacher',role:'teacher'});",
     "@/lib/courseware-access": "export const resolveCoursewareAccess=async identity=>({allowed:identity.userId!=='outsider',teaching:identity.userId==='teacher'});",
     "@/lib/classroom/server/integration-events": "export const enqueueClassroomEvent=async()=>{};export const deliverClassroomEvents=async()=>{};",
-    "@/lib/classroom/server/recording-orchestrator": "export const stopActiveRecordingsForCourse=async()=>{if(globalThis.summaryCleanupGate)await globalThis.summaryCleanupGate};export const stopRecordingAttempt=async()=>{};export const reconcilePendingRecordings=async()=>{};export const retryFailedLiveRecordings=async()=>{};export const requestRecordingStart=async()=>{};export const processRecordingStart=async()=>{};",
+    "@/lib/classroom/server/recording-orchestrator": "export const stopActiveRecordingsForCourse=async()=>{if(globalThis.summaryCleanupGate)await globalThis.summaryCleanupGate};export const stopRecordingAttempt=async()=>{};export const reconcilePendingRecordings=async()=>{};export const retryFailedLiveRecordings=async()=>{};export const requestRecordingStart=async()=>{};export const processRecordingStart=async()=>{};export const recoverInterruptedRecordingForSession=async()=>{};",
     "@/lib/classroom/server/transcription-orchestrator": "export const stopClassroomTranscription=async()=>{if(globalThis.summaryCleanupGate)await globalThis.summaryCleanupGate};export const syncClassroomTranscription=async()=>{};export const reconcileActiveClassroomTranscriptions=async()=>{};",
   };
   globalThis.summaryAfter = [];
@@ -40,7 +40,6 @@ async function main() {
   const course = await db.course.create({ data: { name: "Summary verification", ownerId: "teacher", ownerName: "Teacher", teacherId: "teacher", teacherName: "Teacher" } });
   const lesson = await db.courseSession.create({ data: { courseId: course.id, position: 1, roomUuid: crypto.randomUUID(), roomType: 4, title: "代数课", createdBy: "teacher", status: "afterClass", startTime: api.summaryCaptions[0].occurredAt, endTime: api.summaryCaptions.at(-1).occurredAt } });
   const runtime = await db.classroomRuntime.create({ data: { courseId: course.id, sessionId: lesson.id, status: "ended" } });
-  await db.classroomCaption.createMany({ data: api.summaryCaptions.map(item => ({ ...item, runtimeId: runtime.id, courseId: course.id, sessionId: lesson.id, externalId: `external-${item.id}`, isFinal: true })) });
   const context = { params: Promise.resolve({ sessionId: lesson.id }) };
   const get = async (user = "teacher", metadataOnly = false) => {
     const response = await api.GET(new api.NextRequest(`http://localhost/api/sessions/${lesson.id}/summary${metadataOnly ? '?summaryOnly=1' : ''}`, { headers: { "x-user": user } }), context);
@@ -53,6 +52,15 @@ async function main() {
   const drain = async () => { await Promise.all(globalThis.summaryAfter.splice(0).map(callback => callback())); };
   const generate = async () => { await post("generate"); await drain(); return get(); };
   try {
+    let empty = await post("generate");
+    assert.equal(empty.status, 409); assert.equal(empty.code, "no_final_captions");
+    const ensured = await post("ensure"); assert.equal(ensured.status, 200); assert.equal(ensured.generation, null);
+    await db.classroomCaption.create({ data: { ...api.summaryCaptions[0], runtimeId: runtime.id, courseId: course.id, sessionId: lesson.id, externalId: "partial-only", isFinal: false } });
+    empty = await post("generate"); assert.equal(empty.status, 409); assert.equal(empty.code, "no_final_captions");
+    assert.equal(calls, 0); assert.equal(globalThis.summaryAfter.length, 0);
+    await db.classroomCaption.deleteMany({ where: { sessionId: lesson.id } });
+    await db.classroomCaption.createMany({ data: api.summaryCaptions.map(item => ({ ...item, runtimeId: runtime.id, courseId: course.id, sessionId: lesson.id, externalId: `external-${item.id}`, isFinal: true })) });
+    console.log("PASS manual generation reports missing final captions; automatic ensure remains a no-op");
     let result = await post("generate");
     assert.equal(result.status, 202); assert.equal(calls, 0); assert.equal(result.generation.status, "queued");
     const duplicate = await post("generate"); assert.equal(duplicate.generation.requestId, result.generation.requestId);

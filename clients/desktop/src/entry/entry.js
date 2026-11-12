@@ -1,0 +1,2 @@
+const labels={zh:['正在进入课堂','正在准备课堂环境，请稍候'],tw:['正在進入課堂','正在準備課堂環境，請稍候'],en:['Joining your class','Preparing your classroom'],vi:['Đang vào lớp','Đang chuẩn bị lớp học']};
+void window.classroomEntry.locale().then(locale=>{const key=locale.toLowerCase().startsWith('zh-tw')?'tw':locale.toLowerCase().startsWith('zh')?'zh':locale.toLowerCase().startsWith('vi')?'vi':'en';document.documentElement.lang=locale;document.getElementById('title').textContent=labels[key][0];document.getElementById('detail').textContent=labels[key][1];}).catch(()=>{});

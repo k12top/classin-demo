@@ -42,6 +42,19 @@ test("courseware byte serving never redirects or fetches arbitrary legacy hosts,
   const response = await api.coursewareFileResponse({ url: "oss://file.png", name: "课堂图片.png" }); assert.equal(response.status, 200); assert.equal(response.headers.get("Location"), null); assert.match(response.headers.get("Content-Disposition")!, /^attachment/); assert.equal(await response.text(), "file");
 });
 
+test("courseware streaming forwards a single byte range without exposing the storage URL", async () => {
+  let forwarded: string | null = null, status = 206;
+  const api = loadModule<typeof import("../src/lib/courseware-file-response")>("src/lib/courseware-file-response.ts", { "server-only": {}, "./aliyun-oss": { getCoursewareObjectKey: () => "file", getCoursewareOssClient: () => ({ signatureUrl: () => "https://fixture.invalid/signed-secret" }) } }, { fetch: async (_url: string, options: RequestInit) => {
+    forwarded = new Headers(options.headers).get("Range");
+    return status === 416 ? new Response(null, { status, headers: { "Content-Range": "bytes */10" } }) : new Response("234", { status, headers: { "Content-Range": "bytes 2-4/10", "Content-Length": "3", "Accept-Ranges": "bytes" } });
+  } });
+  const file = { url: "oss://file", name: "video.mp4" };
+  const response = await api.coursewareFileResponse(file, true, "bytes=2-4");
+  assert.equal(forwarded, "bytes=2-4");assert.equal(response.status, 206);assert.equal(response.headers.get("Content-Range"), "bytes 2-4/10");assert.equal(response.headers.get("Content-Length"), "3");assert.equal(response.headers.get("Location"), null);assert.equal(await response.text(), "234");
+  status=416;const invalid=await api.coursewareFileResponse(file,true,"bytes=100-");assert.equal(invalid.status,416);assert.equal(invalid.headers.get("Content-Range"),"bytes */10");
+  status=200;await api.coursewareFileResponse(file,true,"bytes=0-1,4-5");assert.equal(forwarded,null);
+});
+
 test("a slow translation claim becomes retryable after bounded polling instead of spinning forever", async () => {
   const states: unknown[] = [];
   let slot = 0, calls = 0;
@@ -49,6 +62,8 @@ test("a slow translation claim becomes retryable after bounded polling instead o
   let cleanup: (() => void) | undefined;
   const api = loadModule<typeof import("../src/lib/classroom/use-chat-translations")>("src/lib/classroom/use-chat-translations.ts", {
     react: {
+      useCallback: (callback: unknown) => callback,
+      useMemo: (factory: () => unknown) => factory(),
       useState: (initial: unknown) => {
         const index = slot++;
         states[index] = initial;
@@ -69,6 +84,6 @@ test("a slow translation claim becomes retryable after bounded polling instead o
   assert.ok(work);
   await work();
   assert.equal(calls, 3);
-  assert.deepEqual(states[0], { "zh-CN:message": { status: "failed" } });
+  assert.deepEqual(Object.values(states[0] as Record<string, unknown>), [{ status: "failed" }]);
   cleanup?.();
 });

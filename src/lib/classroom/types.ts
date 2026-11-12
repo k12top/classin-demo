@@ -1,5 +1,6 @@
 import type { CaptionStartPreferences } from "./caption-start-preferences";
-export type ClassroomRole = "teacher" | "assistant" | "student";
+export type ClassroomRole = "teacher" | "assistant" | "student" | "observer";
+export type ClassroomMemberRole = ClassroomRole;
 export type ClassroomProviderName = "agora";
 export type ClassroomConnectionState =
   | "idle"
@@ -225,7 +226,7 @@ export type ClassroomMemberSnapshot = {
   userId: string;
   displayName: string;
   avatar: string;
-  role: ClassroomRole;
+  role: ClassroomMemberRole;
   rtcUids?: number[];
   screenUids?: number[];
   auxiliaryCameraUids?: number[];
@@ -469,7 +470,8 @@ export function canPublishInClassroom(role: ClassroomRole): boolean {
 export function credentialCanPublish(
   credential: Pick<ClassroomJoinCredential, "role" | "publishAllowed">,
 ): boolean {
-  return canPublishInClassroom(credential.role) || credential.publishAllowed === true;
+  return canPublishInClassroom(credential.role) ||
+    (credential.role === "student" && credential.publishAllowed === true);
 }
 
 export type ClassroomAction =
@@ -559,5 +561,5 @@ export type ClassroomAction =
   | { type: "resetRandomSelector" };
 
 export function isClassroomRole(value: unknown): value is ClassroomRole {
-  return value === "teacher" || value === "assistant" || value === "student";
+  return value === "teacher" || value === "assistant" || value === "student" || value === "observer";
 }

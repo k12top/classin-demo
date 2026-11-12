@@ -26,7 +26,7 @@ export function applyClassroomMemberPermissionUpdate(
   return {
     ...runtime, revision: update.revision,
     members: runtime.members.map(member =>
-      (update.scope === "students" ? member.role === "student" : member.userId === update.targetUserId)
+      (update.scope === "students" ? member.role === "student" : member.userId === update.targetUserId && ["teacher", "assistant", "student"].includes(member.role))
         ? { ...member, microphoneAllowed: update.microphoneAllowed,
           ...(update.cameraAllowed !== undefined && { cameraAllowed: update.cameraAllowed }),
           ...(update.onStage && { onStage: true, stageState: "accepted" as const }) }

@@ -16,6 +16,19 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+For the local Docker workspace, use:
+
+```bash
+npm run workspace:db
+npm run db:migrate
+npm run db:generate
+npm run dev:workspace
+```
+
+After regenerating Prisma Client for a schema change, restart the development
+server so it loads the new generated model fields. Applying the migration alone
+does not replace a client already loaded by the running process.
+
 ## Environment configuration
 
 Copy `.env.example` to `.env.local` and fill only the capabilities used by the
@@ -24,8 +37,9 @@ required, capability-specific, or optional.
 
 - Every production deployment needs PostgreSQL, session/share secrets,
   Casdoor, and the cron secret.
-- Live audio/video needs the Agora App ID and App Certificate. Cloud recording
-  and Agora captions additionally need the REST customer credentials.
+- Live audio/video needs the Agora App ID and App Certificate. Cloud recording,
+  Agora captions, and optional server-origin activity notifications additionally
+  need the REST customer credentials.
 - Full classroom recording additionally needs OSS, Agora's numeric storage
   region, the NCS webhook secret, and the externally reachable recorder-page
   URL and secret.
@@ -131,6 +145,8 @@ AGORA_APP_ID=your-agora-app-id
 AGORA_APP_CERTIFICATE=your-agora-app-certificate
 AGORA_REST_CUSTOMER_ID=your-agora-rest-customer-id
 AGORA_REST_CUSTOMER_SECRET=your-agora-rest-customer-secret
+# Optional: publish activity revision notifications from the server.
+CLASSROOM_SERVER_RTM_EVENTS_ENABLED=false
 
 # Numeric Agora Cloud Recording storage-region ID for Alibaba Cloud OSS.
 # This is not the OSS endpoint string such as oss-ap-southeast-1.
@@ -182,6 +198,14 @@ WHITEBOARD_REGION=sg
 COURSE_EARLY_ENTRY_MINUTES=60
 COURSE_FINISHED_DELAY_MINUTES=30
 ```
+
+Set `CLASSROOM_SERVER_RTM_EVENTS_ENABLED=true` to send a server-origin
+notification after an activity is published or answered. Configure all four
+Agora App and REST credentials first; they stay server-side. Notifications
+contain the lesson identifier, event type and activity revision; clients fetch
+the authorized data separately. When notifications are disabled or unavailable,
+clients reconcile through revision polling. The flag is deployment-specific;
+enabling it locally does not enable it in production.
 
 Classroom video quality is automatic: cameras use 720p/15fps with 160×120 thumbnails, screen sharing is capped at 1080p/15fps, and cloud recording uses 720p/15fps. Receivers prioritize visible shared content, then focused/enlarged cameras within a Full HD pixel budget. Other video may temporarily show an avatar while audio continues; video resumes when the layout frees capacity. Quality is not configurable in device settings.
 

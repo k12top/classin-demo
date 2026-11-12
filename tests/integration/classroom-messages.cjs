@@ -32,7 +32,7 @@ async function main() {
   globalThis.messageFixtureAccess = { courseId: course.id, sessionId: lesson.id };
   const context = { params: Promise.resolve({ id: lesson.id }) };
   const send = (body, userId = "student") => POST(new Request("http://localhost/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-test-user": userId }, body: JSON.stringify(body) }), context);
-  const get = userId => GET({ headers: new Headers({ "x-test-user": userId }), nextUrl: new URL("http://localhost/messages") }, context);
+  const get = (userId, spaceId) => GET({ headers: new Headers({ "x-test-user": userId }), nextUrl: new URL(`http://localhost/messages${spaceId ? `?spaceId=${encodeURIComponent(spaceId)}` : ""}`) }, context);
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
   let lock;
   try {
@@ -91,6 +91,32 @@ async function main() {
     const otherMessages = (await (await get("other")).json()).messages;
     assert.equal(otherMessages.some(message => ["staff", "room", "direct"].includes(message.scope)), false);
     console.log("PASS group membership, direct recipients and read privacy remain enforced");
+
+    await db.classroomMessage.createMany({ data: Array.from({ length: 120 }, (_, i) => ({
+      runtimeId: runtime.id, courseId: course.id, sessionId: lesson.id, senderId: "teacher", senderName: "Teacher", senderRole: "teacher", scope: "classroom", content: `Busy class ${i}`,
+      createdAt: new Date(Date.now() + i * 10),
+    })) });
+    const teacherFeed = (await (await get("teacher")).json()).messages;
+    assert.equal(teacherFeed.filter(message => message.scope === "classroom").length, 100);
+    assert.ok(teacherFeed.some(message => message.content === "Group private"));
+    assert.ok(teacherFeed.some(message => message.content === "Assistant"));
+    assert.ok(teacherFeed.some(message => message.content === "Direct"));
+    const studentFeed = (await (await get("student")).json()).messages;
+    assert.ok(studentFeed.some(message => message.content === "Group private"));
+    assert.ok(!studentFeed.some(message => message.scope === "staff"));
+    const otherFeed = (await (await get("other")).json()).messages;
+    assert.ok(!otherFeed.some(message => ["staff", "room", "direct"].includes(message.scope)));
+    assert.ok(teacherFeed.every((message, i) => i === 0 || new Date(teacherFeed[i-1].createdAt) <= new Date(message.createdAt)));
+    console.log("PASS busy classroom does not evict other visible scopes; access and chronological order remain enforced");
+    const busyRoom = await db.classroomSpace.create({ data: { courseId: course.id, sessionId: lesson.id, name: "Busy group", channelName: crypto.randomUUID(), position: 2 } });
+    await db.classroomMessage.createMany({ data: Array.from({ length: 120 }, (_, i) => ({ runtimeId: runtime.id, courseId: course.id, sessionId: lesson.id, senderId: "teacher", senderName: "Teacher", senderRole: "teacher", scope: "room", spaceId: busyRoom.id, content: `Busy group ${i}`, createdAt: new Date(Date.now() + i * 10) })) });
+    const selectedTeacher = (await (await get("teacher", room.id)).json()).messages;
+    assert.ok(selectedTeacher.some(message => message.content === "Group private"));
+    assert.ok(!selectedTeacher.some(message => message.spaceId === busyRoom.id));
+    const unauthorizedRoom = (await (await get("other", room.id)).json()).messages;
+    assert.ok(!unauthorizedRoom.some(message => message.scope === "room"));
+    assert.ok((await (await get("student", room.id)).json()).messages.some(message => message.content === "Group private"));
+    console.log("PASS selected group is retained under other group activity without bypassing membership");
 
     lock = await pool.connect(); await lock.query("BEGIN");
     await lock.query('SELECT "id" FROM "ClassroomRuntime" WHERE "id"=$1 FOR NO KEY UPDATE', [runtime.id]);

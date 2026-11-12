@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ArrowRight, Check, ChevronDown, Clock3, Globe2, Laptop, Search, X } from "lucide-react";
 import { useTimeZone } from "@/lib/use-time-zone";
-import { parseZonedInput, validTimeZone } from "@/lib/time-zone";
+import { parseZonedInput, validTimeZone, zonedInputValue } from "@/lib/time-zone";
 import { searchTimeZones, timeZoneCity, timeZoneOffset } from "@/lib/time-zone-catalog";
 import { useTranslation } from "@/lib/i18n/context";
 import "./time-zone-selector.css";
@@ -18,12 +18,12 @@ export function SchedulingTimeZone({ value, onChange, localValue }: { value: str
   return <ZonePicker value={value} onChange={onChange} localValue={localValue} mode="schedule" />;
 }
 
-export function ScheduleTimePreview({ value, timeZone }: { value: string; timeZone: string }) {
+export function ScheduleTimePreview({ value, timeZone, knownInstant }: { value: string; timeZone: string; knownInstant?: string }) {
   const { timeZone: displayZone } = useTimeZone();
   const { t, locale } = useTranslation();
   if (!value) return null;
   let date: Date;
-  try { date = parseZonedInput(value, timeZone); }
+  try { date = knownInstant && zonedInputValue(knownInstant,timeZone)===value ? new Date(knownInstant) : parseZonedInput(value, timeZone); }
   catch { return <p className="time-zone-error" role="status">{t("timeZones.invalid")}</p>; }
   if (timeZone === displayZone) return null;
   return <p className="time-zone-conversion"><ArrowRight aria-hidden="true" /><span>

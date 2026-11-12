@@ -38,7 +38,7 @@ export function useChatActivities(sessionId: string, shareAccess: string | null 
       throw failure;
     } finally { if (requestVersion.current === version) setLoading(false); }
   }, [sessionId, shareAccess, pages, read]);
-  useClassroomSyncTask({sessionId,taskKey:`activity-feed:${shareAccess||''}:${pages}`,topics:['activities','resume'],wakeAt:Math.min(Infinity,...activities.filter(a=>a.status==='active'&&a.deadlineAt).map(a=>Date.parse(a.deadlineAt!))),active:visible&&Boolean(sessionId),run:signal=>reload(signal)});
+  useClassroomSyncTask({sessionId,taskKey:`activity-feed:${shareAccess||''}:${pages}`,topics:['activities','resume'],maxRetryMs:8000,wakeAt:Math.min(Infinity,...activities.filter(a=>a.status==='active'&&a.deadlineAt).map(a=>Date.parse(a.deadlineAt!))),active:visible&&Boolean(sessionId),run:signal=>reload(signal)});
   useEffect(()=>()=>{requestVersion.current++;},[reload,visible]);
   return { activities, error, reload, hasMore, loading, loadMore: () => setPages(value => value + 1) };
 }

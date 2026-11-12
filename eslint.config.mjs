@@ -5,6 +5,10 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    files: ["**/*.cjs"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
@@ -16,6 +20,7 @@ const eslintConfig = defineConfig([
     ".agents/**",
     ".codex/**",
     "scratch/**",
+    "outputs/**",
     "public/vendor/**",
     // Standalone Electron, Flutter and HarmonyOS projects use their own
     // platform toolchains and lint configurations.

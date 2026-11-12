@@ -29,7 +29,7 @@ async function main() {
   const courseIds = [];
   try {
     await esbuild.build({
-      stdin: { contents: `export {prisma} from '@/lib/db'; export {POST} from '@/app/api/courses/[id]/sessions/route'; export {createCourseSessions} from '@/lib/course-session-service';`, resolveDir: root },
+      stdin: { contents: `export {prisma} from '@/lib/db'; export {POST} from '@/app/api/courses/[id]/sessions/route'; export {createCourseSessions} from '@/lib/course-session-service'; export {parsePendingLesson,validLessonCreationReceipt} from '@/lib/course-session-pending';`, resolveDir: root },
       outfile: output, bundle: true, format: "cjs", platform: "node", packages: "external", tsconfig: path.join(root, "tsconfig.json"),
       plugins: [{ name: "session-batch-isolation", setup(build) {
         build.onResolve({ filter: /.*/ }, ({ path: id }) => id in stubs ? { path: id, namespace: "stub" } : undefined);
@@ -51,8 +51,8 @@ async function main() {
       return course;
     };
     const schedule = { type: "recurring", timezone: "Asia/Shanghai", firstDate: "2026-10-13", localStartTime: "19:00", durationMinutes: 90, weekdays: [2] };
-    const post = (courseId, body) => api.POST(new Request(`http://localhost/api/courses/${courseId}/sessions`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    const post = (courseId, body, requestId) => api.POST(new Request(`http://localhost/api/courses/${courseId}/sessions`, {
+      method: "POST", headers: { "Content-Type": "application/json", ...(requestId ? { "Idempotency-Key": requestId } : {}) }, body: JSON.stringify(body),
     }), { params: Promise.resolve({ id: courseId }) });
     const reports = [];
     const course = await createCourse();
@@ -124,6 +124,30 @@ async function main() {
     assert.equal((await post(standalone.id, { schedule: single })).status, 201);
     assert.equal((await post(standalone.id, { schedule: single })).status, 409);
 
+    const curriculum = await createCourse();
+    const other = await createCourse();
+    const program = await db.courseProgram.create({data:{courseId:curriculum.id,name:"Practice",requestId:"program-request"}});
+    const foreign = await db.courseProgram.create({data:{courseId:other.id,name:"Foreign",requestId:"foreign-request"}});
+    const unit = await db.courseProgramUnit.create({data:{courseId:curriculum.id,programId:program.id,name:"Arrays",creatorId:"batch-teacher",requestId:"unit-request"}});
+    const foreignUnit = await db.courseProgramUnit.create({data:{courseId:other.id,programId:foreign.id,name:"Other",creatorId:"batch-teacher",requestId:"foreign-unit"}});
+    assert.equal((await post(curriculum.id,{schedule:single,programId:foreign.id},"wrong-course-1")).status,404);
+    assert.equal((await post(curriculum.id,{schedule:single,programId:program.id,unitId:foreignUnit.id},"wrong-unit-1")).status,404);
+    const body = {schedule:{...schedule,count:4},programId:program.id,unitId:unit.id,title:"Practice"};
+    const results = await Promise.all([post(curriculum.id,body,"lesson-create-1"),post(curriculum.id,body,"lesson-create-1")]);
+    assert.deepEqual(results.map(result=>result.status),[201,201]);
+    const first = await results[0].json(), second = await results[1].json();
+    assert.deepEqual(first.sessions.map(session=>session.id),second.sessions.map(session=>session.id));
+    assert.ok(first.sessions.every(session=>session.programId===program.id));
+    assert.ok(first.sessions.every(session=>session.unitId===unit.id));
+    assert.equal(await db.courseSession.count({where:{courseId:curriculum.id}}),4);
+    // Simulate losing the first response, then replay the saved exact payload.
+    const saved=api.parsePendingLesson(JSON.stringify({requestId:"lesson-create-1",body:JSON.stringify(body)}));
+    assert.ok(saved);const replay=await post(curriculum.id,JSON.parse(saved.body),saved.requestId);const replayBody=await replay.json();
+    assert.equal(replay.status,201);assert.equal(api.validLessonCreationReceipt(replayBody,saved.expectedCount),true);
+    assert.deepEqual(replayBody.sessions.map(session=>session.id),first.sessions.map(session=>session.id));
+    assert.equal(await db.courseSession.count({where:{courseId:curriculum.id}}),4);
+    assert.equal((await post(curriculum.id,{...body,title:"Changed"},"lesson-create-1")).status,409);
+
     const rollback = await createCourse();
     // Fail after series and session inserts, during roster insertion.
     await db.$executeRawUnsafe(`CREATE FUNCTION reject_batch_student() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW."studentId" = 'batch-failure' THEN RAISE EXCEPTION 'injected batch failure'; END IF; RETURN NEW; END; $$`);
@@ -137,7 +161,7 @@ async function main() {
       await db.$executeRawUnsafe(`DROP TRIGGER reject_batch_student ON "CourseSessionStudent"`);
       await db.$executeRawUnsafe(`DROP FUNCTION reject_batch_student()`);
     }
-    console.log(JSON.stringify({ passed: true, reports, checks: ["50 lessons with custom roster", "invalid counts rejected", "standalone rules retained", "atomic rollback"] }));
+    console.log(JSON.stringify({ passed: true, reports, checks: ["50 lessons with custom roster", "invalid counts rejected", "standalone rules retained", "lost-response replay without duplicates", "atomic rollback"] }));
   } finally {
     if (db) {
       await db.course.deleteMany({ where: { id: { in: courseIds } } });

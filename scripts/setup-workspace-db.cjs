@@ -1,0 +1,10 @@
+const fs=require('node:fs'),crypto=require('node:crypto'),{spawnSync}=require('node:child_process'),dotenv=require('dotenv');
+const file='.env.local',local=fs.existsSync(file)?dotenv.parse(fs.readFileSync(file)):{};
+const password=local.WORKSPACE_DB_PASSWORD || crypto.randomBytes(30).toString('base64url');
+local.WORKSPACE_DB_PASSWORD=password;
+local.DATABASE_URL=`postgresql://classin_dev:${encodeURIComponent(password)}@127.0.0.1:35432/classin_unified_dev`;
+fs.writeFileSync(file,Object.entries(local).map(([key,value])=>`${key}=${JSON.stringify(value)}`).join('\n')+'\n',{mode:0o600});fs.chmodSync(file,0o600);
+const result=spawnSync('docker',['compose','--env-file',file,'-f','compose.workspace.yml','up','-d','--wait','postgres'],{stdio:'inherit',env:process.env});
+if(result.error)throw result.error;
+if(result.status)process.exit(result.status);
+console.log('Local PostgreSQL ready on 127.0.0.1:35432; configuration saved in ignored .env.local.');

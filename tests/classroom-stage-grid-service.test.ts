@@ -48,7 +48,9 @@ test("actual layout service persists a 16-person grid and restores only camera w
   assert.equal(grid.composition.boardItems.length, 16);
   assert.equal(grid.composition.updatedBy, "teacher");
   assert.equal(grid.revision, 4);
-  assert.deepEqual((f.selection as { where: { AND: unknown[] } }).where.AND[1], { OR: [{ role: { not: "student" } }, { onStage: true }] });
+  const filter=(f.selection as {where:{AND:[unknown,{OR:Array<{role:string|{in:string[]};onStage?:boolean}>}]}}).where.AND[1].OR;
+  const matches=(role:string,onStage:boolean)=>filter.some(rule=>typeof rule.role==="string"?rule.role===role&&rule.onStage===onStage:rule.role.in.includes(role));
+  assert.equal(matches("teacher",false),true);assert.equal(matches("assistant",false),true);assert.equal(matches("student",true),true);assert.equal(matches("student",false),false);assert.equal(matches("observer",true),false);
   const rail = await f.apply({ type: "arrangeVideoGallery", layout: "rail" });
   assert.equal(rail.composition.boardItems.length, 0);
   assert.equal(rail.revision, 5);

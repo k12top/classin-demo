@@ -1,4 +1,4 @@
-import { ClassroomConnectionEndedError, ClassroomConnectionReplacedError, ClassroomDeviceConflictError } from "@/lib/classroom/server/errors";
+import { ClassroomAccessChangedError, ClassroomConnectionEndedError, ClassroomConnectionReplacedError, ClassroomDeviceConflictError } from "@/lib/classroom/server/errors";
 import { canShareClassroomScreen } from "@/lib/classroom/screen-share-state";
 import { normalizeClassroomClientId, touchClassroomConnection } from "@/lib/classroom/server/connections";
 import { after, NextRequest, NextResponse } from "next/server";
@@ -35,6 +35,8 @@ import { classroomInterpretationAvailability } from "@/lib/classroom/server/tran
 import { casdoorUserIdCandidates } from "@/lib/course-teacher";
 import { shareClassroomEntryWork } from "@/lib/classroom/server/entry-work";
 import { withClassroomEntrySlot } from "@/lib/classroom/server/entry-gate";
+import { classroomMessageAccess } from "@/lib/classroom/server/message-access";
+import { getSessionObserverStatus } from "@/lib/course-session-roster";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -216,6 +218,12 @@ export async function POST(request: NextRequest) {
       deviceLabel: typeof body.deviceLabel === "string" ? body.deviceLabel.slice(0, 80) : undefined,
       mode: deviceEntryMode,
       initializeMember: preparedMember?.commit,
+      validateRole: async tx => {
+        await tx.$queryRaw`SELECT "id" FROM "CourseSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+        const aliases = [session!.userId, session!.name || ""].flatMap(casdoorUserIdCandidates).filter(Boolean);
+        const observed = await getSessionObserverStatus(sessionId, aliases, tx);
+        if (observed === null || observed !== (role === "observer")) throw new ClassroomAccessChangedError();
+      },
     })) : null;
     const member = connection?.member ?? null;
     if (!recorder && modePolicy.allowBreakouts) {
@@ -316,27 +324,7 @@ export async function POST(request: NextRequest) {
 
     const visibleMessageWhere = recorder
       ? { sessionId, scope: "classroom" }
-      : {
-          sessionId,
-          OR: [
-            { scope: "classroom" },
-            ...(role !== "student" ? [{ scope: "staff" }] : []),
-            {
-              scope: "direct",
-              OR: [{ senderId: userId }, { recipientId: userId }],
-            },
-            {
-              scope: "room",
-              ...((role === "teacher" || role === "assistant")
-                ? {}
-                : {
-                    space: {
-                      members: { some: { userId, active: true } },
-                    },
-                  }),
-            },
-          ],
-        };
+      : classroomMessageAccess(sessionId,userId,role);
     const whiteboardProvider = getWhiteboardProvider();
     const deferredWhiteboard: ClassroomWhiteboardCredential = {
       enabled: false,
@@ -469,6 +457,7 @@ export async function POST(request: NextRequest) {
       code: "classroom_connection_replaced",
     }, { status: 409, headers: { "Cache-Control": "no-store" } });
     if (error instanceof ClassroomConnectionEndedError) return NextResponse.json({ error: "课堂已经结束", code: "classroom_ended" }, { status: 409 });
+    if (error instanceof ClassroomAccessChangedError) return NextResponse.json({ error: "课堂权限已变化，请重新进入", code: "classroom_access_changed" }, { status: 409, headers: { "Cache-Control": "no-store" } });
     const unavailable = databaseUnavailableResponse(error, { route: "classroom/session", operation: "join", ...diagnostic, durationMs: Math.round(performance.now() - bootstrapStartedAt) });
     if (unavailable) return unavailable;
 

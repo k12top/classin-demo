@@ -15,7 +15,7 @@ function fixture(allowed=true) {
 }
 test("snapshot does not request remote conversion; scoped conversion preserves authorized role",async()=>{
  const f=fixture();const full=await f.get();assert.equal(full.status,200);assert.equal(f.conversionStarted,false);assert.deepEqual(f.calls,[{role:"student",refresh:false}]);
- const section=await f.get("courseware");assert.equal(section.status,200);assert.equal(f.conversionStarted,true);assert.deepEqual(Object.keys(await section.json()),["courseware"]);assert.equal(f.calls.at(-1)?.role,"student");
+ const section=await f.get("courseware");assert.equal(section.status,200);assert.equal(f.conversionStarted,true);assert.deepEqual(Object.keys(await section.json()),["courseware","viewerRole"]);assert.equal(f.calls.at(-1)?.role,"student");
 });
 test("caption notification fetches only authorized captions without other snapshot fan-out",async()=>{
  const f=fixture();const response=await f.get("captions");const body = await response.json();assert.deepEqual(body.captions,[{id:"caption"}]);assert.equal(body.captionSync.mode,"snapshot");assert.ok(body.captionSync.cursor);assert.equal(f.calls.length,0);assert.equal(f.conversionStarted,false);
@@ -28,7 +28,7 @@ test("every scoped read rejects unauthorized viewers before any content reads",a
 test("caption and full-state polls share a cursor and omit unchanged caption history", async () => {
  const f=fixture();const initial=await (await f.get("captions")).json();
  const delta=await (await f.get("captions",initial.captionSync.cursor)).json();
- assert.deepEqual(delta,{captions:[],captionSync:{mode:"delta"}});
+ assert.deepEqual(delta,{captions:[],captionSync:{mode:"delta"},viewerRole:"student"});
  const full=await (await f.get("",initial.captionSync.cursor)).json();
  assert.deepEqual(full.captions,[]);assert.equal(full.captionSync.mode,"delta");assert.ok(full.runtime);
  const denied=await fixture(false).get("captions",initial.captionSync.cursor);assert.equal(denied.status,403);

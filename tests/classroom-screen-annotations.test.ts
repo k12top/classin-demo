@@ -4,8 +4,19 @@ import type { Room, View } from "white-web-sdk";
 import {
   createScreenAnnotationController,
   createScreenAnnotationView,
+  screenAnnotationSceneId,
   screenAnnotationViewport,
 } from "../src/lib/classroom/whiteboard/screen-annotations";
+
+test("screen annotation scenes follow the active capture claim, not just the RTC uid", () => {
+  const lease={userId:"student",clientId:"device",rtcUid:123,claimId:"capture-one"};
+  const first=screenAnnotationSceneId("main","123",lease,true);
+  assert.equal(first,screenAnnotationSceneId("main","123",{...lease},true));
+  assert.notEqual(first,screenAnnotationSceneId("main","123",{...lease,claimId:"capture-two"},true));
+  assert.equal(screenAnnotationSceneId("main","123",{...lease,rtcUid:456},true),null);
+  assert.equal(screenAnnotationSceneId("main","123",undefined,true),null);
+  assert.equal(screenAnnotationSceneId("main","123",undefined,false),"main-123");
+});
 
 test("screen markings use the contained video area and the same world scale across viewers", () => {
   const desktop = screenAnnotationViewport({ width: 1000, height: 800 }, { width: 1920, height: 1080 });

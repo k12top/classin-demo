@@ -8,7 +8,9 @@ export const maxDuration = 60;
 const handle = createClassroomAssistantHandler({
   authorize: async (request, referenceId, shareAccess) => {
     const result = await resolveClassroomRequestAccess(request as NextRequest, referenceId, shareAccess);
-    return result.ok ? { ok: true, userId: result.session.userId, courseId: result.access.courseId, sessionId: result.access.sessionId } : result;
+    if (!result.ok) return result;
+    if (result.access.role !== "teacher" && result.access.role !== "assistant" && result.access.role !== "student") return { ok: false, status: 403, code: "forbidden" };
+    return { ok: true, userId: result.session.userId, courseId: result.access.courseId, sessionId: result.access.sessionId };
   },
   context: loadClassroomAssistantContext,
 });

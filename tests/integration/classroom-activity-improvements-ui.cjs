@@ -113,6 +113,22 @@ async function main() {
   assert.ok((await teacher.getByRole("region", { name: "选择此项的学生", exact: true }).innerText()).includes("student"));
   await teacher.screenshot({ path: path.join(output, "teacher-choice-hover-desktop.png") });
   await teacher.getByRole("button", { name: "关闭学生名单", exact: true }).click();
+  await teacher.mouse.move(0, 0);
+  await teacher.locator('[data-answer-distribution]').nth(1).focus();
+  await teacher.getByRole("region", { name: "选择此项的学生", exact: true }).waitFor();
+  await teacher.getByRole("button", { name: "关闭学生名单", exact: true }).focus();
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(await teacher.getByRole("region", { name: "选择此项的学生", exact: true }).isVisible(), true, "keyboard focus inside the list keeps it open");
+  await teacher.getByRole("button", { name: "仅已作答学生", exact: true }).focus();
+  await teacher.getByRole("region", { name: "选择此项的学生", exact: true }).waitFor({ state: "hidden",timeout:3000 });
+  await teacher.locator('[data-answer-distribution]').nth(1).hover();
+  await teacher.locator('[data-answer-distribution]').nth(1).focus();
+  await teacher.mouse.move(0, 0);
+  await teacher.getByRole("button", { name: "仅已作答学生", exact: true }).focus();
+  await teacher.getByRole("region", { name: "选择此项的学生", exact: true }).hover();
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(await teacher.getByRole("region", { name: "选择此项的学生", exact: true }).isVisible(), true, "entering the list cancels all pending dismissals");
+  await teacher.getByRole("button", { name: "关闭学生名单", exact: true }).click();
   await teacher.getByRole("button", { name: "仅已作答学生", exact: true }).click();
   await student.locator('[data-judgment="incorrect"]').first().waitFor({ timeout: 15000 });
   assert.equal(await late.locator('[data-judgment]').count(), 0, "unsubmitted peer must not receive results");
@@ -131,6 +147,44 @@ async function main() {
   await teacher.setViewportSize({ width: 390, height: 844 });
   await teacher.locator(`[data-activity-card="${text.id}"] [data-answer-distribution]`).click();
   await teacher.getByRole("region", { name: "选择此项的学生", exact: true }).waitFor();
+  await teacher.evaluate(id => {
+    const anchor = document.querySelector(`[data-activity-card="${id}"] [data-answer-distribution]`);
+    anchor.style.transform = 'translateY(-40px)';
+    document.dispatchEvent(new Event('scroll'));
+  }, text.id);
+  await teacher.waitForFunction(id => {
+    const anchor = document.querySelector(`[data-activity-card="${id}"] [data-answer-distribution]`);
+    const panel = document.querySelector('[role="region"][aria-label="选择此项的学生"]');
+    if (!anchor || !panel) return false;
+    const expected = Math.max(12, Math.min(innerHeight - 260, anchor.getBoundingClientRect().bottom + 6));
+    return Math.abs(panel.getBoundingClientRect().top - expected) < 1;
+  }, text.id);
+  await teacher.evaluate(id => {
+    const anchor = document.querySelector(`[data-activity-card="${id}"] [data-answer-distribution]`);
+    anchor.style.transform = '';
+    document.dispatchEvent(new Event('scroll'));
+  }, text.id);
+  await teacher.getByRole("region", { name: "选择此项的学生", exact: true }).evaluate(panel => {
+    const row = panel.querySelector('[class*="rosterRow"]');
+    if (!row) throw new Error("Missing student row");
+    for (let i = 0; i < 10; i++) panel.appendChild(row.cloneNode(true));
+  });
+  await teacher.setViewportSize({ width: 320, height: 480 });
+  await teacher.waitForFunction(() => {
+    const panel = document.querySelector('[role="region"][aria-label="选择此项的学生"]');
+    if (!panel) return false;
+    const box = panel.getBoundingClientRect();
+    return box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight;
+  });
+  assert.equal(await teacher.getByRole("region", { name: "选择此项的学生", exact: true }).evaluate(panel => {
+    const box = panel.getBoundingClientRect();
+    return box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight && panel.scrollHeight > panel.clientHeight;
+  }), true, "long student lists remain within the viewport and scroll after resizing");
+  await teacher.getByRole("region", { name: "选择此项的学生", exact: true }).evaluate(panel => { panel.scrollTop = panel.scrollHeight; });
+  assert.equal(await teacher.getByRole("button", { name: "关闭学生名单", exact: true }).evaluate(button => {
+    const box = button.getBoundingClientRect();
+    return box.top >= 0 && box.bottom <= innerHeight;
+  }), true, "close control stays visible after scrolling a long list");
   await teacher.screenshot({ path: path.join(output, "teacher-text-statistics-mobile.png") });
   assert.equal(await teacher.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.deepEqual(errors, []);

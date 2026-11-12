@@ -1,0 +1,21 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- isolated Electron fixture */
+const assert=require('node:assert/strict'),http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const {app,BrowserWindow}=require('electron'),esbuild=require('esbuild');
+const root=path.resolve(__dirname,'../..'),temp=fs.mkdtempSync(path.join(os.tmpdir(),'browser-classroom-'));app.setPath('userData',temp);app.on('window-all-closed',()=>{});let server,home;
+async function main(){await app.whenReady();
+ const source=`import{openClassroomWindow,reserveClassroomWindow,closeBrowserClassroomWindow}from'@/lib/classroom/open-desktop-window';if(location.pathname==='/classroom'){document.querySelector('#leave').onclick=()=>{document.body.dataset.closeAttempted=String(closeBrowserClassroomWindow())}}else for(const button of document.querySelectorAll('button'))button.onclick=async()=>{let child=null,opened=false;try{child=reserveClassroomWindow();await new Promise(resolve=>setTimeout(resolve,400));if(button.id==='denied')throw Error('denied');opened=await openClassroomWindow(new URL('/classroom?sessionId=lesson',location.origin),child)}catch{document.body.dataset.failed='true'}finally{if(!opened)child?.close();document.body.dataset.finished='true'}};`;
+ const bundle=await esbuild.build({stdin:{contents:source,resolveDir:root,loader:'ts'},outfile:'fixture.js',bundle:true,write:false,platform:'browser',format:'iife',tsconfig:path.join(root,'tsconfig.json')});
+ server=http.createServer((req,res)=>{if(req.url==='/fixture.js'){res.setHeader('content-type','text/javascript');return res.end(bundle.outputFiles[0].contents)}res.setHeader('content-type','text/html');res.end(req.url.startsWith('/classroom')?'<title>Classroom</title><button id="leave">Leave</button><script src="/fixture.js"></script>':'<title>Workspace</title><button id="enter">Enter</button><button id="denied">Denied</button><script src="/fixture.js"></script>');});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const base=`http://127.0.0.1:${server.address().port}`;home=new BrowserWindow({show:false});home.webContents.setWindowOpenHandler(()=>({action:'allow',overrideBrowserWindowOptions:{show:false}}));await home.loadURL(base+'/');
+ const wait=async fn=>{for(let i=0;i<150;i++){const value=await fn();if(value)return value;await new Promise(r=>setTimeout(r,30))}throw Error('Timed out')};
+ await home.webContents.executeJavaScript(`document.querySelector('#enter').click()` ,true);
+ const pending=await wait(()=>BrowserWindow.getAllWindows().find(w=>w!==home));await wait(()=>pending.webContents.executeJavaScript(`document.body.textContent.includes('Opening classroom')`));
+ const classroom=await wait(()=>BrowserWindow.getAllWindows().find(w=>w!==home&&w.webContents.getURL()===base+'/classroom?sessionId=lesson'));
+ assert.equal(home.webContents.getURL(),base+'/');assert.notEqual(home.id,classroom.id);
+ await classroom.webContents.executeJavaScript(`document.querySelector('#leave').click()`,true).catch(()=>undefined);await wait(()=>classroom.isDestroyed());assert.equal(home.isDestroyed(),false);
+ const direct=new BrowserWindow({show:false});await direct.loadURL(base+'/classroom?sessionId=direct');await direct.webContents.executeJavaScript(`document.querySelector('#leave').click()`);assert.equal(await direct.webContents.executeJavaScript(`document.body.dataset.closeAttempted`),'false');direct.destroy();
+ await home.webContents.executeJavaScript(`delete document.body.dataset.finished;document.querySelector('#denied').click()`,true);await wait(()=>home.webContents.executeJavaScript(`document.body.dataset.finished==='true'`));
+ await wait(()=>BrowserWindow.getAllWindows().length===1);assert.equal(await home.webContents.executeJavaScript(`document.body.dataset.failed`),'true');
+ console.log('Browser classroom exit closes the created window, preserves workspace, and leaves direct visits open');
+}
+main().then(()=>{for(const w of BrowserWindow.getAllWindows())w.destroy();server?.close();fs.rmSync(temp,{recursive:true,force:true});app.exit(0)}).catch(error=>{console.error(error);for(const w of BrowserWindow.getAllWindows())w.destroy();server?.close();fs.rmSync(temp,{recursive:true,force:true});app.exit(1)});

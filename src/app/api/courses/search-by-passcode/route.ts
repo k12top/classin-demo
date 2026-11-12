@@ -33,13 +33,17 @@ export async function GET(request: NextRequest) {
       orderBy: {
         updatedAt: "desc",
       },
+      select: { id: true },
+      take: 2,
     });
 
     if (courses.length === 0) {
       return NextResponse.json({ error: "errPasscodeNotFound" }, { status: 404 });
     }
+    if (courses.length > 1) {
+      return NextResponse.json({ error: "This code matches multiple public lessons. Ask for an invitation link.", code: "PASSCODE_AMBIGUOUS" }, { status: 409 });
+    }
 
-    // Return the matching course ID
     return NextResponse.json({ success: true, courseId: courses[0].id });
   } catch (error) {
     console.error("search-by-passcode error:", error);

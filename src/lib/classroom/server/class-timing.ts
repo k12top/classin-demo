@@ -10,17 +10,20 @@ import type { ClassroomRole } from "../types";
 import { syncCourseStatusFromSessions } from "@/lib/course-session-status";
 import { requestRecordingStart } from "@/lib/classroom/server/recording-orchestrator";
 import { getRecordingProvider } from "@/lib/classroom/server/provider-factory";
+import {lifecycleRoleAfterLock} from "./lifecycle-access";
 
-export async function changeClassroomTiming(input: { sessionId: string; courseId: string; actorId: string; role: ClassroomRole; commandId?: string; action: "reopen" | "extend"; minutes?: number }, now = new Date()) {
+export async function changeClassroomTiming(input: { sessionId: string; courseId: string; actorId: string; role: ClassroomRole; actorAliases?:string[]; commandId?: string; action: "reopen" | "extend"; minutes?: number }, now = new Date()) {
   if (input.role !== "teacher" && input.role !== "assistant") throw new ClassroomActionError("Forbidden", 403);
   if (input.action === "extend" && ![15, 30, 60].includes(input.minutes || 0)) throw new ClassroomActionError("延课须为 15、30 或 60 分钟", 400);
   return prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId"=${input.sessionId} FOR UPDATE`;
     await tx.$queryRaw`SELECT "id" FROM "CourseSession" WHERE "id"=${input.sessionId} FOR UPDATE`;
+    const role=await lifecycleRoleAfterLock(tx,input.sessionId,input.courseId,input.actorAliases||[input.actorId]);
+    if(!role)throw new ClassroomActionError("Forbidden",403);
     const lesson = await tx.courseSession.findUniqueOrThrow({ where: { id: input.sessionId } });
     if (lesson.courseId !== input.courseId) throw new ClassroomActionError("Forbidden", 403);
     const action = { type: input.action, ...(input.action === "extend" && { minutes: input.minutes }) };
-    const command = { ...input, action };
+    const command = { ...input, role, action };
     const replay = await readClassroomCommand(tx, command);
     if (replay) return replay as { startTime: string; endTime: string; revision: number; recordingId?: string };
     const runtime = await tx.classroomRuntime.findUnique({ where: { sessionId: input.sessionId } });
@@ -60,7 +63,7 @@ export async function changeClassroomTiming(input: { sessionId: string; courseId
       await tx.classroomConnection.updateMany({ where: { sessionId: lesson.id, leftAt: null }, data: { leftAt: now } });
       await tx.classroomMemberState.updateMany({ where: { sessionId: lesson.id, role: "student" }, data: { onStage: false, stageState: "left", microphoneAllowed: false, cameraAllowed: false, whiteboardWritable: false, handRaisedAt: null, screenShareState: "idle", presence: "offline" } });
       await tx.classroomProviderEvent.deleteMany({ where: { noticeId: `classroom-empty:${lesson.id}` } });
-      await enqueueClassroomEvent(tx, lesson.id, "classroom.started", "reopened", { userId: input.actorId, role: input.role });
+      await enqueueClassroomEvent(tx, lesson.id, "classroom.started", "reopened", { userId: input.actorId, role });
     }
     await syncCourseStatusFromSessions(lesson.courseId, tx);
     const result = { startTime: startTime.toISOString(), endTime: endTime.toISOString(), revision: state.revision,

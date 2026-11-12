@@ -7,7 +7,7 @@ type Library = typeof import("../src/app/api/courses/[id]/courseware/route");
 type Download = typeof import("../src/app/api/courses/[id]/courseware/[coursewareId]/download/route");
 type UploadPolicy = typeof import("../src/lib/courseware-upload-access");
 
-function fixture(login = "learner", role = "student") {
+function fixture(login = "learner", role = "student", observer = false, enrolled = false) {
   const identity = { userId: login, name: login, role };
   const lessons = [{ id: "a", title: "Lesson A" }, { id: "b", title: "Lesson B" }];
   const files = [
@@ -18,7 +18,7 @@ function fixture(login = "learner", role = "student") {
     { id: "restricted", sessionId: "a", studentCanView: true, studentCanDownload: false },
     { id: "excluded", sessionId: null, studentCanView: true, studentCanDownload: true },
   ].map(file => ({ ...file, courseId: "course", name: file.id, url: "oss://private" }));
-  const course = { ownerId: "owner", teacherId: "lead", teachers: [], students: [], groupLinks: [] };
+  const course = { ownerId: "owner", teacherId: "lead", teachers: [], students: enrolled ? [{studentId:login}] : [], groupLinks: [] };
   const rules = [{ coursewareId: "excluded", action: "exclude" }];
   function matches(file: Record<string, unknown>, where: Record<string, unknown>): boolean {
     return Object.entries(where).every(([key, value]) => {
@@ -46,6 +46,7 @@ function fixture(login = "learner", role = "student") {
     },
   };
   const roster = {
+    rosterHasObserver: (roster:{id:string}, ids:string[]) => observer && roster.id === "a" && ids.includes(login),
     getEffectiveSessionRoster: async (id: string) => ({ id, teachers: id === "a" ? [{ userId: "assistant" }] : [], students: id === "a" ? ["learner", "group-member"] : [] }),
     rosterContainsUser: (roster: { teachers: { userId: string }[]; students: string[] }, ids: string[]) => roster.teachers.some(teacher => ids.includes(teacher.userId)) ? { kind: "teacher" } : roster.students.some(id => ids.includes(id)) ? { kind: "student" } : null,
   };
@@ -55,6 +56,7 @@ function fixture(login = "learner", role = "student") {
   };
   const access = loadModule<Access>("src/lib/courseware-access.ts", {
     "@/lib/db": { prisma }, "@/lib/course-session-roster": roster,
+    "@/lib/course-session-viewer": {getViewerSessionRoles: async (ids:string[],aliases:string[]) => {const result = new Map<string,string>(); for(const id of ids){const member=roster.rosterContainsUser(await roster.getEffectiveSessionRoster(id),aliases);if(member)result.set(id,member.kind === "teacher" ? "assistant" : "student");}return result;}},
     "@/lib/course-teacher": teacher, "@/lib/casdoor-user": { casdoorUserIdsMatch: (a: string, b: string) => a === b },
   });
   const upload = loadModule<UploadPolicy>("src/lib/courseware-upload-access.ts", { "@/lib/db": { prisma }, "@/lib/course-session-roster": roster });
@@ -72,6 +74,34 @@ function fixture(login = "learner", role = "student") {
   function request(suffix = "") { const url = `https://test/materials${suffix}`; return Object.assign(new Request(url), { nextUrl: new URL(url) }) as never; }
   return { access, upload, identity, list: (suffix = "") => library.GET(request(suffix), { params: Promise.resolve({ id: "course" }) }), download: (id: string, suffix = "") => download.GET(request(suffix), { params: Promise.resolve({ id: "course", coursewareId: id }) }) };
 }
+
+test("lesson observer overrides inherited teacher access and is limited to the assigned lesson",async()=>{
+ const teacher=fixture("lead","teacher",true);
+ assert.deepEqual(await teacher.access.resolveCoursewareAccess(teacher.identity,"course","a"),{allowed:true,canTeachCourse:false,teaching:false,scope:"session",sessionId:"a",observer:true});
+ assert.equal((await teacher.access.resolveCoursewareAccess(teacher.identity,"course","b")).teaching,true);
+ const outsider=fixture("observer","teacher",true);
+ const own=await outsider.access.resolveCoursewareAccess(outsider.identity,"course","a");assert.equal(own.allowed,true);assert.equal(own.teaching,false);assert.equal(own.scope,"session");
+ assert.equal((await outsider.access.resolveCoursewareAccess(outsider.identity,"course","b")).allowed,false);
+ assert.equal((await outsider.access.resolveCoursewareAccess(outsider.identity,"course")).allowed,false);
+});
+
+test("class membership cannot override a missing effective lesson membership",async()=>{
+ const student=fixture("learner","student",false,true);
+ assert.equal((await student.access.resolveCoursewareAccess(student.identity,"course")).allowed,true);
+ assert.equal((await student.access.resolveCoursewareAccess(student.identity,"course","a")).allowed,true);
+ assert.equal((await student.access.resolveCoursewareAccess(student.identity,"course","b")).allowed,false);
+ assert.equal((await student.access.resolveCoursewareAccess(student.identity,"course","unknown")).allowed,false);
+ const teacher=fixture("lead","teacher");
+ assert.equal((await teacher.access.resolveCoursewareAccess(teacher.identity,"course","unknown")).allowed,false);
+});
+
+test("an enrolled student assigned as lesson staff gets teaching access only for that lesson",async()=>{
+ const staff=fixture("assistant","teacher",false,true);
+ const lesson=await staff.access.resolveCoursewareAccess(staff.identity,"course","a");
+ assert.equal(lesson.allowed,true);assert.equal(lesson.teaching,true);assert.equal(lesson.canTeachCourse,false);
+ assert.equal((await staff.access.resolveCoursewareAccess(staff.identity,"course")).teaching,false);
+ assert.equal((await staff.access.resolveCoursewareAccess(staff.identity,"course","b")).allowed,false);
+});
 
 for (const login of ["learner", "group-member"]) {
   test(`${login}: lesson-only library and download work without a session query`, async () => {

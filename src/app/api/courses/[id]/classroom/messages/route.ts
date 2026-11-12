@@ -84,13 +84,18 @@ async function getMessages(
       { status: resolved.status },
     );
   }
-  const messages = await prisma.classroomMessage.findMany({
-    where: classroomMessageAccess(resolved.access.sessionId, resolved.session.userId, resolved.access.role),
-    orderBy: { createdAt: "desc" },
+  const accessFilter = classroomMessageAccess(resolved.access.sessionId, resolved.session.userId, resolved.access.role);
+  const spaceId = request.nextUrl.searchParams.get("spaceId");
+  if (spaceId !== null && (!spaceId || spaceId.length > 200)) return NextResponse.json({ error: "分组标识无效" }, { status: 400 });
+  const scopes = ["classroom", "room", "direct", ...(["teacher", "assistant"].includes(resolved.access.role) ? ["staff"] : [])];
+  const pages = await Promise.all(scopes.map(scope => prisma.classroomMessage.findMany({
+    where: { AND: [accessFilter, { scope, ...(scope === "room" && spaceId ? { spaceId } : {}) }] },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: 100,
-  });
+  })));
+  const messages = pages.flat().sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
   return NextResponse.json({
-    messages: messages.reverse().map(publicMessage),
+    messages: messages.map(publicMessage),
   });
 }
 
@@ -131,6 +136,9 @@ async function postMessage(
       { error: resolved.error, code: resolved.code },
       { status: resolved.status },
     );
+  }
+  if (resolved.access.role !== "teacher" && resolved.access.role !== "assistant" && resolved.access.role !== "student") {
+    return NextResponse.json({ error: "当前角色不能发送课堂消息" }, { status: 403 });
   }
   const sessionId = resolved.access.sessionId;
   const scope =

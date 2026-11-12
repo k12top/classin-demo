@@ -78,7 +78,10 @@ export class ClassroomSyncScheduler {
         if (!this.enabled || this.jobs.get(id) !== entry) return;
         entry.running = false;
         const interval = entry.job.interval(this.realtime);
-        const delay = entry.failures ? Math.min(entry.job.maxRetryMs ?? 60_000, Math.max(entry.job.maxRetryMs ? 2_000 : 5_000, interval ?? 5_000) * 2 ** Math.min(entry.failures - 1, 4)) : interval;
+        // A quiet realtime interval is for healthy reconciliation, not recovery.
+        // Interactive jobs opt into short, capped retries after a failed read.
+        const retryBase = entry.job.maxRetryMs ? 2_000 : Math.max(5_000, interval ?? 5_000);
+        const delay = entry.failures ? Math.min(entry.job.maxRetryMs ?? 60_000, retryBase * 2 ** Math.min(entry.failures - 1, 4)) : interval;
         entry.due = entry.dirty && !entry.failures ? this.clock.now() + 50 : delay === null ? Infinity : this.clock.now() + delay;
         if (!entry.failures && entry.job.wakeAt && entry.job.wakeAt > this.clock.now()) entry.due = Math.min(entry.due, entry.job.wakeAt);
         this.arm();

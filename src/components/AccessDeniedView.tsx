@@ -2,48 +2,9 @@
 
 import Link from "next/link";
 import { type CourseAccessDeniedCode } from "@/lib/access-denied-codes";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import {
-  ArrowRight,
-  CalendarCheck,
-  Check,
-  Clock,
-  Home,
-  Lock,
-  Search,
-  ShieldCheck,
-  XCircle,
-} from "lucide-react";
-import { SiteLogo } from "@/components/SiteLogo";
+import { ArrowLeft, ArrowRight, Clock, Lock, Search, XCircle } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
-
-const TONE_STYLES = {
-  blue: {
-    badge: "border-blue-500/30 bg-blue-500/10 text-blue-300",
-    icon: "text-blue-400 bg-blue-500/10 border-blue-500/20",
-  },
-  gray: {
-    badge: "border-gray-500/30 bg-gray-500/10 text-gray-300",
-    icon: "text-gray-400 bg-gray-500/10 border-gray-500/20",
-  },
-  red: {
-    badge: "border-red-500/30 bg-red-500/10 text-red-300",
-    icon: "text-red-400 bg-red-500/10 border-red-500/20",
-  },
-  amber: {
-    badge: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-    icon: "text-amber-400 bg-amber-500/10 border-amber-500/20",
-  },
-} as const;
+import styles from "./access-denied.module.css";
 
 // This page is reached outside the authenticated application shell, so it keeps
 // its error-state copy local. Every selectable interface locale must have a
@@ -531,111 +492,6 @@ function IconForType({ type }: { type: "lock" | "clock" | "x-circle" | "search" 
   }
 }
 
-function CourseNotStartedView({
-  courseName,
-  courseId,
-}: {
-  courseName?: string;
-  courseId?: string;
-}) {
-  const { t } = useTranslation();
-  const copy = {
-    confirmed: t("accessDenied.bookingConfirmed"),
-    title: t("accessDenied.placeReserved"),
-    description: t("accessDenied.earlyEntryDescription"),
-    status: t("accessDenied.reserved"),
-    next: t("accessDenied.whatNext"),
-    nextText: t("accessDenied.whatNextDescription"),
-    secure: t("accessDenied.accessConfirmed"),
-    detail: t("accessDenied.viewDetail"),
-    list: t("accessDenied.backToCourses"),
-    tip: t("accessDenied.joinEarlyTip"),
-  };
-
-  return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-5 py-10 sm:px-8">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-primary" />
-      <div className="pointer-events-none absolute left-1/2 top-[-18rem] h-[34rem] w-[34rem] -translate-x-1/2 rounded-full bg-primary/[0.07] blur-3xl" />
-
-      <section className="relative w-full max-w-3xl overflow-hidden rounded-2xl bg-card shadow-[0_18px_60px_-32px_hsl(var(--foreground)/0.32)]">
-        <div className="grid md:grid-cols-[1fr_0.82fr]">
-          <div className="flex flex-col p-7 sm:p-10 md:p-12">
-            <div className="mb-10 flex items-center gap-3">
-              <SiteLogo decorative className="h-10 w-10 rounded-xl bg-primary/10 p-2 text-primary" />
-              <div className="flex items-center gap-2 text-sm font-semibold text-primary">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                  <Check className="h-3.5 w-3.5" strokeWidth={3} />
-                </span>
-                {copy.confirmed}
-              </div>
-            </div>
-
-            <div className="max-w-md">
-              <h1 className="text-balance text-3xl font-bold tracking-[-0.03em] text-foreground sm:text-4xl">
-                {copy.title}
-              </h1>
-              {courseName ? (
-                <p className="mt-5 text-lg font-semibold text-foreground">{courseName}</p>
-              ) : null}
-              <p className="mt-3 text-pretty text-base leading-7 text-muted-foreground">
-                {copy.description}
-              </p>
-            </div>
-
-            <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-              {courseId ? (
-                <Button asChild size="lg" className="h-12 rounded-xl px-5 active:scale-[0.98]">
-                  <Link href={`/courses/${courseId}`}>
-                    {copy.detail}
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
-                </Button>
-              ) : null}
-              <Button asChild variant={courseId ? "outline" : "default"} size="lg" className="h-12 rounded-xl px-5 active:scale-[0.98]">
-                <Link href="/">
-                  <Home className="h-4 w-4" />
-                  {copy.list}
-                </Link>
-              </Button>
-            </div>
-          </div>
-
-          <aside className="flex flex-col justify-between bg-muted/70 p-7 sm:p-10 md:p-12">
-            <div>
-              <div className="flex items-center justify-between gap-3 border-b border-border pb-5">
-                <span className="text-sm font-medium text-muted-foreground">{copy.status}</span>
-                <span className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary">
-                  <span className="h-2 w-2 rounded-full bg-primary" />
-                  {copy.confirmed}
-                </span>
-              </div>
-
-              <div className="mt-7 space-y-6">
-                <div className="flex gap-4">
-                  <CalendarCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                  <div>
-                    <h2 className="text-sm font-semibold text-foreground">{copy.next}</h2>
-                    <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{copy.nextText}</p>
-                  </div>
-                </div>
-                <div className="flex gap-4">
-                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                  <p className="text-sm leading-6 text-muted-foreground">{copy.secure}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-10 flex gap-3 rounded-xl bg-background p-4">
-              <Clock className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              <p className="text-xs leading-5 text-muted-foreground">{copy.tip}</p>
-            </div>
-          </aside>
-        </div>
-      </section>
-    </main>
-  );
-}
-
 export function AccessDeniedView({
   code,
   reason,
@@ -660,112 +516,58 @@ export function AccessDeniedView({
       ? code
       : "default";
 
-  if (resolvedCode === "course_not_started") {
-    return (
-      <CourseNotStartedView
-        courseName={courseName}
-        courseId={courseId}
-      />
-    );
-  }
-
   // Resolve metadata style configs
   let icon: "lock" | "clock" | "x-circle" | "search" = "lock";
-  let tone: "blue" | "gray" | "red" | "amber" = "blue";
   let title = texts.defaultTitle;
   let description = reason || texts.defaultDesc;
   let hint = texts.defaultHint;
 
   if (resolvedCode === "not_enrolled") {
     icon = "lock";
-    tone = "blue";
     title = texts.notEnrolledTitle;
-    description = reason || texts.notEnrolledDesc;
+    description = texts.notEnrolledDesc;
     hint = texts.notEnrolledHint;
+  } else if (resolvedCode === "course_not_started") {
+    icon = "clock";
+    title = texts.notStartedTitle || t("accessDenied.placeReserved");
+    description = texts.notStartedDesc || t("accessDenied.earlyEntryDescription");
+    hint = texts.notStartedHint || t("accessDenied.joinEarlyTip");
   } else if (resolvedCode === "course_finished") {
     icon = "clock";
-    tone = "gray";
     title = texts.courseFinishedTitle;
-    description = reason || texts.courseFinishedDesc;
+    description = texts.courseFinishedDesc;
     hint = texts.courseFinishedHint;
   } else if (resolvedCode === "course_cancelled") {
     icon = "x-circle";
-    tone = "red";
     title = texts.courseCancelledTitle;
-    description = reason || texts.courseCancelledDesc;
+    description = texts.courseCancelledDesc;
     hint = texts.courseCancelledHint;
   } else if (resolvedCode === "not_found") {
     icon = "search";
-    tone = "amber";
     title = texts.notFoundTitle;
-    description = reason || texts.notFoundDesc;
+    description = texts.notFoundDesc;
     hint = texts.notFoundHint;
   }
 
-  const toneStyle = TONE_STYLES[tone];
-
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 relative overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-br from-blue-950/40 via-background to-purple-950/30 pointer-events-none" />
-      <div className="absolute top-[-20%] right-[-10%] w-[420px] h-[420px] bg-blue-500/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-20%] left-[-10%] w-[420px] h-[420px] bg-purple-500/10 rounded-full blur-[120px] pointer-events-none" />
-
-      <div className="relative z-10 w-full max-w-lg space-y-6">
-        <div className="text-center space-y-2">
-          <SiteLogo
-            decorative
-            className="mx-auto mb-2 h-12 w-12 rounded-xl border border-primary/20 bg-primary/10 p-2.5 text-primary"
-          />
-          <h1 className="text-2xl font-bold text-foreground">
-            {t("login.title")}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {t("login.subtitle")}
-          </p>
-        </div>
-
-        <Card className="glass-panel border-white/10 bg-white/5 shadow-2xl">
-          <CardHeader className="text-center space-y-4 pb-2">
-            <div
-              className={`mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border ${toneStyle.icon}`}
-            >
-              <IconForType type={icon} />
-            </div>
-            <div className="space-y-2">
-              <Badge variant="outline" className={toneStyle.badge}>
-                {texts.accessDenied}
-              </Badge>
-              <CardTitle className="text-xl">{title}</CardTitle>
-              {courseName ? (
-                <p className="text-base font-medium text-foreground">{courseName}</p>
-              ) : null}
-              <CardDescription className="text-base text-muted-foreground">
-                {description}
-              </CardDescription>
-            </div>
-          </CardHeader>
-
-          <CardContent>
-            <p className="text-sm text-muted-foreground text-center leading-relaxed bg-black/20 rounded-lg border border-white/5 p-4">
-              {hint}
-            </p>
-          </CardContent>
-
-          <CardFooter className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
-            <Button asChild className="w-full sm:w-auto">
-              <Link href="/">
-                <Home className="mr-2 h-4 w-4" />
-                {texts.viewList}
-              </Link>
-            </Button>
-            {courseId ? (
-              <Button asChild variant="outline" className="w-full sm:w-auto border-white/10">
-                <Link href={`/courses/${courseId}`}>{texts.viewDetail}</Link>
-              </Button>
-            ) : null}
-          </CardFooter>
-        </Card>
-      </div>
+    <div className={styles.page} data-workspace-shell>
+      <header className={styles.header} data-workspace-header data-access-header>
+        <div data-workspace-header-actions><Link href="/" className={styles.back}><ArrowLeft size={16}/><span>{texts.viewList}</span></Link></div>
+        <span className={styles.brand}>{t("login.title")}</span>
+      </header>
+      <main className={styles.main}>
+        <section className={styles.panel} aria-labelledby="access-state-title">
+          <div className={styles.icon}><IconForType type={icon}/></div>
+          {courseName && <p className={styles.course}>{courseName}</p>}
+          <h1 id="access-state-title">{title}</h1>
+          <p className={styles.description}>{description}</p>
+          <div className={styles.hint}>{hint}</div>
+          <div className={styles.actions}>
+            {courseId && <Link className={styles.primary} href={`/courses/${courseId}`}>{texts.viewDetail}<ArrowRight size={15}/></Link>}
+            <Link className={courseId ? styles.secondary : styles.primary} href="/">{texts.viewList}</Link>
+          </div>
+        </section>
+      </main>
     </div>
   );
 }

@@ -4,7 +4,8 @@ import { prisma } from "@/lib/db";
 import { getSessionFromRequest } from "@/lib/session";
 import { resolveCourseSessionAccess } from "@/lib/course-session-access";
 import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
-import { assertCanTeachCourse } from "@/lib/course-teacher";
+import { assertCanTeachCourse, casdoorUserIdCandidates } from "@/lib/course-teacher";
+import { getEffectiveSessionRoster, rosterHasObserver } from "@/lib/course-session-roster";
 import { buildAttendanceCsv } from "@/lib/attendance-export";
 
 export const dynamic = "force-dynamic";
@@ -233,11 +234,9 @@ export async function GET(
       }),
     );
     const now = new Date();
-    const lesson =
-      (requestedSessionId
-        ? lessons.find((item) => item.id === requestedSessionId)
-        : null) ||
-      lessons.find(
+    const lesson = requestedSessionId
+      ? lessons.find((item) => item.id === requestedSessionId)
+      : lessons.find(
         (item) => !item.endedAt && (item.status === "live" || item.status === "afterClass"),
       ) ||
       lessons.find(
@@ -254,6 +253,10 @@ export async function GET(
         }
       );
     }
+    const roster = await withDatabaseRetry(() => getEffectiveSessionRoster(lesson.id));
+    if (!roster) return NextResponse.json({ error: "Lesson roster unavailable", code: "ROSTER_UNAVAILABLE" }, { status: 503, headers: { "Cache-Control": "no-store" } });
+    const aliases = [session.userId, session.name || ""].flatMap(casdoorUserIdCandidates).filter(Boolean);
+    if (rosterHasObserver(roster, aliases)) return NextResponse.json({ error: "Forbidden", code: "FORBIDDEN" }, { status: 403, headers: { "Cache-Control": "no-store" } });
     const [rows, activeLeaves] = await withDatabaseRetry(() =>
       Promise.all([prisma.courseAttendance.findMany({
         where: { sessionId: lesson.id },

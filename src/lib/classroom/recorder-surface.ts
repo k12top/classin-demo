@@ -18,7 +18,7 @@ export function recorderCameraParticipants(
     if (participant.isLocal || participant.kind !== "camera" || !participant.hasVideo) return false;
     const ownerId = cameraOwnerId(participant.id, members);
     const member = members.find((candidate) => candidate.userId === ownerId);
-    return !composed.has(ownerId) && (!member || member.role !== "student" || member.onStage);
+    return !composed.has(ownerId) && (!member || member.role === "teacher" || member.role === "assistant" || (member.role === "student" && member.onStage));
   }).sort((a, b) => {
     const roleOrder = (id: string) => {
       const member = members.find((candidate) => candidate.userId === cameraOwnerId(id, members));

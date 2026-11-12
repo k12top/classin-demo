@@ -6,6 +6,7 @@ import { initialCaptionStartView, newCaptionStartPreferences, type CaptionStartP
 import { isClassroomOvertime } from "@/lib/classroom/overtime-leave";
 import { imageMessageContent } from "@/lib/classroom/chat-image-message";
 import { useWhiteboardShortcuts } from "@/lib/classroom/whiteboard/use-shortcuts";
+import { isWhiteboardNotConfigured } from "@/lib/classroom/whiteboard/retry";
 import { activeClassroomDrawingTool } from "@/lib/classroom/drawing-tool";
 import { BoardToolsMenu } from "./board-tools-menu";
 import { MinimalHeader } from "./minimal-header";
@@ -21,8 +22,13 @@ import type { ClassroomScreenShareOptions } from "@/lib/classroom/types";
 import { ClassroomHeaderMenu, type ClassroomHeaderMenuAction } from "./classroom-header-menu";
 import { ClassTimingControls } from "./class-timing-controls";
 import { ClassroomChatPanel as TestChatPanel } from "./classroom-chat-panel";
+import { useChatTranslations } from "@/lib/classroom/use-chat-translations";
+import { classroomChatSpace } from "@/lib/classroom/chat-space";
+import { useTranslationPreference } from "@/components/workspace/use-translation-preference";
+import { distinctTranslation, translationTarget } from "@/lib/workspace-translation-preferences";
 
-import { isClassroomTeachingRole } from "@/lib/classroom/policy";
+import { classroomMaySendChat, isClassroomTeachingRole } from "@/lib/classroom/policy";
+import { controlsAssignedRoomMedia, muteMainBeforeRoom } from "@/lib/classroom/room-media-routing";
 import { createDeviceAckTracker, type DeviceReport } from "@/lib/classroom/signaling/device-ack";
 import type { ClassroomDeviceAck, ClassroomSignalingEvent } from "@/lib/classroom/signaling/types";
 
@@ -55,11 +61,16 @@ import { classroomClosingNotice } from "@/lib/classroom/closing-notice";
 import { useClassroomHostEvents } from "@/lib/classroom/use-host-events";
 import { recorderCameraParticipants, recorderVideosHaveFrames } from "@/lib/classroom/recorder-surface";
 import { classroomBoardPresentation } from "@/lib/classroom/board-presentation";
-import { isEndedClassroomResponse } from "@/lib/classroom/session-lifecycle";
+import { isEndedClassroomResponse, isObserverAccessRevoked } from "@/lib/classroom/session-lifecycle";
 import { applyMicrophonePermission } from "@/lib/classroom/media-permissions";
 import { applyClassroomMemberPermissionUpdate } from "@/lib/classroom/member-permissions";
 import { applyClassroomCompositionPreview } from "@/lib/classroom/composition-preview";
 import { requestClassroomPublishingCredential } from "@/lib/classroom/publishing-credential";
+import { verifiedRemoteControlHint } from '@/lib/classroom/remote-control-hint';
+import { useRemoteControl } from '@/lib/classroom/use-remote-control';
+import { remoteControlCopy } from '@/lib/classroom/remote-control-copy';
+import { desktopRemoteInputAvailable } from '@/lib/classroom/desktop-remote-control-capability';
+import { TeacherRemoteControl } from '@/components/classroom/teacher-remote-control';
 import { applyClassroomScreenShareRequest, verifiedScreenShareInvitation } from "@/lib/classroom/screen-share-request";
 import { canRetryClassroomRecovery, ClassroomRecoveryError, retryClassroomRecovery } from "@/lib/classroom/credential-recovery";
 import { reportClassroomDiagnostic, type ClassroomConnectionDiagnostic } from "@/lib/classroom/connection-diagnostics";
@@ -72,6 +83,10 @@ import { withClassroomRequestSignal } from "@/lib/classroom/request-signal";
 import { classroomMemberAway, classroomMemberVisible, classroomPresenceSummary, classroomPresenceClockOffset } from "@/lib/classroom/presence";
 import { requestClassroomSession, ClassroomSessionRequestError } from "@/lib/classroom/session-request";
 import { reconcileClassroomRtcPresence } from "@/lib/classroom/rtc-presence";
+import { visibleFloatingSeatBounds } from "@/lib/classroom/floating-seats";
+import { prepareScreenInkAccess } from "@/lib/classroom/screen-ink-access";
+import { uploadScreenInk } from "@/lib/classroom/screen-ink-upload";
+import { closeBrowserClassroomWindow } from "@/lib/classroom/open-desktop-window";
 
 import {
   CSSProperties,
@@ -80,6 +95,7 @@ import {
   PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -177,8 +193,11 @@ import {
 } from "@/components/classroom/fastboard-surface";
 import type { FastboardApp } from "@netless/fastboard";
 import { ScreenShareAnnotations } from "@/components/classroom/screen-share-annotations";
+import { screenAnnotationSceneId } from "@/lib/classroom/whiteboard/screen-annotations";
+import { isScreenInkUrlAllowed } from "@/lib/classroom/whiteboard/screen-ink";
 import { ClassroomLoading, type ClassroomEntryPhase } from "@/components/classroom/classroom-loading";
 import { canonicalClassroomEntryPath } from "@/lib/classroom/entry-path";
+import { courseWorkspacePath } from "@/lib/course-schedule";
 import {
   buildAccessDeniedUrl,
   type CourseAccessDeniedCode,
@@ -213,6 +232,7 @@ import type {
   ClassroomSpaceSnapshot,
   ClassroomVideoBackgroundEffect,
   ClassroomQuestionSnapshot,
+  ClassroomRole,
 } from "@/lib/classroom/types";
 import {
   circleBoardGeometry,
@@ -302,6 +322,7 @@ function roleLabel(
 ): string {
   if (role === "teacher") return t("classroom.v3.roleLead");
   if (role === "assistant") return t("classroom.v3.roleAssistant");
+  if (role === "observer") return t("classroom.v3.roleObserver");
   return t("classroom.v3.roleStudent");
 }
 
@@ -1214,7 +1235,7 @@ function LiveRailSeat({
         const slots = Math.round(info.offset.x / 150);
         if (slots) onMoveSeat(member.userId, slots);
       }}
-      className={`classroom-v3-seat${sharing ? " is-sharing" : ""}${sharing && showCameraPreview ? " has-sharing-camera" : ""}${member.role !== "student" ? " is-teacher" : ""}${cameraOn ? " has-video" : ""}${touchControlsVisible || seatMenuOpen ? " is-touch-active" : ""}${canReorder ? " is-reorderable" : ""}`}
+      className={`classroom-v3-seat${sharing ? " is-sharing" : ""}${sharing && showCameraPreview ? " has-sharing-camera" : ""}${isClassroomTeachingRole(member.role) ? " is-teacher" : ""}${cameraOn ? " has-video" : ""}${touchControlsVisible || seatMenuOpen ? " is-touch-active" : ""}${canReorder ? " is-reorderable" : ""}`}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) {
           setTouchControlsVisible(false);
@@ -1357,7 +1378,7 @@ function LiveRail({
   const { t } = useTranslation();
   const teachers = members.filter(
     (member) =>
-      member.role !== "student" &&
+      isClassroomTeachingRole(member.role) &&
       (classroomMemberVisible(member) || member.userId === currentUserId),
   );
   const students = members
@@ -1367,7 +1388,7 @@ function LiveRail({
   // student object can leave the rail, but the teacher should never make the
   // entire podium look empty.
   const unsortedSeatedMembers = [...teachers, ...students].filter(
-    (member) => member.role !== "student" || !boardSourceIds.has(member.userId),
+    (member) => isClassroomTeachingRole(member.role) || !boardSourceIds.has(member.userId),
   );
   const seatIndex = new Map(seatOrder.map((userId, index) => [userId, index]));
   const seatedMembers = [...unsortedSeatedMembers].sort((left, right) => {
@@ -2025,7 +2046,7 @@ function MemberPanel({
   const sorted = members.filter(member => classroomMemberVisible(member) || classroomMemberAway(member)).sort((a, b) => {
     if (classroomMemberAway(a) !== classroomMemberAway(b)) return classroomMemberAway(a) ? 1 : -1;
     if (a.role !== b.role) {
-      const order = { teacher: 0, assistant: 1, student: 2 };
+      const order = { teacher: 0, assistant: 1, student: 2, observer: 3 };
       return order[a.role] - order[b.role];
     }
     if (Boolean(a.handRaisedAt) !== Boolean(b.handRaisedAt)) {
@@ -2270,7 +2291,7 @@ function BreakoutPanel({
   );
   const unassigned = members.filter(
     (member) =>
-      !isClassroomTeachingRole(member.role) &&
+      member.role === "student" &&
       !assignedIds.has(member.userId),
   );
   const activeSpace = spaces.find((space) => space.id === activeSpaceId) ?? null;
@@ -2400,7 +2421,7 @@ function BreakoutPanel({
                     <strong>{member.displayName}</strong>
                     <small>{roleLabel(member.role, t)}</small>
                   </span>
-                  {role !== "student" && member.role === "student" ? (
+                  {isClassroomTeachingRole(role) && member.role === "student" ? (
                     <span className="classroom-v3-breakout-member-actions">
                       <button
                         type="button"
@@ -2474,7 +2495,7 @@ function BreakoutPanel({
                   const member = unassigned.find(
                     (candidate) => candidate.userId === event.target.value,
                   );
-                  if (member) onAssign(space.id, member.userId, member.role === "assistant" ? "assistant" : "student");
+                  if (member && member.role === "student") onAssign(space.id, member.userId, "student");
                 }}
                 aria-label={t("classroom.v3.assignMember")}
               >
@@ -2555,7 +2576,7 @@ function QuestionsPanel({
         </div>
         <span>{questions.filter((item) => item.status === "open").length}</span>
       </div>
-      {!isClassroomTeachingRole(role) ? (
+      {role === "student" ? (
         <form
           className="classroom-v3-question-form"
           onSubmit={(event) => {
@@ -2593,7 +2614,7 @@ function QuestionsPanel({
             </header>
             <p>{question.content}</p>
             {question.answer ? <blockquote>{question.answer}</blockquote> : null}
-            {role !== "student" ? (
+            {isClassroomTeachingRole(role) ? (
               <footer>
                 {question.status === "open" ? (
                   <button type="button" onClick={() => onAction(question.id, "promote")}>
@@ -3472,12 +3493,23 @@ export function ClassroomV3({
     Boolean(recorderToken);
   const emitHostEvent = useClassroomHostEvents(searchParams.get("parentOrigin"), isRecorder);
   const [loadingState, setLoadingState] = useState<LoadingState>("loading");
+  useEffect(() => {
+    if (loadingState !== "loading" || !courseId) void window.classroomDesktop?.entryReady?.().catch(() => undefined);
+  }, [loadingState, courseId]);
   const [errorMessage, setErrorMessage] = useState("");
   const [launchRetry, setLaunchRetry] = useState(0);
   const [launchAttempt, setLaunchAttempt] = useState(0);
   const [entryPhase, setEntryPhase] = useState<ClassroomEntryPhase>("identity");
   const [sessionData, setSessionData] =
     useState<ClassroomSessionResponse | null>(null);
+  const inkContextScope=JSON.stringify([sessionData?.course.sessionId||"",shareAccess,recordingId,recorderToken]);
+  const [readyInkContext,setReadyInkContext]=useState("");
+  useEffect(()=>{
+    const sessionId=sessionData?.course.sessionId;if(!sessionId||loadingState!=="ready"||(!shareAccess&&!(recordingId&&recorderToken)))return;
+    let cancelled=false,timer:ReturnType<typeof setTimeout>|undefined;const controller=new AbortController();
+    const prepare=async()=>{try{await prepareScreenInkAccess({sessionId,shareAccess,recordingId,recorderToken},AbortSignal.any([controller.signal,AbortSignal.timeout(12000)]));if(cancelled)return;setReadyInkContext(inkContextScope);timer=setTimeout(prepare,30*60_000);}catch{if(!cancelled)timer=setTimeout(prepare,10_000);}};
+    void prepare();return()=>{cancelled=true;controller.abort();if(timer)clearTimeout(timer);};
+  },[sessionData?.course.sessionId,loadingState,shareAccess,recordingId,recorderToken,inkContextScope]);
   const sessionRef = useRef<ClassroomSessionResponse | null>(null);
   const captionSyncRef = useRef(createCaptionSyncState());
   const classEnded = sessionData?.runtime.status === "ended";
@@ -3488,6 +3520,8 @@ export function ClassroomV3({
   const [deviceId] = useState(classroomDeviceId);
   const deviceEntryModeRef = useRef<ClassroomDeviceEntryMode | undefined>(undefined);
   const connectionReplacedRef = useRef(false);
+  const observerAccessStoppedRef = useRef(false);
+  useEffect(() => { observerAccessStoppedRef.current = false; }, [courseId]);
   const [otherDevices, setOtherDevices] = useState<string[]>([]);
   const mediaBusyRef = useRef(new Set<string>());
   const mediaPendingRef = useRef(new Map<string, number>());
@@ -3531,7 +3565,14 @@ export function ClassroomV3({
   const roomRecoveryTaskRef = useRef<Promise<void> | null>(null);
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
   const [spaceBusy, setSpaceBusy] = useState(false);
+  const roomTransitionRef = useRef(false);
+  const automaticRoomRetryRef = useRef<{ spaceId: string; attempts: number; nextAt: number } | null>(null);
+  const roomDisconnectingRef = useRef(false);
+  const roomDisconnectFailedRef = useRef(false);
+  const roomAssistantControlledRef = useRef(false);
   const signalingRef = useRef<ClassroomSignalingProvider | null>(null);
+  const remoteHintTimesRef = useRef(new Map<string, number>());
+  const remoteHintTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [selectedPanel, setActivePanel] = useState<DrawerPanel | null>(
     isRecorder ? "chat" : null,
   );
@@ -3920,7 +3961,7 @@ export function ClassroomV3({
       setSessionData(next);
       if (confirmed) emitHostEvent(next, "state_sync");
     },
-    [emitHostEvent],
+    [emitHostEvent, setSessionData],
   );
 
   // The initial server snapshot may already be live or ended. Optimistic
@@ -3930,6 +3971,23 @@ export function ClassroomV3({
   }, [emitHostEvent, loadingState, sessionData]);
 
   const stopEndedSession = useCallback((status: number, body: unknown) => {
+    if (sessionRef.current?.credential.role === "observer" && isObserverAccessRevoked(status, body)) {
+      if (observerAccessStoppedRef.current) return true;
+      observerAccessStoppedRef.current = true;
+      liveRequestsRef.current?.abort();
+      messagesAbortRef.current?.abort();
+      refreshAbortRef.current?.abort();
+      void providerRef.current?.disconnect().catch(() => undefined);
+      void roomProviderRef.current?.disconnect().catch(() => undefined);
+      void signalingRef.current?.disconnect().catch(() => undefined);
+      const reason = translateSession("classroom.v3.accessDenied");
+      const destination = buildAccessDeniedUrl({ code: "not_enrolled", reason, courseId: sessionRef.current.course.id });
+      setErrorMessage(reason);
+      setLoadingState("error");
+      router.replace(destination);
+      window.setTimeout(() => { if (window.location.pathname === "/classroom") window.location.replace(destination); }, 1_200);
+      return true;
+    }
     if (status === 409 && body && typeof body === "object" && "code" in body && body.code === "classroom_connection_replaced") {
       if (connectionReplacedRef.current) return true;
       connectionReplacedRef.current = true;
@@ -3947,7 +4005,7 @@ export function ClassroomV3({
     updateSession({ runtime: { ...current.runtime, status: "ended" } });
     liveRequestsRef.current?.abort();
     return true;
-  }, [updateSession]);
+  }, [router, setErrorMessage, setLoadingState, translateSession, updateSession]);
 
   useEffect(() => {
     if (isRecorder || !sessionData || loadingState !== "ready") return;
@@ -3958,19 +4016,31 @@ export function ClassroomV3({
   }, [isRecorder, loadingState, sessionData, stopEndedSession]);
 
   const disconnectRoom = useCallback(async () => {
-    roomRecoveryTaskRef.current = null;
-    roomTokenUnsubscribeRef.current?.();
-    roomTokenUnsubscribeRef.current = null;
-    roomUnsubscribeRef.current?.();
-    roomUnsubscribeRef.current = null;
+    if (roomDisconnectingRef.current) return false;
+    roomDisconnectingRef.current = true;
     const current = roomProviderRef.current;
-    roomProviderRef.current = null;
-    setRoomProvider(null);
-    setRoomScreenShareUserId(null);
-    setRoomMedia(EMPTY_MEDIA);
-    setActiveSpaceId(null);
-    await current?.disconnect().catch(() => undefined);
-  }, []);
+    try {
+      await muteMainBeforeRoom(current);
+      await current?.disconnect();
+      roomRecoveryTaskRef.current = null;
+      roomTokenUnsubscribeRef.current?.();
+      roomTokenUnsubscribeRef.current = null;
+      roomUnsubscribeRef.current?.();
+      roomUnsubscribeRef.current = null;
+      roomProviderRef.current = null;
+      setRoomProvider(null);
+      setRoomScreenShareUserId(null);
+      setActiveSpaceId(null);
+      setRoomMedia(EMPTY_MEDIA);
+      roomAssistantControlledRef.current = false;
+      roomDisconnectFailedRef.current = false;
+      return true;
+    } catch {
+      roomDisconnectFailedRef.current = true;
+      setActionError(locale === "zh-TW" ? "無法安全離開分組，請重試返回主課堂。" : locale.startsWith("zh") ? "无法安全离开分组，请重试返回主课堂。" : locale === "vi" ? "Không thể rời nhóm an toàn. Hãy thử trở lại lớp chính." : "Could not safely leave the group. Retry returning to the main classroom.");
+      return false;
+    } finally { roomDisconnectingRef.current = false; }
+  }, [locale]);
 
   const renewRoomCredentials = useCallback(async () => {
     const provider = roomProviderRef.current;
@@ -4003,11 +4073,26 @@ export function ClassroomV3({
 
   const connectRoom = useCallback(
     async (spaceId: string) => {
-      if (!courseId || !user || spaceBusy || isRecorder || sessionRef.current?.runtime.status === "ended") return;
+      if (!courseId || !user || spaceBusy || roomTransitionRef.current || isRecorder || sessionRef.current?.runtime.status === "ended") return;
+      const session = sessionRef.current;
+      const assistantSwitch = session?.credential.role === "assistant" && Boolean(session.spaces.find(space => space.id === spaceId)?.members.some(member => member.userId === session.credential.userId));
+      const roomStillAvailable = () => {
+        const current = sessionRef.current;
+        const room = current?.spaces.find(space => space.id === spaceId && space.status === "open");
+        if (!current || !room || current.runtime.status === "ended") return false;
+        if (current.credential.role === "student") return room.isAssigned;
+        return !assistantSwitch || room.members.some(member => member.userId === current.credential.userId);
+      };
+      const mainProvider = providerRef.current;
+      if (assistantSwitch && (mediaBusyRef.current.size > 0 || mainProvider?.getSnapshot().local.screenSharing)) {
+        setActionError(locale === "zh-TW" ? "請先停止主課堂螢幕共享並等待媒體操作完成，再進入分組。" : locale.startsWith("zh") ? "请先停止主课堂屏幕共享并等待媒体操作完成，再进入分组。" : locale === "vi" ? "Dừng chia sẻ màn hình lớp chính và đợi thao tác thiết bị hoàn tất trước khi vào nhóm." : "Stop sharing the main classroom screen and wait for media actions to finish before joining the group.");
+        return;
+      }
+      roomTransitionRef.current = true;
       setSpaceBusy(true);
       setActionError("");
       try {
-        await disconnectRoom();
+        if (!await disconnectRoom()) return;
         const response = await fetch(
           `/api/sessions/${encodeURIComponent(courseId)}/classroom/spaces/credential`,
           {
@@ -4029,7 +4114,8 @@ export function ClassroomV3({
           if (stopEndedSession(response.status, payload)) return;
           throw new Error(payload.error || t("classroom.v3.roomConnectFailed"));
         }
-        if (liveRequestsRef.current?.signal.aborted) return;
+        if (liveRequestsRef.current?.signal.aborted || !roomStillAvailable()) return;
+        if (assistantSwitch) await muteMainBeforeRoom(mainProvider).catch(()=>{throw new Error(t("classroom.v3.roomConnectFailed"));});
         setRoomScreenShareUserId(
           payload.credential.screenShare
             ? String(payload.credential.screenShare.rtcUid)
@@ -4047,10 +4133,16 @@ export function ClassroomV3({
           user.displayName || user.name || user.userId,
         );
         if (liveRequestsRef.current?.signal.aborted) { await disconnectRoom(); return; }
+        if (!roomStillAvailable()) {
+          await disconnectRoom();
+          return;
+        }
+        roomAssistantControlledRef.current = assistantSwitch;
+        automaticRoomRetryRef.current = null;
         setRoomProvider(provider);
         setActiveSpaceId(spaceId);
       } catch (error) {
-        await disconnectRoom();
+        if (!await disconnectRoom()) return;
         if (liveRequestsRef.current?.signal.aborted) return;
         setActionError(
           error instanceof Error
@@ -4058,10 +4150,11 @@ export function ClassroomV3({
             : t("classroom.v3.roomConnectFailed"),
         );
       } finally {
+        roomTransitionRef.current = false;
         setSpaceBusy(false);
       }
     },
-    [clientId, courseId, disconnectRoom, isRecorder, shareAccess, spaceBusy, stopEndedSession, t, user],
+    [clientId, courseId, disconnectRoom, isRecorder, locale, shareAccess, spaceBusy, stopEndedSession, t, user],
   );
 
   const reportConnectionDiagnostic = useCallback((event: ClassroomConnectionDiagnostic) => {
@@ -4117,7 +4210,7 @@ export function ClassroomV3({
         ? error.payload.error || translateSession("classroom.v3.sessionCreateFailed")
         : translateSession("classroom.v3.databaseUnavailable"));
     }
-  }, [clientId, deviceId, courseId, isRecorder, legacyCourseId, recorderToken, requestedSessionId, router, shareAccess, stopEndedSession, translateSession, reportConnectionDiagnostic]);
+  }, [clientId, deviceId, courseId, isRecorder, legacyCourseId, recorderToken, requestedSessionId, router, setLaunchRetry, shareAccess, stopEndedSession, translateSession, reportConnectionDiagnostic]);
 
   const renewClassroomCredentials = useCallback(async () => {
     if (sessionRef.current?.runtime.status === "ended") return;
@@ -4126,6 +4219,9 @@ export function ClassroomV3({
     const controller = liveRequestsRef.current;
     const provider = providerRef.current;
     if (!controller || controller.signal.aborted || !provider) return;
+    // A stage or screen-share grant can install a newer credential while this
+    // renewal is in flight. Never apply the older renewal over that grant.
+    const startingCredential = sessionRef.current?.credential;
     const renewal = (async () => {
       let hadFailure = false;
       await retryClassroomRecovery(() => withClassroomRequestSignal(10_000, controller.signal, async (signal) => {
@@ -4144,10 +4240,13 @@ export function ClassroomV3({
         }
         controller.signal.throwIfAborted();
         if (providerRef.current !== provider) throw new DOMException("Classroom replaced", "AbortError");
+        if (sessionRef.current?.credential !== startingCredential) return;
         await provider.renewCredential(payload.credential);
+        if (sessionRef.current?.credential !== startingCredential) return;
         await provider.recoverMedia(false, { preserveHealthySubscriptions: true });
         controller.signal.throwIfAborted();
         if (providerRef.current !== provider) throw new DOMException("Classroom replaced", "AbortError");
+        if (sessionRef.current?.credential !== startingCredential) return;
         updateSession({ credential: payload.credential, signaling: payload.signaling });
       }), {
         signal: controller.signal,
@@ -4251,36 +4350,38 @@ export function ClassroomV3({
             reportConnectionDiagnostic({ event: "connection-state", ...event });
           }
         });
-        let captionStore;
-        try {
-          captionStore = createCaptionOutbox(window.localStorage,
-            isRecorder ? `recorder:${payload.course.sessionId}` : user!.userId, courseId, clientId);
-        } catch (error) {
-          console.warn("[classroom:v3] caption local storage unavailable", error);
-          if (!isRecorder) setActionError(translateSession("classroom.v3.captionStorageUnavailable"));
+        if (isRecorder || isClassroomTeachingRole(payload.credential.role)) {
+          let captionStore;
+          try {
+            captionStore = createCaptionOutbox(window.localStorage,
+              isRecorder ? `recorder:${payload.course.sessionId}` : user!.userId, courseId, clientId);
+          } catch (error) {
+            console.warn("[classroom:v3] caption local storage unavailable", error);
+            if (!isRecorder) setActionError(translateSession("classroom.v3.captionStorageUnavailable"));
+          }
+          captionQueue = createCaptionPersistenceQueue(async (caption) => {
+            // Caption delivery has its own timeout. Ending class aborts live
+            // polling/media requests, but must never cancel an archive write.
+            const result = await deliverClassroomCaption(courseId, caption, {
+              shareAccess, ...(isRecorder && recorderToken ? { recorderToken } : {}),
+            });
+            if (cancelled) return;
+            if (!isRecorder) {
+              const current = sessionRef.current;
+              if (current) updateSession({ captions: mergeCaptions(current.captions, result.caption) });
+            }
+            if (typeof result.revision === "number") {
+              void signalingRef.current?.publish({ courseId, revision: result.revision, topic: "captions" }).catch(() => undefined);
+            }
+          }, (error) => {
+            console.warn("[classroom:v3] caption delivery retained for retry", error);
+            if (!cancelled && !isRecorder && error instanceof DOMException &&
+                ["QuotaExceededError", "SecurityError"].includes(error.name)) {
+              setActionError(translateSession("classroom.v3.captionStorageUnavailable"));
+            }
+          }, 300, { store: captionStore });
+          captionQueueRef.current = captionQueue;
         }
-        captionQueue = createCaptionPersistenceQueue(async (caption) => {
-          // Caption delivery has its own timeout. Ending class aborts live
-          // polling/media requests, but must never cancel an archive write.
-          const result = await deliverClassroomCaption(courseId, caption, {
-            shareAccess, ...(isRecorder && recorderToken ? { recorderToken } : {}),
-          });
-          if (cancelled) return;
-          if (!isRecorder) {
-            const current = sessionRef.current;
-            if (current) updateSession({ captions: mergeCaptions(current.captions, result.caption) });
-          }
-          if (typeof result.revision === "number") {
-            void signalingRef.current?.publish({ courseId, revision: result.revision, topic: "captions" }).catch(() => undefined);
-          }
-        }, (error) => {
-          console.warn("[classroom:v3] caption delivery retained for retry", error);
-          if (!cancelled && !isRecorder && error instanceof DOMException &&
-              ["QuotaExceededError", "SecurityError"].includes(error.name)) {
-            setActionError(translateSession("classroom.v3.captionStorageUnavailable"));
-          }
-        }, 300, { store: captionStore });
-        captionQueueRef.current = captionQueue;
         unsubscribeCaptions = provider.subscribeCaptions((caption) => {
           if (cancelled) return;
           const runtime = sessionRef.current?.runtime ?? payload.runtime;
@@ -4301,7 +4402,7 @@ export function ClassroomV3({
             const current = sessionRef.current;
             if (current) updateSession({ captions: mergeCaptions(current.captions, localCaption) }, false);
           }
-          if (!isRecorder && payload.credential.role === "student") return;
+          if (!isRecorder && !isClassroomTeachingRole(payload.credential.role)) return;
           captionQueue?.enqueue(localCaption);
         });
         const displayName = isRecorder
@@ -4420,6 +4521,7 @@ export function ClassroomV3({
     return () => window.removeEventListener("keydown", onEscape);
   }, [stageExpanded]);
 
+  const selectedChatSpaceId = classroomChatSpace(sessionData?.spaces || [], activeSpaceId, sessionData?.credential.role);
   const refreshMessages = useCallback(async function refreshMessageSnapshot(): Promise<void> {
     if (!courseId || isRecorder || sessionRef.current?.runtime.status === "ended") return;
     if (messagesAbortRef.current) { messagesQueuedRef.current = true; return; }
@@ -4428,10 +4530,20 @@ export function ClassroomV3({
     messagesAbortRef.current = controller;
     const timeout = window.setTimeout(() => controller.abort(), 4_000);
     try {
-      const query = shareAccess ? `?shareAccess=${encodeURIComponent(shareAccess)}` : "";
+      const parameters = new URLSearchParams();
+      if (shareAccess) parameters.set("shareAccess", shareAccess);
+      if (selectedChatSpaceId) parameters.set("spaceId", selectedChatSpaceId);
+      const query = parameters.size ? `?${parameters}` : "";
       const response = await fetch(`/api/sessions/${encodeURIComponent(courseId)}/classroom/messages${query}`, { cache: "no-store", signal: controller.signal });
       if (controller.signal.aborted) return;
-      if (!response.ok) { messagesFailuresRef.current += 1; stopEndedSession(response.status, await response.json()); return; }
+      if (!response.ok) {
+        messagesFailuresRef.current += 1;
+        // Authentication or classroom access was revoked. Do not keep the
+        // last authorized snapshot visible while retrying the request.
+        if (response.status === 401 || response.status === 403) updateSession({ messages: [] });
+        stopEndedSession(response.status, await response.json().catch(() => null));
+        return;
+      }
       if (response.ok && !controller.signal.aborted) {
         const payload = await response.json();
         if (!controller.signal.aborted) { messagesFailuresRef.current = 0; updateSession({ messages: payload.messages }); }
@@ -4447,7 +4559,7 @@ export function ClassroomV3({
         }
       }
     }
-  }, [courseId, isRecorder, shareAccess, stopEndedSession, updateSession]);
+  }, [courseId, isRecorder, shareAccess, selectedChatSpaceId, stopEndedSession, updateSession]);
   useEffect(() => {
     if (classEnded || loadingState !== "ready" || isRecorder) return;
     const remove=sync.scheduler.register({topics:["messages","transport"],run:()=>refreshMessages(),interval:ready=>messagesFailuresRef.current?Math.min(60_000,5_000*2**Math.min(messagesFailuresRef.current,4)):ready?60_000:5_000});
@@ -4505,6 +4617,7 @@ export function ClassroomV3({
       if (!stateResponse.ok) { stateFailuresRef.current += 1; stopEndedSession(stateResponse.status, await stateResponse.json()); return; }
       if (stateResponse.ok) {
         const payload = (await stateResponse.json()) as {
+          viewerRole?: ClassroomRole;
           runtime: ClassroomRuntimeSnapshot;
           engagement: ClassroomSessionResponse["engagement"];
           courseware: ClassroomCoursewareSnapshot[];
@@ -4515,6 +4628,7 @@ export function ClassroomV3({
           recording: ClassroomSessionResponse["recording"];
         };
         if (controller.signal.aborted || requestId !== refreshRequestIdRef.current) return;
+        if (stopEndedSession(stateResponse.status, payload)) return;
         captionSyncRef.current.accept(captionContext, payload, captions => updateSession({ captions }));
         const refreshedRuntime = payload.runtime;
         const refreshedDetails = { engagement: payload.engagement, courseware: payload.courseware,
@@ -4610,12 +4724,22 @@ export function ClassroomV3({
       (space) => space.isAssigned && space.status === "open",
     );
     if (!assignedOpen) {
+      automaticRoomRetryRef.current = null;
       if (!activeSpaceId) return;
       const timer = window.setTimeout(() => void disconnectRoom(), 0);
       return () => window.clearTimeout(timer);
     }
     if (assignedOpen.id !== activeSpaceId && !spaceBusy) {
-      const timer = window.setTimeout(() => void connectRoom(assignedOpen.id), 0);
+      if (automaticRoomRetryRef.current?.spaceId !== assignedOpen.id) {
+        automaticRoomRetryRef.current = { spaceId: assignedOpen.id, attempts: 0, nextAt: 0 };
+      }
+      const retry = automaticRoomRetryRef.current;
+      const timer = window.setTimeout(() => {
+        if (automaticRoomRetryRef.current !== retry) return;
+        retry.attempts += 1;
+        retry.nextAt = Date.now() + Math.min(30_000, 1_000 * 2 ** Math.min(retry.attempts - 1, 5));
+        void connectRoom(assignedOpen.id);
+      }, Math.max(0, retry.nextAt - Date.now()));
       return () => window.clearTimeout(timer);
     }
   }, [
@@ -4641,7 +4765,7 @@ export function ClassroomV3({
     const activeRoom = sessionData.spaces.find(
       (space) => space.id === activeSpaceId,
     );
-    if (activeRoom?.status === "open") return;
+    if (activeRoom?.status === "open" && !(roomAssistantControlledRef.current && !activeRoom.members.some(member=>member.userId===sessionData.credential.userId))) return;
     const timer = window.setTimeout(() => void disconnectRoom(), 0);
     return () => window.clearTimeout(timer);
   }, [activeSpaceId, disconnectRoom, isRecorder, loadingState, sessionData]);
@@ -4649,9 +4773,9 @@ export function ClassroomV3({
   useEffect(() => {
     if(classEnded||loadingState!=="ready")return;
     return sync.scheduler.register({topics:["recording","engagement","transport"],initialDelay:2500,
-      background:isRecorder||media.local.screenSharing||roomMedia.local.screenSharing,
-      run:()=>refreshState(),interval:ready=>stateFailuresRef.current?Math.min(60_000,5_000*2**Math.min(stateFailuresRef.current,4)):isRecorder||["starting","stopping","processing"].includes(recordingStatus||"")?5_000:ready?60_000:5_000});
-  },[classEnded,loadingState,isRecorder,media.local.screenSharing,roomMedia.local.screenSharing,recordingStatus,refreshState,sync]);
+      background:isRecorder||sessionData?.credential.role==="observer"||media.local.screenSharing||roomMedia.local.screenSharing,
+      run:()=>refreshState(),interval:ready=>stateFailuresRef.current?Math.min(60_000,5_000*2**Math.min(stateFailuresRef.current,4)):isRecorder||sessionData?.credential.role==="observer"||["starting","stopping","processing"].includes(recordingStatus||"")?5_000:ready?60_000:5_000});
+  },[classEnded,loadingState,isRecorder,media.local.screenSharing,roomMedia.local.screenSharing,recordingStatus,sessionData?.credential.role,refreshState,sync]);
 
   const deviceTrackerRef = useRef(createDeviceAckTracker());
   const deviceRepliesRef = useRef(new Map<string, Promise<ClassroomDeviceAck>>());
@@ -4676,8 +4800,8 @@ export function ClassroomV3({
       if (scope === "captions") captionSyncRef.current.query(captionContext, query);
       const response = await fetch(`/api/sessions/${encodeURIComponent(courseId)}/classroom/state?${query}`, { cache: "no-store", signal: entry.controller.signal });
       if (!response.ok) { await refreshState(); return; }
-      const payload = await response.json() as Pick<ClassroomSessionResponse, "captions" | "courseware" | "runtime"> & CaptionSyncResponse;
-      if (entry.controller.signal.aborted) return;
+      const payload = await response.json() as Pick<ClassroomSessionResponse, "captions" | "courseware" | "runtime"> & CaptionSyncResponse & {viewerRole?:ClassroomRole};
+      if (entry.controller.signal.aborted || observerAccessStoppedRef.current || stopEndedSession(response.status, payload)) return;
       // Only the authorized runtime section advances its control revision.
       // Captions/courseware remain independent; RTM supplies no content authority.
       if(scope === "runtime" && payload.runtime && !pendingRuntimeActionRef.current) updateSession({runtime:payload.runtime});
@@ -4695,7 +4819,7 @@ export function ClassroomV3({
       if (sectionReadsRef.current.get(scope) === entry) sectionReadsRef.current.delete(scope);
       if (entry.queued && !entry.controller.signal.aborted) void readSection(scope);
     }
-  }, [courseId, isRecorder, refreshState, shareAccess, updateSession]);
+  }, [courseId, isRecorder, refreshState, shareAccess, stopEndedSession, updateSession]);
   useEffect(() => {
     const reads = sectionReadsRef.current;
     return () => { for (const entry of reads.values()) entry.controller.abort(); reads.clear(); };
@@ -4712,6 +4836,7 @@ export function ClassroomV3({
   useEffect(() => {
     const signaling = sessionData?.signaling;
     if (!signaling || isRecorder || classEnded || loadingState !== "ready") return;
+    const remoteHintTimers = remoteHintTimersRef.current;
     let cancelled = false;
     const provider = createClassroomSignalingProvider();
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -4729,6 +4854,30 @@ export function ClassroomV3({
       publisherId?: string,
     ) => {
       if (cancelled || sessionRef.current?.runtime.status === "ended" || event.courseId !== courseId) return;
+      if (event.topic === "remote-control-input") {
+        const current = sessionRef.current;
+        if (publisherId && current?.credential.role === "student" && event.targetUserId === current.credential.userId && event.packet && typeof event.packet === "object") {
+          // The desktop main process verifies the grant-bound signature and
+          // sequence. RTM sender metadata alone never authorizes input.
+          void window.classroomDesktop?.receiveRemoteControl?.(event.packet).catch(() => undefined);
+        }
+        return;
+      }
+      if (event.topic === "remote-control-hint") {
+        const current=sessionRef.current, self=current?.credential.userId;
+        if(current&&self&&verifiedRemoteControlHint(event,publisherId,self,current.runtime.members)){
+          const now=Date.now(),last=remoteHintTimesRef.current.get(event.actorId)||0;
+          if(now-last>=1000){remoteHintTimesRef.current.set(event.actorId,now);sync.scheduler.invalidate("remote-control");}
+          else if(!remoteHintTimersRef.current.has(event.actorId)) {
+            const actor=event.actorId;
+            remoteHintTimersRef.current.set(actor,setTimeout(()=>{
+              remoteHintTimersRef.current.delete(actor);
+              if(!cancelled){remoteHintTimesRef.current.set(actor,Date.now());sync.scheduler.invalidate("remote-control");}
+            },1000-(now-last)));
+          }
+        }
+        return;
+      }
       if (event.topic === "device-ack") {
         const current = sessionRef.current;
         if (current) { const report = deviceTrackerRef.current.accept(current.runtime, event, publisherId); if (report) setDeviceReport(report); }
@@ -4823,6 +4972,7 @@ export function ClassroomV3({
       const recovered = ready && !wasReady;
       signalingReadyRef.current = ready;
       sync.scheduler.setRealtime(ready);
+      if (!ready) void window.classroomDesktop?.stopRemoteControl?.().catch(() => undefined);
       if (ready) { clearTimeout(retryTimer); retryTimer = undefined; }
       else retrySignaling();
       if (recovered) {
@@ -4841,6 +4991,9 @@ export function ClassroomV3({
     return () => {
       cancelled = true;
       clearTimeout(retryTimer);
+      for (const timer of remoteHintTimers.values()) clearTimeout(timer);
+      remoteHintTimers.clear();
+      void window.classroomDesktop?.stopRemoteControl?.().catch(() => undefined);
       if (signalingRef.current === provider) { signalingRef.current = null; signalingReadyRef.current = false; }
       signalingTeardownRef.current = provider.disconnect();
     };
@@ -4908,6 +5061,57 @@ export function ClassroomV3({
   const currentUserId = isRecorder
     ? sessionData?.credential.userId || ""
     : user?.userId || "";
+  const publishRemoteHint = useCallback(async (hint: import("@/lib/classroom/signaling/types").ClassroomRemoteControlHint) => {
+    const provider = signalingRef.current;
+    if (!provider || !signalingReadyRef.current) throw new Error("Signaling unavailable");
+    await provider.publish(hint);
+  }, []);
+  const publishRemoteInput = useCallback(async (id: string, event: import("@/lib/classroom/signaling/types").ClassroomRemoteControlInput) => {
+    const provider = signalingRef.current;
+    if (!provider?.publishToUser || !signalingReadyRef.current) throw new Error("Signaling unavailable");
+    await provider.publishToUser(id, event);
+  }, []);
+  const remoteControl = useRemoteControl({sessionId:courseId,clientId,userId:currentUserId,shareAccess,
+    active:!isRecorder&&!classEnded&&loadingState === "ready"&&Boolean(sessionData?.credential.role === "student" && (media.local.screenSharing || roomMedia.local.screenSharing)),publishHint:publishRemoteHint});
+  const requestedRemote = remoteControl.grants.find(grant => grant.studentId === currentUserId && grant.effectiveState === "requested");
+  const readyRemote = remoteControl.grants.find(grant => grant.studentId === currentUserId && grant.effectiveState === "granted" && grant.keyReady);
+  const readyRemoteId = readyRemote?.id;
+  const remoteCommand = remoteControl.command;
+  const remoteGrantRef = useRef(remoteControl.grants);
+  useEffect(() => { remoteGrantRef.current = remoteControl.grants; }, [remoteControl.grants]);
+  const remoteAttemptRef = useRef("");
+  const [remoteDesktopRequestError,setRemoteDesktopRequestError] = useState(false);
+  const [remoteDeclineBusy,setRemoteDeclineBusy] = useState(false);
+  const remoteDeclineId = useRef<{grantId:string;commandId:string} | null>(null);
+  const desktopControlAvailable = typeof window !== "undefined" && desktopRemoteInputAvailable(window.classroomDesktop);
+  useEffect(() => {
+    const desktop=window.classroomDesktop;
+    if (!desktopControlAvailable || !desktop?.setRemoteControlRequest) return;
+    let cancelled=false;
+    void desktop.setRemoteControlRequest(requestedRemote ? {clientId,grantId:requestedRemote.id} : null).then(ok=>{if(!cancelled)setRemoteDesktopRequestError(Boolean(requestedRemote&&!ok));}).catch(()=>{if(!cancelled)setRemoteDesktopRequestError(Boolean(requestedRemote));});
+    return()=>{cancelled=true;};
+  }, [clientId,desktopControlAvailable,requestedRemote]);
+  useEffect(() => window.classroomDesktop?.onRemoteControlRequestState?.(state => {
+    if (state.error || state.decision) setRemoteDesktopRequestError(Boolean(state.error));
+    if (state.decision) {
+      sync.scheduler.invalidate("remote-control");
+      if (state.teacherId && currentUserId) void publishRemoteHint({courseId,topic:"remote-control-hint",revision:0,actorId:currentUserId,targetUserId:state.teacherId}).catch(() => undefined);
+    }
+  }), [courseId,currentUserId,publishRemoteHint,sync]);
+  useEffect(() => window.classroomDesktop?.onRemoteControlState?.(state => {
+    sync.scheduler.invalidate("remote-control");
+    const grant=remoteGrantRef.current.find(item=>item.id===state.grantId);
+    if (grant && currentUserId) void publishRemoteHint({courseId,topic:"remote-control-hint",revision:0,actorId:currentUserId,targetUserId:grant.teacherId}).catch(() => undefined);
+  }), [courseId,currentUserId,publishRemoteHint,sync]);
+  useEffect(() => {
+    if (!desktopControlAvailable || !readyRemoteId || remoteAttemptRef.current===readyRemoteId) return;
+    remoteAttemptRef.current=readyRemoteId;
+    let cancelled=false;
+    void window.classroomDesktop?.startRemoteControl?.({clientId,grantId:readyRemoteId}).then(ok=>{
+      if (!cancelled&&!ok) {setActionError(remoteControlCopy(locale).failed);void remoteCommand({action:"stop",grantId:readyRemoteId}).catch(()=>undefined);}
+    }).catch(()=>{if(!cancelled){setActionError(remoteControlCopy(locale).failed);void remoteCommand({action:"stop",grantId:readyRemoteId}).catch(()=>undefined);}});
+    return()=>{cancelled=true;};
+  }, [clientId,desktopControlAvailable,readyRemoteId,locale,remoteCommand]);
   const publishCompositionPreview = useCallback(
     (itemId: string, rect: ClassroomBoardRect) => {
       const now = performance.now();
@@ -4967,9 +5171,14 @@ export function ClassroomV3({
       !mediaProvider ||
       !isClassroomTeachingRole(sessionData?.credential.role) ||
       media.connectionState !== "connected" ||
-      media.local.cameraOn ||
       teacherCameraAutostartedRef.current
     ) {
+      return;
+    }
+    // An already active camera has satisfied startup; a later manual off
+    // must not be treated as a first-time opportunity to turn it back on.
+    if (media.local.cameraOn) {
+      teacherCameraAutostartedRef.current = true;
       return;
     }
     let cancelled = false;
@@ -4992,6 +5201,7 @@ export function ClassroomV3({
         if (cancelled) return;
         const message = error instanceof Error ? error.message : "";
         setActionError(
+          message === "DEVICE_CAPTURE_TIMEOUT" ? t("classroom.v3.deviceCaptureTimeout") :
           /PERMISSION_DENIED|NotAllowedError|Permission denied/i.test(message)
             ? t("classroom.v3.cameraPermissionDenied")
             : message || t("classroom.v3.mediaActionFailed"),
@@ -5127,6 +5337,7 @@ export function ClassroomV3({
   const whiteboardCredentialWritable = sessionData?.whiteboard.writable;
   const memberWhiteboardWritable = currentMember?.whiteboardWritable;
   useEffect(() => {
+    if (isWhiteboardNotConfigured(whiteboardCredentialError)) return;
     const whiteboardPending = whiteboardCredentialError === "whiteboard_pending" || Boolean(whiteboardCredentialError);
     const studentPermissionChanged =
       !isRecorder && whiteboardCredentialRole === "student" &&
@@ -5180,7 +5391,7 @@ export function ClassroomV3({
             },
           });
           // Keep credential errors on the board while retrying in the background.
-          window.setTimeout(() => { if (!cancelled) updateSession({ whiteboard: { enabled: false, provider: "netless", writable: false, error: "whiteboard_pending" } }); }, 3_000);
+          if (!isWhiteboardNotConfigured(message)) window.setTimeout(() => { if (!cancelled) updateSession({ whiteboard: { enabled: false, provider: "netless", writable: false, error: "whiteboard_pending" } }); }, 3_000);
         }
       });
     }, whiteboardCredentialError && whiteboardCredentialError !== "whiteboard_pending" ? 3_000 : 0);
@@ -5381,19 +5592,8 @@ export function ClassroomV3({
     ) => {
       const session = sessionRef.current;
       if (!session || session.runtime.status === "ended") return;
-      const useRoomProvider =
-        session?.mode === "largeClass" &&
-        !isClassroomTeachingRole(session.credential.role) &&
-        !(
-          session.credential.role === "student" &&
-          session.runtime.members.some(
-            (member) =>
-              member.userId === session.credential.userId &&
-              member.onStage &&
-              member.stageState === "accepted",
-          )
-        ) &&
-        Boolean(roomProviderRef.current);
+      if (roomTransitionRef.current || roomDisconnectingRef.current || roomDisconnectFailedRef.current || (roomAssistantControlledRef.current && !session.spaces.find(space=>space.id===activeSpaceId)?.members.some(member=>member.userId===session.credential.userId))) return;
+      const useRoomProvider = controlsAssignedRoomMedia({mode:session.mode,role:session.credential.role,roomConnected:Boolean(roomProviderRef.current),roomMember:Boolean(session.spaces.find(space=>space.id===activeSpaceId)?.members.some(member=>member.userId===session.credential.userId)),studentOnStage:session.runtime.members.some(member=>member.userId===session.credential.userId&&member.onStage&&member.stageState==="accepted")});
       const provider = useRoomProvider
         ? roomProviderRef.current
         : providerRef.current;
@@ -5418,7 +5618,11 @@ export function ClassroomV3({
         if (sessionRef.current?.runtime.status === "ended") return;
         const message = error instanceof Error ? error.message : "";
         setActionError(
-          name === "screen" && /PERMISSION_DENIED|NotAllowedError|Permission denied/i.test(message)
+          (name === "camera" || name === "microphone") && message === "DEVICE_CAPTURE_TIMEOUT"
+            ? t("classroom.v3.deviceCaptureTimeout")
+            : name === "screen" && /timeout starting video source/i.test(message)
+            ? t("classroom.v3.screenShareCaptureTimeout")
+            : name === "screen" && /PERMISSION_DENIED|NotAllowedError|Permission denied/i.test(message)
             ? t("classroom.v3.screenSharePermissionDenied")
             : name === "screen" && /NOT_SUPPORTED|not support screen sharing/i.test(message)
               ? t("classroom.v3.screenShareBrowserUnsupported")
@@ -5517,7 +5721,7 @@ export function ClassroomV3({
         );
       }
     },
-    [courseId, currentUserId, publishInvalidation, shareAccess, stopEndedSession, t],
+    [courseId, currentUserId, publishInvalidation, setSessionData, shareAccess, stopEndedSession, t],
   );
 
   const deleteMessage = useCallback(async (messageId: string, senderId?: string) => {
@@ -5773,6 +5977,7 @@ export function ClassroomV3({
   }, [controlRecording, recordingStatus]);
 
   const parentCourseId = sessionData?.course.id || null;
+  const parentSessionId = sessionData?.course.sessionId || null;
   const classroomRole = sessionData?.credential.role || null;
   const isStudentViewer = classroomRole === "student";
   const exitClassroom = useCallback(() => {
@@ -5781,7 +5986,7 @@ export function ClassroomV3({
     void captionQueueRef.current?.flush();
     liveRequestsRef.current?.abort();
     const destination = parentCourseId
-      ? `/courses/${encodeURIComponent(parentCourseId)}`
+      ? courseWorkspacePath(parentCourseId, parentSessionId)
       : "/";
     const signaling = signalingRef.current;
     const mediaProvider = providerRef.current;
@@ -5791,7 +5996,9 @@ export function ClassroomV3({
     // Navigation is the visible result of ending or leaving a lesson. Provider
     // disconnects can wait on reconnecting sockets, so clean them up after the
     // route transition instead of trapping the user in the classroom.
-    router.replace(destination);
+    const closeWindow = window.classroomDesktop?.closeClassroom;
+    if (closeWindow) void closeWindow().catch(() => router.replace(destination));
+    else if (!closeBrowserClassroomWindow()) router.replace(destination);
     void signaling?.disconnect().catch((error: unknown) => {
       console.warn("[classroom:v3] signaling cleanup failed", error);
     });
@@ -5803,7 +6010,7 @@ export function ClassroomV3({
         window.location.replace(destination);
       }
     }, 1_200);
-  }, [isLeaving, parentCourseId, router]);
+  }, [isLeaving, parentCourseId, parentSessionId, router]);
 
   const endClass = useCallback(async () => {
     const current = sessionRef.current;
@@ -5977,11 +6184,7 @@ export function ClassroomV3({
   const currentSpaceMember = currentSpace?.members.find(
     (member) => member.userId === currentUserId,
   );
-  const controlsRoomMedia =
-    sessionData?.mode === "largeClass" &&
-    !isClassroomTeachingRole(sessionData.credential.role) &&
-    !acceptedStudentOnStage &&
-    Boolean(roomProvider);
+  const controlsRoomMedia = Boolean(sessionData && controlsAssignedRoomMedia({mode:sessionData.mode,role:sessionData.credential.role,roomConnected:Boolean(roomProvider),roomMember:Boolean(currentSpaceMember),studentOnStage:acceptedStudentOnStage}));
   const screenDualStreamEnabled = sessionData?.runtime.screenDualStreamEnabled === true;
   useEffect(() => {
     for (const provider of new Set([mediaProvider, roomProvider])) {
@@ -5992,8 +6195,7 @@ export function ClassroomV3({
   }, [mediaProvider, roomProvider, screenDualStreamEnabled]);
   const requiresRoomMedia =
     sessionData?.mode === "largeClass" &&
-    !isClassroomTeachingRole(sessionData.credential.role) &&
-    !acceptedStudentOnStage;
+    (sessionData.credential.role === "assistant" ? Boolean(activeSpaceId && currentSpaceMember) : sessionData.credential.role === "student" && !acceptedStudentOnStage);
   const actualControlMedia = controlsRoomMedia ? roomMedia : media;
   const controlMedia = { ...actualControlMedia, local: { ...actualControlMedia.local,
     cameraOn: mediaIntent.camera ?? actualControlMedia.local.cameraOn,
@@ -6039,6 +6241,13 @@ export function ClassroomV3({
   const screenParticipant = activeScreenShare
     ? decorateParticipant(activeScreenShare.participant)
     : undefined;
+  const annotationShares = sessionData?.runtime.composition.screenShares;
+  const annotationLease = activeScreenShare?.source === "room"
+    ? (activeSpaceId ? annotationShares?.[activeSpaceId] : undefined)
+    : annotationShares?.main;
+  const annotationScreenId = activeScreenShare
+    ? screenAnnotationSceneId(activeScreenShare.source, activeScreenShare.participant.id, annotationLease, annotationShares !== undefined)
+    : null;
   const screenParticipantProvider = activeScreenShare?.source === "room"
     ? roomProvider
     : mediaProvider;
@@ -6208,11 +6417,11 @@ export function ClassroomV3({
         : sessionData.runtime.timerDurationSec -
         (now - new Date(sessionData.runtime.timerStartedAt).getTime()) / 1000
       : null;
-  const canUseWhiteboard = Boolean(!isRecorder && (sessionData?.capabilities.canManageWhiteboard || currentMember?.whiteboardWritable));
+  const canUseWhiteboard = Boolean(!isRecorder && sessionData && (isClassroomTeachingRole(sessionData.credential.role) ? sessionData.capabilities.canManageWhiteboard : sessionData.credential.role === "student" && currentMember?.whiteboardWritable));
   useWhiteboardShortcuts(drawingController, drawingTool, setDrawingTool, Boolean(!classEnded && drawingSurfaceAvailable && canUseWhiteboard && sessionData?.whiteboard.writable), !screenParticipant);
-  const canUseMedia = requiresRoomMedia
-    ? controlsRoomMedia && Boolean(currentSpaceMember)
-    : sessionData?.credential.role !== "student" || Boolean(currentMember?.onStage && currentMember.stageState === "accepted");
+  const canUseMedia = Boolean(sessionData && (requiresRoomMedia
+    ? controlsRoomMedia && (isClassroomTeachingRole(sessionData.credential.role) || sessionData.credential.role === "student") && Boolean(currentSpaceMember)
+    : isClassroomTeachingRole(sessionData.credential.role) || (sessionData.credential.role === "student" && currentMember?.onStage && currentMember.stageState === "accepted")));
   const microphoneAllowed = controlsRoomMedia
     ? currentSpaceMember?.microphoneAllowed !== false
     : currentMember?.microphoneAllowed !== false;
@@ -6253,7 +6462,7 @@ export function ClassroomV3({
   const studentShareReady = studentScreenShareReady({publishing:studentPublishReady,screenCredential:Boolean(sessionData?.credential.screenShare),permitted:screenPermission,mayClaim:mayClaimScreen});
   const screenCredentialRefreshRef = useRef(false);
   useEffect(() => {
-    if (sessionData?.credential.role === "student" || !mainScreenPermission || sessionData?.credential.screenShare || !canUseMedia || controlsRoomMedia || isRecorder || classEnded) {
+    if (!isClassroomTeachingRole(sessionData?.credential.role) || !mainScreenPermission || sessionData?.credential.screenShare || !canUseMedia || controlsRoomMedia || isRecorder || classEnded) {
       screenCredentialRefreshRef.current = false;
       return;
     }
@@ -6280,6 +6489,7 @@ export function ClassroomV3({
     publishInvalidation(payload.runtime.revision, "runtime");
   }, [clientId, courseId, publishInvalidation, shareAccess, t, updateSession]);
   const localScreenClaimRef = useRef<{ claimId: string; spaceId?: string; provider: ClassroomMediaProvider; started: boolean } | null>(null);
+  const [localScreenClaimId, setLocalScreenClaimId] = useState("");
   const screenReleaseQueue = useRef(new ScreenShareReleaseQueue());
   const flushScreenReleases = useCallback(() => screenReleaseQueue.current.flush(requestScreenShareAction), [requestScreenShareAction]);
   useEffect(()=>sync.scheduler.register({topics:["screen-release"],background:true,interval:()=>5000,run:()=>flushScreenReleases()}),[flushScreenReleases,sync]);
@@ -6289,6 +6499,7 @@ export function ClassroomV3({
     if (!claim) return;
     screenReleaseQueue.current.add({ type: "releaseScreenShare", claimId: claim.claimId, ...(claim.spaceId && { spaceId: claim.spaceId }) });
     localScreenClaimRef.current = null;
+    setLocalScreenClaimId("");
     await flushScreenReleases();
   }, [flushScreenReleases]);
   useEffect(() => {
@@ -6297,6 +6508,24 @@ export function ClassroomV3({
       void releaseLocalScreenShare().catch(error => setActionError(error instanceof Error ? error.message : t("classroom.v3.classroomActionFailed")));
     }
   }, [media.local.screenSharing, releaseLocalScreenShare, roomMedia.local.screenSharing, t]);
+  useEffect(() => {
+    const setSharingState = window.classroomDesktop?.setSharingState;
+    if (!setSharingState) return;
+    void setSharingState(media.local.screenSharing || roomMedia.local.screenSharing).catch(() => undefined);
+  }, [media.local.screenSharing, roomMedia.local.screenSharing]);
+  useEffect(() => () => { void window.classroomDesktop?.setSharingState?.(false).catch(() => undefined); }, []);
+  useEffect(() => {
+    const update=window.classroomDesktop?.setSharingSeats;
+    if (!update || !(media.local.screenSharing || roomMedia.local.screenSharing)) return;
+    let previous="";
+    const measure=()=>{
+      const seats=document.querySelector<HTMLElement>(".classroom-v3-live-rail .classroom-v3-seats");
+      const rect=seats&&getComputedStyle(seats).display!=="none"?visibleFloatingSeatBounds(seats.getBoundingClientRect(),Array.from(seats.querySelectorAll<HTMLElement>(":scope > .classroom-v3-seat"),seat=>seat.getBoundingClientRect()),{width:window.innerWidth,height:window.innerHeight}):null;
+      const next=JSON.stringify(rect);if(next!==previous){previous=next;void update(rect).catch(()=>undefined);}
+    };
+    measure();const timer=window.setInterval(measure,1000);window.addEventListener("resize",measure);
+    return()=>{window.clearInterval(timer);window.removeEventListener("resize",measure);void update(null).catch(()=>undefined);};
+  }, [media.local.screenSharing, roomMedia.local.screenSharing]);
   const openWhiteboard = () => {
     setActivePanel(null);
     if (!sessionData?.capabilities.canManageStage) return;
@@ -6335,7 +6564,33 @@ export function ClassroomV3({
     setShareMenuOpen(false);
     void runMediaAction("screen", async provider => { await provider.stopScreenShare(); await releaseLocalScreenShare(); });
   }, [releaseLocalScreenShare, runMediaAction]);
-  const toggleScreenShare = useCallback((options?: ClassroomScreenShareOptions) => {
+  const floatingPublishReady = Boolean(controlsRoomMedia || sessionData?.credential.role !== "student" || studentPublishReady);
+  const floatingMicrophoneEnabled = Boolean(canUseMedia && !classEnded && microphoneAllowed && floatingPublishReady && !mediaBusy.includes("microphone") && !mediaBusy.includes("recover"));
+  const floatingCameraEnabled = Boolean(canUseMedia && !classEnded && (controlsRoomMedia ? currentSpaceMember?.cameraAllowed !== false : currentMember?.cameraAllowed !== false) && floatingPublishReady && !mediaBusy.includes("camera") && !mediaBusy.includes("recover"));
+  const floatingInkEnabled = Boolean(actualControlMedia.local.screenSharing && hideLocalScreenSharePreview && annotationScreenId && annotationLease && ownsScreenShare(annotationLease, currentUserId, clientId) && annotationLease.claimId === localScreenClaimId && screenAnnotationController?.insertDesktopInk && typeof window !== "undefined" && isScreenInkUrlAllowed(new URL(window.location.href)));
+  const floatingInkClaimId = annotationLease?.claimId, floatingInkSessionId = sessionData?.course.sessionId;
+  useEffect(() => {
+    if (!actualControlMedia.local.screenSharing) return;
+    void window.classroomDesktop?.setSharingControls?.({microphoneOn:actualControlMedia.local.microphoneOn,cameraOn:actualControlMedia.local.cameraOn,microphoneEnabled:floatingMicrophoneEnabled,cameraEnabled:floatingCameraEnabled,membersEnabled:Boolean(sessionData?.capabilities.canManageMembers),inkEnabled:floatingInkEnabled}).catch(() => undefined);
+  }, [actualControlMedia.local.screenSharing, actualControlMedia.local.microphoneOn, actualControlMedia.local.cameraOn, floatingMicrophoneEnabled, floatingCameraEnabled, floatingInkEnabled, sessionData?.capabilities.canManageMembers]);
+  useEffect(() => {
+    if (!floatingInkEnabled || !floatingInkClaimId || !floatingInkSessionId || !screenAnnotationController?.insertDesktopInk) return;
+    const controller=new AbortController(),claimId=floatingInkClaimId,write=screenAnnotationController.insertDesktopInk;
+    const unsubscribe=window.classroomDesktop?.onScreenInk?.(stroke=>{
+      if(controller.signal.aborted || localScreenClaimRef.current?.claimId!==claimId)return;
+      const failed=()=>{if(!controller.signal.aborted){setActionError(t("classroom.v3.classroomActionFailed"));void window.classroomDesktop?.reportScreenInkFailure?.().catch(()=>undefined);}};
+      void write(stroke,data=>uploadScreenInk(data,{sessionId:floatingInkSessionId,clientId,claimId,origin:window.location.origin,signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])})).then(ok=>{if(!ok)failed();}).catch(failed);
+    });
+    return()=>{controller.abort();unsubscribe?.();};
+  }, [floatingInkEnabled,floatingInkClaimId,floatingInkSessionId,screenAnnotationController,clientId,t]);
+  useEffect(() => window.classroomDesktop?.onSharingCommand?.(command => {
+    if (command === "stop") stopLocalSharing();
+    else if (command === "settings") setSettingsOpen(true);
+    else if (command === "members" && sessionData?.capabilities.canManageMembers) setActivePanel("members");
+    else if (command === "microphone" && floatingMicrophoneEnabled) void runMediaAction("microphone", provider => provider.toggleMicrophone());
+    else if (command === "camera" && floatingCameraEnabled) void runMediaAction("camera", provider => provider.toggleCamera());
+  }), [stopLocalSharing, floatingMicrophoneEnabled, floatingCameraEnabled, runMediaAction, sessionData?.capabilities.canManageMembers]);
+  const toggleScreenShare = (options?: ClassroomScreenShareOptions) => {
     if (!options) { setShareMenuOpen(true); return; }
     setShareMenuOpen(false);
     void runMediaAction("screen", async (provider) => {
@@ -6347,6 +6602,7 @@ export function ClassroomV3({
       const claim = { claimId: crypto.randomUUID(), provider, started: false,
         ...(provider === roomProviderRef.current && activeSpaceId ? { spaceId: activeSpaceId } : {}) };
       localScreenClaimRef.current = claim;
+      setLocalScreenClaimId(claim.claimId);
       let authorizationAttempted = false;
       try {
         await provider.startScreenShare(async () => {
@@ -6362,7 +6618,7 @@ export function ClassroomV3({
         claim.started = true;
         if (!provider.getSnapshot().local.screenSharing) await releaseLocalScreenShare();
       } catch (error) {
-        if (localScreenClaimRef.current === claim) localScreenClaimRef.current = null;
+        if (localScreenClaimRef.current === claim) { localScreenClaimRef.current = null; setLocalScreenClaimId(""); }
         if (authorizationAttempted) {
           screenReleaseQueue.current.add({ type: "releaseScreenShare", claimId: claim.claimId, ...(claim.spaceId && { spaceId: claim.spaceId }) });
           await flushScreenReleases().catch(() => undefined);
@@ -6370,7 +6626,7 @@ export function ClassroomV3({
         throw error;
       }
     });
-  }, [activeSpaceId, clientId, currentUserId, flushScreenReleases, mayClaimScreen, releaseLocalScreenShare, requestScreenShareAction, runMediaAction, screenPermission, t]);
+  };
   const roomPermissionKey = currentSpaceMember
     ? `${currentSpaceMember.cameraAllowed}:${currentSpaceMember.screenShareAllowed}` : "";
   useEffect(() => {
@@ -6402,10 +6658,52 @@ export function ClassroomV3({
     });
     return () => controller.abort();
   }, [activeSpaceId, classEnded, clientId, controlsRoomMedia, courseId, roomPermissionKey, roomProvider, shareAccess, t]);
-  const chatDisabled =
-    !sessionData?.runtime.chatEnabled ||
-    Boolean(currentMember?.chatMuted) ||
-    isRecorder;
+  const chatDisabled = isRecorder || Boolean(classEnded) || !classroomMaySendChat(
+    sessionData?.credential.role,
+    sessionData?.runtime.chatEnabled === true,
+    Boolean(currentMember?.chatMuted),
+  );
+  const sharingChatRoomId = selectedChatSpaceId;
+  const sharingChatTeaching = isClassroomTeachingRole(sessionData?.credential.role);
+  const sharingChatActive = media.local.screenSharing || roomMedia.local.screenSharing;
+  const [sharingTranslationPreference] = useTranslationPreference(currentUserId);
+  const sharingChatMessages = useMemo(() => {
+    const counts = {classroom: 0, room: 0, staff: 0};
+    return [...(sessionData?.messages || []), ...pendingMessages].reverse().filter(message => {
+      if (message.deletedAt || message.scope === "direct") return false;
+      if (message.scope === "staff" && !sharingChatTeaching) return false;
+      if (message.scope === "room" && (!sharingChatRoomId || message.spaceId !== sharingChatRoomId)) return false;
+      return ++counts[message.scope] <= 100;
+    }).reverse();
+  }, [sessionData?.messages, pendingMessages, sharingChatRoomId, sharingChatTeaching]);
+  const sharingTranslations = useChatTranslations(courseId, sharingChatMessages, translationTarget(sharingTranslationPreference.target, locale), Boolean(sharingChatActive && sharingTranslationPreference.enabled && typeof window !== "undefined" && window.classroomDesktop?.setSharingChatSnapshot), shareAccess, currentUserId);
+  useEffect(() => {
+    if (!sharingChatActive) return;
+    const messages = sharingChatMessages.map(message => ({id: message.id, name: message.senderName, content: message.content, kind: message.kind, scope: message.scope, translation: sharingTranslationPreference.enabled && message.kind === "text" ? distinctTranslation(message.content, sharingTranslations.translations[message.id]?.text) : null}));
+    const translatable = sharingChatMessages.filter(message => message.kind === "text" && !message.id.startsWith("optimistic:"));
+    const translationState = !sharingTranslationPreference.enabled ? "off" : sharingTranslations.unavailable ? "unavailable" : translatable.some(message => sharingTranslations.translations[message.id]?.status === "failed") ? "failed" : translatable.some(message => !sharingTranslations.translations[message.id] || sharingTranslations.translations[message.id]?.status === "pending") ? "pending" : "ready";
+    const channels = [{scope: "classroom" as const, spaceId: null}, ...(sharingChatRoomId ? [{scope: "room" as const, spaceId: sharingChatRoomId}] : []), ...(sharingChatTeaching ? [{scope: "staff" as const, spaceId: null}] : [])];
+    void window.classroomDesktop?.setSharingChatSnapshot?.({disabled: chatDisabled, channels, messages, translationState}).catch(() => undefined);
+  }, [sharingChatActive, sharingChatMessages, sharingTranslationPreference.enabled, sharingTranslations.translations, sharingTranslations.unavailable, chatDisabled, sharingChatRoomId, sharingChatTeaching]);
+  useEffect(() => window.classroomDesktop?.onSharingChatTranslationRetry?.(sharingTranslations.retry), [sharingTranslations.retry]);
+  useEffect(() => window.classroomDesktop?.onSharingChatSend?.(request => {
+    const scope = request.scope || "classroom";
+    const allowed = scope === "classroom" || (scope === "staff" && sharingChatTeaching) || (scope === "room" && Boolean(sharingChatRoomId) && request.spaceId === sharingChatRoomId);
+    if (!allowed) { void window.classroomDesktop?.reportSharingChatResult?.(request.id, false); return; }
+    void sendMessage(request.text, {clientMessageId: request.clientMessageId || request.id, scope, spaceId: scope === "room" ? sharingChatRoomId : null}).then(ok => window.classroomDesktop?.reportSharingChatResult?.(request.id, ok)).catch(() => window.classroomDesktop?.reportSharingChatResult?.(request.id, false));
+  }), [sendMessage, sharingChatRoomId, sharingChatTeaching]);
+  useEffect(() => window.classroomDesktop?.onSharingChatImage?.(request => {
+    void (async () => {
+      const visible = () => sessionRef.current?.messages.some(message => message.id === request.messageId && (message.scope === "classroom" || (message.scope === "staff" && sharingChatTeaching) || (message.scope === "room" && Boolean(sharingChatRoomId) && message.spaceId === sharingChatRoomId)) && message.kind === "image" && !message.deletedAt);
+      if (!visible()) return null;
+      const query = shareAccess ? `?shareAccess=${encodeURIComponent(shareAccess)}` : "";
+      const response = await fetch(`/api/sessions/${encodeURIComponent(courseId)}/classroom/messages/${encodeURIComponent(request.messageId)}/image${query}`, {signal: AbortSignal.timeout(10000), cache: "no-store"});
+      if (!response.ok || !response.headers.get("content-type")?.toLowerCase().startsWith("image/webp")) return null;
+      const blob = await response.blob();
+      if (blob.size > 5 * 1024 * 1024 || !visible()) return null;
+      return await new Promise<string | null>(resolve => {const reader = new FileReader();reader.onload = () => resolve(typeof reader.result === "string" && visible() ? reader.result : null);reader.onerror = () => resolve(null);reader.readAsDataURL(blob);});
+    })().catch(() => null).then(data => window.classroomDesktop?.reportSharingChatImage?.(request.id, data)).catch(() => undefined);
+  }), [courseId, shareAccess, sharingChatRoomId, sharingChatTeaching]);
   const promotedQuestion = sessionData?.questions.find(
     (question) => question.status === "promoted",
   ) || null;
@@ -6451,7 +6749,14 @@ export function ClassroomV3({
   const backFromEntry = () => {
     liveRequestsRef.current?.abort();
     const parentCourseId = sessionData?.course.id || legacyCourseId;
-    router.replace(parentCourseId ? `/courses/${encodeURIComponent(parentCourseId)}` : "/?view=courses");
+    const destination = parentCourseId ? courseWorkspacePath(parentCourseId, sessionData?.course.sessionId) : "/?view=courses";
+    const closeWindow = window.classroomDesktop?.closeClassroom;
+    if (closeWindow) {
+      void closeWindow().catch(() => router.replace(destination));
+      window.setTimeout(() => { if (window.location.pathname === "/classroom") router.replace(destination); }, 1_200);
+    } else if (closeBrowserClassroomWindow()) {
+      window.setTimeout(() => { if (window.location.pathname === "/classroom") router.replace(destination); }, 1_200);
+    } else router.replace(destination);
   };
   if (loadingState === "device-choice" || loadingState === "device-replaced") {
     return <ClassroomDeviceEntry replaced={loadingState === "device-replaced"} devices={otherDevices}
@@ -6479,12 +6784,12 @@ export function ClassroomV3({
       onBack={backFromEntry} />;
   }
 
-  const openActivityTools = () => { setActivePanel("chat"); if (sessionData.credential.role === "student") window.dispatchEvent(new CustomEvent(ACTIVITY_OPEN_EVENT, { detail: { sessionId: courseId } })); else setActivityCreateRequest(value => value + 1); };
+  const openActivityTools = () => { setActivePanel("chat"); if (sessionData.credential.role === "student") window.dispatchEvent(new CustomEvent(ACTIVITY_OPEN_EVENT, { detail: { sessionId: courseId } })); else if (isClassroomTeachingRole(sessionData.credential.role)) setActivityCreateRequest(value => value + 1); };
   const minimalFunctionActions: ClassroomHeaderMenuAction[] = [
     ...(!classEnded && sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage ? [{ id: "student-screens", label: t("classroomMultiShare.title"), icon: <MonitorUp />, onSelect: () => { setStudentSharesOpen(true); } }] : []),
           ...(sessionData.capabilities.canManageMembers ? [{ id: "members", label: t("classroomRoster.openMembers"), icon: <Users />, onSelect: () => setActivePanel("members") }] : []),
           { id: "settings", compactOnly: true, label: t("classroom.v3.deviceSettings"), icon: <Settings2 />, onSelect: () => setSettingsOpen(true) },
-          ...(!classEnded ? [
+          ...(!classEnded && sessionData.credential.role !== "observer" ? [
             { id: "assistant", label: t(assistantVisible ? "classroomWorkspace.hideAssistant" : "classroomWorkspace.showAssistant"), icon: <Sparkles />, checked: assistantVisible, onSelect: () => setAssistantVisible(value => !value) },
           ] : []),
           { id: "layout", label: t("classroomMinimal.layout"), icon: <LayoutGrid />, children: [
@@ -6504,11 +6809,11 @@ export function ClassroomV3({
   const minimalOperationActions: ClassroomHeaderMenuAction[] = [
     ...(!classEnded ? [
             { id: "courseware", label: t("classroom.v3.courseware"), icon: <BookOpen />, onSelect: () => setActivePanel("courseware") },
-            { id: "interaction", label: t("classroomMinimal.interaction"), icon: <Zap />, children: [
+            ...(sessionData.credential.role !== "observer" ? [{ id: "interaction", label: t("classroomMinimal.interaction"), icon: <Zap />, children: [
               { id: "activities", label: t("activities.title"), icon: <ClipboardList />, onSelect: openActivityTools },
               { id: "questions", label: t("classroom.v3.questions"), icon: <MessageCircle />, onSelect: () => setActivePanel("questions") },
               { id: "engagement", label: t("classroomMinimal.interaction"), icon: <Zap />, onSelect: () => setActivePanel("engagement") },
-            ] },
+            ] }] : []),
     ] : []),
     ...(isScreenShareAllowed && (screenShareSupported || controlMedia.local.screenSharing) ? [{ id: "share", compactOnly: true, label: t(controlMedia.local.screenSharing ? "classroom.v3.stopSharing" : "classroom.v3.screenShare"), icon: controlMedia.local.screenSharing ? <ScreenShareOff /> : <MonitorUp />, disabled: screenShareBusy, onSelect: () => { if (controlMedia.local.screenSharing) stopLocalSharing(); else toggleScreenShare(); } }] : []),
     ...(controlMedia.local.screenSharing ? [
@@ -6709,7 +7014,7 @@ export function ClassroomV3({
                   ? t("classroom.v3.leadRoleHint")
                   : sessionData.credential.role === "assistant"
                     ? t("classroom.v3.assistantRoleHint")
-                    : t("classroom.v3.studentRoleHint")
+                    : sessionData.credential.role === "observer" ? t("classroom.v3.observerRoleHint") : t("classroom.v3.studentRoleHint")
               }
             >
               {sessionData.credential.role === "student" ? (
@@ -6945,7 +7250,7 @@ export function ClassroomV3({
             </div>
             <div>
               {!isRecorder && !classEnded && sessionData.capabilities.canManageMembers && sessionData.modePolicy.studentCanShareWhenOnStage && hasStudentShares && <button type="button" aria-expanded={studentSharesOpen} onClick={() => { setStudentSharesOpen(value => !value); }}><MonitorUp /><span>{t("classroomMultiShare.title")} · {studentShareCount}</span></button>}
-              {!isRecorder && !classEnded && sessionData.mode !== "publicLive" && <ActivityNotice sessionId={courseId} shareAccess={shareAccess} onOpen={openActivityTools} />}
+              {!isRecorder && !classEnded && sessionData.credential.role !== "observer" && sessionData.mode !== "publicLive" && <ActivityNotice sessionId={courseId} shareAccess={shareAccess} onOpen={openActivityTools} />}
               {!isRecorder &&
                 !screenParticipant &&
                 !showWhiteboard &&
@@ -7182,13 +7487,21 @@ export function ClassroomV3({
                       showCaption={!isRecorder}
                     />
                   )}
-                  {!hideLocalScreenSharePreview && (
+                  {annotationScreenId && (
                     <ScreenShareAnnotations
+                      key={readyInkContext===inkContextScope ? "ink-context-ready" : "ink-context-pending"}
                       app={whiteboardApp}
-                      screenId={`${activeScreenShare?.source}-${screenParticipant.participant.id}`}
+                      screenId={annotationScreenId}
                       writable={sessionData.whiteboard.writable && canUseWhiteboard}
+                      hidden={hideLocalScreenSharePreview}
                       onControllerChange={setScreenAnnotationController}
                     />
+                  )}
+                  {!isRecorder && isClassroomTeachingRole(sessionData.credential.role) && annotationLease &&
+                    classroomMembers.some(member => member.userId === annotationLease.userId && member.role === "student") && (
+                    <TeacherRemoteControl key={annotationLease.claimId} sessionId={courseId} clientId={clientId}
+                      teacherId={currentUserId} studentId={annotationLease.userId} claimId={annotationLease.claimId}
+                      shareAccess={shareAccess} locale={locale} publishHint={publishRemoteHint} publishInput={publishRemoteInput} />
                   )}
                 </motion.div>
               ) : null}
@@ -7362,7 +7675,7 @@ export function ClassroomV3({
               </button>
             ) : null}
           </div>
-          {!isRecorder && !classEnded && <TeacherAssistant
+          {!isRecorder && !classEnded && sessionData.credential.role !== "observer" && <TeacherAssistant
             key={assistantConversationKey(sessionData.course.sessionId, currentUserId)}
             sessionId={sessionData.course.sessionId}
             teacher={classroomAssistantTeacher(sessionData.course, classroomMembers)}
@@ -7421,10 +7734,10 @@ export function ClassroomV3({
           )}
         </section>
         <AnimatePresence initial={false}>
-            {activePanel && !studentSharesOpen && (
               <motion.aside
-                key={conversationOpen ? "conversation" : activePanel}
+                key="classroom-drawer"
                 className="classroom-v3-drawer"
+                hidden={!activePanel || studentSharesOpen}
                 aria-label={conversationOpen ? t("classroomWorkspace.conversation") : undefined}
                 data-conversation={conversationOpen}
                 data-panel={activePanel}
@@ -7491,7 +7804,7 @@ export function ClassroomV3({
                   <QuestionsPanel
                     questions={sessionData.questions}
                     role={sessionData.credential.role}
-                    spaceId={activeSpaceId || sessionData.spaces.find((space) => space.isAssigned)?.id || null}
+                    spaceId={selectedChatSpaceId}
                     busy={Boolean(actionBusy)}
                     onAsk={askQuestion}
                     onAction={(questionId, action, answer) =>
@@ -7499,15 +7812,15 @@ export function ClassroomV3({
                     }
                   />
                 )}
-                {conversationOpen && <section id="conversation-chat" role="tabpanel" aria-labelledby="conversation-tab-chat" hidden={activePanel !== "chat"} className="classroom-conversation-content">
-                  <TestChatPanel visible={activePanel === "chat"}
-                    sessionId={courseId} translationLanguage={effectiveCaptionLanguage} shareAccess={shareAccess}
+                {!isRecorder && <section id="conversation-chat" role="tabpanel" aria-labelledby="conversation-tab-chat" hidden={activePanel !== "chat" || studentSharesOpen} className="classroom-conversation-content">
+                  <TestChatPanel visible={activePanel === "chat" && !studentSharesOpen}
+                    sessionId={courseId} shareAccess={shareAccess}
                     students={sessionData.runtime.members.filter(member => member.role === "student")}
                     messages={[...sessionData.messages, ...pendingMessages]}
                     currentUserId={currentUserId}
                     role={sessionData.credential.role}
                     spaces={sessionData.spaces}
-                    activeSpaceId={activeSpaceId}
+                    activeSpaceId={selectedChatSpaceId}
                     canManage={sessionData.capabilities.canManageChat}
                     disabled={chatDisabled}
                     onSend={sendMessage}
@@ -7614,7 +7927,6 @@ export function ClassroomV3({
                   />
                 )}
               </motion.aside>
-            )}
         </AnimatePresence>
       </section>
 
@@ -8011,6 +8323,19 @@ export function ClassroomV3({
 
       <ClassroomAwardNotice key={sessionData.course.sessionId} sessionId={sessionData.course.sessionId}
         members={sessionData.runtime.members} viewerId={currentUserId} disabled={isRecorder || classEnded} />
+      {requestedRemote && (!desktopControlAvailable || remoteDesktopRequestError) && (
+        <div className="classroom-v3-invite is-screen-share" role="status">
+          <span><MonitorUp /></span>
+          <div><strong>{remoteControlCopy(locale).title}</strong><p>{desktopControlAvailable ? remoteControlCopy(locale).requestFailed : remoteControlCopy(locale).desktopOnly}</p></div>
+          <button type="button" disabled={remoteDeclineBusy} onClick={() => {
+            if (remoteDeclineBusy) return;
+            if (remoteDeclineId.current?.grantId !== requestedRemote.id) remoteDeclineId.current={grantId:requestedRemote.id,commandId:crypto.randomUUID()};
+            setRemoteDeclineBusy(true);
+            void remoteControl.command({action:"respond",grantId:requestedRemote.id,accept:false,commandId:remoteDeclineId.current.commandId})
+              .catch(()=>setActionError(remoteControlCopy(locale).declineFailed)).finally(()=>setRemoteDeclineBusy(false));
+          }}>{remoteControlCopy(locale).decline}</button>
+        </div>
+      )}
       <AnimatePresence>
         {!isRecorder &&
           currentMember?.screenShareState === "requested" && (

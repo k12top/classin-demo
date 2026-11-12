@@ -2,6 +2,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BarChart3, ChevronDown, RefreshCw } from "lucide-react";
 import { useTranslation } from "@/lib/i18n/context";
+import { useTimeZone } from "@/lib/use-time-zone";
+import { replayPreviewActivityUrl } from "@/lib/classroom/use-activity-detail";
+import { activityDisplayTime } from "@/lib/classroom/activity-display-time";
 import { activityOverviewCopy } from "@/lib/classroom/activity-overview-copy";
 import type { ActivityOverview } from "@/lib/classroom/activity-overview";
 import { ClassroomSyncBoundary, useActivityVersionWatch, useClassroomJsonRead, useClassroomSyncTask } from "@/lib/classroom/use-classroom-sync";
@@ -11,11 +14,13 @@ import { ActivityOverviewCharts } from "./activity-overview-charts";
 import type { QuestionChartRow } from "@/lib/classroom/activity-chart-model";
 import styles from "./activity-overview.module.css";
 
-export function ActivityDashboard(props: { sessionId: string; shareAccess?: string | null; review?: boolean }) {
-  return <ClassroomSyncBoundary sessionId={props.sessionId}><ActivityDashboardSession key={`${props.sessionId}:${props.shareAccess || ""}`} {...props} /></ClassroomSyncBoundary>;
+type ActivityDashboardProps = { sessionId: string; shareAccess?: string | null; review?: boolean; previewStudentId?: string | null; canSeekActivity?: (startedAt:string)=>boolean; onSeekActivity?: (startedAt:string,id:string)=>void };
+export function ActivityDashboard(props: ActivityDashboardProps) {
+  return <ClassroomSyncBoundary sessionId={props.sessionId}><ActivityDashboardSession key={`${props.sessionId}:${props.shareAccess || ""}:${props.previewStudentId || ""}`} {...props} /></ClassroomSyncBoundary>;
 }
-function ActivityDashboardSession({ sessionId, shareAccess, review = false }: { sessionId: string; shareAccess?: string | null; review?: boolean }) {
+function ActivityDashboardSession({ sessionId, shareAccess, review = false, previewStudentId, canSeekActivity, onSeekActivity }: ActivityDashboardProps) {
   const { locale, t } = useTranslation(), c = activityOverviewCopy(locale), read = useClassroomJsonRead(sessionId);
+  const {timeZone}=useTimeZone();
   const [data, setData] = useState<ActivityOverview | null>(null), [error, setError] = useState(false), [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<"activities" | "students">("activities"), [search, setSearch] = useState(""), [selected, setSelected] = useState<string | undefined>();
   const generation = useRef(0);
@@ -25,11 +30,11 @@ function ActivityDashboardSession({ sessionId, shareAccess, review = false }: { 
   const reload = useCallback(async (signal?: AbortSignal) => {
     const current = ++generation.current; setBusy(true);
     const params = new URLSearchParams({ overview: "1" }); if (shareAccess) params.set("shareAccess", shareAccess);
-    try { const value = await read<ActivityOverview>(`/api/sessions/${encodeURIComponent(sessionId)}/classroom/activities?${params}`, { signal }); if (!signal?.aborted && current === generation.current) { setData(value); setError(false); } }
-    catch (failure) { if (!signal?.aborted && current === generation.current) setError(true); throw failure; }
+    try { const value = await read<ActivityOverview>(previewStudentId?replayPreviewActivityUrl(sessionId,previewStudentId):`/api/sessions/${encodeURIComponent(sessionId)}/classroom/activities?${params}`, { signal }); if (!signal?.aborted && current === generation.current) { setData(value); setError(false); } }
+    catch (failure) { if (!signal?.aborted && current === generation.current) { const status=(failure as {status?:number})?.status; if(status===401||status===403||status===404){setData(null);setSelected(undefined);setSearch("");} setError(true); } throw failure; }
     finally { if (current === generation.current) setBusy(false); }
-  }, [sessionId, shareAccess, read]);
-  useClassroomSyncTask({ sessionId, taskKey: `activity-overview:${shareAccess || ""}`, topics: ["activities", "resume"], realtimeMs: review ? 30000 : 60000, fallbackMs: review ? 30000 : 5000, run: reload });
+  }, [sessionId, shareAccess, read, previewStudentId]);
+  useClassroomSyncTask({ sessionId, taskKey: `activity-overview:${shareAccess || ""}:${previewStudentId || ""}`, topics: ["activities", "resume"], realtimeMs: review ? 30000 : 60000, fallbackMs: review ? 30000 : 5000, run: reload });
   useEffect(() => () => { generation.current++; }, [reload]);
   const percent = (value: number | null) => value === null ? "—" : `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value)}%`;
   const activeId = selected ?? data?.activities.find(activity => activity.status === "active")?.id;
@@ -44,8 +49,8 @@ function ActivityDashboardSession({ sessionId, shareAccess, review = false }: { 
   const students = (data?.students || []).filter(student => student.displayName.toLocaleLowerCase(locale).includes(search.toLocaleLowerCase(locale)));
   return <section className={`${styles.panel} ${review ? styles.review : ""}`} data-activity-dashboard aria-label={review ? c.history : c.dashboard}>
     <header className={styles.header}><h3><BarChart3 aria-hidden="true" />{review ? data && !data.canManage ? c.mine : c.history : c.dashboard}</h3><button type="button" onClick={() => void reload().catch(() => undefined)} disabled={busy} aria-label={c.refresh}><RefreshCw aria-hidden="true" /></button></header>
-    {error && <p className={styles.error} role="status">{c.failed} <button onClick={() => void reload().catch(() => undefined)} disabled={busy}>{c.retry}</button></p>}
-    {!data ? <p role="status">{c.loading}</p> : <>
+    {error && <p className={styles.error} role="status">{data ? c.failed : c.failedInitial} <button onClick={() => void reload().catch(() => undefined)} disabled={busy}>{c.retry}</button></p>}
+    {!data ? !error && <p role="status">{c.loading}</p> : <>
       <p className={styles.hint}>{data.canManage ? c.teacherHint : c.studentHint}</p>
       <dl className={styles.metrics} aria-label={c.overview}>
         <div><dt>{c.activities} / {c.questions}</dt><dd>{data.activityCount} / {data.questionCount}</dd></div>
@@ -65,12 +70,13 @@ function ActivityDashboardSession({ sessionId, shareAccess, review = false }: { 
         {!data.activities.length && <p className={styles.hint}>{c.empty}</p>}
         {data.activities.map(activity => <article className={styles.activity} key={activity.id}>
           <button type="button" className={styles.activityButton} aria-expanded={activeId === activity.id} onClick={() => setSelected(activeId === activity.id ? "" : activity.id)}>
-            <span className={styles.activityTitle}>{activity.title}<small>{t(`activities.${activity.kind}`)} · {t(`activities.${activity.status}`)}{activity.startedAt && <> · {new Date(activity.startedAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}</>}</small></span><ChevronDown aria-hidden="true" />
+            <span className={styles.activityTitle}>{activity.title}<small>{t(`activities.${activity.kind}`)} · {t(`activities.${activity.status}`)}{activity.startedAt && <> · <time dateTime={activity.startedAt} title={timeZone}>{activityDisplayTime(activity.startedAt,locale,timeZone)}</time></>}</small></span><ChevronDown aria-hidden="true" />
           </button>
           <div className={styles.activityNumbers}>{activity.status === "cancelled" ? <span>{c.cancelled}</span> : <><span>{data.canManage ? c.responseCount : activity.responseCount ? c.answered : c.noAnswer}{data.canManage && <> {activity.responseCount} / {data.studentCount}</>}</span><span>{c.accuracy} {percent(activity.accuracy)}</span>{activity.quality.pending > 0 && <span>{c.pending} {activity.quality.pending}</span>}{activity.quality.withheld > 0 && <span>{c.withheld}</span>}</>}</div>
+          {review&&onSeekActivity&&activity.startedAt&&<button type="button" className={styles.seekActivity} disabled={!canSeekActivity?.(activity.startedAt)} title={!canSeekActivity?.(activity.startedAt)?c.noPlayableRecording:undefined} onClick={()=>onSeekActivity(activity.startedAt!,activity.id)}>{c.jumpRecording}</button>}
           {activeId === activity.id && <>
             {activity.questionCount > 1 && <ol className={styles.questionStats}>{activity.questions.map(question => <li key={question.id}><MarkdownContent content={question.prompt} /><span>{c.accuracy} {percent(question.accuracy)} · {c.graded} {question.quality.correct + question.quality.incorrect + question.quality.partial}{question.quality.pending > 0 && <> · {c.pending} {question.quality.pending}</>}</span></li>)}</ol>}
-            <ActivityHistoryDetail key={activity.id} sessionId={sessionId} activityId={activity.id} shareAccess={shareAccess} canManage={data.canManage} />
+            <ActivityHistoryDetail key={activity.id} sessionId={sessionId} activityId={activity.id} shareAccess={shareAccess} canManage={data.canManage} previewStudentId={previewStudentId} />
           </>}
         </article>)}
       </div>}

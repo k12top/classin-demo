@@ -1,0 +1,14 @@
+"use client";
+import {useEffect,useState} from "react";
+import {workspaceRequest} from "@/lib/workspace-client";
+import {Dialog,DialogContent,DialogDescription,DialogTitle} from "@/components/ui/dialog";
+import {CourseAssignmentResponses} from "./course-assignment-responses";
+import {courseWorkspaceText as text} from "./course-workspace-copy";
+import styles from "./course-workspace.module.css";
+type Assignment={id:string;title:string;description:string;dueDate:string|null;programId:string|null;unitId:string|null};
+export function CourseAssignmentStudentDirect({courseId,assignmentId,locale,onResolved,onClose}:{courseId:string;assignmentId:string;locale:string;onResolved:(value:Assignment)=>void;onClose:()=>void}){
+ const [item,setItem]=useState<Assignment|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(false),[retry,setRetry]=useState(0),[busy,setBusy]=useState(false),[dirty,setDirty]=useState(false);
+ useEffect(()=>{const controller=new AbortController();queueMicrotask(()=>{if(controller.signal.aborted)return;setLoading(true);setError(false);void workspaceRequest<{assignment:Assignment}>(`/api/courses/${encodeURIComponent(courseId)}/published-assignments/${encodeURIComponent(assignmentId)}`,{signal:controller.signal}).then(value=>{if(!controller.signal.aborted){setItem(value.assignment);onResolved(value.assignment);}}).catch(()=>{if(!controller.signal.aborted){setItem(null);setError(true);}}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});});return()=>controller.abort();},[courseId,assignmentId,onResolved,retry]);
+ useEffect(()=>{if(!dirty&&!busy)return;const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue="";};window.addEventListener("beforeunload",warn);return()=>window.removeEventListener("beforeunload",warn);},[dirty,busy]);
+ return <Dialog open onOpenChange={open=>{if(!open&&!busy&&(!dirty||window.confirm(text(locale,"当前编辑尚未保存，关闭后内容将丢失。确定关闭吗？","Your changes are not saved. Close and discard them?"))))onClose();}}><DialogContent className={styles.dialog}><DialogTitle>{item?.title||text(locale,"已发布作业","Published assignments")}</DialogTitle><DialogDescription>{item?.dueDate?`${text(locale,"截止日期","Due date")}: ${item.dueDate}`:text(locale,"已发布作业","Published assignments")}</DialogDescription>{loading&&<p role="status">{text(locale,"正在加载作业…","Loading assignments…")}</p>}{error&&<p role="alert">{text(locale,"作业加载失败","Unable to load assignments")} <button type="button" onClick={()=>setRetry(value=>value+1)}>{text(locale,"重试","Retry")}</button></p>}{item&&<><p className={styles.assignmentDescription}>{item.description||text(locale,"暂无作业说明","No instructions provided.")}</p><CourseAssignmentResponses courseId={courseId} assignmentId={assignmentId} locale={locale} onBusy={setBusy} onDirtyChange={setDirty}/></>}</DialogContent></Dialog>;
+}

@@ -54,3 +54,19 @@ test("switching lessons aborts late results, and published results do not trigge
   });
   assert.equal(calls, 1);
 });
+
+test("an ended lesson without final captions waits before asking to generate again", async () => {
+  const controller = new AbortController();
+  let reads = 0, posts = 0;
+  const watch = watchCourseSessionSummary({ sessionId: "lesson", ended: true, signal: controller.signal, intervalMs: 1, idleIntervalMs: 500,
+    onStatus: () => {}, onUnavailable: () => assert.fail(),
+    fetchImpl: async (_url, init) => {
+      if (init?.method === "POST") posts++; else reads++;
+      return Response.json({ summary: null, generation: null, canManage: true });
+    },
+  });
+  await new Promise(resolve => setTimeout(resolve, 30));
+  controller.abort();
+  await watch;
+  assert.equal(reads, 1); assert.equal(posts, 1);
+});

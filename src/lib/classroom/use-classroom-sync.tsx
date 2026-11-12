@@ -43,16 +43,16 @@ export function ClassroomSyncBoundary({ sessionId, children }: { sessionId: stri
 export function useClassroomSyncTask(input: {
   sessionId: string; taskKey: string; topics: string[]; run: (signal: AbortSignal) => Promise<unknown>;
   active?: boolean; realtimeMs?: number | null; fallbackMs?: number | null; background?: boolean;
-  wakeAt?: number;
+  wakeAt?: number; maxRetryMs?: number;
 }) {
   const sync = useSync(input.sessionId), latest = useRef(input);
   useLayoutEffect(() => { latest.current = input; });
-  const { active = true, realtimeMs = 60_000, fallbackMs = 5_000, background = false, taskKey, wakeAt } = input;
+  const { active = true, realtimeMs = 60_000, fallbackMs = 5_000, background = false, taskKey, wakeAt, maxRetryMs } = input;
   useEffect(() => {
     if (!active) return;
     return sync.scheduler.register({ topics: [...latest.current.topics, ...((realtimeMs !== null || fallbackMs !== null) ? ["transport"] : [])], run: signal => latest.current.run(signal),
-      interval: ready => ready ? realtimeMs : fallbackMs, background, wakeAt });
-  }, [sync, input.sessionId, taskKey, active, realtimeMs, fallbackMs, background, wakeAt]);
+      interval: ready => ready ? realtimeMs : fallbackMs, background, wakeAt, maxRetryMs });
+  }, [sync, input.sessionId, taskKey, active, realtimeMs, fallbackMs, background, wakeAt, maxRetryMs]);
   return sync;
 }
 
@@ -62,7 +62,7 @@ export function useClassroomJsonRead(sessionId: string) {
     const load = async (signal: AbortSignal) => {
       const response = await fetch(url, { cache: "no-store", ...init, signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]) });
       const value = await response.json().catch(() => null);
-      if (!response.ok || !value) throw new Error(value?.error || `HTTP ${response.status}`);
+      if (!response.ok || !value) throw Object.assign(new Error(value?.error || `HTTP ${response.status}`), { status: response.status });
       return value as T;
     };
     if (init?.method && init.method !== "GET") return load(init.signal || new AbortController().signal);

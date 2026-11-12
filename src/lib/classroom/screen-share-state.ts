@@ -27,6 +27,7 @@ export function canShareClassroomScreen(input: {
 }): boolean {
   if (input.role === "teacher") return true;
   if (input.role === "assistant") return true;
+  if (input.role !== "student") return false;
   return Boolean(input.studentSharingSupported && input.member?.onStage &&
     input.member.stageState === "accepted" && input.member.screenShareState === "accepted");
 }

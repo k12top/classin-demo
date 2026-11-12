@@ -20,6 +20,7 @@ export default function ActivityEChart({ model, locale, onSelect }: ActivityECha
     const host = container.current, chart = instance.current;
     if (!host || !chart) return;
     const update = () => {
+      if (chart.isDisposed()) return;
       const style = getComputedStyle(host), palette = Object.fromEntries(qualityKeys.map(key => [key, style.getPropertyValue(`--chart-${key}`).trim()])) as ActivityChartPalette;
       palette.ink = style.color; palette.line = style.borderTopColor; palette.background = style.backgroundColor; palette.accent = style.getPropertyValue("--chart-accent").trim();
       chart.resize(); chart.setOption(activityChartOption(model, palette, locale, host.clientWidth), { notMerge: true });
@@ -30,7 +31,7 @@ export default function ActivityEChart({ model, locale, onSelect }: ActivityECha
     const shell = host.closest(".classroom-v3-shell"); if (shell) theme.observe(shell, { attributes: true, attributeFilter: ["class", "style"] });
     const select = (event: ECElementEvent) => { if (event.componentType === "series" && typeof event.dataIndex === "number") onSelect?.(event.dataIndex); };
     if (onSelect) chart.on("click", select);
-    return () => { resize.disconnect(); theme.disconnect(); chart.off("click", select); };
+    return () => { resize.disconnect(); theme.disconnect(); if (!chart.isDisposed()) chart.off("click", select); };
   }, [model, locale, onSelect]);
   return <div ref={container} className={styles.echart} data-overview-echart={model.kind} />;
 }

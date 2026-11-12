@@ -71,3 +71,9 @@ test("submitted-only release offers viewing rather than editing in the student c
   const html = render(React.createElement(ActivityChatCard, { activity: data, initialDetail: data, sessionId: "feedback", student: true, onChanged() {}, onManage() {} }));
   assert.match(html, />查看答案<\/button>/); assert.doesNotMatch(html, />修改<\/button>/);
 });
+test("observer interaction cards show no teacher or answer controls",()=>{
+ const data={...detail(q,null),resultsVisible:false};
+ const html=render(React.createElement(ActivityChatCard,{activity:data,initialDetail:data,sessionId:"feedback",student:false,readOnly:true,onChanged(){},onManage(){}}));
+ assert.match(html,/2 \+ 2 =/);
+ assert.doesNotMatch(html,/<button|老师专属|正确答案|下发答案|提醒作答/);
+});

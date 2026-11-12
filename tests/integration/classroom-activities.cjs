@@ -163,7 +163,7 @@ async function run() {
     assert.equal((await api.activityDetail(student, made.id)).ownResponse.feedback, "Good explanation");
     checks.push("authoritative deadlines, lesson-end closure and durable after-class results");
     const report = { passed: true, evidence: "production activity service against isolated PostgreSQL 16; authentication actor boundary supplied by harness", checks };
-    const dir = path.resolve(__dirname, "../../clients/desktop/dist/verification"); await fs.mkdir(dir, { recursive: true }); await fs.writeFile(path.join(dir, "activities-database.json"), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report));
+    const dir = process.env.CLASSROOM_ACTIVITY_REPORT_DIR || path.resolve(__dirname, "../../clients/desktop/dist/verification"); await fs.mkdir(dir, { recursive: true }); await fs.writeFile(path.join(dir, "activities-database.json"), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report));
   } finally { await h.close(); }
 }
 run().then(() => process.exit(0), e => { console.error(e); process.exit(1); });

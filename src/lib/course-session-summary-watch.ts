@@ -13,16 +13,17 @@ export function summaryGenerationActive(generation: SummaryGenerationState | nul
 
 /** Metadata-only polling never reloads the transcript or waits on model requests. */
 export async function watchCourseSessionSummary<T extends Summary>({ sessionId, ended, signal, onStatus, onUnavailable,
-  fetchImpl = fetch, intervalMs = 2_000 }: {
+  fetchImpl = fetch, intervalMs = 2_000, idleIntervalMs = 30_000 }: {
   sessionId: string; ended: boolean; signal: AbortSignal;
   onStatus: (status: SummaryStatusPayload<T>) => void;
   onUnavailable: () => void;
-  fetchImpl?: typeof fetch; intervalMs?: number;
+  fetchImpl?: typeof fetch; intervalMs?: number; idleIntervalMs?: number;
 }) {
   const url = `/api/sessions/${encodeURIComponent(sessionId)}/summary`;
   let ensured = false;
   let failures = 0;
   while (!signal.aborted) {
+    let waitMs = intervalMs;
     try {
       const response = await fetchImpl(`${url}?summaryOnly=1`, { cache: "no-store", credentials: "same-origin", signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]) });
       if (!response.ok) {
@@ -40,7 +41,10 @@ export async function watchCourseSessionSummary<T extends Summary>({ sessionId, 
           body: JSON.stringify({ action: "ensure" }), signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]) });
         if (!queued.ok) throw new Error("summary_queue_unavailable");
         payload = await queued.json() as SummaryStatusPayload<T>;
-        if (!payload.generation) ensured = false; // Final captions may still be arriving.
+        if (!payload.generation) {
+          ensured = false; // Final captions may still be arriving.
+          waitMs = Math.max(intervalMs, idleIntervalMs);
+        }
       }
       if (signal.aborted) return;
       onStatus(payload);
@@ -54,7 +58,7 @@ export async function watchCourseSessionSummary<T extends Summary>({ sessionId, 
     }
     await new Promise<void>(resolve => {
       const finish = () => { clearTimeout(timer); signal.removeEventListener("abort", finish); resolve(); };
-      const timer = setTimeout(finish, intervalMs);
+      const timer = setTimeout(finish, waitMs);
       signal.addEventListener("abort", finish, { once: true });
     });
   }

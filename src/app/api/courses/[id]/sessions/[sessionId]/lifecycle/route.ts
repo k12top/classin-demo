@@ -19,6 +19,7 @@ import { casdoorUserIdsMatch } from "@/lib/casdoor-user";
 import {
   getEffectiveSessionRoster,
   rosterContainsUser,
+  rosterHasObserver,
 } from "@/lib/course-session-roster";
 import { serializeCourseSession } from "@/lib/course-session-service";
 import { clearCourseSessionAccessCache } from "@/lib/course-session-access";
@@ -32,12 +33,14 @@ import { databaseUnavailableResponse } from "@/lib/database-response";
 import { getSessionFromRequest } from "@/lib/session";
 import { syncCourseStatusFromSessions } from "@/lib/course-session-status";
 import { processCourseSessionSummaryGeneration, queueCourseSessionSummary } from "@/lib/course-session-summary-generation";
+import {lifecycleRoleAfterLock} from "@/lib/classroom/server/lifecycle-access";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 class ClassroomEndCycleConflict extends Error {}
+class ClassroomLifecycleError extends Error {constructor(message:string,readonly status:number){super(message);}}
 
 type Context = {
   params: Promise<{ id: string; sessionId: string }>;
@@ -70,6 +73,11 @@ async function manageableLesson(request: NextRequest, context: Context) {
         .filter(Boolean),
     ),
   );
+  const roster = await getEffectiveSessionRoster(sessionId);
+  // A per-lesson observer rule overrides even an inherited course owner role.
+  if (!roster || rosterHasObserver(roster, identityAliases)) {
+    return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
+  }
   let canManage = identityAliases.some(
     (candidate) =>
       casdoorUserIdsMatch(lesson.course.ownerId, candidate) ||
@@ -77,15 +85,14 @@ async function manageableLesson(request: NextRequest, context: Context) {
   );
   let classroomRole: "teacher" | "assistant" = "teacher";
   if (!canManage) {
-    const roster = await getEffectiveSessionRoster(sessionId);
-    const member = roster ? rosterContainsUser(roster, identityAliases) : null;
+    const member = rosterContainsUser(roster, identityAliases);
     canManage = member?.kind === "teacher";
     if (member?.kind === "teacher") classroomRole = member.member.role;
   }
   if (!canManage) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
-  return { identity, courseId, sessionId, lesson, classroomRole };
+  return { identity, courseId, sessionId, lesson, classroomRole, identityAliases };
 }
 
 async function handlePost(request: NextRequest, context: Context) {
@@ -114,12 +121,24 @@ async function handlePost(request: NextRequest, context: Context) {
   if (body.action === "extend" || body.action === "reopen") {
     try {
       if (body.action === "reopen") {
-        const closing = await prisma.classroomRuntime.findUnique({ where: { sessionId: resolved.sessionId }, select: { status: true, transcriptionStatus: true } });
-        // Recover an interrupted end callback before admitting a new cycle.
-        if (closing?.status === "ended" && closing.transcriptionStatus === "stopping") await stopClassroomTranscription(resolved.courseId, resolved.sessionId, { endedBefore: new Date() });
+        // Authorize under the same lock as roster changes before claiming the
+        // old cycle's provider cleanup. The lease prevents a concurrent reopen
+        // from starting a replacement transcription while cleanup is running.
+        const leaseUntil=new Date(Date.now()+120_000),endedBefore=new Date();
+        const claimed=await prisma.$transaction(async tx=>{
+          await tx.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${resolved.sessionId} FOR UPDATE`;
+          await tx.$queryRaw`SELECT "id" FROM "CourseSession" WHERE "id" = ${resolved.sessionId} FOR UPDATE`;
+          if(!await lifecycleRoleAfterLock(tx,resolved.sessionId,resolved.courseId,resolved.identityAliases))throw new ClassroomLifecycleError("Forbidden",403);
+          const result=await tx.classroomRuntime.updateMany({where:{sessionId:resolved.sessionId,status:"ended",transcriptionStatus:"stopping",OR:[{transcriptionSyncLeaseUntil:null},{transcriptionSyncLeaseUntil:{lt:new Date()}}]},data:{transcriptionSyncLeaseUntil:leaseUntil}});
+          return result.count>0;
+        });
+        if(claimed){
+          try{await stopClassroomTranscription(resolved.courseId,resolved.sessionId,{claimed:true,endedBefore});}
+          finally{await prisma.classroomRuntime.updateMany({where:{sessionId:resolved.sessionId,transcriptionSyncLeaseUntil:leaseUntil},data:{transcriptionSyncLeaseUntil:null}});}
+        }
       }
       const timing = await changeClassroomTiming({ sessionId: resolved.sessionId, courseId: resolved.courseId, actorId: resolved.identity.userId,
-        role: resolved.classroomRole, action: body.action, commandId: typeof body.commandId === "string" ? body.commandId : undefined, minutes: typeof body.minutes === "number" ? body.minutes : undefined });
+        role: resolved.classroomRole, actorAliases:resolved.identityAliases, action: body.action, commandId: typeof body.commandId === "string" ? body.commandId : undefined, minutes: typeof body.minutes === "number" ? body.minutes : undefined });
       clearCourseSessionAccessCache();
       await synchronizeClassroomRedis(resolved.sessionId, true);
       after(() => deliverClassroomEvents());
@@ -144,58 +163,17 @@ async function handlePost(request: NextRequest, context: Context) {
     }
   }
   const now = new Date();
-  if (body.action === "cancel") {
-    if (resolved.lesson.status !== CourseStatus.SCHEDULED) {
-      return NextResponse.json(
-        { error: "Only a scheduled lesson can be cancelled" },
-        { status: 409 },
-      );
-    }
-    const updated = await prisma.courseSession.update({
-      where: { id: resolved.sessionId },
-      data: { status: CourseStatus.CANCELLED, endedAt: now },
-      include: {
-        series: true,
-        teachers: true,
-        students: true,
-        groupLinks: true,
-        _count: { select: { attendances: true, recordings: true } },
-      },
-    });
-    clearCourseSessionAccessCache();
-    await syncCourseStatusFromSessions(resolved.courseId);
-    return NextResponse.json({ session: serializeCourseSession(updated) });
-  }
-
-  if (body.action === "restore") {
-    if (resolved.lesson.status !== CourseStatus.CANCELLED) {
-      return NextResponse.json(
-        { error: "Only a cancelled lesson can be restored" },
-        { status: 409 },
-      );
-    }
-    const restoreDeadline = new Date(
-      resolved.lesson.endTime.getTime() + getFinishedDelayMinutes() * 60_000,
-    );
-    if (now > restoreDeadline) {
-      return NextResponse.json(
-        { error: "This lesson is past its restore window; schedule a new lesson instead" },
-        { status: 409 },
-      );
-    }
-    const status = now < resolved.lesson.startTime
-      ? CourseStatus.SCHEDULED
-      : CourseStatus.LIVE;
-    const updated = await prisma.courseSession.update({
-      where: { id: resolved.sessionId },
-      data: { status, endedAt: null },
-      include: {
-        series: true,
-        teachers: true,
-        students: true,
-        groupLinks: true,
-        _count: { select: { attendances: true, recordings: true } },
-      },
+  if (body.action === "cancel" || body.action === "restore") {
+    const action=body.action;
+    const updated=await prisma.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT "id" FROM "CourseSession" WHERE "id" = ${resolved.sessionId} FOR UPDATE`;
+      if(!await lifecycleRoleAfterLock(tx,resolved.sessionId,resolved.courseId,resolved.identityAliases))throw new ClassroomLifecycleError("Forbidden",403);
+      const lesson=await tx.courseSession.findUniqueOrThrow({where:{id:resolved.sessionId}});
+      if(action==="cancel"&&lesson.status!==CourseStatus.SCHEDULED)throw new ClassroomLifecycleError("Only a scheduled lesson can be cancelled",409);
+      if(action==="restore"&&lesson.status!==CourseStatus.CANCELLED)throw new ClassroomLifecycleError("Only a cancelled lesson can be restored",409);
+      if(action==="restore"&&now.getTime()>lesson.endTime.getTime()+getFinishedDelayMinutes()*60_000)throw new ClassroomLifecycleError("This lesson is past its restore window; schedule a new lesson instead",409);
+      const status=action==="cancel"?CourseStatus.CANCELLED:now<lesson.startTime?CourseStatus.SCHEDULED:CourseStatus.LIVE;
+      return tx.courseSession.update({where:{id:resolved.sessionId},data:{status,endedAt:action==="cancel"?now:null},include:{series:true,teachers:true,students:true,groupLinks:true,_count:{select:{attendances:true,recordings:true}}}});
     });
     clearCourseSessionAccessCache();
     await syncCourseStatusFromSessions(resolved.courseId);
@@ -203,25 +181,18 @@ async function handlePost(request: NextRequest, context: Context) {
   }
 
   if (body.action === "end") {
-    const nextStatus = resolveManualFinishedStatus(
-      resolved.lesson.status,
-      resolved.lesson.endTime,
-      false,
-    );
-    if (!nextStatus) {
-      return NextResponse.json(
-        { error: "Cancelled lessons cannot be ended" },
-        { status: 409 },
-      );
-    }
     console.info("[classroom:lifecycle]", { event: "end_requested", sessionId: resolved.sessionId, userId: resolved.identity.userId });
     const updated = await prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`SELECT "id" FROM "ClassroomRuntime" WHERE "sessionId" = ${resolved.sessionId} FOR UPDATE`;
       await transaction.$queryRaw`SELECT "id" FROM "CourseSession" WHERE "id" = ${resolved.sessionId} FOR UPDATE`;
+      const role=await lifecycleRoleAfterLock(transaction,resolved.sessionId,resolved.courseId,resolved.identityAliases);
+      if(!role)throw new ClassroomLifecycleError("Forbidden",403);
       const runtime = await transaction.classroomRuntime.findUnique({ where: { sessionId: resolved.sessionId } });
       if (body.cycleStartedAt !== undefined && body.cycleStartedAt !== null && body.cycleStartedAt !== runtime?.startedAt?.toISOString()) throw new ClassroomEndCycleConflict();
       const existing = await transaction.courseSession.findUniqueOrThrow({ where: { id: resolved.sessionId },
         include: { series: true, teachers: true, students: true, groupLinks: true, _count: { select: { attendances: true, recordings: true } } } });
+      const nextStatus=resolveManualFinishedStatus(existing.status,existing.endTime,false);
+      if(!nextStatus)throw new ClassroomLifecycleError("Cancelled lessons cannot be ended",409);
       // A retried response cannot move the original end/stop time or end a reopened cycle.
       if (existing.endedAt && runtime?.status === "ended") return existing;
       await closeAllOpenAttendanceForLesson(resolved.sessionId, now, transaction);
@@ -267,7 +238,7 @@ async function handlePost(request: NextRequest, context: Context) {
       await transaction.classroomProviderEvent.upsert({ where: { noticeId },
         create: { noticeId, provider: "classroom-lifecycle", category: "classroom.ended",
           payload: { reason: "teacher_end", userId: resolved.identity.userId, endedAt: now.toISOString(), cycleStartedAt: runtime?.startedAt?.toISOString() ?? null } }, update: {} });
-      await enqueueClassroomEvent(transaction, resolved.sessionId, "classroom.ended", "teacher_end", { userId: resolved.identity.userId, role: resolved.classroomRole });
+      await enqueueClassroomEvent(transaction, resolved.sessionId, "classroom.ended", "teacher_end", { userId: resolved.identity.userId, role });
       return lesson;
     });
     console.info("[classroom:lifecycle]", { event: "end_committed", sessionId: resolved.sessionId, userId: resolved.identity.userId, endedAt: updated.endedAt?.toISOString() });
@@ -349,6 +320,7 @@ export async function POST(request: NextRequest, context: Context) {
   try {
     return await handlePost(request, context);
   } catch (error) {
+    if(error instanceof ClassroomLifecycleError)return NextResponse.json({error:error.message},{status:error.status});
     if (error instanceof ClassroomEndCycleConflict) return NextResponse.json({ error: "课堂已重新开课，请刷新状态后再操作", code: "classroom_cycle_changed" }, { status: 409 });
     const unavailable = databaseUnavailableResponse(error, { route: "classroom/lifecycle", operation: "lifecycle" });
     if (unavailable) return unavailable;

@@ -9,7 +9,7 @@ const { openHarness } = require("./activity-harness.cjs");
 const root = path.resolve(__dirname, "../..");
 const temp = require("node:fs").mkdtempSync(path.join(os.tmpdir(), "classroom-activities-smoke-"));
 app.setPath("userData", temp); app.on("window-all-closed", () => undefined);
-let server, h, failStudentDetail = 0, delayStudentAnswer = false, loseStudentAnswerResponse = false; const windows = []; const checks = []; const sleep = ms => new Promise(r => setTimeout(r, ms));
+let server, h, failStudentDetail = 0, failAfterNextAnswer = false, delayStudentAnswer = false, loseStudentAnswerResponse = false; const windows = []; const checks = []; const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function until(win, expression) {
   const end = Date.now() + 18000;
   while (Date.now() < end) { const result = await win.webContents.executeJavaScript(expression); if (result) return result; await sleep(100); }
@@ -47,6 +47,7 @@ async function run() {
         const chunks = []; for await (const c of req) chunks.push(c); const body = JSON.parse(Buffer.concat(chunks));
         if (user === "student" && body.action === "answer" && delayStudentAnswer) { delayStudentAnswer = false; await sleep(700); }
         const data = req.method === "POST" ? await h.api.createActivity(actor, body.activity, body.requestId) : await h.api.commandActivity(actor, id, body);
+        if (user === "student" && body.action === "answer" && failAfterNextAnswer) { failAfterNextAnswer = false; failStudentDetail = 20; }
         if (user === "student" && body.action === "answer" && loseStudentAnswerResponse) { loseStudentAnswerResponse = false; throw Object.assign(new Error("Lost answer response after save"), { status: 503 }); }
         res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(data)); return;
       }
@@ -75,11 +76,12 @@ async function run() {
   await until(student, `document.querySelector('form input[type=radio]')`);
   await student.webContents.executeJavaScript(`document.querySelector('form input[type=radio]').click()`, true);
   await field(student, 'form textarea', "因为太阳的引力。");
-  failStudentDetail = 1;
+  failAfterNextAnswer = true;
   await button(student, "提交答案");
   await until(student, `document.body.textContent.includes('答案已保存')`);
-  await until(student, `document.body.textContent.includes('Temporary refresh failure')`);
+  await until(student, `document.body.textContent.includes('刷新失败，正在显示上次成功加载的内容。')`);
   assert.equal(await student.webContents.executeJavaScript(`document.querySelector('form textarea').value`), "因为太阳的引力。");
+  failStudentDetail = 0;
   checks.push("successful answer acknowledgement remains visible when the following refresh fails");
   const studentData = await student.webContents.executeJavaScript(`fetch('/api/sessions/${h.lesson.id}/classroom/activities').then(r=>r.json()).then(async l=>({list:l,detail:await fetch('/api/sessions/${h.lesson.id}/classroom/activities/'+l.active.id).then(r=>r.json())}))`);
   assert.equal("correct" in studentData.detail.definition.questions[0], false); assert.equal(studentData.detail.ownResponse.grading, null);
@@ -112,8 +114,6 @@ async function run() {
   assert.equal(await student.webContents.executeJavaScript(`document.querySelector('form textarea').readOnly`), true);
   assert.ok(await student.webContents.executeJavaScript(`document.body.textContent.includes('因为太阳的引力')`));
   checks.push("closing retains a readable unsubmitted draft alongside the authoritative saved answer");
-  await button(teacher, "公布结果");
-  await until(teacher, `document.querySelector('[role=alert]')?.textContent.includes('请先完成所有主观题')`);
   await until(teacher, `Array.from(document.querySelectorAll('button')).some(b=>b.textContent.includes('student') && b.textContent.includes('待批改'))`);
   await teacher.webContents.executeJavaScript(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('student') && b.textContent.includes('待批改')).click()`, true);
   const activity = (await h.api.listActivities(h.actor("teacher"))).activities[0];
@@ -129,11 +129,11 @@ async function run() {
   await button(teacher, "重新加载最新评分");
   await teacher.webContents.executeJavaScript(`(() => { const e=document.querySelectorAll('article form input[type=number]')[1]; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'8');e.dispatchEvent(new Event('input',{bubbles:true})); })()`, true);
   await field(teacher, 'article form textarea', "解释清楚，再补充轨道形状。");
-  await button(teacher, "保存评分"); await button(teacher, "公布结果");
+  await button(teacher, "保存评分"); await button(teacher, "全体学生（结束作答）");
   checks.push("concurrent teacher grading conflict retains edits and offers latest-grade recovery");
   await until(student, `document.body.textContent.includes('得分：18 / 20')`);
   await until(student, `document.body.textContent.includes('解释清楚')`);
-  checks.push("server publication gate, manual grading, private score and feedback publication");
+  checks.push("manual grading, private score and feedback publication");
   await teacher.webContents.executeJavaScript(`(() => {const e=Array.from(document.querySelectorAll('select')).find(s=>s.closest('label')?.textContent.includes('舞台展示题目'));e.value='1';e.dispatchEvent(new Event('change',{bubbles:true}));})()`, true);
   await until(student, `document.querySelector('[data-activity-presentation]')?.textContent.includes('说明你的理由')`);
   assert.equal(await student.webContents.executeJavaScript(`document.querySelector('[data-activity-presentation]').textContent.includes('解释清楚')`), false);

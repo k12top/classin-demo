@@ -108,6 +108,11 @@ export type ScheduleEntry = {
   startTime: string;
 };
 
+/** Never keep a detail view for a lesson absent from the latest authorized list. */
+export function refreshedSelectedLesson<T extends {id:string}>(current:T|null,lessons:readonly T[]):T|null {
+  return current ? lessons.find(lesson=>lesson.id===current.id)||null : null;
+}
+
 /** Course-level times describe one representative lesson, never the full schedule. */
 export function buildCourseSchedule<T extends ScheduleSource>(courses: readonly T[]): (T & ScheduleEntry)[] {
   const entries: (T & ScheduleEntry)[] = [];
@@ -169,4 +174,23 @@ export function calendarMonthDays(month: Date): (Date | null)[] {
 export function scheduledPlaybackPath(courseId: string, sessionId?: string): string {
   const path = `/courses/${encodeURIComponent(courseId)}/playback`;
   return sessionId ? `${path}?sessionId=${encodeURIComponent(sessionId)}` : path;
+}
+
+/** Route via the authorized lesson so the destination can resolve its current course. */
+export type CourseWorkspaceSection = "members" | "interactions";
+export function courseWorkspaceSection(value:unknown):CourseWorkspaceSection | null {
+  return value === "members" || value === "interactions" ? value : null;
+}
+export function visibleCourseWorkspaceSection(section:CourseWorkspaceSection|null,canTeach:boolean):CourseWorkspaceSection|"overview" {
+  return section === "interactions" || section === "members" && canTeach ? section : "overview";
+}
+export function courseWorkspacePath(courseId: string, sessionId?: string | null, section?: CourseWorkspaceSection | null, draftId?:string|null, reviewId?:string|null, assignmentId?:string|null, createLesson=false): string {
+  const path = `/courses/${encodeURIComponent(courseId)}`;
+  const query = [sessionId && `sessionId=${encodeURIComponent(sessionId)}`,section && `section=${section}`,draftId && `draftId=${encodeURIComponent(draftId)}`,reviewId && `reviewId=${encodeURIComponent(reviewId)}`,assignmentId && `assignmentId=${encodeURIComponent(assignmentId)}`,createLesson&&"createLesson=1"].filter(Boolean).join("&");
+  return query ? `${path}?${query}` : path;
+}
+
+export function lessonProgram<T extends {id:string;programId?:string|null}>(sessions:readonly T[],sessionId:string) {
+  const lesson=sessions.find(item=>item.id===sessionId);
+  return lesson ? {found:true as const,programId:lesson.programId||""} : {found:false as const};
 }

@@ -9,6 +9,11 @@ export type CaptionPosition = {
   seconds: number;
 };
 
+/** Never show a previous lesson's transcript while another lesson is loading. */
+export function captionDataForSession<T>(data: {sessionId:string;items:T[];cursor:string|null}, sessionId:string) {
+  return sessionId && data.sessionId === sessionId ? data : null;
+}
+
 /** Replay an utterance with enough lead-in to hear the preceding context. */
 export function captionSeekPosition(position: CaptionPosition): CaptionPosition {
   return { ...position, seconds: Math.max(0, position.seconds - 3) };
@@ -18,10 +23,13 @@ export function captionSeekPosition(position: CaptionPosition): CaptionPosition 
 export function captionPosition(
   occurredAt: string,
   recordings: readonly TimedRecording[],
+  preferredRecordingId?: string | null,
 ): CaptionPosition | null {
   const timestamp = Date.parse(occurredAt);
   if (!Number.isFinite(timestamp)) return null;
-  for (const recording of recordings) {
+  const preferred=preferredRecordingId?recordings.find(recording=>recording.id===preferredRecordingId):undefined;
+  const candidates=preferred?[preferred,...recordings.filter(recording=>recording.id!==preferred.id)]:recordings;
+  for (const recording of candidates) {
     if (!recording.startedAt || !recording.stoppedAt) continue;
     const startedAt = Date.parse(recording.startedAt);
     const stoppedAt = Date.parse(recording.stoppedAt);

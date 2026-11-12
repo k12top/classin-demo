@@ -22,12 +22,15 @@ import type {
   ClassroomCoursewareSnapshot,
   ClassroomEngagementSnapshot,
   ClassroomMemberSnapshot,
+  ClassroomMemberRole,
   ClassroomRole,
   ClassroomRuntimeSnapshot,
   ClassroomStageMode,
 } from "@/lib/classroom/types";
 import {
   classroomGraceEndAt,
+  classroomRoleMayAct,
+  isSupportedClassroomMember,
 } from "@/lib/classroom/policy";
 import {
   classroomModePolicy,
@@ -294,6 +297,10 @@ export async function prepareClassroomMemberJoin(
       role,
       presence: "online",
       lastSeenAt: new Date(),
+      ...(!teachingRole && role !== "student" ? {
+        onStage: false, stageState: "offstage", microphoneAllowed: false,
+        cameraAllowed: false, whiteboardWritable: false, handRaisedAt: null,
+      } : {}),
       ...((teachingStartsOnStage || restoreStage)
         ? {
             onStage: true,
@@ -359,7 +366,7 @@ function publicMember(
     userId: string;
     displayName: string;
     avatar: string;
-    role: string;
+    role: ClassroomMemberRole;
     presence: string;
     onStage: boolean;
     stageState: string;
@@ -375,10 +382,7 @@ function publicMember(
   now = Date.now(),
   rewardCount = 0,
 ): ClassroomMemberSnapshot {
-  const role: ClassroomRole =
-    member.role === "teacher" || member.role === "assistant"
-      ? member.role
-      : "student";
+  const role = member.role;
   const stageState =
     member.stageState === "invited" || member.stageState === "accepted"
       ? member.stageState
@@ -401,16 +405,17 @@ function publicMember(
     avatar: member.avatar,
     role,
     ...classroomMemberPresence(member, now, ONLINE_WINDOW_MS),
-    stageState,
-    screenShareState,
-    screenShareRequestedAt: requestExpired
+    ...(role === "observer" ? { onStage: false } : {}),
+    stageState: role === "observer" ? "offstage" : stageState,
+    screenShareState: role === "observer" ? "idle" : screenShareState,
+    screenShareRequestedAt: role === "observer" || requestExpired
       ? null
       : member.screenShareRequestedAt?.toISOString() ?? null,
-    microphoneAllowed: member.microphoneAllowed,
-    cameraAllowed: member.cameraAllowed,
+    microphoneAllowed: role !== "observer" && member.microphoneAllowed,
+    cameraAllowed: role !== "observer" && member.cameraAllowed,
     chatMuted: member.chatMuted,
-    whiteboardWritable: member.whiteboardWritable,
-    handRaisedAt: member.handRaisedAt?.toISOString() ?? null,
+    whiteboardWritable: role !== "observer" && member.whiteboardWritable,
+    handRaisedAt: role === "observer" ? null : member.handRaisedAt?.toISOString() ?? null,
     rewardCount,
   };
 }
@@ -550,7 +555,7 @@ async function loadClassroomRuntimeSnapshot(
       error: runtime.transcriptionError,
     },
     composition: normalizeClassroomComposition(runtime.composition),
-    members: runtime.members.map((member) => {
+    members: runtime.members.filter(isSupportedClassroomMember).map((member) => {
       const allConnections = connectionsByUser.get(member.userId) ?? [];
       const memberConnections = allConnections.filter(connection => !connection.leftAt);
       const pageHidden = member.presence === "reconnecting";
@@ -723,6 +728,7 @@ export async function applyClassroomAction(input: {
   action: ClassroomAction;
 }): Promise<ClassroomRuntimeSnapshot> {
   const { courseId, session, role, action } = input;
+  if (!classroomRoleMayAct(role, action.type)) throw new ClassroomActionError("旁听人员不能执行课堂操作", 403);
   const sessionId = input.sessionId || courseId;
   const courseMode = await prisma.courseSession.findFirst({
     where: { id: sessionId, courseId },
@@ -1219,8 +1225,6 @@ export async function applyClassroomAction(input: {
       }
       case "stopScreenShare": {
         requireTeachingRole(role);
-        const target = await tx.classroomMemberState.findUnique({ where: { sessionId_userId: { sessionId, userId: action.targetUserId } } });
-
         await tx.classroomMemberState.update({
           where: {
             sessionId_userId: {
@@ -1324,7 +1328,7 @@ export async function applyClassroomAction(input: {
         const seatMembers = await tx.classroomMemberState.findMany({
           where: {
             sessionId,
-            OR: [{ role: { not: "student" } }, { onStage: true }],
+            OR: [{ role: { in: ["teacher", "assistant"] } }, { role: "student", onStage: true }],
           },
           select: { userId: true },
           orderBy: { joinedAt: "asc" },
@@ -1427,7 +1431,7 @@ export async function applyClassroomAction(input: {
         const galleryMembers = await tx.classroomMemberState.findMany({
           where: {
             sessionId,
-            AND: [onlineFilter, { OR: [{ role: { not: "student" } }, { onStage: true }] }],
+            AND: [onlineFilter, { OR: [{ role: { in: ["teacher", "assistant"] } }, { role: "student", onStage: true }] }],
           },
           select: { userId: true, role: true },
           orderBy: { joinedAt: "asc" },
@@ -1447,7 +1451,7 @@ export async function applyClassroomAction(input: {
         const seatMembers = await tx.classroomMemberState.findMany({
           where: {
             sessionId,
-            OR: [{ role: { not: "student" } }, { onStage: true }],
+            OR: [{ role: { in: ["teacher", "assistant"] } }, { role: "student", onStage: true }],
           },
           select: { userId: true },
           orderBy: { joinedAt: "asc" },

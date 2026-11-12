@@ -12,6 +12,10 @@
 
 # testing
 /coverage
+/tests/dist/
+# Local screenshots, recordings and verification artifacts. Previously tracked
+# design artifacts remain tracked; intentional new artifacts can be added explicitly.
+/outputs/
 
 # next.js
 /.next/
@@ -42,3 +46,6 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# Desktop native build intermediates
+/clients/desktop/.native/

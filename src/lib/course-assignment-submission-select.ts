@@ -1,0 +1,1 @@
+export const assignmentSubmissionSelect={id:true,studentId:true,studentName:true,content:true,version:true,submittedAt:true,updatedAt:true,review:{select:{submissionVersion:true,reviewerName:true,result:true,feedback:true,version:true,updatedAt:true}}} as const;

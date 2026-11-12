@@ -11,6 +11,7 @@ import {
   retryWhiteboardRequest,
 } from "@/lib/classroom/whiteboard/retry";
 import { prisma } from "@/lib/db";
+import { classroomMayWriteWhiteboard } from "@/lib/classroom/policy";
 
 const API_BASE = "https://api.netless.link/v5";
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -165,8 +166,7 @@ export class NetlessWhiteboardProvider
         enabled: false,
         provider: this.name,
         writable: false,
-        error:
-          "互动白板尚未配置，请设置 WHITEBOARD_APP_IDENTIFIER、WHITEBOARD_SDK_TOKEN 和 WHITEBOARD_REGION",
+        error: "whiteboard_not_configured",
       };
     }
 
@@ -176,10 +176,7 @@ export class NetlessWhiteboardProvider
         input.sessionId,
         config,
       );
-      const writable =
-        input.role === "teacher" ||
-        input.role === "assistant" ||
-        input.writable;
+      const writable = classroomMayWriteWhiteboard(input.role, input.writable);
       const token = await requestNetless(
         `/tokens/rooms/${encodeURIComponent(roomUuid)}`,
         {

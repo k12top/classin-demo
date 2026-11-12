@@ -30,6 +30,12 @@ export function parseZonedInput(value: string, timezone: string) {
   return date;
 }
 
+/** Preserve an existing instant when an edit leaves its local time and zone unchanged. */
+export function resolveEditedZonedInput(value:string,timezone:string,original?:{instant:string;timezone:string}):Date {
+  if(original && original.timezone===timezone && isExplicitInstant(original.instant) && zonedInputValue(original.instant,timezone)===value)return new Date(original.instant);
+  return parseZonedInput(value,timezone);
+}
+
 export function timeZoneLabel(timeZone: string, value = new Date()) {
   const offset = new Intl.DateTimeFormat("en", { timeZone, timeZoneName: "longOffset" }).formatToParts(value).find(p => p.type === "timeZoneName")?.value.replace("GMT", "UTC") || "UTC";
   return `${timeZone} (${offset})`;
@@ -41,6 +47,7 @@ export function isExplicitInstant(value: unknown): value is string {
 
 /** Shift a series by calendar days and wall time, preserving its local hour across DST. */
 export function rescheduleZonedOccurrence(target: Date, original: Date, next: Date, originalZone: string, nextZone: string) {
+  if (originalZone === nextZone && original.getTime() === next.getTime()) return new Date(target);
   const dayNumber = (date: Date, zone: string) => Date.parse(`${zonedDateKey(date, zone)}T00:00:00Z`);
   const shift = dayNumber(next, nextZone) - dayNumber(original, originalZone);
   const targetDay = new Date(dayNumber(target, originalZone) + shift).toISOString().slice(0, 10);

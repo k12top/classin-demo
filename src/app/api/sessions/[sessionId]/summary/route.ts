@@ -98,6 +98,9 @@ export async function POST(request: NextRequest, context: Context) {
     if (body?.action === "generate" || body?.action === "ensure") {
       const generation = await queueCourseSessionSummary(resolved.courseId, sessionId,
         body.action === "ensure" ? "system" : resolved.identity.userId, body.action === "generate");
+      if(body.action === "generate" && !generation){
+        return NextResponse.json({error:"No final captions are available",code:"no_final_captions"},{status:409});
+      }
       if (summaryGenerationNeedsWorker(generation)) {
         after(() => processCourseSessionSummaryGeneration(sessionId).then(() => undefined));
       }

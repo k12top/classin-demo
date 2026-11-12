@@ -91,6 +91,13 @@ model Course {
   classroomEngagementRounds ClassroomEngagementRound[]
   sessions                  CourseSession[]
   sessionSeries             CourseSessionSeries[]
+  programs                  CourseProgram[]
+  sessionCreationRequests   CourseSessionCreationRequest[]
+  assignmentDrafts          CourseAssignmentDraft[]
+  assignmentCreationReceipts CourseAssignmentCreationReceipt[]
+  publishedAssignments      CoursePublishedAssignment[]
+  programResources          CourseProgramResource[]
+  programUnits              CourseProgramUnit[]
   sessionTeacherRules       CourseSessionTeacher[]
   sessionStudentRules       CourseSessionStudent[]
   sessionGroupRules         CourseSessionGroupLink[]
@@ -98,6 +105,10 @@ model Course {
   sessionStudentSubmissions CourseSessionStudentSubmission[]
   sessionSummaries          CourseSessionSummary[]
   playbackProgress          CoursePlaybackProgress[]
+  workspaceMessages         WorkspaceMessage[]
+  workspaceChatReads         WorkspaceChatRead[]
+  workspaceTasks             WorkspaceTask[]
+  workspaceDirectChats       WorkspaceDirectChat[]
 
   @@index([ownerId])
   @@index([teacherId])
@@ -121,6 +132,8 @@ model CourseSession {
   id                String    @id @default(uuid())
   courseId          String
   seriesId          String?
+  programId         String?
+  unitId            String?
   title             String    @default("")
   position          Int
   roomUuid          String    @unique
@@ -145,6 +158,8 @@ model CourseSession {
   course                    Course                     @relation(fields: [courseId], references: [id], onDelete: Cascade)
   cacheVersions             ClassroomCacheVersion[]
   series                    CourseSessionSeries?       @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  program                   CourseProgram?             @relation(fields: [programId, courseId], references: [id, courseId], onDelete: NoAction)
+  unit                      CourseProgramUnit?         @relation(fields: [unitId, courseId], references: [id, courseId], onDelete: NoAction)
   teachers                  CourseSessionTeacher[]
   students                  CourseSessionStudent[]
   groupLinks                CourseSessionGroupLink[]
@@ -157,6 +172,7 @@ model CourseSession {
   classroomMembers          ClassroomMemberState[]
   classroomMessages         ClassroomMessage[]
   chatImages                ClassroomChatImage[]
+  screenInkAssets           ClassroomScreenInkAsset[]
   classroomCaptions         ClassroomCaption[]
   classroomSpaces           ClassroomSpace[]
   classroomSpaceMembers     ClassroomSpaceMember[]
@@ -166,11 +182,14 @@ model CourseSession {
   studentSubmissions        CourseSessionStudentSubmission[]
   summary                   CourseSessionSummary?
   summaryGeneration         CourseSessionSummaryGeneration?
+  workspaceTasks            WorkspaceTask[]
+  remoteControlGrants       ClassroomRemoteControlGrant[]
 
   @@unique([courseId, position])
   @@index([courseId, startTime])
   @@index([courseId, status])
   @@index([seriesId, startTime])
+  @@index([courseId, programId, startTime])
   @@index([leadTeacherId, startTime])
 }
 
@@ -191,6 +210,204 @@ model ClassroomIntegrationEvent {
 
   @@index([deliveredAt, nextAttemptAt])
   @@index([sessionId, createdAt])
+}
+
+// A class may organize lessons into several teaching programs. Recurrence
+// series remain independent from the teaching program assignment.
+// Drafts are teacher-only and are not published to learners.
+// Published course resources are independent snapshots of teacher drive files.
+// Unit scope is checked alongside program membership by every write endpoint.
+model CourseProgramUnit {
+  id String @id @default(uuid())
+  courseId String
+  programId String?
+  creatorId String
+  requestId String
+  name String
+  version Int @default(0)
+  sortOrder Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  course Course @relation(fields:[courseId], references:[id], onDelete:Cascade)
+  program CourseProgram? @relation(fields:[programId, courseId], references:[id, courseId], onDelete:NoAction)
+  sessions CourseSession[]
+  resources CourseProgramResource[]
+  drafts CourseAssignmentDraft[]
+  publishedAssignments CoursePublishedAssignment[]
+  @@unique([id, courseId])
+  @@unique([courseId, creatorId, requestId])
+  @@index([courseId, programId, createdAt])
+  @@index([courseId, programId, sortOrder, createdAt])
+}
+
+model CourseProgramResource {
+  id String @id @default(uuid())
+  courseId String
+  programId String?
+  unitId String?
+  creatorId String
+  requestId String
+  sourceId String
+  sourceObjectKey String
+  objectKey String @unique
+  name String
+  size Int
+  status String @default("pending")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  course Course @relation(fields:[courseId], references:[id], onDelete:Cascade)
+  program CourseProgram? @relation(fields:[programId, courseId], references:[id, courseId], onDelete:NoAction)
+  unit CourseProgramUnit? @relation(fields:[unitId, courseId], references:[id, courseId], onDelete:NoAction)
+  @@unique([courseId, creatorId, requestId])
+  @@index([courseId, programId, status, createdAt])
+}
+
+model CourseAssignmentDraft {
+  id String @id @default(uuid())
+  courseId String
+  programId String?
+  unitId String?
+  creatorId String
+  requestId String
+  title String
+  description String @default("")
+  dueDate String?
+  version Int @default(0)
+  lastEditRequestId String?
+  lastEditActorId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  course Course @relation(fields:[courseId], references:[id], onDelete:Cascade)
+  program CourseProgram? @relation(fields:[programId, courseId], references:[id, courseId], onDelete:NoAction)
+  unit CourseProgramUnit? @relation(fields:[unitId, courseId], references:[id, courseId], onDelete:NoAction)
+  @@unique([courseId, creatorId, requestId])
+  @@index([courseId, programId, createdAt])
+}
+
+// Keep creation receipts after edits, moves, or deletion to make retries safe.
+model CourseAssignmentCreationReceipt {
+  courseId String
+  creatorId String
+  requestId String
+  draftId String
+  programId String?
+  unitId String?
+  title String
+  description String
+  dueDate String?
+  createdAt DateTime @default(now())
+  course Course @relation(fields:[courseId], references:[id], onDelete:Cascade)
+
+  @@id([courseId, creatorId, requestId])
+}
+
+// Published assignments are snapshots: editing a teacher-only draft cannot
+// silently change work that has already been delivered to students.
+model CoursePublishedAssignment {
+  id String @id @default(uuid())
+  courseId String
+  programId String?
+  unitId String?
+  sourceDraftId String @unique
+  sourceVersion Int
+  publisherId String
+  requestId String
+  title String
+  description String
+  dueDate String?
+  publishedAt DateTime @default(now())
+  course Course @relation(fields:[courseId], references:[id], onDelete:Cascade)
+  program CourseProgram? @relation(fields:[programId, courseId], references:[id, courseId], onDelete:NoAction)
+  unit CourseProgramUnit? @relation(fields:[unitId, courseId], references:[id, courseId], onDelete:NoAction)
+  submissions CourseAssignmentSubmission[]
+  submissionReceipts CourseAssignmentSubmissionReceipt[]
+  @@unique([courseId, publisherId, requestId])
+  @@index([courseId, programId, unitId, publishedAt])
+}
+
+model CourseAssignmentSubmission {
+  id String @id @default(uuid())
+  assignmentId String
+  studentId String
+  studentName String
+  content String
+  version Int @default(0)
+  submittedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  assignment CoursePublishedAssignment @relation(fields:[assignmentId], references:[id], onDelete:Cascade)
+  review CourseAssignmentReview?
+  reviewReceipts CourseAssignmentReviewReceipt[]
+  @@unique([assignmentId, studentId])
+  @@index([assignmentId, submittedAt, id])
+}
+
+model CourseAssignmentReview {
+  id String @id @default(uuid())
+  submissionId String @unique
+  submissionVersion Int
+  reviewerId String
+  reviewerName String
+  result String
+  feedback String @default("")
+  version Int @default(0)
+  updatedAt DateTime @updatedAt
+  submission CourseAssignmentSubmission @relation(fields:[submissionId], references:[id], onDelete:Cascade)
+}
+
+model CourseAssignmentReviewReceipt {
+  submissionId String
+  reviewerId String
+  requestId String
+  submissionVersion Int
+  expectedVersion Int?
+  result String
+  feedback String
+  createdAt DateTime @default(now())
+  submission CourseAssignmentSubmission @relation(fields:[submissionId], references:[id], onDelete:Cascade)
+  @@id([submissionId, reviewerId, requestId])
+}
+
+// A receipt outlives subsequent edits and makes a lost response safe to retry.
+model CourseAssignmentSubmissionReceipt {
+  assignmentId String
+  studentId String
+  requestId String
+  content String
+  expectedVersion Int?
+  resultVersion Int
+  createdAt DateTime @default(now())
+  assignment CoursePublishedAssignment @relation(fields:[assignmentId], references:[id], onDelete:Cascade)
+  @@id([assignmentId, studentId, requestId])
+}
+
+model CourseSessionCreationRequest {
+  courseId String
+  requestId String
+  creatorId String
+  fingerprint String
+  sessionIds Json
+  createdAt DateTime @default(now())
+  course Course @relation(fields:[courseId], references:[id], onDelete:Cascade)
+  @@id([courseId, requestId])
+}
+
+model CourseProgram {
+  id String @id @default(uuid())
+  courseId String
+  name String
+  requestId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  course Course @relation(fields:[courseId], references:[id], onDelete:Cascade)
+  sessions CourseSession[]
+  assignmentDrafts CourseAssignmentDraft[]
+  publishedAssignments CoursePublishedAssignment[]
+  resources CourseProgramResource[]
+  units CourseProgramUnit[]
+  @@unique([id, courseId])
+  @@unique([courseId, name])
+  @@unique([courseId, requestId])
+  @@index([courseId, createdAt])
 }
 
 model CourseSessionSeries {
@@ -419,6 +636,27 @@ model StudentGroup {
   @@index([createdBy])
 }
 
+// Durable idempotency record, independent of later group deletion.
+model GroupCreationReceipt {
+  actorId String
+  requestId String
+  groupId String
+  name String
+  parentId String?
+  createdAt DateTime @default(now())
+
+  @@id([actorId, requestId])
+}
+
+// Retained even if the class is removed, to prevent accidental recreation.
+model CourseCreationReceipt {
+  requestId String @id
+  actorId String
+  courseId String
+  payloadHash String
+  createdAt DateTime @default(now())
+}
+
 // ── Course ↔ Student (direct assignment) ──
 model CourseStudent {
   id            String   @id @default(uuid())
@@ -630,6 +868,7 @@ model ClassroomMessage {
 
   @@index([courseId, createdAt])
   @@index([sessionId, createdAt])
+  @@index([sessionId, scope, createdAt, id])
   @@index([runtimeId, createdAt])
   @@index([spaceId, createdAt])
   @@index([courseId, scope, createdAt])
@@ -849,6 +1088,29 @@ model CourseSessionSummaryGeneration {
 }
 
 // Each browser tab/device has an independent media and presence lease.
+// Stored separately from screen video. An active row is not an input credential:
+// every use must revalidate the current roster, connections and share claim.
+model ClassroomRemoteControlGrant {
+  id              String   @id
+  sessionId       String
+  teacherId       String
+  teacherClientId String
+  studentId       String
+  studentClientId String
+  shareClaimId    String
+  channelPublicKey String?
+  receiverReady   Boolean  @default(false)
+  state           String
+  requestedAt     DateTime
+  expiresAt       DateTime
+  updatedAt       DateTime @updatedAt
+  session         CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, studentId])
+  @@index([sessionId, teacherId])
+  @@index([expiresAt])
+}
+
 model ClassroomConnection {
   id String @id
   sessionId String
@@ -878,6 +1140,7 @@ model CoursePlaybackProgress {
   totalDurationSec    Int      @default(0)
   sessionCount        Int      @default(0)
   activeSessionId     String?
+  playbackLessonId    String?
   heartbeatNonceHash  String?
   lastHeartbeatAt     DateTime?
   lastPositionSec     Float?
@@ -994,4 +1257,181 @@ model ClassroomChatImage {
   createdAt   DateTime @default(now())
   session     CourseSession @relation(fields:[sessionId],references:[id],onDelete:Cascade)
   @@index([sessionId,uploaderId,createdAt])
+}
+
+model ClassroomScreenInkAsset {
+  id          String @id
+  sessionId   String
+  uploaderId  String
+  clientId    String
+  claimId     String
+  objectKey   String @unique
+  sourceHash  String
+  bytes       Int
+  width       Int
+  height      Int
+  createdAt   DateTime @default(now())
+  session     CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  @@index([sessionId, uploaderId, createdAt])
+}
+
+// Personal teaching tasks are scoped to the authenticated account.
+model WorkspaceTask {
+  id String @id @default(uuid())
+  userId String
+  requestId String
+  title String
+  notes String @default("")
+  dueDate String?
+  courseId String?
+  sessionId String?
+  completed Boolean @default(false)
+  version Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  course Course? @relation(fields:[courseId], references:[id], onDelete:SetNull)
+  session CourseSession? @relation(fields:[sessionId], references:[id], onDelete:SetNull)
+
+  @@unique([userId, requestId])
+  @@index([userId, completed, createdAt])
+  @@index([userId, courseId])
+  @@index([sessionId])
+}
+
+// Private calendar events store instants and the creator's scheduling zone.
+model WorkspaceEvent {
+  id String @id @default(uuid())
+  userId String
+  requestId String
+  title String
+  notes String @default("")
+  startsAt DateTime
+  endsAt DateTime
+  timeZone String
+  version Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, requestId])
+  @@index([userId, startsAt])
+  @@index([userId, endsAt])
+}
+
+// Keep creation receipts after an event is deleted so retries cannot recreate it.
+model WorkspaceEventReceipt {
+  userId String
+  requestId String
+  eventId String
+  title String?
+  notes String?
+  startsAt DateTime?
+  endsAt DateTime?
+  timeZone String?
+  createdAt DateTime @default(now())
+
+  @@id([userId, requestId])
+}
+
+// Long-lived course conversations are distinct from live lesson chat.
+model WorkspaceMessage {
+  id String @id @default(uuid())
+  courseId String
+  senderId String
+  senderName String
+  clientId String
+  content String
+  createdAt DateTime @default(now())
+  course Course @relation(fields:[courseId], references:[id], onDelete:Cascade)
+
+  @@unique([courseId, senderId, clientId])
+  @@index([courseId, createdAt, id])
+}
+
+model WorkspaceChatRead {
+  courseId String
+  userId String
+  lastCreatedAt DateTime
+  lastMessageId String
+  updatedAt DateTime @updatedAt
+  course Course @relation(fields:[courseId], references:[id], onDelete:Cascade)
+  @@id([courseId,userId])
+}
+
+// Direct conversations are anchored to a class, whose access policy also
+// controls who may continue reading after membership changes.
+model WorkspaceDirectChat {
+  id String @id @default(uuid())
+  courseId String
+  participantA String
+  participantB String
+  createdAt DateTime @default(now())
+  course Course @relation(fields:[courseId], references:[id], onDelete:Cascade)
+  messages WorkspaceDirectMessage[]
+  reads WorkspaceDirectRead[]
+
+  @@unique([courseId, participantA, participantB])
+  @@index([participantA])
+  @@index([participantB])
+}
+
+model WorkspaceDirectMessage {
+  id String @id @default(uuid())
+  chatId String
+  senderId String
+  senderName String
+  clientId String
+  content String
+  createdAt DateTime @default(now())
+  chat WorkspaceDirectChat @relation(fields:[chatId], references:[id], onDelete:Cascade)
+
+  @@unique([chatId, senderId, clientId])
+  @@index([chatId, createdAt, id])
+}
+
+model WorkspaceDirectRead {
+  chatId String
+  userId String
+  lastCreatedAt DateTime
+  lastMessageId String
+  updatedAt DateTime @updatedAt
+  chat WorkspaceDirectChat @relation(fields:[chatId], references:[id], onDelete:Cascade)
+  @@id([chatId,userId])
+}
+
+model WorkspaceDriveItem {
+  id String @id @default(uuid())
+  userId String
+  requestId String
+  parentId String?
+  kind String
+  name String
+  size Int @default(0)
+  contentType String @default("application/octet-stream")
+  objectKey String? @unique
+  status String @default("ready")
+  trashRootId String?
+  lastOpenedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  parent WorkspaceDriveItem? @relation("DriveTree", fields:[parentId], references:[id], onDelete:Restrict)
+  children WorkspaceDriveItem[] @relation("DriveTree")
+
+  @@unique([userId, requestId])
+  @@index([userId, parentId, status, createdAt])
+  @@index([userId, trashRootId, status])
+  @@index([userId, status, lastOpenedAt, id])
+}
+
+// Durable audit and idempotency receipt for batch lesson staff changes.
+model CourseStaffGrantReceipt {
+  id String @id @default(uuid())
+  actorId String
+  requestId String
+  courseId String
+  payloadHash String
+  changes Json
+  createdAt DateTime @default(now())
+
+  @@unique([actorId, requestId])
+  @@index([courseId, createdAt])
 }

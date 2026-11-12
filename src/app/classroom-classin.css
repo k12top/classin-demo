@@ -1720,3 +1720,45 @@ html[lang] .classroom-v3-shell.is-classin-layout .classroom-v3-top-actions > .cl
 
 .classroom-student-share-trigger { position: relative; flex-shrink: 0; }
 .classroom-student-share-trigger span { font-size: 11px; }
+
+/* Controls stay above annotations while sharing, without covering the lesson. */
+.classroom-remote-control-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  cursor: crosshair;
+  outline: none;
+  touch-action: none;
+}
+.classroom-remote-control-toolbar {
+  position: absolute;
+  z-index: 5;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  padding: 5px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 10px;
+  background: rgb(26 29 36 / 86%);
+  color: #f5f7fa;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 18%);
+  font-size: 12px;
+  backdrop-filter: blur(14px);
+}
+.classroom-remote-control-toolbar span { padding-left: 5px; }
+.classroom-remote-control-toolbar button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  background: rgb(255 255 255 / 12%);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.classroom-remote-control-toolbar button:hover { background: rgb(255 255 255 / 21%); }
+.classroom-remote-control-toolbar button:disabled { opacity: .55; cursor: default; }
+.classroom-remote-control-toolbar button:focus-visible { outline: 2px solid #a6a5ff; outline-offset: 2px; }

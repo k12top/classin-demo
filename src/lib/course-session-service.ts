@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { generateCourseRoomUuid } from "@/lib/course-room";
+import { supportedSessionTeacherRules } from "@/lib/course-session-roster-rules";
 import {
   expandSessionSchedule,
   SessionScheduleError,
@@ -36,6 +37,9 @@ export type CreateCourseSessionsInput = {
   teachers?: MemberRuleInput[];
   students?: MemberRuleInput[];
   groups?: GroupRuleInput[];
+  programId?: string | null;
+  unitId?: string | null;
+  creationRequest?: { id: string; fingerprint: string };
 };
 
 export class CourseSessionError extends Error {
@@ -82,6 +86,7 @@ function normalizeGroupRules(values: GroupRuleInput[] | undefined) {
 }
 
 export async function createCourseSessions(input: CreateCourseSessionsInput) {
+  if (!supportedSessionTeacherRules(input.teachers)) throw new CourseSessionError("Unsupported lesson staff role");
   const course = await prisma.course.findUnique({
     where: { id: input.courseId },
     include: { teachers: { orderBy: { createdAt: "asc" } } },
@@ -171,6 +176,17 @@ export async function createCourseSessions(input: CreateCourseSessionsInput) {
     // Serialize position allocation with other schedulers, including public API
     // writers. The standalone count must be checked under the same lock.
     await transaction.$queryRaw`SELECT "id" FROM "Course" WHERE "id" = ${course.id} FOR UPDATE`;
+    if (input.creationRequest) {
+      const saved = await transaction.courseSessionCreationRequest.findUnique({ where: { courseId_requestId: { courseId: course.id, requestId: input.creationRequest.id } } });
+      if (saved) {
+        if (saved.creatorId !== input.createdBy || saved.fingerprint !== input.creationRequest.fingerprint || !Array.isArray(saved.sessionIds) || !saved.sessionIds.every(id => typeof id === "string")) throw new CourseSessionError("创建请求已用于其他内容", 409);
+        const existing = await transaction.courseSession.findMany({ where: { courseId: course.id, id: { in: saved.sessionIds as string[] } }, include: { teachers: true, students: true, groupLinks: true }, orderBy: { position: "asc" } });
+        if (existing.length !== saved.sessionIds.length) throw new CourseSessionError("原课节已更改，无法重复创建", 409);
+        return existing;
+      }
+    }
+    if (input.programId && !await transaction.courseProgram.findFirst({ where: { id: input.programId, courseId: course.id }, select: { id: true } })) throw new CourseSessionError("课程不存在或不属于该班级", 404);
+    if (input.unitId && !await transaction.courseProgramUnit.findFirst({ where: { id: input.unitId, courseId: course.id, programId: input.programId || null }, select: { id: true } })) throw new CourseSessionError("单元不存在或不属于该课程", 404);
     const last = await transaction.courseSession.aggregate({
       where: { courseId: course.id },
       _max: { position: true },
@@ -203,6 +219,8 @@ export async function createCourseSessions(input: CreateCourseSessionsInput) {
         id: randomUUID(),
         courseId: course.id,
         seriesId,
+        programId: input.programId || null,
+        unitId: input.unitId || null,
         title: (input.title || "").trim() || `${course.name} · 第 ${position} 课`,
         position,
         roomUuid: generateCourseRoomUuid(),
@@ -278,6 +296,7 @@ export async function createCourseSessions(input: CreateCourseSessionsInput) {
           : {}),
       },
     });
+    if (input.creationRequest) await transaction.courseSessionCreationRequest.create({ data: { courseId: course.id, requestId: input.creationRequest.id, creatorId: input.createdBy, fingerprint: input.creationRequest.fingerprint, sessionIds: sessionData.map(item => item.id) } });
     return sessions;
   }, { maxWait: 5_000, timeout: 30_000 });
 }

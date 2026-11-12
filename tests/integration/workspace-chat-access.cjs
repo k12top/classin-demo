@@ -1,0 +1,39 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- isolated local database integration */
+const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),esbuild=require('esbuild');
+const root=path.resolve(__dirname,'../..'),url=new URL(process.env.DATABASE_URL||'http://invalid');
+if(!['localhost','127.0.0.1','::1'].includes(url.hostname)||url.pathname!=='/classin_unified_dev')throw Error('Requires isolated local workspace database');
+let dir,api,courseId;
+(async()=>{
+ dir=await fs.mkdtemp(path.join(root,'node_modules/.chat-access-'));
+ const stubs={'@/lib/session':`export async function getSessionFromRequest(r){const id=r.headers.get('x-test-user');return id?{userId:id,name:id,displayName:id,role:id==='student'?'student':'teacher'}:null}`,'server-only':'','@/lib/classroom/server/message-translation':`export const chatTranslationConfig=()=>({});export async function translateChatText(messages){if(globalThis.translationHold)await new Promise(resolve=>{globalThis.translationRelease=resolve});return Object.fromEntries(messages.map(m=>[m.id,'translated']));}`};
+ const source=`export {prisma} from '@/lib/db';export {NextRequest} from 'next/server';export {resolveCoursewareAccess} from '@/lib/courseware-access';export {GET as groupGet,POST as groupPost} from '@/app/api/workspace/courses/[id]/messages/route';export {POST as groupTranslate} from '@/app/api/workspace/courses/[id]/messages/translate/route';export {POST as directCreate,GET as directList} from '@/app/api/workspace/direct/route';export {POST as unread} from '@/app/api/workspace/chat/unread/route';export {GET as directGet,POST as directPost} from '@/app/api/workspace/direct/[id]/messages/route';export {POST as directTranslate} from '@/app/api/workspace/direct/[id]/translate/route';`;
+ await esbuild.build({stdin:{contents:source,resolveDir:root},outfile:path.join(dir,'test.cjs'),bundle:true,format:'cjs',platform:'node',packages:'external',tsconfig:path.join(root,'tsconfig.json'),plugins:[{name:'identity',setup(build){build.onResolve({filter:/.*/},({path:id})=>id in stubs?{path:id,namespace:'stub'}:undefined);build.onLoad({filter:/.*/,namespace:'stub'},({path:id})=>({contents:stubs[id],loader:'js'}));}}]});
+ api=require(path.join(dir,'test.cjs'));const db=api.prisma;
+ const course=await db.course.create({data:{name:'Isolated chat access',ownerId:'owner',ownerName:'Owner',teacherId:'owner',teacherName:'Owner'}});courseId=course.id;
+ await db.courseStudent.create({data:{courseId,studentId:'student',studentName:'Student'}});
+ await db.courseStudent.create({data:{courseId,studentId:'classmate',studentName:'Classmate'}});
+ const start=new Date(Date.now()+86400000),lesson=await db.courseSession.create({data:{courseId,title:'Lesson',position:1,roomUuid:crypto.randomUUID(),roomType:4,status:'scheduled',startTime:start,endTime:new Date(+start+3600000),createdBy:'owner'}});
+ await db.courseSessionTeacher.create({data:{courseId,sessionId:lesson.id,teacherId:'lesson-only',teacherName:'Lesson only',role:'assistant'}});
+ const req=(user,body)=>new api.NextRequest('http://localhost/test',{method:body?'POST':'GET',headers:{...(user?{'x-test-user':user}:{}),'content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
+ const ctx=id=>({params:Promise.resolve({id})}),group=ctx(courseId);
+ assert.equal((await api.resolveCoursewareAccess({userId:'lesson-only',name:'lesson-only'},courseId)).scope,'session');
+ assert.equal((await api.groupGet(req('lesson-only'),group)).status,403);assert.equal((await api.groupGet(req('outsider'),group)).status,403);assert.equal((await api.groupGet(req(null),group)).status,401);
+ const posted=await api.groupPost(req('owner',{content:'private class message',clientId:'owner-msg-001'}),group);assert.equal(posted.status,201);const message=(await posted.json()).message;
+ assert.equal((await api.groupGet(req('student'),group)).status,200);assert.equal((await api.groupTranslate(req('lesson-only',{messageIds:[message.id],language:'en-US'}),group)).status,403);
+ const create=await api.directCreate(req('owner',{courseId,peerId:'student'}));assert.equal(create.status,201);const chat=(await create.json()).chat;const direct=ctx(chat.id);
+ const one=await api.directPost(req('student',{content:'hello',clientId:'student-msg-001'}),direct),two=await api.directPost(req('student',{content:'hello',clientId:'student-msg-001'}),direct);assert.equal(one.status,201);assert.equal(two.status,201);const directMessage=(await one.json()).message;assert.equal(directMessage.id,(await two.json()).message.id);
+ const summaries=await(await api.unread(req('student',{courseIds:[courseId]}))).json();assert.equal(summaries.previews[courseId].content,'private class message');
+ const directList=await(await api.directList(req('student'))).json();assert.equal(directList.chats.find(item=>item.id===chat.id)?.preview?.content,'hello');
+ const outsiderSummaries=await(await api.unread(req('outsider',{courseIds:[courseId]}))).json();assert.deepEqual(outsiderSummaries.previews,{});
+ assert.equal((await api.directGet(req('classmate'),direct)).status,404);assert.equal((await api.directGet(req('lesson-only'),direct)).status,404);assert.equal((await api.directGet(req('outsider'),direct)).status,404);assert.equal((await api.directGet(req('owner'),direct)).status,200);
+ const waitGate=async()=>{for(let i=0;i<100&&!globalThis.translationRelease;i++)await new Promise(resolve=>setTimeout(resolve,20));assert.ok(globalThis.translationRelease,'translation started')};
+ globalThis.translationHold=true;globalThis.translationRelease=null;const groupFlight=api.groupTranslate(req('student',{messageIds:[message.id],language:'en-US'}),group);await waitGate();await db.courseStudent.deleteMany({where:{courseId,studentId:'student'}});globalThis.translationHold=false;globalThis.translationRelease();assert.equal((await groupFlight).status,403);
+ await db.courseStudent.create({data:{courseId,studentId:'student',studentName:'Student'}});
+ globalThis.translationHold=true;globalThis.translationRelease=null;const directFlight=api.directTranslate(req('student',{messageIds:[directMessage.id],language:'en-US'}),direct);await waitGate();await db.courseStudent.deleteMany({where:{courseId,studentId:'student'}});globalThis.translationHold=false;globalThis.translationRelease();assert.equal((await directFlight).status,404);
+ globalThis.translationHold=true;globalThis.translationRelease=null;const changedFlight=api.groupTranslate(req('owner',{messageIds:[message.id],language:'en-US'}),group);await waitGate();await db.workspaceMessage.update({where:{id:message.id},data:{content:'changed during translation'}});globalThis.translationHold=false;globalThis.translationRelease();assert.deepEqual((await(await changedFlight).json()).translations,{});
+
+ const revokedSummaries=await(await api.unread(req('student',{courseIds:[courseId]}))).json();assert.deepEqual(revokedSummaries.previews,{});
+ const revokedDirect=await(await api.directList(req('student'))).json();assert.equal(revokedDirect.chats.some(item=>item.id===chat.id),false);
+ assert.equal((await api.groupGet(req('student'),group)).status,403);assert.equal((await api.directGet(req('student'),direct)).status,404);assert.equal((await api.directPost(req('student',{content:'another',clientId:'student-msg-002'}),direct)).status,404);assert.equal((await api.directTranslate(req('student',{messageIds:[message.id],language:'en-US'}),direct)).status,404);
+ console.log('PASS real DB: course members, lesson-only access, direct privacy, idempotent send and revocation');
+})().catch(error=>{console.error(error);process.exitCode=1;}).finally(async()=>{if(api){if(courseId)await api.prisma.course.delete({where:{id:courseId}});await api.prisma.$disconnect();}if(dir)await fs.rm(dir,{recursive:true,force:true});});

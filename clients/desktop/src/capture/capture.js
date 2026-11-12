@@ -1,7 +1,26 @@
 'use strict';
-document.getElementById('cancel').onclick=()=>window.capturePicker.cancel();
-(async()=>{try {
- const sources=await window.capturePicker.sources(), list=document.getElementById('sources');
- if(!sources.length){document.getElementById('error').textContent='未找到可共享内容，请检查系统屏幕录制权限后重试。';return;}
- for(const source of sources){const button=document.createElement('button'),image=document.createElement('img'),name=document.createElement('span');image.src=source.thumbnailDataUrl;image.alt='';name.textContent=source.name;button.append(image,name);button.onclick=async()=>{button.disabled=true;try{await window.capturePicker.select(source.id);}catch{document.getElementById('error').textContent='该窗口已关闭，请取消后重新选择。';button.disabled=false;}};list.append(button);}
-}catch{document.getElementById('error').textContent='无法读取共享窗口，请检查系统屏幕录制权限。';}})();
+const list=document.getElementById('sources'),status=document.getElementById('status'),error=document.getElementById('error'),share=document.getElementById('share'),selection=document.getElementById('selection'),refresh=document.getElementById('refresh');
+const tabs={screen:document.getElementById('screens'),window:document.getElementById('windows')};
+let sources=[],kind='screen',selected=null,loading=false,submitting=false,sequence=0,errorIndex=null;
+const words={
+ 'zh-CN':['选择共享内容','选择一个屏幕或窗口，确认后开始分享。','刷新列表','屏幕','窗口','取消','开始分享','暂无预览','正在读取可分享内容…','未找到可分享的屏幕。','未找到可分享的窗口。','已选择：','请选择要分享的内容','无法读取共享内容，请刷新重试；如尚未授权，请在系统设置中开启屏幕录制权限。','所选内容已关闭或不可用，请刷新后重新选择。','共享内容类型','可共享的屏幕','可共享的窗口'],
+ 'zh-TW':['選擇分享內容','選擇一個螢幕或視窗，確認後開始分享。','重新整理','螢幕','視窗','取消','開始分享','暫無預覽','正在讀取可分享內容…','找不到可分享的螢幕。','找不到可分享的視窗。','已選擇：','請選擇要分享的內容','無法讀取分享內容，請重新整理；如尚未授權，請在系統設定中開啟螢幕錄製權限。','所選內容已關閉或無法使用，請重新整理後選擇。','分享內容類型','可分享的螢幕','可分享的視窗'],
+ en:['Choose what to share','Choose a screen or window, then confirm to share.','Refresh','Screens','Windows','Cancel','Share','Preview unavailable','Loading available sources…','No screens found.','No windows found.','Selected: ','Choose what to share','Unable to load sources. Refresh and retry; if access has not been granted, enable screen recording in system settings.','The selected source is no longer available. Refresh and choose again.','Share source type','Available screens','Available windows'],
+ vi:['Chọn nội dung chia sẻ','Chọn màn hình hoặc cửa sổ, sau đó xác nhận chia sẻ.','Làm mới','Màn hình','Cửa sổ','Hủy','Chia sẻ','Không có bản xem trước','Đang tải nội dung có thể chia sẻ…','Không tìm thấy màn hình.','Không tìm thấy cửa sổ.','Đã chọn: ','Chọn nội dung cần chia sẻ','Không thể tải nội dung. Hãy làm mới; nếu chưa cấp quyền, hãy bật quyền ghi màn hình trong cài đặt hệ thống.','Nội dung đã chọn không còn khả dụng. Hãy làm mới và chọn lại.','Loại nội dung chia sẻ','Màn hình khả dụng','Cửa sổ khả dụng']
+};
+let text=words['zh-CN'];
+async function localize(){let locale;try{locale=await window.capturePicker.locale();}catch{locale=navigator.language;}const key=locale==='zh-TW'?'zh-TW':locale?.toLowerCase().startsWith('zh')?'zh-CN':locale?.toLowerCase().startsWith('vi')?'vi':'en';text=words[key];document.documentElement.lang=key;document.title=text[0];document.getElementById('title').textContent=text[0];document.getElementById('description').textContent=text[1];refresh.textContent=text[2];tabs.screen.textContent=text[3];tabs.window.textContent=text[4];document.getElementById('cancel').textContent=text[5];share.textContent=text[6];document.querySelector('nav').setAttribute('aria-label',text[15]);render();}
+
+function render(){
+ for(const [name,button] of Object.entries(tabs))button.setAttribute('aria-pressed',String(name===kind));
+ list.setAttribute('aria-label',kind==='screen'?text[16]:text[17]);list.replaceChildren();
+ const visible=sources.filter(source=>source.kind===kind);
+ for(const source of visible){const button=document.createElement('button'),preview=document.createElement('div'),name=document.createElement('span');button.type='button';button.className='source';button.setAttribute('aria-pressed',String(source.id===selected));preview.className='preview';if(source.thumbnailDataUrl){const image=document.createElement('img');image.src=source.thumbnailDataUrl;image.alt='';preview.append(image);}else{const placeholder=document.createElement('span');placeholder.textContent=text[7];preview.append(placeholder);}name.textContent=source.name;name.title=source.name;button.append(preview,name);button.onclick=()=>{selected=source.id;errorIndex=null;error.textContent='';for(const item of list.children)item.setAttribute('aria-pressed',String(item===button));selection.textContent=`${text[11]}${source.name}`;share.disabled=loading||submitting;};list.append(button);}
+ status.textContent=loading?text[8]:errorIndex!==null?'':visible.length?'':kind==='screen'?text[9]:text[10];error.textContent=errorIndex===null?'':text[errorIndex];
+ const chosen=sources.find(source=>source.id===selected);selection.textContent=chosen?`${text[11]}${chosen.name}`:text[12];share.disabled=loading||submitting||!chosen;refresh.disabled=loading||submitting;
+}
+async function load(){const request=++sequence;loading=true;errorIndex=null;render();try{let next;try{next=await window.capturePicker.sources();}catch{await new Promise(resolve=>setTimeout(resolve,250));if(request!==sequence)return;next=await window.capturePicker.sources();}if(request!==sequence)return;sources=next;if(!sources.some(source=>source.id===selected))selected=null;}catch{if(request!==sequence)return;sources=[];selected=null;errorIndex=13;}finally{if(request===sequence){loading=false;render();}}}
+for(const [name,button] of Object.entries(tabs))button.onclick=()=>{kind=name;selected=null;if(errorIndex===14)errorIndex=null;render();};
+refresh.onclick=()=>void load();document.getElementById('cancel').onclick=()=>window.capturePicker.cancel();
+share.onclick=async()=>{if(!selected||loading||submitting)return;submitting=true;errorIndex=null;render();try{await window.capturePicker.select(selected);}catch{selected=null;errorIndex=14;submitting=false;render();}};
+void localize();void load();

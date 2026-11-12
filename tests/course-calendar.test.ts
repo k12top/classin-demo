@@ -8,12 +8,35 @@ import {
   scheduleDateKey,
   scheduledPlaybackPath,
   formatCourseDuration,
+  courseWorkspacePath,
+  courseWorkspaceSection,
+  visibleCourseWorkspaceSection,
+  lessonProgram,
 } from "../src/lib/course-schedule";
 
 const session = (id: string, day: string, extra = {}) => ({
   id, title: `Lesson ${id}`, position: 1, roomUuid: id, roomType: 4,
   status: "scheduled", startTime: `${day}T09:00:00`, endTime: `${day}T10:00:00`,
   ...extra,
+});
+
+test("lesson links preserve the authorized lesson without trusting a program from the URL", () => {
+  assert.equal(courseWorkspacePath("a/b", "lesson &1"), "/courses/a%2Fb?sessionId=lesson%20%261");
+  assert.equal(courseWorkspacePath("course"), "/courses/course");
+  assert.equal(courseWorkspacePath("a/b",null,null,null,null,null,true), "/courses/a%2Fb?createLesson=1");
+  assert.equal(courseWorkspacePath("course",null,"members"), "/courses/course?section=members");
+  assert.equal(courseWorkspacePath("course","lesson 1","interactions"), "/courses/course?sessionId=lesson%201&section=interactions");
+  assert.equal(courseWorkspaceSection("members"),"members");
+  assert.equal(courseWorkspaceSection("interactions"),"interactions");
+  assert.equal(courseWorkspaceSection("teachers"),null);
+  assert.equal(courseWorkspaceSection(["members"]),null);
+  assert.equal(visibleCourseWorkspaceSection("members",false),"overview");
+  assert.equal(visibleCourseWorkspaceSection("members",true),"members");
+  assert.equal(visibleCourseWorkspaceSection("interactions",false),"interactions");
+  const visible=[{id:"one",programId:null},{id:"two",programId:"practice"}];
+  assert.deepEqual(lessonProgram(visible,"two"),{found:true,programId:"practice"});
+  assert.deepEqual(lessonProgram(visible,"one"),{found:true,programId:""});
+  assert.deepEqual(lessonProgram(visible,"unavailable"),{found:false});
 });
 const course = (sessions: ReturnType<typeof session>[]) => ({
   id: "series", name: "CSP-J", status: "scheduled", roomType: 4,

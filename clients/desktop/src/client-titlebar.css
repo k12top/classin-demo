@@ -1,0 +1,37 @@
+/* Content reaches the window edge. This invisible hit area only enables drag;
+   the operating system draws its own window buttons over the page. */
+html { padding-top: 0 !important; box-sizing: border-box !important; }
+html:not(:has([data-workspace-shell])) [class*="course-workspace_page__"] { min-height: 100dvh !important; }
+html:not(:has([data-workspace-shell])) [class*="course-workspace_frame__"] { min-height: calc(100dvh - 50px) !important; }
+#classroom-client-titlebar {
+  position: fixed; inset: 0 0 auto; height: 44px; z-index: 2147483647;
+  background: transparent; border: 0;
+  -webkit-app-region: drag; user-select: none;
+}
+/* The workspace's existing header remains the title bar, with its actions usable. */
+html:has([data-workspace-shell]) { padding-top: 0 !important; }
+html:has([data-workspace-shell]) #classroom-client-titlebar { display: none; }
+html:has([data-workspace-shell]) [data-workspace-header] {
+  -webkit-app-region: drag; user-select: none;
+}
+/* Keep the workspace actions clear of each platform's native controls. */
+html:has(#classroom-client-titlebar.classroom-client-macos) [data-workspace-header] {
+  padding-left: 82px;
+}
+html:has(#classroom-client-titlebar.classroom-client-windows) [data-workspace-header] {
+  padding-right: max(146px, calc(100% - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100%)));
+}
+html:has([data-workspace-shell]) [data-workspace-header-actions] {
+  -webkit-app-region: no-drag;
+}
+/* The classroom has its own header. Let it share the native controls instead
+   of covering the header with a second title bar. */
+html:has(.classroom-v3-shell) { padding-top: 0 !important; }
+html:has(.classroom-v3-shell) #classroom-client-titlebar { display: none; }
+html:has(.classroom-v3-shell) .classroom-v3-topbar { -webkit-app-region: drag; user-select: none; }
+html:has(.classroom-v3-shell) .classroom-v3-topbar :is(button,a,input,select,textarea,[role="button"]) { -webkit-app-region: no-drag; }
+html:has(#classroom-client-titlebar.classroom-client-macos) .classroom-v3-topbar { padding-left: 82px !important; }
+html:has(#classroom-client-titlebar.classroom-client-windows) .classroom-v3-topbar { padding-right: max(146px, calc(100% - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100%))) !important; }
+
+/* Keep the status page back link clear of macOS traffic-light controls. */
+html:has(#classroom-client-titlebar.classroom-client-macos) [data-access-header] > div { left: 82px; }

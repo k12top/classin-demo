@@ -118,6 +118,8 @@ export async function getClassroomSpaces(input: {
   viewerId: string;
   role: ClassroomRole;
 }): Promise<ClassroomSpaceSnapshot[]> {
+  // A past student assignment must not expose a breakout after a role change.
+  if (input.role === "observer") return [];
   const sessionId = input.sessionId || input.courseId;
   const where =
     (input.role === "teacher" || input.role === "assistant")
@@ -143,7 +145,7 @@ export async function ensureClassroomSpaceAssignment(input: {
   role: ClassroomRole;
 }) {
   const sessionId = input.sessionId || input.courseId;
-  if (input.role === "teacher" || input.role === "assistant") return null;
+  if (input.role !== "student") return null;
   const existing = await prisma.classroomSpaceMember.findFirst({
     where: { sessionId, userId: input.userId, active: true },
     select: { spaceId: true },
@@ -592,6 +594,7 @@ export async function getClassroomSpaceCredentialAccess(input: {
   viewerId: string;
   role: ClassroomRole;
 }) {
+  if (input.role === "observer") throw new ClassroomSpaceError("旁听人员不能进入分组教室", 403);
   const sessionId = input.sessionId || input.courseId;
   const space = await prisma.classroomSpace.findFirst({
     where: { id: input.spaceId, sessionId },
@@ -615,8 +618,8 @@ export async function getClassroomSpaceCredentialAccess(input: {
     name: space.name,
     channelName: space.channelName,
     membership,
-    publisher: input.role !== "teacher" && input.role !== "assistant" && Boolean(membership),
+    publisher: (input.role === "student" || input.role === "assistant") && Boolean(membership),
     allowScreenShare:
-      Boolean(membership?.screenShareAllowed),
+      (input.role === "student" || input.role === "teacher" || input.role === "assistant") && Boolean(membership?.screenShareAllowed),
   };
 }

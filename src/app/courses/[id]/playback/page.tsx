@@ -31,7 +31,8 @@ import { useTranslation } from "@/lib/i18n/context";
 import { isHlsPlaybackUrl, isMp4PlaybackUrl } from "@/lib/playback-url";
 import { captionTranslation, type CaptionDisplayMode } from "@/lib/classroom/caption-display";
 import { classroomLanguageLabel } from "@/lib/classroom/languages";
-import { activeCaptionIndex, captionPosition, captionSeekPosition } from "@/lib/classroom/playback-captions";
+import { activeCaptionIndex, captionDataForSession, captionPosition, captionSeekPosition } from "@/lib/classroom/playback-captions";
+import { readPlaybackCaptionPreferences, writePlaybackCaptionPreferences, type CaptionAppearance } from "@/lib/classroom/playback-caption-preferences";
 import type { CourseSessionSummaryDocument, SummaryEvidence } from "@/lib/course-session-summary-document";
 import { LessonSummaryReport } from "@/components/course-sessions/lesson-summary-report";
 import { ActivityDashboard } from "@/components/classroom/activity-dashboard";
@@ -39,11 +40,20 @@ import { activityOverviewCopy } from "@/lib/classroom/activity-overview-copy";
 import { summaryGenerationActive, watchCourseSessionSummary } from "@/lib/course-session-summary-watch";
 import type { SummaryGenerationState } from "@/lib/course-session-summary-generation";
 import { PlaybackCompatibility, PlaybackQualityControl, usePlaybackMedia } from "@/components/course-sessions/playback-compatibility";
-import { applyPlaybackSeek, requestPlayback, scrollToPlayback, updatePlaybackBuffering } from "@/lib/playback-navigation";
-import {
-  PortalShell,
-  type PortalPage,
-} from "@/components/portal/portal-shell";
+import { PlaybackSpeedControl } from "@/components/course-sessions/playback-speed-control";
+import { normalizePlaybackRate } from "@/lib/playback-progress";
+import { replayReviewCopy } from "@/lib/replay-review-copy";
+import { applyPlaybackSeek, recordingRetryDelay, requestPlaybackForRecording, scrollToPlayback, updatePlaybackBuffering } from "@/lib/playback-navigation";
+import { WorkspaceSubpage } from "@/components/workspace/workspace-subpage";
+import { ReplayChat } from "@/components/workspace/replay-chat";
+import { ReplayStudentPreview } from "@/components/workspace/replay-student-preview";
+import { ReplayActivityMarkers } from "@/components/workspace/replay-activity-markers";
+import { ClassroomSyncBoundary } from "@/lib/classroom/use-classroom-sync";
+import { replaySummaryForView } from "@/lib/replay-summary-visibility";
+import { replayRecordingsForSession, resolveReplayLesson } from "@/lib/replay-session-recordings";
+import { useTimeZone } from "@/lib/use-time-zone";
+import { courseWorkspacePath } from "@/lib/course-schedule";
+import styles from "./playback-workspace.module.css";
 
 interface PlaybackCourse {
   id: string;
@@ -61,6 +71,7 @@ type PlaybackSession = {
   startTime: string;
   endTime: string;
   _count?: { recordings?: number };
+  viewerRole?: "teacher" | "assistant" | "student" | "observer";
 };
 
 type PlaybackRecording = {
@@ -100,12 +111,6 @@ type LessonCaption = {
   translations: Record<string, string>;
 };
 
-type CaptionAppearance = {
-  background: "solid" | "transparent";
-  size: "small" | "medium" | "large";
-  position: "top" | "bottom";
-};
-
 type PlaybackSeek = { recordingId: string; seconds: number; captionId: string };
 
 const NO_CAPTION_TRANSLATION = "none";
@@ -138,15 +143,17 @@ export default function CoursePlaybackPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ embed?: string; sessionId?: string }>;
+  searchParams: Promise<{ embed?: string; sessionId?: string; review?: string }>;
 }) {
   const { id } = use(params);
-  const { embed, sessionId: requestedSessionId } = use(searchParams);
+  const { embed, sessionId: requestedSessionId, review } = use(searchParams);
   const embedded = embed === "1" || embed === "true";
   const router = useRouter();
-  const { user, loading: authLoading, logout } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const authenticatedUserId = user?.userId;
   const { locale, t } = useTranslation();
+  const reviewCopy = replayReviewCopy(locale);
+  const { timeZone } = useTimeZone();
   const [course, setCourse] = useState<PlaybackCourse | null>(null);
   const [loading, setLoading] = useState(true);
   const [sessionsLoading, setSessionsLoading] = useState(true);
@@ -155,26 +162,34 @@ export default function CoursePlaybackPage({
   // A lesson link already identifies the target. Start its authorized recording
   // read alongside the course/session reads instead of adding another waterfall.
   const [selectedSessionId, setSelectedSessionId] = useState(requestedSessionId || "");
-  const [recordings, setRecordings] = useState<PlaybackRecording[]>([]);
+  const [requestedLessonUnavailable, setRequestedLessonUnavailable] = useState(false);
+  const [recordingData, setRecordingData] = useState<{sessionId:string;items:PlaybackRecording[]}>({sessionId:"",items:[]});
+  const [recordingsDeniedSessionId, setRecordingsDeniedSessionId] = useState("");
+  const recordings = replayRecordingsForSession(recordingData,selectedSessionId,recordingsDeniedSessionId);
   const [recordingsLoading, setRecordingsLoading] = useState(false);
   const [recordingsError, setRecordingsError] = useState("");
   const [recordingsRevision, setRecordingsRevision] = useState(0);
   const [verificationBusy, setVerificationBusy] = useState(false);
   const recordingsLoadedSessionRef = useRef("");
+  const recordingRetryRef = useRef({sessionId:"",failures:0});
   const [summary, setSummary] = useState<LessonSummary | null>(null);
-  const [lessonCaptions, setLessonCaptions] = useState<LessonCaption[]>([]);
-  const [nextCaptionCursor, setNextCaptionCursor] = useState<string | null>(null);
+  const [captionData, setCaptionData] = useState<{sessionId:string;items:LessonCaption[];cursor:string|null}>({sessionId:"",items:[],cursor:null});
+  const visibleCaptionData = captionDataForSession(captionData, selectedSessionId);
+  const lessonCaptions = visibleCaptionData?.items || [];
+  const nextCaptionCursor = selectedSessionId && captionData.sessionId === selectedSessionId ? captionData.cursor : null;
   const [captionsLoadingMore, setCaptionsLoadingMore] = useState(false);
   const summaryRequestIdRef = useRef(0);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState("");
+  const [summaryActionError, setSummaryActionError] = useState("");
   const [summaryGeneration, setSummaryGeneration] = useState<SummaryGenerationState | null>(null);
   const [summaryWatchRevision, setSummaryWatchRevision] = useState(0);
   const summaryMutationRef = useRef(0);
   const [summaryBusy, setSummaryBusy] = useState<
     "generate" | "save" | "publish" | "unpublish" | null
   >(null);
-  const [summaryCanManage, setSummaryCanManage] = useState(false);
+  const [summaryAccess, setSummaryAccess] = useState<{sessionId:string;canManage:boolean}|null>(null);
+  const summaryCanManage = summaryAccess?.sessionId === selectedSessionId && summaryAccess.canManage;
   const [captionMode, setCaptionMode] = useState<CaptionDisplayMode>("off");
   const [captionLanguage, setCaptionLanguage] = useState("");
   const [captionAppearance, setCaptionAppearance] = useState<CaptionAppearance>({ background: "solid", size: "medium", position: "bottom" });
@@ -183,28 +198,26 @@ export default function CoursePlaybackPage({
   const [selectedRecordingId, setSelectedRecordingId] = useState("");
   const [continuePlaybackId, setContinuePlaybackId] = useState("");
   const [mediaTime, setMediaTime] = useState(0);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [seekRequest, setSeekRequest] = useState<PlaybackSeek | null>(null);
-  const [lessonReviewTab, setLessonReviewTab] = useState("summary");
+  const [previewSelection,setPreviewSelection]=useState<{sessionId:string;studentId:string}|null>(null);
+  const [previewOpenSession,setPreviewOpenSession]=useState("");
+  const previewStudentId=previewSelection?.sessionId===selectedSessionId?previewSelection.studentId:"";
+  const previewChoosing=previewOpenSession===selectedSessionId&&!previewStudentId;
+  const previewPrompt=locale==="zh-TW"?"請先選擇學生以查看其課堂內容。":locale.startsWith("zh")?"请先选择学生以查看其课堂内容。":locale.startsWith("vi")?"Hãy chọn học sinh để xem nội dung lớp học.":"Choose a student to preview their lesson content.";
+  const [lessonReviewTab, setLessonReviewTab] = useState(review === "interactions" ? "interactions" : review === "chat" ? "chat" : "timeline");
   const playbackRef = useRef<HTMLDivElement>(null);
   const playbackVideoRef = useRef<HTMLVideoElement>(null);
   const reviewContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const savedMode = window.localStorage.getItem("playback_caption_mode");
-    const savedLanguage = window.localStorage.getItem("playback_caption_language") || "";
-    const savedBackground = window.localStorage.getItem("playback_caption_background");
-    const savedSize = window.localStorage.getItem("playback_caption_size");
-    const savedPosition = window.localStorage.getItem("playback_caption_position");
+    const saved = readPlaybackCaptionPreferences(() => window.localStorage);
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
-      if (savedMode === "original" || savedMode === "translated" || savedMode === "bilingual") setCaptionMode(savedMode);
-      setCaptionLanguage(savedLanguage);
-      setCaptionAppearance({
-        background: savedBackground === "transparent" ? "transparent" : "solid",
-        size: savedSize === "small" || savedSize === "large" ? savedSize : "medium",
-        position: savedPosition === "top" ? "top" : "bottom",
-      });
+      setCaptionMode(saved.mode);
+      setCaptionLanguage(saved.language);
+      setCaptionAppearance(saved.appearance);
       setCaptionPrefsLoaded(true);
     });
     return () => { cancelled = true; };
@@ -212,11 +225,7 @@ export default function CoursePlaybackPage({
 
   useEffect(() => {
     if (!captionPrefsLoaded) return;
-    window.localStorage.setItem("playback_caption_mode", captionMode);
-    window.localStorage.setItem("playback_caption_language", captionLanguage);
-    window.localStorage.setItem("playback_caption_background", captionAppearance.background);
-    window.localStorage.setItem("playback_caption_size", captionAppearance.size);
-    window.localStorage.setItem("playback_caption_position", captionAppearance.position);
+    writePlaybackCaptionPreferences(() => window.localStorage,{mode:captionMode,language:captionLanguage,appearance:captionAppearance});
   }, [captionAppearance, captionLanguage, captionMode, captionPrefsLoaded]);
 
   const copy = useMemo(() => {
@@ -299,13 +308,12 @@ export default function CoursePlaybackPage({
       const nextSessions = payload.sessions || [];
       setSessions(nextSessions);
       const requestedId = new URLSearchParams(window.location.search).get("sessionId") || "";
-      const requestedSession = nextSessions.find((session) => session.id === requestedId);
-      const fallbackSession = nextSessions.find(
-        (session) => (session._count?.recordings || 0) > 0,
-      ) || nextSessions.find((session) => session.status === "finished");
-      setSelectedSessionId(
-        requestedSession?.id || fallbackSession?.id || "",
-      );
+      const resolved = resolveReplayLesson(nextSessions,requestedId);
+      const nextSessionId = resolved.sessionId;
+      setRequestedLessonUnavailable(resolved.unavailable);
+      setSelectedSessionId(nextSessionId);
+      setPreviewSelection(current => current?.sessionId === nextSessionId ? current : null);
+      setPreviewOpenSession(current => current === nextSessionId ? current : "");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : copy.loadFailed);
     } finally {
@@ -328,20 +336,29 @@ export default function CoursePlaybackPage({
   useEffect(() => {
     if (authLoading || !authenticatedUserId) return;
     if (!selectedSessionId) {
-      queueMicrotask(() => setRecordings([]));
-      return;
+      let cancelled = false;
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setRecordingData({sessionId:"",items:[]});
+        // The previous recording read may have been aborted when the authorized
+        // lesson list omitted this lesson. Its finally block cannot clear state.
+        setRecordingsLoading(false);
+        setRecordingsError("");
+      });
+      return () => { cancelled = true; };
     }
     const controller = new AbortController();
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    let shouldRetry = true;
+    if (recordingRetryRef.current.sessionId !== selectedSessionId) recordingRetryRef.current = {sessionId:selectedSessionId,failures:0};
     const initialLoad = recordingsLoadedSessionRef.current !== selectedSessionId;
     queueMicrotask(() => {
       if (!controller.signal.aborted) {
         // Background reconciliation must never unmount an active video.
         if (initialLoad) {
           setRecordingsLoading(true);
-          setRecordings([]);
+          setRecordingsError("");
         }
-        setRecordingsError("");
       }
     });
     void fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}/recordings`, {
@@ -350,23 +367,37 @@ export default function CoursePlaybackPage({
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]),
     })
       .then(async (response) => {
-        const payload = (await response.json().catch(() => ({}))) as {
+        const body: unknown = await response.json().catch(() => null);
+        const payload = (body && typeof body === "object" && !Array.isArray(body) ? body : {}) as {
           recordings?: PlaybackRecording[];
           refreshAfterMs?: number | null;
           error?: string;
         };
-        if (!response.ok) throw new Error(response.status === 403 ? copy.forbidden : payload.error || copy.loadFailed);
+        if (!response.ok) {
+          shouldRetry = response.status === 408 || response.status === 429 || response.status >= 500;
+          if (!controller.signal.aborted && [401,403,404].includes(response.status)) {
+            setRecordingsDeniedSessionId(selectedSessionId);
+            setRecordingData(current => current.sessionId===selectedSessionId ? {sessionId:selectedSessionId,items:[]} : current);
+          }
+          throw new Error(response.status === 403 ? copy.forbidden : payload.error || copy.loadFailed);
+        }
+        if (!Array.isArray(payload.recordings) || payload.recordings.some(recording => !recording || typeof recording !== "object" || typeof recording.id !== "string" || typeof recording.status !== "string" || !(recording.playbackUrl === null || typeof recording.playbackUrl === "string"))) {
+          throw new Error(copy.loadFailed);
+        }
         if (!controller.signal.aborted) {
+          recordingRetryRef.current.failures = 0;
+          setRecordingsError("");
           recordingsLoadedSessionRef.current = selectedSessionId;
-          const nextRecordings = payload.recordings || [];
-          setRecordings(current => JSON.stringify(current) === JSON.stringify(nextRecordings) ? current : nextRecordings);
+          const nextRecordings = payload.recordings;
+          setRecordingData(current => current.sessionId===selectedSessionId && JSON.stringify(current.items)===JSON.stringify(nextRecordings) ? current : {sessionId:selectedSessionId,items:nextRecordings});
+          setRecordingsDeniedSessionId(current => current===selectedSessionId ? "" : current);
           setSelectedRecordingId((current) => {
             if (payload.recordings?.some((recording) => recording.id === current)) return current;
             const query = new URLSearchParams(window.location.search);
             const requestedId = query.get("sessionId") === selectedSessionId ? query.get("recordingId") : null;
             return payload.recordings?.find((recording) => recording.id === requestedId)?.id || "";
           });
-          if (payload.refreshAfterMs) {
+          if (typeof payload.refreshAfterMs === "number" && Number.isFinite(payload.refreshAfterMs) && payload.refreshAfterMs > 0) {
             refreshTimer = setTimeout(() => {
               if (!controller.signal.aborted) {
                 setRecordingsRevision((value) => value + 1);
@@ -378,12 +409,41 @@ export default function CoursePlaybackPage({
       .catch((cause) => {
         if (controller.signal.aborted) return;
         setRecordingsError(cause instanceof Error ? cause.message : copy.loadFailed);
+        if (shouldRetry) {
+          const delay = recordingRetryDelay(++recordingRetryRef.current.failures);
+          refreshTimer = setTimeout(() => {
+            if (!controller.signal.aborted) setRecordingsRevision(value => value + 1);
+          }, delay);
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setRecordingsLoading(false);
       });
     return () => { controller.abort(); clearTimeout(refreshTimer); };
   }, [authLoading, authenticatedUserId, copy.forbidden, copy.loadFailed, recordingsRevision, selectedSessionId]);
+
+  useEffect(() => {
+    if (authLoading || !authenticatedUserId || !selectedSessionId) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const resume = () => {
+      clearTimeout(timer);
+      if (!navigator.onLine || document.visibilityState !== "visible") return;
+      // A completed recording no longer polls provider state. Revalidate its
+      // lesson permission when returning, without resetting healthy playback.
+      timer = setTimeout(() => setRecordingsRevision(value => value + 1), 150);
+    };
+    window.addEventListener("focus", resume);
+    window.addEventListener("online", resume);
+    window.addEventListener("pageshow", resume);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", resume);
+      window.removeEventListener("online", resume);
+      window.removeEventListener("pageshow", resume);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [authLoading, authenticatedUserId, selectedSessionId]);
 
   const retryRecordingVerification = async () => {
     if (!selectedSessionId || !attentionRecording || verificationBusy) return;
@@ -409,16 +469,16 @@ export default function CoursePlaybackPage({
     setCaptionsLoadingMore(false);
     if (!selectedSessionId) {
       setSummary(null);
-      setLessonCaptions([]);
-      setNextCaptionCursor(null);
-      setSummaryCanManage(false);
+      setCaptionData({sessionId:"",items:[],cursor:null});
+      setSummaryAccess(null);
       setSummaryGeneration(null);
       return;
     }
     setSummaryLoading(true);
-    setSummaryCanManage(false);
+    setSummaryAccess(null);
     setSummary(current => current?.sessionId === selectedSessionId ? current : null);
     setSummaryError("");
+    setSummaryActionError("");
     try {
       const response = await fetch(
         `/api/sessions/${encodeURIComponent(selectedSessionId)}/summary`,
@@ -436,9 +496,8 @@ export default function CoursePlaybackPage({
       if (requestId !== summaryRequestIdRef.current) return;
       setSummary(payload.summary || null);
       setSummaryGeneration(payload.generation || null);
-      setLessonCaptions(Array.isArray(payload.captions) ? payload.captions : []);
-      setNextCaptionCursor(payload.nextCaptionCursor || null);
-      setSummaryCanManage(Boolean(payload.canManage));
+      setCaptionData({sessionId:selectedSessionId,items:Array.isArray(payload.captions) ? payload.captions : [],cursor:payload.nextCaptionCursor || null});
+      setSummaryAccess({sessionId:selectedSessionId,canManage:Boolean(payload.canManage)});
       setSummaryLoading(false);
       let cursor = payload.nextCaptionCursor || null;
       let loaded = payload.captions?.length || 0;
@@ -456,10 +515,10 @@ export default function CoursePlaybackPage({
         if (requestId !== summaryRequestIdRef.current) break;
         const more = Array.isArray(page.captions) ? page.captions : [];
         if (!more.length || page.nextCaptionCursor === cursor) break;
-        setLessonCaptions((current) => [...current, ...more]);
-        loaded += more.length;
         cursor = page.nextCaptionCursor || null;
-        setNextCaptionCursor(cursor);
+        const nextCursor = cursor;
+        setCaptionData(current => current.sessionId === selectedSessionId ? {...current,items:[...current.items,...more],cursor:nextCursor} : current);
+        loaded += more.length;
       }
       if (requestId === summaryRequestIdRef.current) setCaptionsLoadingMore(false);
     } catch (cause) {
@@ -486,8 +545,7 @@ export default function CoursePlaybackPage({
       };
       if (!response.ok) throw new Error(payload.error || copy.loadFailed);
       if (requestId !== summaryRequestIdRef.current) return;
-      setLessonCaptions((current) => [...current, ...(payload.captions || [])]);
-      setNextCaptionCursor(payload.nextCaptionCursor || null);
+      setCaptionData(current => current.sessionId === selectedSessionId ? {...current,items:[...current.items,...(payload.captions || [])],cursor:payload.nextCaptionCursor || null} : current);
     } catch (cause) {
       if (requestId !== summaryRequestIdRef.current) return;
       setSummaryError(cause instanceof Error ? cause.message : copy.loadFailed);
@@ -533,6 +591,7 @@ export default function CoursePlaybackPage({
     ++summaryMutationRef.current;
     setSummaryBusy(action);
     setSummaryError("");
+    setSummaryActionError("");
     try {
       const response = await fetch(
         `/api/sessions/${encodeURIComponent(selectedSessionId)}/summary`,
@@ -546,7 +605,13 @@ export default function CoursePlaybackPage({
         summary?: LessonSummary;
         generation?: SummaryGenerationState | null;
         error?: string;
+        code?: string;
       };
+      if(requestId!==summaryRequestIdRef.current)return false;
+      if(action==="generate"&&response.status===409&&payload.code==="no_final_captions"){
+        setSummaryActionError(t("replayExtras.summary_noCaptions"));
+        return false;
+      }
       if (!response.ok || (action !== "generate" && !payload.summary)) {
         throw new Error(payload.error || copy.loadFailed);
       }
@@ -565,11 +630,12 @@ export default function CoursePlaybackPage({
         setSummaryWatchRevision(revision => revision + 1);
       }
     }
-  }, [copy.loadFailed, selectedSessionId]);
+  }, [copy.loadFailed, selectedSessionId,t]);
 
   const recordUrl = course?.recordUrl?.trim() || "";
-  const canPlayMp4 = course?.status === "finished" && isMp4PlaybackUrl(recordUrl);
-  const canPlayHls = course?.status === "finished" && isHlsPlaybackUrl(recordUrl);
+  const legacyPlaybackReady = !selectedSessionId || recordingData.sessionId === selectedSessionId;
+  const canPlayMp4 = legacyPlaybackReady && course?.status === "finished" && isMp4PlaybackUrl(recordUrl);
+  const canPlayHls = legacyPlaybackReady && course?.status === "finished" && isHlsPlaybackUrl(recordUrl);
   const selectedSession = sessions.find((session) => session.id === selectedSessionId) || null;
   const playableRecordings = recordings.filter(
     (recording) => Boolean(recording.playbackUrl),
@@ -584,11 +650,11 @@ export default function CoursePlaybackPage({
   const failedRecording = recordings.find(
     (recording) => recording.status === "failed",
   );
-  const canPlayInApp = canPlaySessionRecording || canPlayMp4 || canPlayHls;
+  const canPlayInApp = !requestedLessonUnavailable && (!selectedSessionId || recordingsDeniedSessionId !== selectedSessionId) && (canPlaySessionRecording || canPlayMp4 || canPlayHls);
   const hasRecordedSession = sessions.some(
     (session) => (session._count?.recordings || 0) > 0,
   );
-  const isTeacher = Boolean(course?.canTeach);
+  const trackPlayback = !course?.canTeach && !["teacher", "assistant", "observer"].includes(selectedSession?.viewerRole || "");
   const reviewableSessions = sessions.filter(
     (session) =>
       (session._count?.recordings || 0) > 0 ||
@@ -617,12 +683,14 @@ export default function CoursePlaybackPage({
       ? captionLanguage : captionLanguages.find(language => language.split("-")[0] === locale.split("-")[0]) || captionLanguages[0] || "";
   const selectedCaptionTranslation = activeCaption && effectiveCaptionLanguage && effectiveCaptionLanguage !== NO_CAPTION_TRANSLATION
     ? captionTranslation(activeCaption, effectiveCaptionLanguage) : "";
-  const activeCaptionPosition = activeCaption && captionPosition(activeCaption.occurredAt, playableRecordings);
+  const activeCaptionPosition = activeCaption && captionPosition(activeCaption.occurredAt, playableRecordings,selectedRecording?.id);
   const videoCaption = activeCaptionPosition && selectedRecording && activeCaptionPosition.recordingId === selectedRecording.id &&
     mediaTime - activeCaptionPosition.seconds >= -0.5 && mediaTime - activeCaptionPosition.seconds <= 12
     ? activeCaption : null;
-  const captionPositionFor = (caption: LessonCaption) => captionPosition(caption.occurredAt, playableRecordings);
+  const captionPositionFor = (caption: LessonCaption) => captionPosition(caption.occurredAt, playableRecordings,selectedRecording?.id);
   const selectSession = (sessionId: string) => {
+    if (sessionId !== selectedSessionId) { setPreviewSelection(null); setPreviewOpenSession(""); }
+    setRequestedLessonUnavailable(false);
     setSelectedSessionId(sessionId);
     setSelectedRecordingId("");
     setContinuePlaybackId("");
@@ -636,11 +704,20 @@ export default function CoursePlaybackPage({
   const seekToCaption = (caption: LessonCaption) => {
     const position = captionPositionFor(caption);
     if (!position) return;
-    requestPlayback(playbackVideoRef.current);
+    requestPlaybackForRecording(playbackVideoRef.current,selectedRecording?.id,position.recordingId);
     scrollToPlayback(playbackRef.current);
     setSelectedRecordingId(position.recordingId);
     setContinuePlaybackId(position.recordingId);
     setSeekRequest({ ...captionSeekPosition(position), captionId: caption.id });
+  };
+  const seekToActivity = (startedAt:string,id:string) => {
+    const position=captionPosition(startedAt,playableRecordings,selectedRecording?.id);
+    if(!position)return;
+    requestPlaybackForRecording(playbackVideoRef.current,selectedRecording?.id,position.recordingId);
+    scrollToPlayback(playbackRef.current);
+    setSelectedRecordingId(position.recordingId);
+    setContinuePlaybackId(position.recordingId);
+    setSeekRequest({...position,captionId:id});
   };
   const playNextRecording = () => {
     const index = playableRecordings.findIndex((recording) => recording.id === selectedRecording?.id);
@@ -652,12 +729,13 @@ export default function CoursePlaybackPage({
     setSelectedRecordingId(next.id);
   };
 
-  if (authLoading || loading || sessionsLoading) {
+  if (authLoading || !user || loading || sessionsLoading) {
     return <PageLoadingState message={copy.loading} variant="course" />;
   }
 
   const message =
     error ||
+    (requestedLessonUnavailable ? copy.forbidden : "") ||
     (!selectedSessionId && course?.status !== "finished"
       ? copy.notFinished
       : !canPlayInApp
@@ -683,10 +761,11 @@ export default function CoursePlaybackPage({
     captionsLoadingMore,
     onLoadMoreCaptions: () => void loadMoreCaptions(),
     recordings: playableRecordings,
+    selectedRecordingId: selectedRecording?.id || null,
     activeCaptionId: activeCaption?.id || null,
     onSeekToCaption: seekToCaption,
     loading: summaryLoading,
-    error: summaryError,
+    error: summaryActionError || summaryError,
     canManage: summaryCanManage,
     busy: summaryBusy || (summaryGenerating ? "generate" as const : null),
     copy: summaryCopy,
@@ -695,83 +774,56 @@ export default function CoursePlaybackPage({
     onPublish: () => void updateSummary("publish"),
     onUnpublish: () => void updateSummary("unpublish"),
   };
+  const previewLessonContentProps = {...lessonContentProps,summary:replaySummaryForView(summary,true),canManage:false,busy:null};
 
-  return (
-    <PortalShell
-      embedded={embedded}
-      role={isTeacher ? "teacher" : "student"}
-      user={user!}
-      activePage="courses"
-      onPageChange={(page: PortalPage) =>
-        router.push(`/?view=${encodeURIComponent(page)}`)
-      }
-      onLogout={logout}
-    >
-      <main className="mx-auto max-w-[1540px]">
-        {!embedded && <Button
-          variant="ghost"
-          size="sm"
-          className="mb-4 rounded-xl text-muted-foreground hover:text-foreground"
-          onClick={() => router.push(`/courses/${id}`)}
-        >
-          <ChevronLeft className="h-4 w-4" />
-          {copy.back}
-        </Button>}
-        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Lesson replay</p>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">{course?.name || copy.title}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{t("portalUpdates.replaySubtitle")}</p>
+  const content = (
+      <main className={styles.page}>
+        <header className={styles.header}>
+          {!embedded && <button type="button" className={styles.back} onClick={() => router.push(courseWorkspacePath(id,selectedSessionId))}><ChevronLeft size={15}/>{copy.back}</button>}
+          <div className={styles.heading}>
+            <h1>{selectedSession?.title || course?.name || copy.title}</h1>
+            {selectedSession && <p>{course?.name} · <time dateTime={selectedSession.startTime}>{new Intl.DateTimeFormat(locale,{timeZone,dateStyle:"medium",timeStyle:"short"}).format(new Date(selectedSession.startTime))}</time> · {timeZone}</p>}
           </div>
-          {course?.teacherName && <Badge variant="outline">{copy.teacher}: {course.teacherName}</Badge>}
-        </div>
+          {summaryCanManage&&selectedLessonEnded&&<div className={styles.studentPreview}><ReplayStudentPreview key={selectedSessionId} sessionId={selectedSessionId} locale={locale} selected={previewStudentId} onOpenChange={open=>setPreviewOpenSession(open?selectedSessionId:"")} onChange={studentId=>{setPreviewSelection(studentId?{sessionId:selectedSessionId,studentId}:null);if(studentId&&!previewStudentId)setLessonReviewTab("interactions");}}/></div>}
+          {course?.teacherName && <span className={styles.teacher}>{copy.teacher}: {course.teacherName}</span>}
+        </header>
         <div className={`grid items-start gap-4 ${reviewableSessions.length > 1 ? "xl:grid-cols-[210px_minmax(0,1fr)]" : ""}`}>
         {reviewableSessions.length > 1 && (
-          <nav aria-label={t("replayExtras.lessonReplays")} className="hidden overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm xl:block">
-            <div className="border-b border-border/60 px-4 py-4">
-              <h2 className="text-sm font-semibold">{t("replayExtras.lessonReplays")}</h2>
-              <p className="mt-1 text-xs text-muted-foreground">{t("replayExtras.lessonCount", { count: reviewableSessions.length })}</p>
+          <nav aria-label={t("replayExtras.lessonReplays")} className={styles.lessonNav}>
+            <div className={styles.lessonNavHeader}>
+              <h2>{t("replayExtras.lessonReplays")}</h2>
+              <p>{t("replayExtras.lessonCount", { count: reviewableSessions.length })}</p>
             </div>
             {reviewableSessions.map((session, index) => (
               <button key={session.id} type="button" aria-current={session.id === selectedSessionId ? "page" : undefined}
                 onClick={() => selectSession(session.id)}
-                className={`block w-full border-b border-border/50 px-4 py-4 text-left transition-colors last:border-b-0 hover:bg-primary/5 focus-visible:outline-2 focus-visible:outline-primary ${session.id === selectedSessionId ? "bg-primary/10 shadow-[inset_3px_0_0_hsl(var(--primary))]" : ""}`}>
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-primary">Lesson {String(index + 1).padStart(2, "0")}</span>
-                <strong className="mt-1 block text-sm leading-5">{session.title || copy.title}</strong>
-                <small className="mt-2 block text-xs text-muted-foreground">{new Date(session.startTime).toLocaleDateString(locale)}</small>
+                className={styles.lessonNavItem}>
+                <span className={styles.lessonNumber}>{new Intl.NumberFormat(locale,{minimumIntegerDigits:2}).format(index+1)}</span>
+                <strong>{session.title || copy.title}</strong>
+                <small><time dateTime={session.startTime}>{new Intl.DateTimeFormat(locale,{timeZone,dateStyle:"medium"}).format(new Date(session.startTime))}</time></small>
               </button>
             ))}
           </nav>
         )}
-        <Tabs value={lessonReviewTab} onValueChange={(value) => {
-          setLessonReviewTab(value);
-          requestAnimationFrame(() => reviewContentRef.current?.scrollIntoView({ block: "start" }));
-        }} className={`grid min-w-0 items-start gap-4 ${reviewableSessions.length > 1 ? "xl:grid-cols-[minmax(0,1fr)_350px]" : "xl:grid-cols-[minmax(0,1fr)_370px]"}`}>
+        <Tabs value={lessonReviewTab} onValueChange={setLessonReviewTab} className={`grid min-w-0 items-start gap-4 ${reviewableSessions.length > 1 ? "xl:grid-cols-[minmax(0,1fr)_350px]" : "xl:grid-cols-[minmax(0,1fr)_370px]"}`}>
         <div className="min-w-0">
         {reviewableSessions.length > 1 && (
           <label className="mb-3 block xl:hidden">
             <span className="sr-only">{t("replayExtras.selectLesson")}</span>
-            <select className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm" value={selectedSessionId} onChange={(event) => selectSession(event.target.value)}>
+            <select className={styles.lessonSelect} value={selectedSessionId} onChange={(event) => selectSession(event.target.value)}>
               {reviewableSessions.map((session) => <option key={session.id} value={session.id}>{session.title || copy.title}</option>)}
             </select>
           </label>
         )}
-        {selectedSession && <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-lg font-semibold">{selectedSession.title || copy.title}</h2>
+        {selectedSession && <div className="mb-3 flex flex-wrap items-baseline justify-end gap-2">
           <div className="flex items-center gap-3">
-            <time dateTime={selectedSession.startTime} className="text-xs text-muted-foreground">{new Date(selectedSession.startTime).toLocaleString(locale)}</time>
-            <a href="#lesson-summary" onClick={() => {
-              setLessonReviewTab("summary");
-              requestAnimationFrame(() => {
-                if (reviewContentRef.current?.getClientRects().length) reviewContentRef.current.scrollIntoView({ block: "start" });
-              });
-            }} className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-primary">
+            <a href="#lesson-summary" onClick={() => {requestAnimationFrame(() => reviewContentRef.current?.scrollIntoView({ block: "start" }));}} className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-primary">
               <FileText className="h-3.5 w-3.5" aria-hidden="true" />{summaryCopy.title}
             </a>
-            <a href="#lesson-interactions" className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-primary"><Activity className="h-3.5 w-3.5" aria-hidden="true" />{activityOverviewCopy(locale).history}</a>
+            <a href="#lesson-interactions" onClick={() => setLessonReviewTab("interactions")} className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-primary"><Activity className="h-3.5 w-3.5" aria-hidden="true" />{activityOverviewCopy(locale).history}</a>
           </div>
         </div>}
-        <Card ref={playbackRef} className="scroll-mt-3 overflow-hidden rounded-[22px] border border-border/70 bg-card shadow-[0_24px_70px_rgba(21,23,28,0.08)]">
+        <Card ref={playbackRef} className={styles.playbackCard}>
           <CardContent className="p-0">
             {selectedSessionId && recordingsError && canPlayInApp && <div role="status" className="flex items-center justify-between gap-3 border-b border-border p-3 text-sm text-muted-foreground">
               <span>{t("replayExtras.statusRefreshFailed")}</span>
@@ -793,8 +845,8 @@ export default function CoursePlaybackPage({
             ) : canPlayInApp ? (
               <>
                 <PlaybackVideo
-                  controls={<div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-3 text-white">
-                  <div className="flex items-center gap-2">
+                  controls={<div className="flex min-w-[min(100%,220px)] flex-1 flex-wrap items-center justify-between gap-3 text-white">
+                  <div className="flex min-w-0 items-center gap-2">
                     <button type="button" disabled={!captionCanSync} aria-pressed={captionCanSync && captionMode !== "off"} aria-label={t("classroom.v3.captionsTitle")}
                       onClick={() => setCaptionMode((mode) => mode === "off" ? "bilingual" : "off")}
                       className={`rounded-md border px-2.5 py-1 text-xs font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40 ${!captionCanSync || captionMode === "off" ? "border-white/30 text-white/70" : "border-primary bg-primary text-primary-foreground"}`}>CC</button>
@@ -802,14 +854,17 @@ export default function CoursePlaybackPage({
                       aria-label={t("classroom.v3.captionSettings")}
                       onClick={() => setCaptionSettingsOpen((open) => !open)}
                       className="rounded-md border border-white/30 p-1.5 text-white/80 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"><Settings2 className="h-4 w-4" /></button>
-                    <span className="text-xs text-white/60">{captionStateLabel}</span>
+                    <span className="min-w-0 truncate text-xs text-white/60" title={captionStateLabel}>{captionStateLabel}</span>
                   </div>
                   <span className="hidden text-xs text-white/50 lg:inline">{t("replayExtras.timelineSeekHint")}</span>
                 </div>}
-                  onRecheck={isTeacher && attentionRecording ? () => void retryRecordingVerification() : undefined}
+                  onRecheck={summaryCanManage && attentionRecording ? () => void retryRecordingVerification() : undefined}
                   recheckBusy={verificationBusy}
                   courseId={id}
-                  trackProgress={!isTeacher}
+                  trackProgress={trackPlayback}
+                  lessonId={selectedRecording ? selectedSessionId : undefined}
+                  playbackSpeed={playbackSpeed}
+                  onPlaybackSpeedChange={setPlaybackSpeed}
                   key={`${selectedSessionId}:${selectedRecording?.id || recordUrl}`}
                   src={selectedRecording?.playbackUrl || recordUrl}
                   hlsSrc={selectedRecording?.hlsPlaybackUrl}
@@ -830,6 +885,7 @@ export default function CoursePlaybackPage({
                   captionMode={captionMode}
                   captionAppearance={captionAppearance}
                 />
+                {!previewChoosing&&selectedSessionId&&selectedRecording?.startedAt&&selectedRecording.stoppedAt&&<ReplayActivityMarkers key={`${selectedSessionId}:${previewStudentId}`} sessionId={selectedSessionId} recording={selectedRecording} previewStudentId={previewStudentId} onSeek={seekToActivity}/>}
                 {captionSettingsOpen && (
                   <CaptionSettings mode={captionMode} onModeChange={setCaptionMode}
                     language={effectiveCaptionLanguage} languages={captionLanguages} onLanguageChange={setCaptionLanguage}
@@ -874,36 +930,30 @@ export default function CoursePlaybackPage({
             )}
           </CardContent>
         </Card>
-        {selectedSessionId && <section id="lesson-interactions" className="mt-4 min-w-0 scroll-mt-20 overflow-hidden rounded-xl border border-border/70 bg-card" aria-label={activityOverviewCopy(locale).history}><ActivityDashboard key={selectedSessionId} sessionId={selectedSessionId} review /></section>}
         {selectedSessionId && (
           <div ref={reviewContentRef} className={`mt-4 min-w-0 ${embedded ? "scroll-mt-3" : "scroll-mt-[70px] min-[1025px]:scroll-mt-[80px]"}`}>
-            <TabsList aria-label={t("replayExtras.lessonReview")}
-              className={`sticky z-20 mb-4 grid h-auto w-full grid-cols-2 rounded-xl bg-muted p-1 xl:hidden ${embedded ? "top-0" : "top-[58px] min-[1025px]:top-[68px]"}`}>
-              <TabsTrigger value="summary" className="min-h-11 gap-2 rounded-lg">
-                <Sparkles className="h-4 w-4" aria-hidden="true" />{t("replayExtras.aiSummary")}
-              </TabsTrigger>
-              <TabsTrigger value="timeline" className="min-h-11 gap-2 rounded-lg">
-                <Clock3 className="h-4 w-4" aria-hidden="true" />{t("replayExtras.timeline")}
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="summary" forceMount asChild className="mt-0 data-[state=inactive]:hidden xl:data-[state=inactive]:block">
               <section id="lesson-summary" className="min-w-0 scroll-mt-6" aria-label={summaryCopy.title}>
-                <LessonSummaryPanel presentation="summary" {...lessonContentProps} />
+                {previewChoosing?<p role="status">{previewPrompt}</p>:<LessonSummaryPanel presentation="summary" {...(previewStudentId?previewLessonContentProps:lessonContentProps)} />}
               </section>
-            </TabsContent>
           </div>
         )}
         </div>
-        {selectedSessionId && <TabsContent value="timeline" forceMount asChild className="mt-0 data-[state=inactive]:hidden xl:data-[state=inactive]:block">
-          <aside className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
-            <LessonSummaryPanel presentation="timeline" {...lessonContentProps} />
-          </aside>
-        </TabsContent>}
+        {selectedSessionId && <aside className={styles.reviewPanel}>
+          <TabsList aria-label={t("replayExtras.lessonReview")} className={styles.reviewTabs}>
+            <TabsTrigger value="timeline">{reviewCopy.timeline}</TabsTrigger>
+            <TabsTrigger value="interactions">{reviewCopy.activities}</TabsTrigger>
+            <TabsTrigger value="chat">{reviewCopy.chat}</TabsTrigger>
+          </TabsList>
+          <TabsContent value="timeline" className="mt-0">{previewChoosing?<p role="status">{previewPrompt}</p>:<LessonSummaryPanel presentation="timeline" {...(previewStudentId?previewLessonContentProps:lessonContentProps)} />}</TabsContent>
+          <TabsContent value="interactions" className="mt-0"><section id="lesson-interactions" aria-label={activityOverviewCopy(locale).history}>{previewChoosing?<p role="status">{previewPrompt}</p>:<ActivityDashboard key={`${selectedSessionId}:${previewStudentId}`} sessionId={selectedSessionId} review previewStudentId={previewStudentId} canSeekActivity={startedAt=>canPlayInApp&&Boolean(captionPosition(startedAt,playableRecordings))} onSeekActivity={seekToActivity} />}</section></TabsContent>
+          <TabsContent value="chat" className="mt-0">{previewChoosing?<p role="status">{previewPrompt}</p>:<ReplayChat key={`${selectedSessionId}:${previewStudentId}`} sessionId={selectedSessionId} previewStudentId={previewStudentId}/>}</TabsContent>
+        </aside>}
         </Tabs>
         </div>
       </main>
-    </PortalShell>
   );
+  const syncedContent=<ClassroomSyncBoundary sessionId={selectedSessionId}>{content}</ClassroomSyncBoundary>;
+  return embedded ? syncedContent : <WorkspaceSubpage user={user!}>{syncedContent}</WorkspaceSubpage>;
 }
 
 function LessonSummaryPanel({
@@ -917,6 +967,7 @@ function LessonSummaryPanel({
   captionsLoadingMore,
   onLoadMoreCaptions,
   recordings,
+  selectedRecordingId,
   activeCaptionId,
   onSeekToCaption,
   loading,
@@ -939,6 +990,7 @@ function LessonSummaryPanel({
   captionsLoadingMore: boolean;
   onLoadMoreCaptions: () => void;
   recordings: PlaybackRecording[];
+  selectedRecordingId: string | null;
   activeCaptionId: string | null;
   onSeekToCaption: (caption: LessonCaption) => void;
   loading: boolean;
@@ -1056,7 +1108,7 @@ function LessonSummaryPanel({
             <ol className="max-h-[65dvh] space-y-2 overflow-y-auto xl:max-h-[650px]">
               {captions.map((caption) => {
                 const translation = captionLanguage === NO_CAPTION_TRANSLATION ? "" : captionTranslation(caption, captionLanguage);
-                const position = captionPosition(caption.occurredAt, recordings);
+                const position = captionPosition(caption.occurredAt, recordings, selectedRecordingId);
                 const segment = position && recordings.find((recording) => recording.id === position.recordingId)?.segment;
                 const timeLabel = position
                   ? `${recordings.length > 1 ? `${copy.title === "课后总结" ? "片段" : "Segment"} ${segment || 1} · ` : ""}${formatPlaybackTime(position.seconds)}`
@@ -1193,7 +1245,7 @@ function SummaryDocument({
         </div>
       )}
 
-      {editing ? (
+      {editing && canManage ? (
         <div className="space-y-5">
           <label className="block space-y-2">
             <span className="text-sm font-medium text-foreground">{copy.title}</span>
@@ -1306,6 +1358,9 @@ function PlaybackVideo({
   onRecheck,
   recheckBusy,
   courseId,
+  lessonId,
+  playbackSpeed,
+  onPlaybackSpeedChange,
   trackProgress,
   src,
   isHls,
@@ -1326,6 +1381,9 @@ function PlaybackVideo({
   onRecheck?: () => void;
   recheckBusy?: boolean;
   courseId: string;
+  lessonId?: string;
+  playbackSpeed: number;
+  onPlaybackSpeedChange: (speed: number) => void;
   trackProgress: boolean;
   src: string;
   isHls: boolean;
@@ -1353,6 +1411,8 @@ function PlaybackVideo({
   const sessionRef = useRef<TrackingSession | null>(null);
   const queueRef = useRef<Promise<void>>(Promise.resolve());
   const mountedRef = useRef(true);
+  const trackingController = useRef(new AbortController());
+  const trackedPlaybackRate = useRef(1);
 
   const setStateIfMounted = useCallback((state: TrackingState) => {
     if (mountedRef.current) setTrackingState(state);
@@ -1360,6 +1420,7 @@ function PlaybackVideo({
 
   const requestTracking = useCallback(
     async (method: "POST" | "PATCH", body: Record<string, unknown>, keepalive = false) => {
+      const signal = keepalive ? AbortSignal.timeout(8000) : AbortSignal.any([trackingController.current.signal, AbortSignal.timeout(8000)]);
       const request = () =>
         fetch(`/api/courses/${courseId}/playback-progress`, {
           method,
@@ -1367,10 +1428,12 @@ function PlaybackVideo({
           credentials: "same-origin",
           cache: "no-store",
           keepalive,
+          signal,
           body: JSON.stringify(body),
         });
       let response = await request();
       if (response.status === 401 && !keepalive && (await tryOAuthRefresh())) {
+        signal.throwIfAborted();
         response = await request();
       }
       return response;
@@ -1379,7 +1442,11 @@ function PlaybackVideo({
   );
 
   const enqueue = useCallback((action: () => Promise<void>) => {
-    queueRef.current = queueRef.current.then(action, action).catch(() => {
+    queueRef.current = queueRef.current.then(async () => { if (mountedRef.current) await action(); }).catch(() => {
+      if (!mountedRef.current) return;
+      // A lost response may already have rotated the server nonce. Start a new
+      // watch session after recovery rather than replaying uncertain credit.
+      sessionRef.current = null;
       setStateIfMounted("error");
     });
   }, [setStateIfMounted]);
@@ -1401,9 +1468,11 @@ function PlaybackVideo({
     const response = await requestTracking("POST", {
       positionSec: video.currentTime,
       playbackRate: video.playbackRate,
+      ...(lessonId ? { lessonId } : {}),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.tracked) {
+    if (!mountedRef.current) return;
+    if (!response.ok || data.tracked !== true || typeof data.sessionId !== "string" || !data.sessionId || typeof data.challenge !== "string" || !data.challenge || !Number.isSafeInteger(data.totalDurationSec) || data.totalDurationSec < 0) {
       sessionRef.current = null;
       setStateIfMounted("error");
       return;
@@ -1416,7 +1485,7 @@ function PlaybackVideo({
       setWatchedSec(data.totalDurationSec);
     }
     setStateIfMounted("recording");
-  }, [requestTracking, setStateIfMounted, trackProgress, videoRef]);
+  }, [requestTracking, setStateIfMounted, trackProgress, videoRef, lessonId]);
 
   const sendHeartbeat = useCallback(
     async (
@@ -1425,7 +1494,8 @@ function PlaybackVideo({
     ) => {
       const video = videoRef.current;
       const tracking = sessionRef.current;
-      if (!trackProgress || !video || !tracking) return;
+      if (!trackProgress || !video) return;
+      if (!tracking) { if (state === "playing") await startSession(); return; }
 
       const terminal = state !== "playing";
       const response = await requestTracking("PATCH", {
@@ -1436,12 +1506,13 @@ function PlaybackVideo({
         playbackRate: video.playbackRate,
       });
       const data = await response.json().catch(() => ({}));
+      if (!mountedRef.current) return;
       if (response.status === 409) {
         sessionRef.current = null;
         setStateIfMounted("paused");
         return;
       }
-      if (!response.ok || !data.tracked) {
+      if (!response.ok || data.tracked !== true || !Number.isSafeInteger(data.totalDurationSec) || data.totalDurationSec < 0 || (!terminal && (typeof data.challenge !== "string" || !data.challenge))) {
         sessionRef.current = null;
         setStateIfMounted("error");
         return;
@@ -1454,7 +1525,7 @@ function PlaybackVideo({
         : { sessionId: tracking.sessionId, challenge: data.challenge };
       setStateIfMounted(terminal ? "paused" : "recording");
     },
-    [requestTracking, setStateIfMounted, trackProgress, videoRef]
+    [requestTracking, setStateIfMounted, trackProgress, videoRef, startSession]
   );
 
   const queueStart = useCallback(() => {
@@ -1499,6 +1570,9 @@ function PlaybackVideo({
       if (!video.paused && !video.ended) queueStart();
     };
     const onRateChange = () => {
+      const rate = video.playbackRate;
+      if (normalizePlaybackRate(rate) === null || trackedPlaybackRate.current === rate) return;
+      trackedPlaybackRate.current = rate;
       if (!video.paused && !video.ended) {
         enqueue(async () => {
           await sendHeartbeat("paused", true);
@@ -1512,6 +1586,9 @@ function PlaybackVideo({
       } else if (!video.paused && !video.ended && !video.seeking) {
         queueStart();
       }
+    };
+    const onRecover = () => {
+      if (document.visibilityState === "visible" && !video.paused && !video.ended && !video.seeking) queueHeartbeat("playing");
     };
     const onPageHide = () => {
       const tracking = sessionRef.current;
@@ -1539,6 +1616,8 @@ function PlaybackVideo({
     video.addEventListener("ratechange", onRateChange);
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("online", onRecover);
+    window.addEventListener("focus", onRecover);
     const heartbeatTimer = window.setInterval(() => {
       if (
         !video.paused &&
@@ -1562,13 +1641,18 @@ function PlaybackVideo({
       video.removeEventListener("ratechange", onRateChange);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("online", onRecover);
+      window.removeEventListener("focus", onRecover);
     };
   }, [enqueue, queueHeartbeat, queueStart, requestTracking, sendHeartbeat, startSession, trackProgress, videoRef]);
 
   useEffect(() => {
     mountedRef.current = true;
+    if (trackingController.current.signal.aborted) trackingController.current = new AbortController();
     return () => {
       mountedRef.current = false;
+      trackingController.current.abort();
+      sessionRef.current = null;
     };
   }, []);
 
@@ -1632,6 +1716,7 @@ function PlaybackVideo({
       </div>
       <div className="flex flex-wrap items-center gap-3 bg-[#141a27] px-4 py-2 text-white">
         {controls}
+        <PlaybackSpeedControl videoRef={videoRef} value={playbackSpeed} onChange={onPlaybackSpeedChange} />
         <PlaybackQualityControl quality={quality} onChange={setQuality} info={qualityInfo} />
       <PlaybackCompatibility issue={issue} directUrl={directUrl} src={src} isHls={isHls}
         sharePath={sharePath} onRetry={retry} onExternalPlay={() => videoRef.current?.pause()}

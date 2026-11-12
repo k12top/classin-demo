@@ -1,0 +1,19 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Isolated Electron layout verification. */
+const assert=require('node:assert/strict'),path=require('node:path'),fs=require('node:fs/promises'),http=require('node:http');
+const {app,BrowserWindow}=require('electron'),esbuild=require('esbuild');
+const root=path.resolve(__dirname,'../..');let win,server;
+(async()=>{
+ const mocks={'@/lib/i18n/context':'export const useTranslation=()=>({locale:"en",t:key=>key});'};
+ const source=`import React from 'react';import{createRoot}from'react-dom/client';import{WorkspaceStudentDetail}from'@/components/workspace/workspace-student-detail';const student={id:'student',name:'Alexandra Example',courses:['class'],groups:['group']},courses=[{id:'class',name:'International Algorithms and Problem Solving',groupLinks:[{groupId:'group'}]}],groups=[{id:'group',name:'Advanced International Programming Group',members:[{userId:'student'}]}];createRoot(document.getElementById('root')).render(<WorkspaceStudentDetail student={student} courses={courses} groups={groups} onCourse={()=>window.opened='class'} onGroup={id=>window.opened=id} onChat={()=>{}} reloadGroups={async()=>{}}/>);`;
+ const bundle=await esbuild.build({stdin:{contents:source,resolveDir:root,loader:'tsx'},bundle:true,write:false,outfile:'app.js',format:'iife',platform:'browser',define:{'process.env':'{}'},tsconfig:path.join(root,'tsconfig.json'),plugins:[{name:'fixture',setup(build){build.onResolve({filter:/.*/},a=>a.path in mocks?{path:a.path,namespace:'fixture'}:undefined);build.onLoad({filter:/.*/,namespace:'fixture'},a=>({contents:mocks[a.path],loader:'js'}));}}]});
+ const js=bundle.outputFiles.find(f=>f.path.endsWith('.js')).contents,css=bundle.outputFiles.find(f=>f.path.endsWith('.css')).contents;
+ server=http.createServer((req,res)=>{if(req.url==='/app.js'){res.setHeader('content-type','text/javascript');return res.end(js);}if(req.url==='/app.css'){res.setHeader('content-type','text/css');return res.end(css);}res.setHeader('content-type','text/html');res.end('<meta name="viewport" content="width=device-width"><style>*{box-sizing:border-box}body{margin:0;font:13px system-ui}button{font:inherit}h1,h2,p{margin:0}:root{--workspace-line:#eee}</style><link rel="stylesheet" href="/app.css"><div id="root"></div><script src="/app.js"></script>');});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));await app.whenReady();win=new BrowserWindow({show:false,width:1366,height:900,webPreferences:{backgroundThrottling:false}});win.webContents.on('console-message',event=>{if(event.level==='error')console.error(event.message);});await win.loadURL(`http://127.0.0.1:${server.address().port}`);
+ const run=code=>win.webContents.executeJavaScript(code);for(let i=0;i<100&&!await run(`document.body.textContent.includes('Advanced International')`);i++)await new Promise(r=>setTimeout(r,30));
+ assert.ok(await run(`Array.from(document.querySelectorAll('small')).some(node=>node.textContent==='1 student · International Algorithms and Problem Solving')`),await run(`document.body.innerText`));
+ for(const width of [1366,1024,390,320]){win.setContentSize(width,900);await new Promise(r=>setTimeout(r,100));assert.ok(await run('document.documentElement.scrollWidth<=innerWidth'),`no horizontal overflow at ${width}`);}
+ await run(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('Advanced International')).click()`);assert.equal(await run('window.opened'),'group');
+ const output=path.join(root,'outputs/workspace-student-layout');await fs.mkdir(output,{recursive:true});await fs.writeFile(path.join(output,'narrow.png'),(await win.webContents.capturePage()).toPNG());
+ console.log('PASS student group class context, navigation and 1366/1024/390/320 layout (fixture data)');
+})().then(()=>cleanup(0),error=>{console.error(error);cleanup(1)});
+function cleanup(code){win?.destroy();server?.close();app.exit(code)}

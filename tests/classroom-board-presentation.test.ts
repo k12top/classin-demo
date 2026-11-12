@@ -18,6 +18,11 @@ const snapshot = (participants: ClassroomParticipant[] = [], sharing = false): C
 });
 const screen = { id: "screen-123", displayName: "Screen", isLocal: false, kind: "screen", hasAudio: false, hasVideo: true } as const;
 
+test("observers are not placed on the classroom camera gallery",()=>{
+ const grid=arrangeClassroomVideoGallery(emptyClassroomComposition(),[{userId:"teacher",role:"teacher"},{userId:"viewer",role:"observer"},{userId:"student",role:"student"}]);
+ assert.deepEqual(grid.boardItems.map(item=>item.sourceId),["teacher","student"]);
+});
+
 test("shared onstage grid is recorded once per camera and returns to the recorded rail", () => {
   const members = Array.from({ length: 16 }, (_, i) => ({ userId: `member-${i}`, role: i ? "student" : "teacher", rtcUids: [i + 1], online: true, onStage: true })) as ClassroomMemberSnapshot[];
   const participants = members.map((member, i) => ({ id: String(i + 1), kind: "camera", hasVideo: true, hasAudio: true, isLocal: false, displayName: member.userId })) as ClassroomParticipant[];

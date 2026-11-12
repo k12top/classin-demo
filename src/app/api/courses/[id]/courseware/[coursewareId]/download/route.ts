@@ -68,7 +68,7 @@ export async function GET(
   }
 
   try {
-    return await coursewareFileResponse(courseware);
+    return await coursewareFileResponse(courseware, false, request.headers.get("range"));
   } catch (error) {
     console.error("Failed to create OSS courseware download URL:", error);
     if (error instanceof CoursewareStorageConfigurationError) {

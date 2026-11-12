@@ -26,7 +26,8 @@ export function AuxiliaryCameraSettings({ provider, media, cameras, primaryDevic
     try { await operation(); }
     catch (error) {
       const message = error instanceof Error ? error.message : "";
-      onError(/PERMISSION_DENIED|NotAllowedError|Permission denied/i.test(message)
+      onError(message === "DEVICE_CAPTURE_TIMEOUT" ? t("classroom.v3.deviceCaptureTimeout") :
+        /PERMISSION_DENIED|NotAllowedError|Permission denied/i.test(message)
         ? t("classroom.v3.cameraPermissionDenied")
         : message || t("classroom.v3.mediaActionFailed"));
     }

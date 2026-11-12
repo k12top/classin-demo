@@ -54,6 +54,12 @@ export type ActivityDetail = ActivitySummary & {
 export type ActivityMutationResult = {
   revision: number; response?: ActivityResponse; definition?: ActivityDefinition; resultsVisible?: boolean;
 };
+/** Do not let a pre-mutation read undo a newer activity or saved answer. */
+export function mergeActivitySnapshot(previous:ActivityDetail|null,next:ActivityDetail):ActivityDetail {
+  if(!previous||previous.id!==next.id)return next;
+  if(previous.version>next.version)return previous;
+  return next;
+}
 /** A delayed acknowledgement must not undo newer grading or answer visibility. */
 export function mergeActivityAnswer(detail: ActivityDetail | null, result: ActivityMutationResult): ActivityDetail | null {
   if (!detail || !result.response || (detail.ownResponse && detail.ownResponse.version > result.response.version) || (detail.resultsVisible && result.resultsVisible === false)) return detail;
