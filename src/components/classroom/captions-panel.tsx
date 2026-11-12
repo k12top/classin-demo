@@ -117,7 +117,6 @@ export function CaptionsPanel({
 
   const [saved, setSaved] = useState(false);
   const [draftOverlayState, setDraftOverlay] = useState(overlayVisible);
-  const [draftInterpretationState, setDraftInterpretation] = useState(runtime.interpretation.enabled);
   const desired = useRef({ displayMode, preferredLanguage, overlayVisible, sourceLanguage: runtime.interpretation.sourceLanguage, enabled: runtime.interpretation.enabled });
   const authoritative = useRef(runtime.interpretation);
   useEffect(() => { applyCallback.current = onApplySettings; authoritative.current = runtime.interpretation; }, [onApplySettings, runtime.interpretation]);
@@ -126,7 +125,6 @@ export function CaptionsPanel({
     runtime.interpretation.sourceLanguage,
   );
   const configuredProvider = runtime.interpretation.provider;
-  const effectiveProvider = configuredProvider;
   const interpretationStateLabel = !runtime.interpretation.enabled
     ? t("classroom.v3.notEnabled")
     : runtime.status !== "live"
@@ -158,7 +156,6 @@ export function CaptionsPanel({
   const draftMode = applying || applyFailed ? draftModeState : displayMode;
   const draftLanguage = applying || applyFailed ? draftLanguageState : preferredLanguage;
   const draftOverlay = applying || applyFailed ? draftOverlayState : overlayVisible;
-  const draftInterpretation = applying || applyFailed ? draftInterpretationState : runtime.interpretation.enabled;
   const sourceLanguage = applying || applyFailed ? sourceLanguageState : runtime.interpretation.sourceLanguage;
   const saving = applying || Boolean(busy || preferenceBusy);
   const collapseSettings = () => {
@@ -175,7 +172,7 @@ export function CaptionsPanel({
     desired.current = { ...desired.current, ...update };
     const next = desired.current;
     setDraftMode(next.displayMode); setDraftLanguage(next.preferredLanguage); setDraftOverlay(next.overlayVisible);
-    setSourceLanguage(next.sourceLanguage); setDraftInterpretation(next.enabled);
+    setSourceLanguage(next.sourceLanguage);
     const version = ++saveVersion.current;
     setApplying(true); setApplyFailed(false); setSaved(false);
     const task = saveQueue.current.catch(() => undefined).then(async () => {
@@ -192,8 +189,7 @@ export function CaptionsPanel({
     });
     saveQueue.current = task;
   };
-  const quickToggle = (kind: "overlay" | "interpretation") => saveSettings(kind === "overlay"
-    ? { overlayVisible: !desired.current.overlayVisible } : { enabled: !desired.current.enabled });
+  const toggleOverlay = () => saveSettings({ overlayVisible: !desired.current.overlayVisible });
   const visibleCaptions = captions.slice(-80);
   const preferenceFailure = preferenceError ? <div className="classroom-v3-caption-preference-error" role="alert">
     <p>{t(preferenceError === "caption_language_limit" ? "classroom.v3.captionLanguageLimit" : preferenceError === "caption_language_unsupported" ? "classroom.v3.captionLanguageUnsupported" : "classroom.v3.captionPreferenceFailed")}</p>
@@ -238,10 +234,7 @@ export function CaptionsPanel({
           </div>
           <div className="classroom-v3-caption-toggles" role="group" aria-label={t("classroom.v3.captionQuickControls")}>
             <CaptionQuickToggle label={t("classroom.v3.captionOverlay")} hint={t("classroom.v3.captionOverlayHint")}
-              pressed={draftOverlay} disabled={Boolean(busy)} onClick={() => void quickToggle("overlay")}><Captions aria-hidden="true" /></CaptionQuickToggle>
-            {canManage && <CaptionQuickToggle label={t("classroom.v3.interpretation")} hint={t("classroom.v3.captionInterpretationHint")}
-              pressed={draftInterpretation} disabled={Boolean(busy) || (!draftInterpretation && !availability[effectiveProvider])}
-              onClick={() => void quickToggle("interpretation")}><Headphones aria-hidden="true" /></CaptionQuickToggle>}
+              pressed={draftOverlay} disabled={Boolean(busy)} onClick={() => void toggleOverlay()}><Captions aria-hidden="true" /></CaptionQuickToggle>
           </div>
         </div>
 

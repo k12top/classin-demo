@@ -3,6 +3,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useClassroomSyncTask } from "./use-classroom-sync";
 import type { CaptionDisplayMode } from "./caption-preferences";
 
+export function captionPreferenceLanguage(
+  mode: CaptionDisplayMode,
+  language: string,
+  sourceLanguage: string,
+) {
+  const translated = mode === "bilingual" || mode === "translated";
+  return translated && language !== sourceLanguage ? language : null;
+}
+
 /** Keep per-tab demand alive after reconnection without refreshing presence. */
 export function useCaptionSubscription(input: {
   active: boolean; sessionId: string; clientId: string; shareAccess?: string | null;
@@ -24,10 +33,9 @@ export function useCaptionSubscription(input: {
     const request = chain.current.catch(() => undefined).then(async () => {
       if (currentGeneration !== generation.current) return false;
       try {
-        const translated = nextMode === "bilingual" || nextMode === "translated";
         const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/classroom/caption-preference`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clientId, language: translated && nextLanguage !== (sourceOverride ?? sourceLanguage) ? nextLanguage : null, ...(shareAccess && { shareAccess }) }),
+          body: JSON.stringify({ clientId, language: captionPreferenceLanguage(nextMode, nextLanguage, sourceOverride ?? sourceLanguage), ...(shareAccess && { shareAccess }) }),
           signal: AbortSignal.timeout(8_000),
         });
         const payload = await response.json() as { code?: string };

@@ -27,7 +27,7 @@ function render(canManage: boolean) {
   }));
 }
 
-test("teacher caption controls stay together inside the minimal settings disclosure", () => {
+test("caption settings use display mode as the only interpretation control", () => {
   const html = render(true);
   const summary = html.indexOf('class="classroom-v3-caption-settings-summary"');
   const toggles = html.indexOf('class="classroom-v3-caption-toggles"');
@@ -36,8 +36,8 @@ test("teacher caption controls stay together inside the minimal settings disclos
   assert.ok(summary >= 0 && summary < disclosure && disclosure < toggles && toggles < display);
   assert.ok(html.indexOf('class="classroom-v3-caption-title"') < toggles);
   assert.ok(html.indexOf('class="classroom-v3-caption-heading-actions"') < disclosure);
-  assert.ok(html.indexOf('aria-label="舞台字幕浮窗"') < html.indexOf('aria-label="课堂同传"'));
-  assert.ok(html.indexOf('aria-label="课堂同传"') < display);
+  assert.ok(html.indexOf('aria-label="舞台字幕浮窗"') < display);
+  assert.doesNotMatch(html, /aria-label="课堂同传"/);
   assert.match(html, /显示方式/);
   assert.match(html, /我的字幕语言/);
   assert.ok(html.indexOf('课堂主要语言') > display);
