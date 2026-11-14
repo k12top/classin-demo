@@ -6,12 +6,12 @@ import { classroomMediaProfile } from "../src/lib/classroom/config";
 import { parseCaptionAppearance, defaultCaptionAppearance } from "../src/lib/classroom/caption-appearance";
 import { classroomActionRequiresRevision, requestClassroomAction } from "../src/lib/classroom/action-request";
 
-test("sharing keeps teacher, assistant and stage student cameras alongside every screen", () => {
+test("sharing keeps teacher, assistant and stage student cameras alongside the selected Full HD screen", () => {
   const plan = screenVideoPlan([{id:"teacher"},{id:"assistant"},{id:"student"},{id:"screen-teacher"},{id:"screen-student"}], id => id.startsWith("screen-"));
-  assert.deepEqual([...plan!], [["teacher",1],["assistant",1],["student",1],["screen-teacher",0],["screen-student",0]]);
+  assert.deepEqual([...plan!], [["teacher",1],["assistant",1],["student",1],["screen-teacher",0]]);
   assert.equal(screenVideoPlan([{id:"teacher"}], () => false), null);
 });
-test("two shares plus many cameras stay within the FHD receive budget", () => {
+test("one Full HD share plus twelve camera thumbnails stays within the receive budget", () => {
   const visible = ["screen-one", "screen-two", ...Array.from({length:100},(_,i)=>`camera-${i}`)].map(id=>({id}));
   const plan = screenVideoPlan(visible,id=>id.startsWith("screen-"))!;
   let pixels = 0;
@@ -20,9 +20,9 @@ test("two shares plus many cameras stay within the FHD receive budget", () => {
     assert.equal(type,id.startsWith("screen-")?0:1);
     pixels+=size.width*size.height;
   }
-  assert.ok(pixels<=1920*1080);
+  assert.ok(pixels<=1920*1080+12*classroomMediaProfile.camera.low.width*classroomMediaProfile.camera.low.height);
   assert.equal(plan.has("screen-one"),true);
-  assert.equal(plan.has("screen-two"),true);
+  assert.equal(plan.has("screen-two"),false);
   assert.ok(plan.size<visible.length);
 });
 test("closing one board window survives unrelated runtime revisions and transient transport failure", async () => {
