@@ -23,7 +23,7 @@ import { ClassTimingControls } from "./class-timing-controls";
 import { ClassroomChatPanel as TestChatPanel } from "./classroom-chat-panel";
 
 import { isClassroomTeachingRole } from "@/lib/classroom/policy";
-import { createDeviceAckTracker, type DeviceReport } from "@/lib/classroom/signaling/device-ack";
+import { createDeviceAckTracker, deviceReportDismissDelay, type DeviceReport } from "@/lib/classroom/signaling/device-ack";
 import type { ClassroomDeviceAck, ClassroomSignalingEvent } from "@/lib/classroom/signaling/types";
 
 import { CoursewarePanel, type CoursewareInsertion } from "@/components/classroom/courseware-panel";
@@ -4656,6 +4656,14 @@ export function ClassroomV3({
   const deviceTrackerRef = useRef(createDeviceAckTracker());
   const deviceRepliesRef = useRef(new Map<string, Promise<ClassroomDeviceAck>>());
   const [deviceReport, setDeviceReport] = useState<DeviceReport | null>(null);
+  useEffect(() => {
+    if (!deviceReport) return;
+    const timer = window.setTimeout(() => {
+      deviceTrackerRef.current.clear();
+      setDeviceReport(null);
+    }, deviceReportDismissDelay(deviceReport));
+    return () => window.clearTimeout(timer);
+  }, [deviceReport]);
   useEffect(() => {
     deviceTrackerRef.current.clear(); deviceRepliesRef.current.clear();
     const timer = setTimeout(() => setDeviceReport(null), 0);
