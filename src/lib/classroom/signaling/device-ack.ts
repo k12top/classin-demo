@@ -1,7 +1,7 @@
 import type { ClassroomRuntimeSnapshot } from "../types";
 import type { ClassroomMemberPermissionUpdate, ClassroomDeviceAck } from "./types";
 export type DeviceReport = { commandId: string; at: number; updatedAt: number; received: number; failed: number; unknown: number };
-const DEVICE_REPORT_VISIBLE_MS = 5_000;
+const DEVICE_REPORT_VISIBLE_MS = 1_500;
 const states = new Set(["on", "off", "pending", "interrupted", "failed", "unknown"]);
 export function deviceReportDismissDelay(report: DeviceReport, now = Date.now()) {
   return Math.max(0, report.updatedAt + DEVICE_REPORT_VISIBLE_MS - now);
