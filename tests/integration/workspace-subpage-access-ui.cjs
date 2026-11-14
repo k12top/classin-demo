@@ -4,7 +4,6 @@ async function main(){await app.whenReady();
  const mocks={
   '@/lib/workspace-client':`export const workspaceRequest=async()=>{if(window.mode==='denied')throw Object.assign(new Error('denied'),{status:403});if(window.mode==='offline')throw Object.assign(new Error('offline'),{status:503});if(window.mode==='bad')return {};return {courses:[{id:window.userId,name:'Private '+window.userId}]}};`,
   '@/lib/auth-login':`export const redirectToSsoLogin=()=>{window.redirected=true};`,
-  '@/lib/workspace-refresh':`export const watchWorkspaceRefresh=()=>()=>{};`,
   './workspace-app':`import React from 'react';export function WorkspaceApp({courses,error,refresh,navigation}){return <div><output data-error={String(Boolean(error))}>{courses.map(c=>c.name).join(',')}</output><aside>{navigation}</aside><button onClick={refresh}>Refresh</button></div>}`,
  };
  const source=`import React from 'react';import{createRoot}from'react-dom/client';import{WorkspaceSubpage}from'@/components/workspace/workspace-subpage';const root=createRoot(document.getElementById('root'));window.mode='online';window.renderUser=id=>{window.userId=id;root.render(<WorkspaceSubpage user={{userId:id,name:id,role:'teacher'}} navigation={courses=>courses.map(c=>c.name).join(',')}><p>detail</p></WorkspaceSubpage>)};window.renderUser('alice');`;

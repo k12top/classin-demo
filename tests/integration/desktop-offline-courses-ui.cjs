@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- isolated Electron fixture */
 const {app,BrowserWindow}=require('electron'),assert=require('node:assert/strict'),esbuild=require('esbuild'),http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const root=path.resolve(__dirname,'../..'),temp=fs.mkdtempSync(path.join(os.tmpdir(),'offline-courses-ui-'));app.setPath('userData',temp);app.on('window-all-closed',()=>{});let server,win;
 async function main(){await app.whenReady();
@@ -6,7 +5,6 @@ async function main(){await app.whenReady();
   '@/lib/auth-context':`export const useAuth=()=>({user:window.fixtureUser,loading:false});`,
   '@/lib/i18n/context':`export const useTranslation=()=>({t:key=>key});`,
   '@/lib/auth-login':`export const redirectToSsoLogin=()=>{window.redirected=true};`,
-  '@/lib/workspace-refresh':`export const watchWorkspaceRefresh=()=>()=>{};`,
   '@/components/ui/page-loading-state':`import React from 'react';export const PageLoadingState=()=> <p>Loading</p>;`,
   '@/components/workspace/workspace-app':`import React from 'react';export const WorkspaceApp=({courses,offline,refresh,error})=><div><output data-offline={String(Boolean(offline))} data-error={String(Boolean(error))}>{courses.map(c=>c.name).join(',')}</output><button onClick={refresh}>Refresh</button></div>;`,
  };
