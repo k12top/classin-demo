@@ -15,7 +15,6 @@ import {
   RefreshCw,
   Save,
   Send,
-  Settings2,
   Sparkles,
   Users,
 } from "lucide-react";
@@ -39,8 +38,9 @@ import { ActivityDashboard } from "@/components/classroom/activity-dashboard";
 import { activityOverviewCopy } from "@/lib/classroom/activity-overview-copy";
 import { summaryGenerationActive, watchCourseSessionSummary } from "@/lib/course-session-summary-watch";
 import type { SummaryGenerationState } from "@/lib/course-session-summary-generation";
-import { PlaybackCompatibility, PlaybackQualityControl, usePlaybackMedia } from "@/components/course-sessions/playback-compatibility";
-import { PlaybackSpeedControl } from "@/components/course-sessions/playback-speed-control";
+import { PlaybackCompatibility, usePlaybackMedia } from "@/components/course-sessions/playback-compatibility";
+import { ReplayPlayerControls } from "@/components/course-sessions/replay-player-controls";
+import { ReplayPlayerSettings } from "@/components/course-sessions/replay-player-settings";
 import { normalizePlaybackRate } from "@/lib/playback-progress";
 import { replayReviewCopy } from "@/lib/replay-review-copy";
 import { applyPlaybackSeek, recordingRetryDelay, requestPlaybackForRecording, scrollToPlayback, updatePlaybackBuffering } from "@/lib/playback-navigation";
@@ -193,7 +193,6 @@ export default function CoursePlaybackPage({
   const [captionMode, setCaptionMode] = useState<CaptionDisplayMode>("off");
   const [captionLanguage, setCaptionLanguage] = useState("");
   const [captionAppearance, setCaptionAppearance] = useState<CaptionAppearance>({ background: "solid", size: "medium", position: "bottom" });
-  const [captionSettingsOpen, setCaptionSettingsOpen] = useState(false);
   const [captionPrefsLoaded, setCaptionPrefsLoaded] = useState(false);
   const [selectedRecordingId, setSelectedRecordingId] = useState("");
   const [continuePlaybackId, setContinuePlaybackId] = useState("");
@@ -788,35 +787,19 @@ export default function CoursePlaybackPage({
           {summaryCanManage&&selectedLessonEnded&&<div className={styles.studentPreview}><ReplayStudentPreview key={selectedSessionId} sessionId={selectedSessionId} locale={locale} selected={previewStudentId} onOpenChange={open=>setPreviewOpenSession(open?selectedSessionId:"")} onChange={studentId=>{setPreviewSelection(studentId?{sessionId:selectedSessionId,studentId}:null);if(studentId&&!previewStudentId)setLessonReviewTab("interactions");}}/></div>}
           {course?.teacherName && <span className={styles.teacher}>{copy.teacher}: {course.teacherName}</span>}
         </header>
-        <div className={`grid items-start gap-4 ${reviewableSessions.length > 1 ? "xl:grid-cols-[210px_minmax(0,1fr)]" : ""}`}>
-        {reviewableSessions.length > 1 && (
-          <nav aria-label={t("replayExtras.lessonReplays")} className={styles.lessonNav}>
-            <div className={styles.lessonNavHeader}>
-              <h2>{t("replayExtras.lessonReplays")}</h2>
-              <p>{t("replayExtras.lessonCount", { count: reviewableSessions.length })}</p>
-            </div>
-            {reviewableSessions.map((session, index) => (
-              <button key={session.id} type="button" aria-current={session.id === selectedSessionId ? "page" : undefined}
-                onClick={() => selectSession(session.id)}
-                className={styles.lessonNavItem}>
-                <span className={styles.lessonNumber}>{new Intl.NumberFormat(locale,{minimumIntegerDigits:2}).format(index+1)}</span>
-                <strong>{session.title || copy.title}</strong>
-                <small><time dateTime={session.startTime}>{new Intl.DateTimeFormat(locale,{timeZone,dateStyle:"medium"}).format(new Date(session.startTime))}</time></small>
-              </button>
-            ))}
-          </nav>
-        )}
-        <Tabs value={lessonReviewTab} onValueChange={setLessonReviewTab} className={`grid min-w-0 items-start gap-4 ${reviewableSessions.length > 1 ? "xl:grid-cols-[minmax(0,1fr)_350px]" : "xl:grid-cols-[minmax(0,1fr)_370px]"}`}>
+        <div className={styles.replayLayout}>
+        <Tabs value={lessonReviewTab} onValueChange={setLessonReviewTab} className={styles.replayWorkspace}>
         <div className="min-w-0">
+        <div className={styles.videoHeader}>
         {reviewableSessions.length > 1 && (
-          <label className="mb-3 block xl:hidden">
-            <span className="sr-only">{t("replayExtras.selectLesson")}</span>
+          <label className={styles.lessonPicker}>
+            <span>{t("replayExtras.selectLesson")}</span>
             <select className={styles.lessonSelect} value={selectedSessionId} onChange={(event) => selectSession(event.target.value)}>
               {reviewableSessions.map((session) => <option key={session.id} value={session.id}>{session.title || copy.title}</option>)}
             </select>
           </label>
         )}
-        {selectedSession && <div className="mb-3 flex flex-wrap items-baseline justify-end gap-2">
+        {selectedSession && <div className={styles.reviewShortcuts}>
           <div className="flex items-center gap-3">
             <a href="#lesson-summary" onClick={() => {requestAnimationFrame(() => reviewContentRef.current?.scrollIntoView({ block: "start" }));}} className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-primary">
               <FileText className="h-3.5 w-3.5" aria-hidden="true" />{summaryCopy.title}
@@ -824,6 +807,7 @@ export default function CoursePlaybackPage({
             <a href="#lesson-interactions" onClick={() => setLessonReviewTab("interactions")} className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-primary"><Activity className="h-3.5 w-3.5" aria-hidden="true" />{activityOverviewCopy(locale).history}</a>
           </div>
         </div>}
+        </div>
         <Card ref={playbackRef} className={styles.playbackCard}>
           <CardContent className="p-0">
             {selectedSessionId && recordingsError && canPlayInApp && <div role="status" className="flex items-center justify-between gap-3 border-b border-border p-3 text-sm text-muted-foreground">
@@ -846,18 +830,13 @@ export default function CoursePlaybackPage({
             ) : canPlayInApp ? (
               <>
                 <PlaybackVideo
-                  controls={<div className="flex min-w-[min(100%,220px)] flex-1 flex-wrap items-center justify-between gap-3 text-white">
+                  controls={<div className={styles.captionControls}>
                   <div className="flex min-w-0 items-center gap-2">
                     <button type="button" disabled={!captionCanSync} aria-pressed={captionCanSync && captionMode !== "off"} aria-label={t("classroom.v3.captionsTitle")}
                       onClick={() => setCaptionMode((mode) => mode === "off" ? "bilingual" : "off")}
                       className={`rounded-md border px-2.5 py-1 text-xs font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40 ${!captionCanSync || captionMode === "off" ? "border-white/30 text-white/70" : "border-primary bg-primary text-primary-foreground"}`}>CC</button>
-                    <button type="button" aria-expanded={captionSettingsOpen} aria-controls="playback-caption-settings"
-                      aria-label={t("classroom.v3.captionSettings")}
-                      onClick={() => setCaptionSettingsOpen((open) => !open)}
-                      className="rounded-md border border-white/30 p-1.5 text-white/80 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"><Settings2 className="h-4 w-4" /></button>
                     <span className="min-w-0 truncate text-xs text-white/60" title={captionStateLabel}>{captionStateLabel}</span>
                   </div>
-                  <span className="hidden text-xs text-white/50 lg:inline">{t("replayExtras.timelineSeekHint")}</span>
                 </div>}
                   onRecheck={summaryCanManage && attentionRecording ? () => void retryRecordingVerification() : undefined}
                   recheckBusy={verificationBusy}
@@ -885,13 +864,11 @@ export default function CoursePlaybackPage({
                   translation={videoCaption ? selectedCaptionTranslation : ""}
                   captionMode={captionMode}
                   captionAppearance={captionAppearance}
+                  captionSettings={<CaptionSettings mode={captionMode} onModeChange={setCaptionMode}
+                    language={effectiveCaptionLanguage} languages={captionLanguages} onLanguageChange={setCaptionLanguage}
+                    appearance={captionAppearance} onAppearanceChange={setCaptionAppearance} />}
                 />
                 {!previewChoosing&&selectedSessionId&&selectedRecording?.startedAt&&selectedRecording.stoppedAt&&<ReplayActivityMarkers key={`${selectedSessionId}:${previewStudentId}`} sessionId={selectedSessionId} recording={selectedRecording} previewStudentId={previewStudentId} onSeek={seekToActivity}/>}
-                {captionSettingsOpen && (
-                  <CaptionSettings mode={captionMode} onModeChange={setCaptionMode}
-                    language={effectiveCaptionLanguage} languages={captionLanguages} onLanguageChange={setCaptionLanguage}
-                    appearance={captionAppearance} onAppearanceChange={setCaptionAppearance} />
-                )}
                 {playableRecordings.length > 1 && (
                   <div className="flex gap-2 overflow-x-auto border-t border-border/60 bg-card px-4 py-3">
                     {playableRecordings.map((recording) => <Button key={recording.id} type="button" size="sm"
@@ -1005,18 +982,18 @@ function LessonSummaryPanel({
   onUnpublish: () => void;
 }) {
   const { locale, t } = useTranslation();
+  const reviewCopy = replayReviewCopy(locale);
   return (
     <div>
-    {presentation === "summary" && <Card className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
+    {presentation === "summary" && <Card className={styles.summaryCard}>
       <CardContent className="p-0">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/60 px-5 py-5 sm:px-8">
+        <div className={styles.summaryHeader}>
           <div className="flex min-w-0 items-center gap-3">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+            <span className={styles.summaryIcon}>
               <FileText className="h-4 w-4" aria-hidden="true" />
             </span>
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">{t("replayExtras.afterLesson")}</p>
-              <h2 className="mt-0.5 text-lg font-semibold text-foreground">{copy.title}</h2>
+              <h2 className={styles.sectionTitle}>{copy.title}</h2>
               {summary ? (
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {copy.generatedFrom.replace("{count}", String(summary.captionCount))}
@@ -1042,21 +1019,19 @@ function LessonSummaryPanel({
         {loading && !summary ? (
           <div className="flex min-h-44 items-center justify-center gap-2 px-6 py-10 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            {copy.saving}
+            {reviewCopy.loading}
           </div>
         ) : !summary ? (
           <div className="flex min-h-44 flex-col items-center justify-center gap-3 px-6 py-10 text-center">
             <p className="max-w-lg text-sm leading-6 text-muted-foreground">
               {canManage
                 ? captions.length
-                  ? copy.title === "课后总结"
-                    ? "已有最终字幕，可生成课后总结。"
-                    : "Final captions are ready for the lesson summary."
+                  ? reviewCopy.summaryReady
                   : copy.noCaptions
                 : copy.noSummary}
             </p>
             {canManage ? (
-              <Button type="button" size="sm" onClick={onGenerate} disabled={Boolean(busy)}>
+              <Button type="button" size="sm" className={styles.summaryPrimary} onClick={onGenerate} disabled={Boolean(busy) || loading || !captions.length}>
                 {busy === "generate" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
                 {copy.generate}
               </Button>
@@ -1079,7 +1054,7 @@ function LessonSummaryPanel({
               if (!position) return null;
               const segment = recordings.find((recording) => recording.id === position.recordingId)?.segment;
               return {
-                label: `${recordings.length > 1 ? `${copy.title === "课后总结" ? "片段" : "Segment"} ${segment || 1} · ` : ""}${formatPlaybackTime(position.seconds)}`,
+                label: `${recordings.length > 1 ? `${t("replayExtras.segment", { segment: segment || 1 })} · ` : ""}${formatPlaybackTime(position.seconds)}`,
                 seek: () => onSeekToCaption({ id: evidence.captionIds[0] || "summary-evidence", occurredAt: evidence.occurredAt!, speakerName: "", text: "", translations: {} }),
               };
             }}
@@ -1089,12 +1064,12 @@ function LessonSummaryPanel({
     </Card>}
     {presentation === "timeline" && (
       <>
-      <div className="border-b border-border/60 px-5 py-5">
-        <h2 className="text-base font-semibold text-foreground">{copy.title === "课后总结" ? "发言时间线" : "Utterance timeline"}</h2>
+      <div className={styles.timelineHeader}>
+        <h2 className={styles.sectionTitle}>{reviewCopy.utterances}</h2>
         <p className="mt-1 text-xs text-muted-foreground">{t("replayExtras.seekCaption")}</p>
-        {captionLanguages.length > 0 && <label className="mt-3 flex items-center gap-2 text-sm text-foreground">
+        {captionLanguages.length > 0 && <label className={styles.timelineLanguage}>
           <span>{t("replayExtras.translationLanguage")}</span>
-          <select className="min-h-11 min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5" value={captionLanguage} onChange={event => onCaptionLanguageChange(event.target.value)}>
+          <select className={styles.compactSelect} value={captionLanguage} onChange={event => onCaptionLanguageChange(event.target.value)}>
             <option value={NO_CAPTION_TRANSLATION}>{t("replayExtras.none")}</option>
             {captionLanguages.map(language => <option key={language} value={language}>{classroomLanguageLabel(language, locale)}</option>)}
           </select>
@@ -1103,22 +1078,22 @@ function LessonSummaryPanel({
       <Card className="overflow-hidden rounded-none border-0 bg-card shadow-none">
         <CardContent className="p-3">
           {error && <p role="alert" className="mb-3 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
-          {loading && !captions.length && <p className="p-3 text-sm text-muted-foreground">{copy.saving}</p>}
+          {loading && !captions.length && <p className="p-3 text-sm text-muted-foreground" role="status">{reviewCopy.loading}</p>}
           {captions.length ? (
             <>
-            <ol className="max-h-[65dvh] space-y-2 overflow-y-auto xl:max-h-[650px]">
+            <ol className={styles.timelineList}>
               {captions.map((caption) => {
                 const translation = captionLanguage === NO_CAPTION_TRANSLATION ? "" : captionTranslation(caption, captionLanguage);
                 const position = captionPosition(caption.occurredAt, recordings, selectedRecordingId);
                 const segment = position && recordings.find((recording) => recording.id === position.recordingId)?.segment;
                 const timeLabel = position
-                  ? `${recordings.length > 1 ? `${copy.title === "课后总结" ? "片段" : "Segment"} ${segment || 1} · ` : ""}${formatPlaybackTime(position.seconds)}`
+                  ? `${recordings.length > 1 ? `${t("replayExtras.segment", { segment: segment || 1 })} · ` : ""}${formatPlaybackTime(position.seconds)}`
                   : "—";
                 return <li key={caption.id}>
                   <button type="button" disabled={!position} onClick={() => onSeekToCaption(caption)}
                     aria-current={caption.id === activeCaptionId ? "true" : undefined}
                     title={!position ? (t("replayExtras.missingCaptionTime")) : undefined}
-                    className={`grid w-full gap-1 rounded-xl border p-3 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-primary ${caption.id === activeCaptionId ? "border-primary bg-primary/10" : "border-border hover:bg-muted/50"} ${!position ? "cursor-not-allowed" : ""}`}>
+                    className={styles.utterance}>
                     <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <time dateTime={caption.occurredAt}>{timeLabel}</time>
                       <span>{caption.speakerName}</span>
@@ -1175,6 +1150,7 @@ function SummaryDocument({
   const [draft, setDraft] = useState<LessonSummaryDocument>(summary.document);
   const disabled = Boolean(busy);
   const { locale } = useTranslation();
+  const reviewCopy = replayReviewCopy(locale);
   const zh = locale.startsWith("zh");
   const generation = summary.document.generation;
   const updateList = (
@@ -1192,16 +1168,16 @@ function SummaryDocument({
   };
 
   return (
-    <div className="px-5 py-6 sm:px-8 sm:py-8">
+    <div className={styles.summaryBody}>
       {generation?.method === "transcript-extract" && busy !== "generate" && (
-        <p role="status" className="mb-4 rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
-          {zh ? generation.reason === "unavailable" ? "AI 总结暂时不可用，当前显示字幕摘录，可重新生成。" : "AI 总结未启用，当前显示字幕摘录。" : generation.reason === "unavailable" ? "AI summary is unavailable. Showing transcript extracts; you can regenerate." : "AI summary is disabled. Showing transcript extracts."}
+        <p role="status" className={styles.summaryNotice}>
+          {canManage ? generation.reason === "unavailable" ? reviewCopy.extractUnavailable : reviewCopy.extractDisabled : reviewCopy.transcriptExtract}
         </p>
       )}
       {generation?.method === "meeting-multi-agent" && (
         <p className="mb-4 text-xs text-muted-foreground">
-          {zh ? "AI 课堂纪要 · 分项分析后汇总" : "AI lesson report · specialist analyses and synthesis"}
-          {generation.analyzedCaptionCount < generation.totalCaptionCount && <span className="ml-2 text-amber-800 dark:text-amber-200">{zh ? `仅分析最后 ${generation.analyzedCaptionCount} / ${generation.totalCaptionCount} 条字幕` : `Analyzed the last ${generation.analyzedCaptionCount} of ${generation.totalCaptionCount} captions`}</span>}
+          {reviewCopy.aiReport}
+          {generation.analyzedCaptionCount < generation.totalCaptionCount && <span className="ml-2 text-amber-800 dark:text-amber-200">{reviewCopy.partialCaptions.replace("{count}", String(generation.analyzedCaptionCount)).replace("{total}", String(generation.totalCaptionCount))}</span>}
         </p>
       )}
       {summary.isStale && (
@@ -1216,7 +1192,7 @@ function SummaryDocument({
               <Button type="button" size="sm" variant="outline" onClick={() => { setDraft(summary.document); setEditing(false); }} disabled={disabled}>
                 {copy.cancel}
               </Button>
-              <Button type="button" size="sm" onClick={() => void save()} disabled={disabled}>
+              <Button type="button" size="sm" className={styles.summaryPrimary} onClick={() => void save()} disabled={disabled}>
                 {busy === "save" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
                 {busy === "save" ? copy.saving : copy.save}
               </Button>
@@ -1236,7 +1212,7 @@ function SummaryDocument({
                   {copy.unpublish}
                 </Button>
               ) : (
-                <Button type="button" size="sm" onClick={onPublish} disabled={disabled}>
+                <Button type="button" size="sm" className={styles.summaryPrimary} onClick={onPublish} disabled={disabled}>
                   {busy === "publish" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
                   {copy.publish}
                 </Button>
@@ -1262,9 +1238,9 @@ function SummaryDocument({
           {draft.report ? <LessonSummaryReport report={draft.report} locale={zh ? "zh-CN" : "en"} onChange={(report) => setDraft((current) => ({ ...current, report, actionItems: report.actionItems.map((item) => item.title) }))} /> : <SummaryTextarea label={copy.actionItems} value={draft.actionItems.join("\n")} onChange={(value) => updateList("actionItems", value)} />}
         </div>
       ) : (
-        <div className="min-w-0 max-w-[72ch] space-y-6">
+        <div className={styles.summaryDocument}>
           <div>
-            <h3 className="text-lg font-semibold tracking-[-0.015em] text-foreground">{summary.document.title}</h3>
+            <h3 className={styles.sectionTitle}>{summary.document.title}</h3>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{summary.document.overview}</p>
           </div>
           <SummaryList title={copy.keyPoints} items={summary.document.keyPoints} />
@@ -1377,6 +1353,7 @@ function PlaybackVideo({
   translation,
   captionMode,
   captionAppearance,
+  captionSettings,
 }: {
   controls: ReactNode;
   onRecheck?: () => void;
@@ -1400,10 +1377,12 @@ function PlaybackVideo({
   translation: string;
   captionMode: CaptionDisplayMode;
   captionAppearance: CaptionAppearance;
+  captionSettings: ReactNode;
 }) {
   const { t } = useTranslation();
   const { issue, directUrl, retry, format, quality, setQuality, qualityInfo } = usePlaybackMedia(videoRef, src, isHls, hlsSrc);
   const [buffering, setBuffering] = useState(true);
+  const [settingsOpen,setSettingsOpen]=useState(false);
   const automaticStartSource = useRef<string | null>(null);
   const [watchedSec, setWatchedSec] = useState(0);
   const [trackingState, setTrackingState] = useState<TrackingState>(
@@ -1665,13 +1644,12 @@ function PlaybackVideo({
   const captionSize = captionAppearance.size === "small" ? "text-xs sm:text-sm" : captionAppearance.size === "large" ? "text-base sm:text-lg" : "text-sm sm:text-base";
 
   return (
-    <div className="relative bg-black">
-      <div className="relative">
+    <div className={styles.player}>
+      <div className={styles.playerStage} data-replay-stage data-settings-open={settingsOpen?true:undefined} onPointerLeave={event=>{if(settingsOpen)return;const active=document.activeElement;if(active instanceof HTMLElement&&event.currentTarget.contains(active))active.blur();}}>
         <video
           ref={videoRef}
           data-playback-format={format}
           className="aspect-video w-full bg-black object-contain"
-          controls={!buffering}
           playsInline
           poster="/classroom/replay-placeholder.svg"
           preload="metadata"
@@ -1714,16 +1692,15 @@ function PlaybackVideo({
             </div>
           </div>
         )}
-      </div>
-      <div className="flex flex-wrap items-center gap-3 bg-[#141a27] px-4 py-2 text-white">
+      <ReplayPlayerControls videoRef={videoRef} className={styles.playerToolbar}>
         {controls}
-        <PlaybackSpeedControl videoRef={videoRef} value={playbackSpeed} onChange={onPlaybackSpeedChange} />
-        <PlaybackQualityControl quality={quality} onChange={setQuality} info={qualityInfo} />
+        <ReplayPlayerSettings videoRef={videoRef} speed={playbackSpeed} onSpeedChange={onPlaybackSpeedChange} quality={quality} onQualityChange={setQuality} qualityInfo={qualityInfo} onOpenChange={setSettingsOpen} captionSettings={captionSettings} />
       <PlaybackCompatibility issue={issue} directUrl={directUrl} src={src} isHls={isHls}
         sharePath={sharePath} onRetry={retry} onExternalPlay={() => videoRef.current?.pause()}
         onRecheck={onRecheck} recheckBusy={recheckBusy} />
+      </ReplayPlayerControls>
       </div>
-      {trackProgress && <div className="flex flex-col gap-2 border-t border-white/10 bg-zinc-950 px-4 py-3 text-zinc-300 sm:flex-row sm:items-center sm:justify-between">
+      {trackProgress && <div className={styles.watchStatus}>
         <div className="flex min-w-0 items-center gap-2 text-xs">
           {trackingState === "recording" ? (
             <Activity className="h-4 w-4 shrink-0 text-emerald-400" />

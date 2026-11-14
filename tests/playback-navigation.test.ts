@@ -27,8 +27,9 @@ test("seeking another recording does not resume the old player",()=>{
  requestPlaybackForRecording(null,"first","first");assert.equal(plays,1);
 });
 
-test("replay buffering replaces native controls with one custom indicator", () => {
-  assert.match(playbackPageSource, /controls=\{!buffering\}/);
+test("replay uses custom controls and one buffering indicator", () => {
+  assert.doesNotMatch(playbackPageSource, /controls=\{!buffering\}/);
+  assert.equal(playbackPageSource.match(/<ReplayPlayerControls /g)?.length, 1);
   assert.equal(playbackPageSource.match(/portalUpdates\.replayPreparing/g)?.length, 1);
 });
 

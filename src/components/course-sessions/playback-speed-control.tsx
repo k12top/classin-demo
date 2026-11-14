@@ -7,7 +7,7 @@ import { playbackProgressPolicy } from "@/lib/playback-progress";
 const speeds = [0.75, 1, 1.25, 1.5, 2];
 
 /** Speed belongs to the replay view so replacing a clip does not reset it. */
-export function PlaybackSpeedControl({ videoRef, value, onChange }: {
+export function usePlaybackSpeed({ videoRef, value, onChange }: {
   videoRef: RefObject<HTMLVideoElement | null>;
   value: number;
   onChange: (speed: number) => void;
@@ -45,6 +45,12 @@ export function PlaybackSpeedControl({ videoRef, value, onChange }: {
     return () => video.removeEventListener("ratechange", sync);
   }, [videoRef, onChange]);
 
+  return {label, format, options};
+}
+
+export function PlaybackSpeedControl(props: {videoRef: RefObject<HTMLVideoElement | null>;value:number;onChange:(speed:number)=>void}) {
+  const {label,format,options}=usePlaybackSpeed(props);
+  const {value,onChange}=props;
   return <select data-playback-speed aria-label={label} title={label} value={value}
     onChange={event => onChange(Number(event.target.value))}
     className="h-8 min-w-[68px] max-w-full rounded-md border border-white/30 bg-transparent px-2 text-xs text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">

@@ -1,0 +1,53 @@
+// Design-only data for importing the real workspace into Pen. Never mounted by Next.
+import React, {Suspense} from 'react';
+import {createRoot} from 'react-dom/client';
+import {I18nProvider} from '@/lib/i18n/context';
+import {PortalFeedbackProvider} from '@/components/portal/portal-feedback';
+import {WorkspaceApp} from '@/components/workspace/workspace-app';
+import CoursePage from '@/app/courses/[id]/page';
+import ReplayPage from '@/app/courses/[id]/playback/page';
+import {summarizeActivities} from '@/lib/classroom/activity-overview';
+import type {AuthUser} from '@/lib/auth-context';
+import type {WorkspaceCourse} from '@/lib/workspace-model';
+
+declare global {interface Window {designUser:AuthUser; designRequests:string[];}}
+const query=new URLSearchParams(location.search),student=query.get('role')==='student',empty=query.has('empty');
+const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+const at=(time:string)=>`${day}T${time}:00+08:00`;
+const people=[{userId:'lin',displayName:'林小满',avatar:'',online:false},{userId:'chen',displayName:'陈一禾',avatar:'',online:false},{userId:'zhou',displayName:'周星野',avatar:'',online:false}];
+window.designUser={userId:student?'lin':'teacher',name:student?'lin':'teacher',displayName:student?'林小满':'陈老师',role:student?'student':'teacher',avatar:'',email:''};
+const lessons=[{id:'lesson',title:'分数的意义与应用',status:'finished',startTime:at('09:00'),endTime:at('09:45'),endedAt:at('09:45'),viewerRole:student?'student':'teacher',_count:{recordings:1}},{id:'upcoming',title:'图形与空间：观察立体图形',status:'scheduled',startTime:at('18:00'),endTime:at('18:45'),viewerRole:student?'student':'teacher'},{id:'overlap',title:'数学思维 · 小组讨论',status:'scheduled',startTime:at('18:30'),endTime:at('19:00'),viewerRole:student?'student':'teacher'}];
+const courses:WorkspaceCourse[]=empty?[]:[{id:'math',name:'数学思维 · 进阶班',teacherId:'teacher',ownerId:'teacher',teacherName:'陈老师',canTeach:!student,status:'scheduled',startTime:null,endTime:null,roomType:2,courseKind:'series',sessionCount:3,sessions:lessons,hasPlayback:true,students:people.map(p=>({studentId:p.userId,studentName:p.displayName})),groupLinks:[{groupId:'g1'}]},{id:'english',name:'世界文化与英语表达',teacherId:'teacher',teacherName:'陈老师',canTeach:!student,status:'scheduled',startTime:null,endTime:null,roomType:2,sessions:[]},{id:'science',name:'科学探索 · 生活中的力',teacherId:'teacher',teacherName:'陈老师',canTeach:!student,status:'scheduled',startTime:null,endTime:null,roomType:2,sessions:[]}];
+const groups=empty?[]:[{id:'g1',name:'思维进阶组',members:people.map(p=>({userId:p.userId,userName:p.displayName})),children:[]},{id:'g2',name:'周末探究组',members:[],children:[]}];
+const captions=['今天我们来认识分数。','把一个整体平均分成两份，每份就是二分之一。','请想一想：两个二分之一合起来是多少？','大家可以在互动题中选择自己的答案。','接下来，用生活中的例子解释你的想法。','我们一起回顾今天的重点。'].map((text,i)=>({id:'caption-'+i,occurredAt:new Date(Date.parse(at('09:00'))+i*12_000).toISOString(),speakerName:'陈老师',text,translations:{en:['Today we will learn about fractions.','Each of two equal parts is one half.','What do two halves make?','Choose an answer in the activity.','Explain with a real-life example.','Let us review the key ideas.'][i]}}));
+const summary={id:'summary',sessionId:'lesson',status:'published',captionCount:6,sourceUpdatedAt:at('09:45'),generatedAt:at('09:45'),publishedAt:at('09:45'),updatedAt:at('09:45'),isStale:false,document:{title:'分数：从平均分到实际应用',overview:'通过图形和生活情境理解分数，能够说出分子、分母的含义，并用自己的话说明两个二分之一为什么等于一。',keyPoints:['分数表示整体中的一部分。','平均分是理解分数的前提。','两个二分之一组成一个整体。'],questions:['怎样判断一个图形是否被平均分？'],actionItems:['寻找一个生活中的分数例子，下节课分享。'],speakers:[],generation:{method:'transcript-extract',reason:'disabled'}}};
+const nativeFetch=window.fetch.bind(window);window.designRequests=[];
+window.fetch=async(input,init)=>{
+ const url=new URL(typeof input==='string'?input:input instanceof Request?input.url:String(input),location.href),p=url.pathname,method=init?.method||'GET';
+ if(!p.startsWith('/api/'))return nativeFetch(input,init);
+ window.designRequests.push(method+' '+p);
+ if(method!=='GET'&&p!=='/api/workspace/chat/unread')return Response.json({error:'设计演示为只读，不会提交数据。'},{status:405});
+ let data:unknown={};
+ if(p==='/api/courses')data={courses};
+ else if(p==='/api/groups')data={groups};
+ else if(p==='/api/courses/math')data={course:{...(courses[0]||{id:'math',name:'数学思维 · 进阶班',teacherName:'陈老师',status:'finished',canTeach:!student}),description:'从生活问题出发，培养观察、表达与推理能力。',isCourseOwner:!student,teachers:[],students:courses[0]?.students||[],groupLinks:[]}};
+ else if(p.endsWith('/sessions'))data={sessions:lessons};
+ else if(p.endsWith('/programs'))data={programs:[]};
+ else if(p.endsWith('/units'))data={units:[]};
+ else if(p==='/api/workspace/chat/unread')data={counts:{},previews:{}};
+ else if(p==='/api/workspace/direct')data={chats:[],nextCursor:null};
+ else if(p.endsWith('/messages'))data={messages:empty?[]:[{id:'m1',senderId:'teacher',senderName:'陈老师',clientId:'m1',content:'同学们好，今天的课堂资料已上传到云盘，请课前预习。',createdAt:at('08:20')},{id:'m2',senderId:'lin',senderName:'林小满',clientId:'m2',content:'老师好，已经准备好了！',createdAt:at('08:25')}],hasMore:false,nextCursor:null};
+ else if(p==='/api/workspace/tasks')data={tasks:empty?[]:[{id:'t1',title:'准备图形与空间课件',notes:'补充立体图形观察示例',dueDate:day,courseId:'math',sessionId:null,completed:false,version:1},{id:'t2',title:'复习分数的意义',notes:'完成课堂延伸练习',dueDate:day,courseId:'math',sessionId:null,completed:false,version:1},{id:'t3',title:'整理上节课互动记录',notes:'',dueDate:day,courseId:'math',sessionId:null,completed:true,version:1}],nextCursor:null};
+ else if(p==='/api/workspace/events')data={events:[],nextCursor:null};
+ else if(p.startsWith('/api/workspace/drive'))data={items:empty?[]:[{id:'f1',name:'数学思维课件',kind:'folder',parentId:null,size:0,updatedAt:at('08:00')},{id:'f2',name:'分数学习指南.pdf',kind:'file',parentId:null,size:2437120,updatedAt:at('08:00')},{id:'f3',name:'课堂练习与拓展.docx',kind:'file',parentId:null,size:124800,updatedAt:at('08:00')}],nextCursor:null};
+ else if(p.endsWith('/summary'))data={summary:empty?null:summary,captions:empty?[]:captions,canManage:!student};
+ else if(p.endsWith('/recordings'))data={recordings:query.has('video')?[{id:'design-recording',segment:1,status:'completed',startedAt:at('09:00'),stoppedAt:at('09:45'),playbackFormat:'mp4',playbackUrl:'/classroom/design-preview.mp4'}]:[],refreshAfterMs:null};
+ else if(p.endsWith('/replay-preview'))data={students:people};
+ else if(p.includes('/classroom/activities'))data=summarizeActivities([],student?people.slice(0,1):people,!student,false);
+ else if(p.endsWith('/chat'))data={messages:[],hasMore:false,nextCursor:null};
+ else return Response.json({error:'No design fixture for this endpoint'},{status:404});
+ return Response.json(data);
+};
+const params=Promise.resolve({id:'math'}),searchParams=Promise.resolve({sessionId:'lesson',review:query.get('review')||undefined});
+const screen=location.pathname.includes('/playback')?<ReplayPage params={params} searchParams={searchParams}/>:location.pathname.startsWith('/courses/')?<CoursePage params={params} searchParams={Promise.resolve({})}/>:<WorkspaceApp user={window.designUser} courses={courses} refresh={()=>{}}/>;
+createRoot(document.getElementById('root')!).render(<I18nProvider initialLocale={(query.get('lang')||'zh-CN') as 'zh-CN'}><PortalFeedbackProvider><Suspense fallback={<p>正在准备设计预览…</p>}>{screen}</Suspense></PortalFeedbackProvider></I18nProvider>);

@@ -1,4 +1,6 @@
 const en = {
+  settings: "Settings", close: "Close",
+  playerControls: "Video controls", play: "Play", pause: "Pause", mute: "Mute", unmute: "Unmute", volume: "Volume", seek: "Playback position", fullscreen: "Fullscreen", exitFullscreen: "Exit fullscreen", playerFailed: "Unable to start playback. Try again or open playback help.", fullscreenFailed: "Unable to enter fullscreen. Try again.",
   timeline: "Timeline", activities: "Activities", chat: "Class chat",
   preview: "Preview student view", studentView: "Student view", chooseStudent: "Choose a student",
   backToTeacher: "Back to teacher view", loadingStudents: "Loading students…", studentsFailed: "Unable to load students.",
@@ -11,10 +13,17 @@ const en = {
   image: "Classroom chat image", imageFailed: "Image could not load",
   quality: "Quality", playbackQuality: "Playback quality", auto: "Auto",
   high: "High (original recording)", sourceQuality: "Source quality",
+  utterances: "Utterance timeline", summaryReady: "Final captions are ready for a lesson summary.",
+  transcriptExtract: "Compiled from classroom speech.",
+  extractUnavailable: "The summary could not be generated. Transcript extracts are shown; try again when ready.",
+  extractDisabled: "Transcript extracts are shown. Review and edit them before publishing.",
+  aiReport: "AI lesson summary", partialCaptions: "Based on the last {count} of {total} captions",
 };
 
 type ReplayReviewCopy = typeof en;
 const zhCN: ReplayReviewCopy = {
+  settings: "设置", close: "关闭",
+  playerControls: "视频控制", play: "播放", pause: "暂停", mute: "静音", unmute: "取消静音", volume: "音量", seek: "播放进度", fullscreen: "全屏", exitFullscreen: "退出全屏", playerFailed: "无法开始播放，请重试或查看播放帮助。", fullscreenFailed: "无法进入全屏，请重试。",
   timeline: "时间线", activities: "课堂互动", chat: "课堂聊天",
   preview: "预览学生视角", studentView: "学生视角", chooseStudent: "选择学生",
   backToTeacher: "返回教师视角", loadingStudents: "正在加载学生…", studentsFailed: "无法加载学生。",
@@ -27,8 +36,15 @@ const zhCN: ReplayReviewCopy = {
   image: "课堂聊天图片", imageFailed: "图片加载失败",
   quality: "画质", playbackQuality: "回放画质", auto: "自动",
   high: "高画质（原始录像）", sourceQuality: "源画质",
+  utterances: "发言时间线", summaryReady: "已有最终字幕，可生成课后总结。",
+  transcriptExtract: "根据课堂发言整理。",
+  extractUnavailable: "暂未能生成总结，当前显示字幕摘录，可稍后重试。",
+  extractDisabled: "当前为字幕摘录，可检查和编辑后发布。",
+  aiReport: "AI 课堂纪要", partialCaptions: "根据最后 {count} / {total} 条字幕整理",
 };
 const zhTW: ReplayReviewCopy = {
+  settings: "設定", close: "關閉",
+  playerControls: "影片控制", play: "播放", pause: "暫停", mute: "靜音", unmute: "取消靜音", volume: "音量", seek: "播放進度", fullscreen: "全螢幕", exitFullscreen: "退出全螢幕", playerFailed: "無法開始播放，請重試或查看播放說明。", fullscreenFailed: "無法進入全螢幕，請重試。",
   timeline: "時間軸", activities: "課堂互動", chat: "課堂聊天",
   preview: "預覽學生視角", studentView: "學生視角", chooseStudent: "選擇學生",
   backToTeacher: "返回教師視角", loadingStudents: "正在載入學生…", studentsFailed: "無法載入學生。",
@@ -41,8 +57,15 @@ const zhTW: ReplayReviewCopy = {
   image: "課堂聊天圖片", imageFailed: "圖片載入失敗",
   quality: "畫質", playbackQuality: "回放畫質", auto: "自動",
   high: "高畫質（原始錄影）", sourceQuality: "來源畫質",
+  utterances: "發言時間軸", summaryReady: "已有最終字幕，可產生課後總結。",
+  transcriptExtract: "根據課堂發言整理。",
+  extractUnavailable: "暫未能產生總結，目前顯示字幕摘錄，可稍後重試。",
+  extractDisabled: "目前為字幕摘錄，可檢查和編輯後發布。",
+  aiReport: "AI 課堂紀要", partialCaptions: "根據最後 {count} / {total} 條字幕整理",
 };
 const vi: ReplayReviewCopy = {
+  settings: "Cài đặt", close: "Đóng",
+  playerControls: "Điều khiển video", play: "Phát", pause: "Tạm dừng", mute: "Tắt tiếng", unmute: "Bật tiếng", volume: "Âm lượng", seek: "Vị trí phát", fullscreen: "Toàn màn hình", exitFullscreen: "Thoát toàn màn hình", playerFailed: "Không thể phát. Hãy thử lại hoặc mở trợ giúp.", fullscreenFailed: "Không thể mở toàn màn hình. Hãy thử lại.",
   timeline: "Dòng thời gian", activities: "Tương tác", chat: "Trò chuyện trong lớp",
   preview: "Xem giao diện học sinh", studentView: "Giao diện học sinh", chooseStudent: "Chọn học sinh",
   backToTeacher: "Về giao diện giáo viên", loadingStudents: "Đang tải học sinh…", studentsFailed: "Không thể tải học sinh.",
@@ -55,6 +78,11 @@ const vi: ReplayReviewCopy = {
   image: "Ảnh trong trò chuyện lớp học", imageFailed: "Không thể tải ảnh",
   quality: "Chất lượng", playbackQuality: "Chất lượng phát lại", auto: "Tự động",
   high: "Cao (bản ghi gốc)", sourceQuality: "Chất lượng gốc",
+  utterances: "Dòng thời gian phát biểu", summaryReady: "Phụ đề cuối cùng đã sẵn sàng để tạo tổng kết.",
+  transcriptExtract: "Được tổng hợp từ lời nói trong lớp.",
+  extractUnavailable: "Chưa thể tạo tổng kết. Đang hiển thị trích đoạn phụ đề; hãy thử lại sau.",
+  extractDisabled: "Đang hiển thị trích đoạn phụ đề. Hãy kiểm tra và chỉnh sửa trước khi đăng.",
+  aiReport: "Tổng kết lớp học bằng AI", partialCaptions: "Dựa trên {count} trong số {total} phụ đề cuối cùng",
 };
 
 export function replayReviewCopy(locale: string): ReplayReviewCopy {
