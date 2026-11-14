@@ -8,7 +8,7 @@ export type RecordingStopControl = {
   leaseId?: string;
   leaseUntil?: number;
   confirmedAt?: string;
-  confirmation?: "provider_exit" | "provider_resource_gone" | "synchronous_stop" | "never_dispatched";
+  confirmation?: "provider_exit" | "provider_resource_gone" | "synchronous_stop" | "never_dispatched" | "empty_web_stop";
   missingSince?: number;
   missingCount?: number;
   assetFingerprint?: string;
@@ -38,6 +38,24 @@ export function recordingUploadComplete(value: unknown): boolean {
   return Array.isArray(response.extensionServiceState) && response.extensionServiceState.some(service => {
     const entry = recordingState(service);
     return entry.serviceName === "upload_service" && recordingState(entry.payload).uploadingStatus === "uploaded";
+  });
+}
+
+/** A synchronous same-task stop can explicitly report an empty, never-resumed web capture. */
+export function recordingStoppedBeforeReady(row: {
+  mode: string; startedAt: Date | null; playbackObjectKey: string | null;
+  resourceId: string | null; providerSessionId: string | null; providerState: unknown; files?: unknown;
+}, stop: unknown): boolean {
+  const state = recordingState(row.providerState), result = recordingState(stop);
+  if (row.mode !== "web" || row.startedAt || row.playbackObjectKey || (Array.isArray(row.files) && row.files.length > 0) || state.onhold !== true ||
+    !row.resourceId || !row.providerSessionId || result.resourceId !== row.resourceId || result.sid !== row.providerSessionId ||
+    result.stopVerified !== true || result.stopSynchronous !== true ||
+    (result.code !== undefined && result.code !== 0)) return false;
+  const services = recordingState(result.serverResponse).extensionServiceState;
+  return Array.isArray(services) && services.some(service => {
+    const entry = recordingState(service), payload = recordingState(entry.payload);
+    return entry.serviceName === "web_recorder_service" && payload.state === "exit" &&
+      payload.onhold === true && Array.isArray(payload.fileList) && payload.fileList.length === 0;
   });
 }
 /** Do not confuse upload completion, a single component exit or status 6/7 with task exit. */

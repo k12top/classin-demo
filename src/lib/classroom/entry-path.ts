@@ -7,6 +7,9 @@ export function classroomVerifyAccessPath(courseId: string, sessionId?: string) 
 /** Resolve old course-only URLs once before media and polling use the scope ID. */
 export function canonicalClassroomEntryPath(search: string, sessionId: string) {
   const params = new URLSearchParams(search);
+  // Cloud web recording must remain on its signed recorder document. Older
+  // recorder URLs already used the exact lesson ID in the courseId field.
+  if (params.get("recorderToken") || params.get("is_recorder") === "1") return null;
   if (params.get("sessionId") || !params.get("courseId") || !sessionId) return null;
   params.delete("courseId");
   params.set("sessionId", sessionId);

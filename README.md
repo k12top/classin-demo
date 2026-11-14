@@ -178,10 +178,13 @@ AGORA_STT_MAX_IDLE_SECONDS=300
 WORDLY_API_URL=https://wordly-bridge.example.com
 WORDLY_INTERNAL_TOKEN=use-the-same-value-as-bridge-internal-token
 
-# Enables 1280x720 full-page classroom recording. If these are absent, Agora
+# Enables full-page classroom recording. If these are absent, Agora
 # records an RTC-only mix. If web recording starts but fails, the default is to
 # fail visibly rather than silently lose the whiteboard and DOM overlays.
 CLASSROOM_PUBLIC_BASE_URL=https://live.example.com
+# Optional recorder-only ingress to this same backend and database. Useful for
+# local cloud verification without changing login/cookie mutation origins.
+CLASSROOM_RECORDER_BASE_URL=
 CLASSROOM_RECORDER_SECRET=use-a-long-random-server-only-secret
 # Maximum 6-hour cloud-recorder process. Output is split into four-minute files.
 AGORA_PAGE_RECORDING_MAX_HOURS=6
@@ -207,10 +210,10 @@ the authorized data separately. When notifications are disabled or unavailable,
 clients reconcile through revision polling. The flag is deployment-specific;
 enabling it locally does not enable it in production.
 
-Classroom video quality is automatic: cameras use 720p/15fps with 160×120 thumbnails, screen sharing is capped at 1080p/15fps, and cloud recording uses 720p/15fps. Receivers prioritize visible shared content, then focused/enlarged cameras within a Full HD pixel budget. Other video may temporarily show an avatar while audio continues; video resumes when the layout frees capacity. Quality is not configurable in device settings.
+The default media profile uses 720p/15fps cameras with 160×120 thumbnails, 1080p/15fps screen sharing, and 1080p/15fps cloud recording. Receivers prioritize visible shared content, then focused/enlarged cameras within a Full HD pixel budget. Other video may temporarily show an avatar while audio continues; video resumes when the layout frees capacity. Classroom settings can select a video preset; recording resolution is configured separately.
 
 Vercel preview deployments use their own `VERCEL_URL` for the web recorder,
-even when `CLASSROOM_PUBLIC_BASE_URL` points to production. The production
+even when `CLASSROOM_PUBLIC_BASE_URL` or `CLASSROOM_RECORDER_BASE_URL` points to production. Outside previews, the recorder-only origin takes precedence when set. The production
 domain must expose `/classroom/recorder` before production web recording can
 start.
 
@@ -278,7 +281,7 @@ Deployment builds already run this step through `npm run build:deploy`.
 Media and recording profiles are centralized in
 `src/lib/classroom/config.ts`; the current defaults use a 160x120 low camera
 stream, 720p focused camera stream, 1080p detail-optimized screen sharing, and
-720p full-page MP4/HLS recording. Set the public video preset to `economy`,
+1080p full-page MP4/HLS recording. Set the public video preset to `economy`,
 `hd`, or `fullHd`; invalid values safely fall back to `hd`.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

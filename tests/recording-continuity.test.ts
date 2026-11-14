@@ -20,6 +20,18 @@ test("web recorder loads the deployment that started a preview recording", () =>
   );
 });
 
+test("a recorder-only ingress leaves the authenticated application origin unchanged", () => {
+  const env = {
+    CLASSROOM_PUBLIC_BASE_URL: "https://live.example.com",
+    CLASSROOM_RECORDER_BASE_URL: " https://recorder.example.com ",
+  };
+  assert.equal(recorderPageOrigin(env), "https://recorder.example.com");
+  assert.equal(env.CLASSROOM_PUBLIC_BASE_URL, "https://live.example.com");
+  assert.equal(recorderPageOrigin({ ...env, CLASSROOM_RECORDER_BASE_URL: " " }), "https://live.example.com");
+  assert.equal(recorderPageOrigin({ CLASSROOM_RECORDER_BASE_URL: " " }), null);
+  assert.equal(recorderPageOrigin({ ...env, VERCEL_ENV: "preview", VERCEL_URL: "classroom-preview.vercel.app" }), "https://classroom-preview.vercel.app");
+});
+
 test("keeps all classroom media credentials within the six-hour lesson window", () => {
   assert.equal(classroomRuntimeDefaults.rtcTokenTtlSeconds, 6 * 60 * 60);
   assert.equal(classroomRuntimeDefaults.recordingTokenTtlSeconds, 6 * 60 * 60);

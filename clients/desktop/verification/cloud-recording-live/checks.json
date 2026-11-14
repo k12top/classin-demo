@@ -1,0 +1,125 @@
+{
+  "verifiedAt": "2026-11-14",
+  "environment": "Local isolated PostgreSQL, production Next build, Electron native playback, real Agora RTC/Web Recorder/STT and private OSS",
+  "mediaInput": "Synthetic camera canvas and synthesized English speech; shared Netless whiteboard text",
+  "successfulRecording": {
+    "id": "eff905df-686c-4f93-966d-c59428278124",
+    "status": "completed",
+    "mode": "web",
+    "startedAt": "2026-11-14T07:59:30.804Z",
+    "stoppedAt": "2026-11-14T08:00:25.497Z",
+    "failureStage": null,
+    "error": null,
+    "files": 2,
+    "hasPlayback": true,
+    "exitConfirmed": true
+  },
+  "captionCount": 27,
+  "teacherResponseCount": 2,
+  "studentResponseCount": 1,
+  "httpChecks": 20,
+  "replay": {
+    "passed": true,
+    "results": [
+      {
+        "actor": "teacher",
+        "media": {
+          "width": 1920,
+          "height": 1080,
+          "duration": 59.308714,
+          "time": 1.177909,
+          "frames": 22
+        },
+        "audio": {
+          "duration": 59.33002267573696,
+          "channels": 1,
+          "rms": 0.15064341816929186,
+          "peak": 0.807765781879425
+        },
+        "coloredPixels": 7061,
+        "captionSeekLabel": "00:07",
+        "captionTime": 4.953651,
+        "interactionSeekSeconds": 33.423
+      },
+      {
+        "actor": "student",
+        "media": {
+          "width": 1920,
+          "height": 1080,
+          "duration": 59.308714,
+          "time": 1.175671,
+          "frames": 22
+        },
+        "coloredPixels": 7061,
+        "captionSeekLabel": "00:07",
+        "captionTime": 4.950513,
+        "interactionSeekSeconds": 33.423
+      },
+      {
+        "actor": "other",
+        "media": {
+          "width": 1920,
+          "height": 1080,
+          "duration": 59.308714,
+          "time": 1.176157,
+          "frames": 22
+        },
+        "coloredPixels": 7061,
+        "captionSeekLabel": "00:07",
+        "captionTime": 4.950581,
+        "interactionSeekSeconds": 33.423
+      }
+    ],
+    "boundary": "Actual production Next UI, native video decoder, real Agora cloud files and STT, real local HTTP authorization; short-lived fixture identities."
+  },
+  "allStudentRelease": {
+    "passed": true,
+    "unansweredStudentSeesAnswers": true,
+    "noOtherStudentResponses": true,
+    "requests": [
+      {
+        "actor": "teacher",
+        "path": "/api/sessions/17e43260-57eb-42e5-ac83-a745adcf17ba/classroom/activities/1dc1cbf7-3fb1-41d6-91fb-0f7996691751",
+        "method": "PATCH",
+        "status": 200
+      },
+      {
+        "actor": "other",
+        "path": "/api/sessions/17e43260-57eb-42e5-ac83-a745adcf17ba/classroom/activities/1dc1cbf7-3fb1-41d6-91fb-0f7996691751",
+        "method": "GET",
+        "status": 200
+      }
+    ]
+  },
+  "allStudentReplay": {
+    "passed": true,
+    "results": [
+      {
+        "actor": "other",
+        "media": {
+          "width": 1920,
+          "height": 1080,
+          "duration": 59.308714,
+          "time": 1.185842,
+          "frames": 22
+        },
+        "coloredPixels": 7061,
+        "captionSeekLabel": "00:07",
+        "captionTime": 4.946097,
+        "interactionSeekSeconds": 33.423
+      }
+    ],
+    "boundary": "Actual production Next UI, native video decoder, real Agora cloud files and STT, real local HTTP authorization; short-lived fixture identities."
+  },
+  "cleanup": {
+    "diagnosticCoursesRemoved": 2,
+    "fixtureCourseRetained": true,
+    "reason": "Preserve successful replay evidence and first startup attempt with no explicit provider exit receipt",
+    "temporaryEnvironmentRestored": true
+  },
+  "limits": [
+    "Short-lived locally signed role fixtures, not a new Casdoor login acceptance",
+    "Successful recording and STT stopped; first failed startup still lacks an explicit exit receipt after repeated provider 404s and is retained for audit",
+    "No production deployment or hardware/physical-network assertion"
+  ]
+}

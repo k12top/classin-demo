@@ -26,3 +26,8 @@ test("legacy entry becomes a session URL and preserves share, embed, language an
   assert.equal(canonicalClassroomEntryPath("", "lesson"), null);
   assert.equal(canonicalClassroomEntryPath("courseId=course", ""), null);
 });
+
+test("signed cloud recorder documents never redirect through the interactive classroom entry", () => {
+  assert.equal(canonicalClassroomEntryPath("courseId=lesson&recorderToken=signed", "lesson"), null);
+  assert.equal(canonicalClassroomEntryPath("courseId=lesson&is_recorder=1", "lesson"), null);
+});

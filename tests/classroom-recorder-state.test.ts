@@ -32,6 +32,9 @@ test("recorder content polling is scoped to a signed recording and never renews 
     });
     const api = createRequire(import.meta.url)(output);
     const url = new URL(await api.createRecorderPageUrl("lesson-a", "recording-a"));
+    assert.equal(url.pathname, "/classroom/recorder");
+    assert.equal(url.searchParams.get("sessionId"), "lesson-a");
+    assert.equal(url.searchParams.has("courseId"), false);
     const recorderToken = url.searchParams.get("recorderToken");
     const poll = (body: unknown) => api.POST(new Request("https://example.test/api/classroom/recorder/state", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),

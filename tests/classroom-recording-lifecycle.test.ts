@@ -226,3 +226,22 @@ test("synchronous same-task stop with uploaded files confirms exit immediately",
   assert.equal(f.row.status, "completed"); assert(f.row.stoppedAt);
   assert.equal(f.row.providerState.stopControl.confirmation, "synchronous_stop");
 });
+
+test("explicit synchronous empty web exit is terminal without pretending a replay exists", async () => {
+  const f = fixture({ startedAt: null, status: "starting", providerState: { mode: "web", onhold: true } });
+  const stopped = { sid: "sid", resourceId: "resource", stopVerified: true, stopSynchronous: true,
+    serverResponse: { extensionServiceState: [{ serviceName: "upload_service", payload: { uploadingStatus: "unknown" } },
+      { serviceName: "web_recorder_service", payload: { state: "exit", onhold: true, fileList: [] } }] } };
+  f.provider.stop = async () => ({ files: [], playbackObjectKey: null, providerState: stopped });
+  await f.api.stopRecordingAttempt(f.row as any);
+  await f.api.reconcileRecordingAttempt("recording");
+  assert.equal(f.row.status, "failed"); assert.equal(f.row.failureStage, "no-content");
+  assert.equal(f.row.providerState.stopControl.confirmation, "empty_web_stop");
+  assert.ok(f.row.providerState.stopControl.confirmedAt); assert.equal(f.row.playbackObjectKey, null);
+  assert.equal(f.calls.queryCalls, 0, "an explicit empty stop does not wait forever for nonexistent files");
+  for (const invalid of [{ ...stopped, sid: "another" }, { ...stopped, stopSynchronous: false }, { ...stopped, stopVerified: false }]) {
+    assert.equal(stopState.recordingStoppedBeforeReady(f.row as any, invalid), false);
+  }
+  assert.equal(stopState.recordingStoppedBeforeReady({ ...f.row, startedAt: new Date() } as any, stopped), false);
+  assert.equal(stopState.recordingStoppedBeforeReady({ ...f.row, files: [{ fileName: "existing.mp4" }] } as any, stopped), false);
+});

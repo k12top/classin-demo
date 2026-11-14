@@ -5,5 +5,5 @@ export function recorderPageOrigin(
   if (env.VERCEL_ENV === "preview" && env.VERCEL_URL?.trim()) {
     return `https://${env.VERCEL_URL.trim().replace(/^https?:\/\//, "")}`;
   }
-  return env.CLASSROOM_PUBLIC_BASE_URL?.trim() || null;
+  return env.CLASSROOM_RECORDER_BASE_URL?.trim() || env.CLASSROOM_PUBLIC_BASE_URL?.trim() || null;
 }

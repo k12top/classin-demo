@@ -35,7 +35,7 @@ export async function createRecorderPageUrl(
     .setExpirationTime(classroomRuntimeDefaults.recorderPageTokenTtl)
     .sign(key);
   const url = new URL("/classroom/recorder", base);
-  url.searchParams.set("courseId", courseId);
+  url.searchParams.set("sessionId", courseId);
   url.searchParams.set("recordingId", recordingId);
   url.searchParams.set("recorderToken", token);
   url.searchParams.set("is_recorder", "1");
@@ -53,14 +53,14 @@ export async function assertRecorderPageReachable(pageUrl: string) {
     });
   } catch (error) {
     throw new ClassroomProviderConfigurationError(
-      `CLASSROOM_PUBLIC_BASE_URL is unreachable: ${
+      `Classroom recorder origin is unreachable: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
   }
   if (!response.ok) {
     throw new ClassroomProviderConfigurationError(
-      `CLASSROOM_PUBLIC_BASE_URL does not expose /classroom/recorder (HTTP ${response.status})`,
+      `Classroom recorder origin does not expose /classroom/recorder (HTTP ${response.status})`,
     );
   }
 }

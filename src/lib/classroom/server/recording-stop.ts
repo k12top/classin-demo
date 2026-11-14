@@ -6,7 +6,7 @@ import { getRecordingProvider } from "./provider-factory";
 import { endedLessonRecordingTime, type RecordingLessonEnd } from "../recording-timeline";
 import { appendRecordingProviderState } from "../recording-provider-state";
 import { newRecordingStopControl, recordingOperationFailure, recordingProviderExited, recordingProviderStatus,
-  recordingState, recordingStopBackoff, recordingStopControl, recordingUploadComplete,
+  recordingState, recordingStopBackoff, recordingStopControl, recordingUploadComplete, recordingStoppedBeforeReady,
   RECORDING_RESOURCE_GONE_WINDOW_MS,
   RECORDING_QUERY_LIMIT, RECORDING_STOP_LEASE_MS, RECORDING_STOP_LIMIT,
   type RecordingStopControl } from "../recording-stop-state";
@@ -66,6 +66,15 @@ export async function reconcileDurableRecordingStop(id: string) {
   const claim = await locked(id, async (tx, row) => {
     const state = recordingState(row.providerState);
     const control = recordingStopControl(state) ?? newRecordingStopControl(row.stopRetryCount);
+    if (recordingStoppedBeforeReady(row, state.lastStop)) {
+      control.confirmedAt ??= (row.lastProviderCheckAt ?? new Date(now)).toISOString();
+      control.confirmation = "empty_web_stop";
+      delete control.leaseId; delete control.leaseUntil; delete control.attention;
+      await tx.classroomRecording.update({ where: { id }, data: { status: "failed", stoppedAt: row.stoppedAt ?? new Date(control.confirmedAt),
+        providerState: json({ ...state, stopControl: control }), failureStage: "no-content",
+        errorMessage: "Recorder stopped before the classroom page was ready; no replay was captured" } });
+      return null;
+    }
     if (control.attention || control.nextAt > now || (control.leaseUntil ?? 0) > now) return null;
     if (control.confirmedAt && row.playbackObjectKey) {
       await tx.classroomRecording.update({ where: { id }, data: { status: "completed", stoppedAt: row.stoppedAt ?? new Date(control.confirmedAt) } });
