@@ -8,6 +8,8 @@ import {
   courseSessionAISummaryConfig,
   generateCourseSessionAISummary,
   type CourseSessionAISummaryConfig,
+  type SummaryCheckpoint,
+  type SummaryStageEvent,
 } from "../src/lib/course-session-ai-summary";
 
 test("builds a reviewable summary from final speaker captions", () => {
@@ -231,6 +233,59 @@ test("retries a transient specialist error with bounded concurrency and never re
   assert.equal(maximum, 2);
   assert.equal(calls.get("actions"), 2);
   for (const [name, count] of calls) if (name !== "actions") assert.equal(count, 1);
+});
+
+test("resumes persisted analyses after an editor failure and invalidates them when the source changes", async () => {
+  let checkpoint: SummaryCheckpoint | undefined;
+  await assert.rejects(generateCourseSessionAISummary(input, { config,
+    onCheckpoint: async (value) => { checkpoint = structuredClone(value); },
+    fetchImpl: async (_url, init) => requestInfo(init).name === "editor" ? new Response("temporary", { status: 503 }) : responseFor(init),
+  }), /HTTP 503/);
+  assert.equal(Object.keys(checkpoint!.results).length, 6);
+  const calls: string[] = [], events: SummaryStageEvent[] = [];
+  const document = await generateCourseSessionAISummary(input, { config, checkpoint,
+    onStage: (event) => events.push(event),
+    fetchImpl: async (_url, init) => { calls.push(requestInfo(init).name); return responseFor(init); },
+  });
+  assert.deepEqual(calls, ["editor"]);
+  assert.equal(events.filter((event) => event.event === "cached").length, 6);
+  assert.equal(document?.generation?.method, "meeting-multi-agent");
+  let freshCalls = 0;
+  await generateCourseSessionAISummary({ ...input, title: "更新后的课程" }, { config, checkpoint,
+    fetchImpl: async (_url, init) => { freshCalls++; return responseFor(init); },
+  });
+  assert.equal(freshCalls, 7, "a changed lesson cannot reuse an older analysis");
+});
+
+test("covers all 1906 long-lesson captions in bounded sections and synthesizes only grounded evidence", async () => {
+  const captions = Array.from({ length: 1906 }, (_, index) => ({ ...summaryCaptions[0], id: `private-caption-${index}`,
+    text: `第 ${index + 1} 句：讨论算法的循环边界，并检查当前变量的取值。` }));
+  const covered = new Set<number>(), sections: number[] = [], events: SummaryStageEvent[] = [];
+  const document = await generateCourseSessionAISummary({ title: "算法课", captions, fallback: buildCourseSessionSummaryDocument("算法课", captions) }, {
+    config: { ...config, maxCaptions: 2000 }, onStage: (event) => events.push(event),
+    fetchImpl: async (_url, init) => {
+      const { name, data, body } = requestInfo(init);
+      assert.doesNotMatch(JSON.stringify(body), /private-caption-|captionIds|speakerId/);
+      if (name.startsWith("section_")) {
+        sections.push(data.transcript.length);
+        data.transcript.forEach((caption: { line: number }) => covered.add(caption.line));
+      } else {
+        assert.equal(name, "editor");
+        assert.ok(data.transcript.length < 30, "the editor receives evidence instead of the entire long lesson");
+        assert.equal(data.specialists.length, sections.length);
+      }
+      const line = data.transcript[0].line;
+      return Response.json({ output_text: JSON.stringify({ executiveSummary: "课堂讨论算法的循环边界，并检查变量取值。", themes: ["循环边界"], questions: [],
+        participantSummaries: [], discussionThreads: [], actionItems: [], followUps: [],
+        conclusions: [{ title: "检查循环边界", detail: "结合变量的当前取值检查循环条件。", evidence: { lines: [line] } }],
+      }) });
+    },
+  });
+  assert.equal(covered.size, 1906);
+  assert.ok(sections.length > 1 && sections.every((size) => size <= 450));
+  assert.equal(document?.generation?.analyzedCaptionCount, 1906);
+  assert.ok(document?.report?.conclusions[0].evidence.captionIds.every((id) => captions.some((caption) => caption.id === id)));
+  assert.doesNotMatch(JSON.stringify(events), /第.*句|private-caption-/);
 });
 
 test("rejects malformed specialist output instead of storing a partial or falsely successful report", async () => {

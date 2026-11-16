@@ -212,9 +212,16 @@ OpenAI-compatible gateways that only implement Chat Completions can select
 `chat-completions`. Model failures do not block class closure or overwrite the
 teacher's published summary. The AI path uses the meeting project's six specialist
 analyses (themes, discussion, participants, actions, conclusions, follow-ups) and
-an editor pass. Detailed items retain valid caption references for playback.
+an editor pass for short lessons. Long lessons use bounded overlapping sections
+covering all selected captions, then an editor that receives the section analyses
+and their source evidence. Detailed items retain valid caption references for playback.
 `AI_SUMMARY_AGENT_CONCURRENCY` defaults to 3; `AI_SUMMARY_TOTAL_TIMEOUT_SECONDS`
-defaults to 240 and caps the entire pipeline, including retries. The playback page
+defaults to 240 and caps each worker invocation, including retries. Individual
+requests are capped at 60 seconds. Validated stage results are checkpointed in
+PostgreSQL and reused on recovery; source, title, model or provider changes
+invalidate the checkpoint. Interrupted/failed jobs retry with backoff up to three
+worker attempts. A transcript fallback is never recorded as successful AI
+generation, and a provider failure preserves an existing AI report. The playback page
 labels caption extraction when AI is disabled or unavailable, and discloses when
 `AI_SUMMARY_MAX_CAPTIONS` limits analysis to the last captions. Existing summaries
 remain readable; regenerate them to obtain the detailed report.
@@ -226,6 +233,9 @@ Manual generation returns HTTP 202 promptly; the playback page polls lightweight
 status reads and displays the finished draft without reloading. Temporary read
 failures preserve an existing summary. Apply the `20261017130000_summary_generation_jobs`
 migration before running the updated API (the normal `build:deploy` does this).
+Stage recovery also requires `20261116160000_summary_generation_checkpoints`,
+applied by the same deployment command. Stage logs include timing, attempt and
+input size without model output, credentials or transcript text.
 
 ### Cross-platform classroom clients
 

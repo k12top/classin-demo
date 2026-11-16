@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { summaryContent, summarySpeakerName } from "./summary-content";
 import {
   normalizeCourseSessionSummaryDocument,
@@ -18,6 +19,17 @@ type SummaryInput = {
   title: string;
   captions: Array<CourseSessionSummaryCaption & { id?: string }>;
   fallback: CourseSessionSummaryDocument;
+};
+export type SummaryCheckpoint = { signature: string; results: Record<string, Record<string, unknown>> };
+export type SummaryStageEvent = {
+  stage: string; event: "started" | "completed" | "failed" | "cached";
+  attempt?: number; durationMs?: number; inputBytes?: number; error?: string;
+};
+export type SummaryPipelineOptions = {
+  totalTimeoutMs?: number;
+  checkpoint?: unknown;
+  onCheckpoint?: (checkpoint: SummaryCheckpoint) => Promise<void>;
+  onStage?: (event: SummaryStageEvent) => void;
 };
 // Database references stay local. The model only sees temporary transcript positions.
 type TranscriptCaption = { id: string; speakerId: string; line: number; speaker: number; speakerName: string; occurredAt: string; text: string };
@@ -51,6 +63,21 @@ const agents = [
 ] as const;
 const finalSchema = object({ executiveSummary: string, themes: strings(), questions: strings(8), ...reportProperties });
 
+// Long lessons are read once in bounded, slightly overlapping sections rather
+// than sending the entire transcript to each of six specialists and the editor.
+function transcriptSections(transcript: TranscriptCaption[]) {
+  const sections: TranscriptCaption[][] = [];
+  let start = 0;
+  while (start < transcript.length) {
+    let end = start, characters = 0;
+    while (end < transcript.length && end - start < 450 && characters < 6_000) characters += transcript[end++].text.length;
+    sections.push(transcript.slice(start, end));
+    if (end === transcript.length) break;
+    start = Math.max(start + 1, end - 8);
+  }
+  return sections;
+}
+
 function positiveInteger(value: string | undefined, fallback: number) {
   const parsed = Number.parseInt(value || "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -66,7 +93,7 @@ export function courseSessionAISummaryConfig(env: Partial<NodeJS.ProcessEnv> = p
     baseUrl: (env.AI_SUMMARY_BASE_URL?.trim() || "https://api.openai.com/v1").replace(/\/+$/, ""),
     language: env.AI_SUMMARY_LANGUAGE?.trim() || "zh-CN",
     apiStyle: env.AI_SUMMARY_API_STYLE?.trim().toLowerCase() === "chat-completions" ? "chat-completions" : "responses",
-    timeoutMs: positiveInteger(env.AI_SUMMARY_TIMEOUT_SECONDS, 180) * 1_000,
+    timeoutMs: Math.min(positiveInteger(env.AI_SUMMARY_TIMEOUT_SECONDS, 60), 60) * 1_000,
     maxCaptions: positiveInteger(env.AI_SUMMARY_MAX_CAPTIONS, 2_000),
     retryCount: Math.min(positiveInteger(env.AI_SUMMARY_AGENT_RETRY_COUNT ?? env.AI_SUMMARY_RETRY_COUNT, 3), 5),
     agentConcurrency: Math.min(positiveInteger(env.AI_SUMMARY_AGENT_CONCURRENCY, 3), 6),
@@ -218,7 +245,7 @@ function groundedReport(value: unknown, transcript: TranscriptCaption[]): Course
 
 export async function generateCourseSessionAISummary(
   input: SummaryInput,
-  options: { config?: CourseSessionAISummaryConfig | null; fetchImpl?: typeof fetch; totalTimeoutMs?: number } = {},
+  options: SummaryPipelineOptions & { config?: CourseSessionAISummaryConfig | null; fetchImpl?: typeof fetch } = {},
 ): Promise<CourseSessionSummaryDocument | null> {
   const config = options.config === undefined ? courseSessionAISummaryConfig() : options.config;
   if (!config || input.captions.length === 0) return null;
@@ -232,15 +259,28 @@ export async function generateCourseSessionAISummary(
     lesson: { title: summaryContent(input.title) },
     transcript: transcript.map(({ line, speaker, speakerName, text }) => ({ line, speaker, speakerName, text })),
   };
+  const signature = createHash("sha256").update(JSON.stringify({ version: 2, model: config.model, baseUrl: config.baseUrl,
+    apiStyle: config.apiStyle, language: config.language, title: input.title, transcript })).digest("hex");
+  const previous = options.checkpoint as Partial<SummaryCheckpoint> | undefined;
+  const results: SummaryCheckpoint["results"] = previous?.signature === signature && previous.results && typeof previous.results === "object"
+    ? { ...previous.results } : {};
+  // Serialize checkpoint writes: parallel successes must never erase one another.
+  let checkpointWrite = Promise.resolve();
   const request = async (name: string, task: string, schema: Schema, data: unknown): Promise<Record<string, unknown>> => {
+    if (results[name]) {
+      try { validate(results[name], schema); options.onStage?.({ stage: name, event: "cached" }); return results[name]; }
+      catch { delete results[name]; }
+    }
     let lastError: unknown;
     for (let attempt = 0; attempt < Math.max(1, config.retryCount); attempt += 1) {
       controller.signal.throwIfAborted();
       let terminal = false;
       try {
         return await limited(async () => {
+          const started = Date.now();
+          options.onStage?.({ stage: name, event: "started", attempt: attempt + 1, inputBytes: Buffer.byteLength(JSON.stringify(data)) });
           const attemptController = new AbortController();
-          const attemptTimeout = setTimeout(() => attemptController.abort(new Error(`AI summary ${name} timed out`)), config.timeoutMs);
+          const attemptTimeout = setTimeout(() => attemptController.abort(new Error(`AI summary ${name} timed out`)), Math.min(config.timeoutMs, 60_000));
           try {
             const prompt = instructions(config.language, task, schema);
             const body = config.apiStyle === "chat-completions" ? {
@@ -266,11 +306,23 @@ export async function generateCourseSessionAISummary(
             if (!content) throw new Error(`AI summary ${name} has no output text`);
             const result: unknown = JSON.parse(content);
             validate(result, schema);
+            if ((name === "editor" || name.startsWith("section_")) && !(result as Record<string, string>).executiveSummary.trim()) throw new Error("AI summary editor produced an empty overview");
+            results[name] = result as Record<string, unknown>;
+            checkpointWrite = checkpointWrite.then(() => options.onCheckpoint?.({ signature, results: { ...results } }));
+            await checkpointWrite;
+            options.onStage?.({ stage: name, event: "completed", attempt: attempt + 1, durationMs: Date.now() - started });
             return result as Record<string, unknown>;
+          } catch (error) {
+            // Only our stable errors are logged; JSON parser/provider bodies can
+            // contain transcript fragments. They never reach diagnostics.
+            const message = error instanceof Error && /^AI summary /.test(error.message) ? error.message : "invalid_or_unavailable_response";
+            options.onStage?.({ stage: name, event: "failed", attempt: attempt + 1, durationMs: Date.now() - started, error: message });
+            throw error;
           } finally { clearTimeout(attemptTimeout); }
         });
       } catch (error) {
         lastError = error;
+        if (terminal) controller.abort(error);
         if (terminal || controller.signal.aborted || attempt + 1 >= config.retryCount) break;
         await new Promise<void>((resolve) => {
           const stop = () => { clearTimeout(delay); controller.signal.removeEventListener("abort", stop); resolve(); };
@@ -282,7 +334,20 @@ export async function generateCourseSessionAISummary(
     throw lastError instanceof Error ? lastError : new Error(`AI summary ${name} failed`);
   };
   try {
-    const specialists = await Promise.all(agents.map(async (agent) => {
+    const longLesson = transcript.length > 450 || transcript.reduce((size, caption) => size + caption.text.length, 0) > 12_000;
+    // Let other useful stages finish and checkpoint even if one stage fails.
+    const settle = async <T>(tasks: Promise<T>[]): Promise<T[]> => {
+      const settled = await Promise.allSettled(tasks);
+      const failed = settled.find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
+      return settled.map((result) => (result as PromiseFulfilledResult<T>).value);
+    };
+    const specialists = longLesson ? await settle(transcriptSections(transcript).map(async (section, index) => {
+      const result = await request(`section_${index + 1}`, "分析这段课堂逐字稿，综合提炼概述、主题、问题、个人发言、讨论、行动、结论与待跟进事项。概述约 80–150 字，证据优先选最直接的 1–3 行。不要遗漏明确布置的作业。\n" + agents.map((agent) => agent.task).join("\n"), finalSchema,
+        { lesson: lessonInput.lesson, section: index + 1, transcript: lessonInput.transcript.filter((caption) => caption.line >= section[0].line && caption.line <= section.at(-1)!.line) });
+      return { dimension: `section_${index + 1}`, result: { executiveSummary: result.executiveSummary, themes: result.themes, questions: result.questions,
+        ...reportForModel(reportFromModel(result, section), section) } };
+    })) : await settle(agents.map(async (agent) => {
       const result = await request(agent.name, agent.task, object(agent.properties), lessonInput);
       const report = reportForModel(reportFromModel(result, transcript), transcript);
       const text = normalizeCourseSessionSummaryDocument({ keyPoints: result.themes, questions: result.questions });
@@ -290,7 +355,14 @@ export async function generateCourseSessionAISummary(
         ? { themes: text.keyPoints, questions: text.questions }
         : Object.fromEntries(Object.keys(agent.properties).map((key) => [key, report[key]])) };
     }));
-    const output = await request("editor", "你是总编。结合六份专项分析和原稿，合并重复内容，消除矛盾，保留字幕依据。executiveSummary 用约 150–300 个汉字（或相当篇幅）写成连贯的课堂纪要：具体学习内容、关键讨论和结果，避免笼统评价与发言统计。themes 为学习重点；questions 为实际问题。个人发言不能把别人回答的内容归给提问者，已答复的问题和未安排后续的课外话题不能列为待跟进。行动项不得扩大原任务范围，负责人和期限原样保留，不得推算日期。结论合并重复的定义与应用，不要堆砌。不得添加专项分析和原稿都未提到的新事实。", finalSchema, { ...lessonInput, specialists });
+    const evidenceLines = new Set<number>();
+    for (const specialist of specialists) for (const items of Object.values(specialist.result)) if (Array.isArray(items)) {
+      for (const item of items) if (item && typeof item === "object" && "evidence" in item) {
+        for (const line of (item.evidence as { lines: number[] }).lines) evidenceLines.add(line);
+      }
+    }
+    const output = await request("editor", "你是总编。结合按课堂顺序排列的分段分析或专项分析和原稿证据，合并重复内容，消除矛盾，保留字幕依据。executiveSummary 用约 150–300 个汉字（或相当篇幅）写成连贯的课堂纪要：具体学习内容、关键讨论和结果，避免笼统评价与发言统计。themes 为学习重点；questions 为实际问题。个人发言不能把别人回答的内容归给提问者，已答复的问题和未安排后续的课外话题不能列为待跟进。行动项不得扩大原任务范围，负责人和期限原样保留，不得推算日期。结论合并重复的定义与应用，不要堆砌。不得添加分析和原稿都未提到的新事实。", finalSchema,
+      { ...lessonInput, ...(longLesson ? { transcript: lessonInput.transcript.filter((caption) => evidenceLines.has(caption.line)) } : {}), specialists });
     if (typeof output.executiveSummary !== "string" || !output.executiveSummary.trim()) throw new Error("AI summary editor produced an empty overview");
     const report = reportFromModel(output, transcript);
     return normalizeCourseSessionSummaryDocument({

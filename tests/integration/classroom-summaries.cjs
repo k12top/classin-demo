@@ -14,7 +14,7 @@ async function main() {
     "@/lib/session": "export const getSessionFromRequest=async r=>({userId:r.headers.get('x-user')||'teacher',name:'teacher',displayName:'Teacher',role:'teacher'});",
     "@/lib/courseware-access": "export const resolveCoursewareAccess=async identity=>({allowed:identity.userId!=='outsider',teaching:identity.userId==='teacher'});",
     "@/lib/classroom/server/integration-events": "export const enqueueClassroomEvent=async()=>{};export const deliverClassroomEvents=async()=>{};",
-    "@/lib/classroom/server/recording-orchestrator": "export const stopActiveRecordingsForCourse=async()=>{if(globalThis.summaryCleanupGate)await globalThis.summaryCleanupGate};export const stopRecordingAttempt=async()=>{};export const reconcilePendingRecordings=async()=>{};export const retryFailedLiveRecordings=async()=>{};export const requestRecordingStart=async()=>{};export const processRecordingStart=async()=>{};",
+    "@/lib/classroom/server/recording-orchestrator": "export const stopActiveRecordingsForCourse=async()=>{if(globalThis.summaryCleanupGate)await globalThis.summaryCleanupGate};export const stopRecordingAttempt=async()=>{};export const recoverInterruptedRecordingForSession=async()=>{};export const reconcilePendingRecordings=async()=>{};export const retryFailedLiveRecordings=async()=>{};export const requestRecordingStart=async()=>{};export const processRecordingStart=async()=>{};",
     "@/lib/classroom/server/transcription-orchestrator": "export const stopClassroomTranscription=async()=>{if(globalThis.summaryCleanupGate)await globalThis.summaryCleanupGate};export const syncClassroomTranscription=async()=>{};export const reconcileActiveClassroomTranscriptions=async()=>{};",
   };
   globalThis.summaryAfter = [];
@@ -23,13 +23,13 @@ async function main() {
     build.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ contents: stubs[args.path], loader: "js" }));
   } }] });
   const api = require(output), db = api.prisma;
-  let calls = 0, failure = false, pause = null;
+  let calls = 0, failure = false, failedStage = null, pause = null;
   const fields = { participants: "participantSummaries", discussion: "discussionThreads", actions: "actionItems", conclusions: "conclusions", followups: "followUps" };
   const provider = http.createServer(async (req, res) => {
     let body = ""; for await (const chunk of req) body += chunk;
     const input = JSON.parse(body), name = input.text.format.name.replace("course_summary_", ""); calls += 1;
     if (pause && name === "editor") { pause.reached(); await pause.wait; }
-    if (failure) { res.writeHead(503); res.end("temporary"); return; }
+    if (failure || name === failedStage) { res.writeHead(503); res.end("temporary"); return; }
     assert.ok(!body.includes('"captionIds"') && !body.includes('"speakerId"'), "no database reference fields reach any model request");
     const report = api.modelReportFor(api.exampleAIReport, JSON.parse(input.input).transcript);
     const result = name === "editor" ? report : name === "themes" ? { themes: report.themes, questions: report.questions } : { [fields[name]]: report[fields[name]] };
@@ -73,8 +73,13 @@ async function main() {
     await post("generate"); const generation = drain(); await arrived; await post("publish"); release(); await generation; result = await get(); pause = null;
     assert.equal(result.generation.status, "completed"); assert.equal((await get("student")).summary.status, "published");
     console.log("PASS a publication during generation is preserved and completion does not return a false error");
-    failure = true; result = await generate(); assert.equal(result.status, 200); assert.equal(result.summary.document.generation.method, "transcript-extract"); assert.equal(result.summary.document.generation.reason, "unavailable"); assert.equal(result.summary.document.report, undefined); assert.equal(result.summary.status, "draft");
-    console.log("PASS failed provider generation is explicitly marked as caption extraction");
+    const preserved = (await get()).summary;
+    failure = true; result = await generate(); assert.equal(result.status, 200);
+    assert.equal(result.generation.status, "queued"); assert.equal(result.generation.error, "ai_summary_unavailable");
+    assert.equal(result.summary.updatedAt, preserved.updatedAt); assert.equal(result.summary.document.generation.method, "meeting-multi-agent");
+    await db.courseSessionSummaryGeneration.update({where:{sessionId:lesson.id},data:{attempts:2,nextAttemptAt:new Date(0)}});
+    await api.processCourseSessionSummaryGeneration(lesson.id); assert.equal((await get()).generation.status, "failed");
+    console.log("PASS provider failures are retried, stop at the attempt limit, and never overwrite an existing AI report");
     failure = false;
     await api.queueCourseSessionSummary(course.id, lesson.id, "teacher", true);
     await db.courseSessionSummaryGeneration.update({ where: { sessionId: lesson.id }, data: { status: "running", startedAt: new Date(Date.now()-360000), attempts: 1 } });
@@ -84,7 +89,7 @@ async function main() {
     console.log("PASS interrupted worker lease recovers once across concurrent workers");
     await db.courseSessionSummaryGeneration.update({where:{sessionId:lesson.id},data:{status:'failed',attempts:1,nextAttemptAt:new Date(0)}});
     const beforeRetry=calls;await api.reconcileCourseSessionSummaries(1,30000);
-    assert.equal(calls-beforeRetry,7);assert.equal((await get()).generation.status,'completed');
+    assert.equal(calls-beforeRetry,0);assert.equal((await get()).generation.status,'completed');
     await db.courseSessionSummaryGeneration.update({where:{sessionId:lesson.id},data:{status:'running',attempts:3,startedAt:new Date(Date.now()-360000)}});
     const beforeLimit=calls;assert.equal(await api.processCourseSessionSummaryGeneration(lesson.id),false);
     assert.equal(calls,beforeLimit);assert.equal((await get()).generation.status,'failed');
@@ -104,6 +109,34 @@ async function main() {
     assert.equal(await api.reconcileCourseSessionSummaries(1,30000),1);
     assert.ok(await db.courseSessionSummary.findUnique({where:{sessionId:pending.id}}));
     console.log("PASS 26 current old drafts do not starve a newer ended lesson in cron reconciliation");
+
+    const unavailable = await fixture(false);
+    failure = true;
+    await api.queueCourseSessionSummary(course.id, unavailable.id, "teacher", true);
+    await db.courseSessionSummaryGeneration.update({where:{sessionId:unavailable.id},data:{attempts:2}});
+    await api.processCourseSessionSummaryGeneration(unavailable.id);
+    const failedJob = await db.courseSessionSummaryGeneration.findUnique({where:{sessionId:unavailable.id}});
+    const extracted = await db.courseSessionSummary.findUnique({where:{sessionId:unavailable.id}});
+    assert.equal(failedJob.status,"failed"); assert.equal(failedJob.error,"ai_summary_unavailable");
+    assert.equal(extracted.document.generation.method,"transcript-extract"); assert.equal(extracted.document.generation.reason,"unavailable");
+    failure = false;
+    await api.queueCourseSessionSummary(course.id, unavailable.id, "teacher", true);
+    await api.processCourseSessionSummaryGeneration(unavailable.id);
+    assert.equal((await db.courseSessionSummary.findUnique({where:{sessionId:unavailable.id}})).document.generation.method,"meeting-multi-agent");
+    console.log("PASS a first-time fallback remains readable with a failed AI status and a manual retry upgrades it to a real AI report");
+
+    failedStage = "editor";
+    await api.queueCourseSessionSummary(course.id, unavailable.id, "teacher", true);
+    await api.processCourseSessionSummaryGeneration(unavailable.id);
+    const resumable = await db.courseSessionSummaryGeneration.findUnique({where:{sessionId:unavailable.id}});
+    assert.equal(resumable.status,"queued"); assert.equal(Object.keys(resumable.checkpoint.results).length,6);
+    failedStage = null;
+    await db.courseSessionSummaryGeneration.update({where:{sessionId:unavailable.id},data:{nextAttemptAt:new Date(0)}});
+    const beforeResume = calls;
+    await api.reconcileCourseSessionSummaries(25,30000);
+    assert.equal(calls-beforeResume,1,"cron resumes the editor without repeating persisted specialist analyses");
+    assert.equal((await db.courseSessionSummaryGeneration.findUnique({where:{sessionId:unavailable.id}})).status,"completed");
+    console.log("PASS cron resumes persisted partial progress and only calls the previously failed editor");
 
     const automatic = await fixture(false);
     await db.courseSession.update({where:{id:automatic.id},data:{status:'live'}});

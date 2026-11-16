@@ -6,7 +6,11 @@ import {
   buildCourseSessionSummaryDocument,
   normalizeCourseSessionSummaryDocument,
 } from "@/lib/course-session-summary-document";
-import { generateCourseSessionAISummary } from "@/lib/course-session-ai-summary";
+import { generateCourseSessionAISummary, type SummaryPipelineOptions } from "@/lib/course-session-ai-summary";
+
+export class CourseSessionSummaryAIError extends Error {
+  constructor() { super("ai_summary_unavailable"); this.name = "CourseSessionSummaryAIError"; }
+}
 
 export {
   buildCourseSessionSummaryDocument,
@@ -46,7 +50,7 @@ export async function generateCourseSessionSummary(
   courseId: string,
   sessionId: string,
   generatedBy = "system",
-  options: { totalTimeoutMs?: number } = {},
+  options: SummaryPipelineOptions & { protectEditsAfter?: Date | null } = {},
 ) {
   const lesson = await prisma.courseSession.findFirst({
     where: { id: sessionId, courseId },
@@ -54,6 +58,8 @@ export async function generateCourseSessionSummary(
   });
   if (!lesson) throw new Error("Course session not found");
   const existing = await prisma.courseSessionSummary.findUnique({ where: { sessionId } });
+  // A teacher may save/publish while a failed job is waiting to resume.
+  if (existing && options.protectEditsAfter && existing.updatedAt > options.protectEditsAfter) return existing;
   if (generatedBy === "system" && existing && (existing.status === "published" || existing.generatedBy !== "system")) return existing;
   const captions = await prisma.classroomCaption.findMany({
     where: { sessionId, courseId, isFinal: true },
@@ -63,6 +69,7 @@ export async function generateCourseSessionSummary(
   const title = lesson.title || lesson.course.name;
   const fallbackDocument = buildCourseSessionSummaryDocument(title, captions);
   let document = fallbackDocument;
+  let aiFailed = false;
   try {
     document = await generateCourseSessionAISummary({
       title,
@@ -71,12 +78,18 @@ export async function generateCourseSessionSummary(
     }, options) || fallbackDocument;
     document = normalizeCourseSessionSummaryDocument(document, fallbackDocument);
   } catch (error) {
+    aiFailed = true;
     document = { ...fallbackDocument, generation: { ...fallbackDocument.generation!, reason: "unavailable" } };
     console.warn("[course-summary] AI generation failed; using deterministic fallback", {
       courseId,
       sessionId,
-      error: error instanceof Error ? error.message : String(error),
+      error: error instanceof Error && /^AI summary /.test(error.message) ? error.message : "invalid_or_unavailable_response",
     });
+    // A provider outage must not replace an existing AI report or publication
+    // with a less useful transcript extract, even for a manual regeneration.
+    if (existing && (existing.status === "published" || normalizeCourseSessionSummaryDocument(existing.document).generation?.method === "meeting-multi-agent")) {
+      throw new CourseSessionSummaryAIError();
+    }
   }
   const sourceUpdatedAt = captions.reduce<Date | null>(
     (latest, caption) => !latest || caption.updatedAt > latest ? caption.updatedAt : latest,
@@ -86,17 +99,18 @@ export async function generateCourseSessionSummary(
     status: "draft", document: document as unknown as Prisma.InputJsonValue,
     captionCount: captions.length, sourceUpdatedAt, generatedBy, generatedAt: new Date(), publishedAt: null,
   };
+  const finish = <T>(summary: T): T => { if (aiFailed) throw new CourseSessionSummaryAIError(); return summary; };
   if (existing) {
     // Generation may take minutes: never overwrite teacher edits/publication
     // that happened while the model was analyzing the transcript.
     await prisma.courseSessionSummary.updateMany({ where: { id: existing.id, updatedAt: existing.updatedAt }, data });
-    return prisma.courseSessionSummary.findUniqueOrThrow({ where: { sessionId } });
+    return finish(await prisma.courseSessionSummary.findUniqueOrThrow({ where: { sessionId } }));
   }
   try {
-    return await prisma.courseSessionSummary.create({ data: { courseId, sessionId, ...data } });
+    return finish(await prisma.courseSessionSummary.create({ data: { courseId, sessionId, ...data } }));
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
-      return prisma.courseSessionSummary.findUniqueOrThrow({ where: { sessionId } });
+      return finish(await prisma.courseSessionSummary.findUniqueOrThrow({ where: { sessionId } }));
     }
     throw error;
   }

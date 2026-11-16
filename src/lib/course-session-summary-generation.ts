@@ -1,8 +1,9 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { generateCourseSessionSummary } from "./course-session-summary";
+import { CourseSessionSummaryAIError, generateCourseSessionSummary } from "./course-session-summary";
 
 const LEASE_MS = 300_000;
 const MAX_ATTEMPTS = 3;
@@ -17,8 +18,8 @@ export function publicSummaryGeneration(job: { status: string; requestId: string
   return job ? { status: job.status as SummaryGenerationState["status"], requestId: job.requestId, error: job.error } : null;
 }
 
-export function summaryGenerationNeedsWorker(job: { status: string; startedAt: Date | null } | null) {
-  return job?.status === "queued" || (job?.status === "running" && job.startedAt !== null && job.startedAt.getTime() < Date.now() - LEASE_MS);
+export function summaryGenerationNeedsWorker(job: { status: string; startedAt: Date | null; nextAttemptAt?: Date } | null) {
+  return (job?.status === "queued" && (!job.nextAttemptAt || job.nextAttemptAt.getTime() <= Date.now())) || (job?.status === "running" && job.startedAt !== null && job.startedAt.getTime() < Date.now() - LEASE_MS);
 }
 
 /** Queue once across lifecycle callbacks, cron runs and repeated button clicks. */
@@ -33,6 +34,7 @@ export async function queueCourseSessionSummary(courseId: string, sessionId: str
   if (!source._count) return null;
   if (!force && requestedBy === "system" && summary && (summary.status === "published" || summary.generatedBy !== "system" || (
     summary.captionCount === source._count && summary.sourceUpdatedAt && source._max.updatedAt && summary.sourceUpdatedAt >= source._max.updatedAt
+      && (summary.document as { generation?: { reason?: string } })?.generation?.reason !== "unavailable"
   ))) return null;
 
   const now = new Date();
@@ -44,7 +46,8 @@ export async function queueCourseSessionSummary(courseId: string, sessionId: str
   if (!force && job.status === "failed" && (job.attempts >= MAX_ATTEMPTS || job.nextAttemptAt > now)) return job;
   await prisma.courseSessionSummaryGeneration.updateMany({
     where: { sessionId, requestId: job.requestId, status: job.status, updatedAt: job.updatedAt },
-    data: { status: "queued", requestId: randomUUID(), requestedBy, startedAt: null, finishedAt: null, nextAttemptAt: now, error: null, ...(force && { attempts: 0 }) },
+    data: { status: "queued", requestId: randomUUID(), requestedBy, startedAt: null, finishedAt: null, nextAttemptAt: now, error: null,
+      ...(force && { attempts: 0, ...(job.status === "completed" ? { checkpoint: {} } : {}) }) },
   });
   return prisma.courseSessionSummaryGeneration.findUniqueOrThrow({ where: { sessionId } });
 }
@@ -53,6 +56,7 @@ export async function queueCourseSessionSummary(courseId: string, sessionId: str
 export async function processCourseSessionSummaryGeneration(sessionId: string, totalTimeoutMs = 240_000) {
   const now = new Date();
   const runId = randomUUID();
+  const previous = await prisma.courseSessionSummaryGeneration.findUnique({ where: { sessionId } });
   await prisma.courseSessionSummaryGeneration.updateMany({
     where: { sessionId, attempts: { gte: MAX_ATTEMPTS }, OR: [
       { status: "queued" }, { status: "running", startedAt: { lt: new Date(now.getTime() - LEASE_MS) } },
@@ -68,7 +72,15 @@ export async function processCourseSessionSummaryGeneration(sessionId: string, t
   if (!claimed.count) return false;
   const job = await prisma.courseSessionSummaryGeneration.findUniqueOrThrow({ where: { sessionId } });
   try {
-    await generateCourseSessionSummary(job.courseId, sessionId, job.requestedBy, { totalTimeoutMs });
+    await generateCourseSessionSummary(job.courseId, sessionId, job.requestedBy, {
+      totalTimeoutMs, checkpoint: job.checkpoint, protectEditsAfter: previous?.finishedAt,
+      onCheckpoint: async (checkpoint) => {
+        const saved = await prisma.courseSessionSummaryGeneration.updateMany({ where: { sessionId, requestId: runId, status: "running" },
+          data: { checkpoint: checkpoint as unknown as Prisma.InputJsonValue } });
+        if (!saved.count) throw new Error("AI summary worker lease lost");
+      },
+      onStage: (event) => console.info("[course-summary] stage", { sessionId, requestId: runId, ...event }),
+    });
     await prisma.courseSessionSummaryGeneration.updateMany({
       where: { sessionId, requestId: runId, status: "running" },
       data: { status: "completed", finishedAt: new Date(), error: null },
@@ -77,7 +89,9 @@ export async function processCourseSessionSummaryGeneration(sessionId: string, t
     // Store a stable public error code; provider/database messages stay out of the UI.
     await prisma.courseSessionSummaryGeneration.updateMany({
       where: { sessionId, requestId: runId, status: "running" },
-      data: { status: "failed", finishedAt: new Date(), error: "summary_generation_failed", nextAttemptAt: new Date(Date.now() + 30_000 * job.attempts) },
+      data: { status: job.attempts < MAX_ATTEMPTS ? "queued" : "failed", finishedAt: new Date(),
+        error: error instanceof CourseSessionSummaryAIError ? "ai_summary_unavailable" : "summary_generation_failed",
+        nextAttemptAt: new Date(Date.now() + 30_000 * job.attempts) },
     });
     console.error("[course-summary] background generation failed", { sessionId, name: error instanceof Error ? error.name : "UnknownError" });
   }
@@ -95,6 +109,7 @@ export async function reconcileCourseSessionSummaryGenerations(limit = 25, maxRu
       AND EXISTS (SELECT 1 FROM "ClassroomCaption" c WHERE c."sessionId" = lesson."id" AND c."isFinal" = true)
       AND (summary."id" IS NULL OR (summary."status" = 'draft' AND summary."generatedBy" = 'system' AND (
         summary."captionCount" <> (SELECT COUNT(*) FROM "ClassroomCaption" c WHERE c."sessionId" = lesson."id" AND c."isFinal" = true)
+        OR summary."document" #>> '{generation,reason}' = 'unavailable'
         OR EXISTS (SELECT 1 FROM "ClassroomCaption" c WHERE c."sessionId" = lesson."id" AND c."isFinal" = true AND (summary."sourceUpdatedAt" IS NULL OR c."updatedAt" > summary."sourceUpdatedAt"))
       )))
       AND (job."sessionId" IS NULL OR job."status" = 'completed'

@@ -840,6 +840,7 @@ model CourseSessionSummaryGeneration {
   finishedAt    DateTime?
   nextAttemptAt DateTime @default(now())
   error         String?
+  checkpoint    Json     @default("{}")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
