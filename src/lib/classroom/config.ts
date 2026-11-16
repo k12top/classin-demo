@@ -9,7 +9,7 @@ import type { ClassroomMediaProfile } from "@/lib/classroom/types";
  */
 const thumbnail = {
   width: 160,
-  height: 120,
+  height: 90,
   frameRate: 15,
   bitrateKbps: 65,
 } as const;

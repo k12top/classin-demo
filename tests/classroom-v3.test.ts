@@ -232,7 +232,7 @@ assert.equal(
 
 assert.deepEqual(classroomVideoPresets.hd.camera.low, {
   width: 160,
-  height: 120,
+  height: 90,
   frameRate: 15,
   bitrateKbps: 65,
 });
