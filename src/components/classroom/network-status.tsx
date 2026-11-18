@@ -3,7 +3,8 @@
 import { useId } from "react";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu";
 import { useTranslation } from "@/lib/i18n/context";
-import { networkSignalLevel, worseVideoMode } from "@/lib/classroom/network-adaptation";
+import { networkQualityRating, networkSignalLevel, worseVideoMode } from "@/lib/classroom/network-adaptation";
+import type { NetworkVideoMode } from "@/lib/classroom/network-adaptation";
 import type { ClassroomMediaSnapshot } from "@/lib/classroom/types";
 
 export function ClassroomNetworkStatus({ media }: { media: ClassroomMediaSnapshot; sessionId: string }) {
@@ -12,10 +13,10 @@ export function ClassroomNetworkStatus({ media }: { media: ClassroomMediaSnapsho
   const connected = media.connectionState === "connected";
   const quality = Math.max(media.network.uplinkQuality, media.network.downlinkQuality);
   const level = connected ? networkSignalLevel(quality) : 0;
-  const labelFor = (value: number) => t(`classroomNetwork.${value === 0 ? "checking" : value <= 2 ? "good" : value <= 4 ? "weak" : "poor"}`);
-  const label = connected ? labelFor(quality) : t("classroomNetwork.offline");
   const mode = worseVideoMode(media.network.receiveMode ?? "normal", media.network.publishMode ?? "normal");
-  const tone = !connected || (level !== null && level <= 1) ? "danger" : mode !== "normal" || (level !== null && level < 4) ? "warning" : level === null ? "unknown" : "good";
+  const labelFor = (value: number, videoMode: NetworkVideoMode = "normal") => t(`classroomNetwork.${networkQualityRating(value, media.network.latencyMs, videoMode)}`);
+  const label = connected ? labelFor(quality, mode) : t("classroomNetwork.offline");
+  const tone = !connected || (level !== null && level <= 1) ? "danger" : mode !== "normal" || (level !== null && level < 3) ? "warning" : level === null ? "unknown" : "good";
   const action = t(`classroomNetwork.${mode === "minimal" ? "paused" : mode === "low" ? "reduced" : "automatic"}`);
   return <div className="classroom-network-status" data-tone={tone} data-video-mode={mode}>
     <DropdownMenu modal={false}>
@@ -31,8 +32,8 @@ export function ClassroomNetworkStatus({ media }: { media: ClassroomMediaSnapsho
         <strong>{t("classroomNetwork.title")}</strong>
         <p>{t("classroomNetwork.explanation")}</p>
         <dl>
-          <div><dt>{t("classroomNetwork.upload")}</dt><dd>{connected ? labelFor(media.network.uplinkQuality) : t("classroomNetwork.offline")}</dd></div>
-          <div><dt>{t("classroomNetwork.download")}</dt><dd>{connected ? labelFor(media.network.downlinkQuality) : t("classroomNetwork.offline")}</dd></div>
+          <div><dt>{t("classroomNetwork.upload")}</dt><dd>{connected ? labelFor(media.network.uplinkQuality, media.network.publishMode) : t("classroomNetwork.offline")}</dd></div>
+          <div><dt>{t("classroomNetwork.download")}</dt><dd>{connected ? labelFor(media.network.downlinkQuality, media.network.receiveMode) : t("classroomNetwork.offline")}</dd></div>
           <div><dt>{t("classroomNetwork.latency")}</dt><dd>{connected && media.network.latencyMs !== null ? `${Math.round(media.network.latencyMs)} ms` : "—"}</dd></div>
         </dl>
         <p>{action}</p>

@@ -1,7 +1,7 @@
 export const zhCN = {
   classroomNetwork: {
-    title: "网络质量", checking: "检测中", good: "良好", weak: "不稳定", poor: "较差", offline: "未连接",
-    explanation: "根据课堂音视频连接评估，不是 Wi-Fi 信号强度。",
+    title: "网络质量", checking: "检测中", excellent: "优", good: "良好", weak: "不稳定", poor: "较差", offline: "未连接",
+    explanation: "根据课堂音视频连接评估，连接稳定且延迟不超过 200ms 时为优，不是 Wi-Fi 信号强度。",
     upload: "上传", download: "接收", latency: "延迟",
     automatic: "网络变化时自动调整视频，优先保留语音。",
     reduced: "已减少视频接收，稳定后自动恢复。",

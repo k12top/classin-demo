@@ -1,6 +1,42 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createNetworkDirectionPolicy, networkSignalLevel, networkVideoEncoder } from "../src/lib/classroom/network-adaptation";
+import { createNetworkDirectionPolicy, networkQualityRating, networkSignalLevel, networkVideoEncoder } from "../src/lib/classroom/network-adaptation";
+
+test("healthy connections are excellent up to and including 200 ms", () => {
+  for (const quality of [1, 2]) {
+    for (const latency of [0, 100, 199, 200]) assert.equal(networkQualityRating(quality, latency), "excellent");
+    for (const latency of [200.1, 201, 400]) assert.equal(networkQualityRating(quality, latency), "good");
+    for (const latency of [null, -1, NaN, Infinity]) assert.equal(networkQualityRating(quality, latency), "good");
+  }
+});
+
+test("low latency does not hide congestion, missing quality, or video recovery", () => {
+  assert.equal(networkQualityRating(4, 100), "weak");
+  for (const quality of [5, 6]) assert.equal(networkQualityRating(quality, 100), "poor");
+  for (const quality of [0, -1, 7, 1.5, NaN, Infinity]) assert.equal(networkQualityRating(quality, 100), "checking");
+  assert.equal(networkQualityRating(2, 200, "low"), "good");
+  assert.equal(networkQualityRating(2, 200, "minimal"), "good");
+  assert.equal(networkQualityRating(2, 200, "normal"), "excellent");
+});
+
+test("score 3 is good at any latency and preserves normal video", () => {
+  for (const latency of [null, 0, 100, 200, 201, 600]) assert.equal(networkQualityRating(3, latency), "good");
+  assert.equal(networkSignalLevel(3), 3);
+  const policy = createNetworkDirectionPolicy();
+  for (let at = 0; at <= 60_000; at += 2_000) assert.equal(policy.sample(3, at), "normal");
+});
+
+test("score 3 interrupts degradation and restores video after twenty continuous seconds", () => {
+  const policy = createNetworkDirectionPolicy();
+  assert.equal(policy.sample(4, 0), "normal");
+  assert.equal(policy.sample(4, 2_000), "normal");
+  assert.equal(policy.sample(3, 4_000), "normal");
+  assert.equal(policy.sample(4, 6_000), "normal");
+  assert.equal(policy.sample(4, 8_000), "normal");
+  assert.equal(policy.sample(4, 10_000), "low");
+  for (let at = 12_000; at < 32_000; at += 2_000) assert.equal(policy.sample(3, at), "low");
+  assert.equal(policy.sample(3, 32_000), "normal");
+});
 
 test("brief jitter does not degrade; sustained bad quality reduces video before pausing it", () => {
   const policy = createNetworkDirectionPolicy();
@@ -22,8 +58,8 @@ test("recovery needs twenty continuous seconds of good samples, not unknown qual
   assert.equal(policy.sample(0, 32_000), "minimal");
   assert.equal(policy.sample(1, 34_000), "minimal");
   assert.equal(policy.sample(1, 60_000), "minimal", "a suspended tab is not a healthy connection");
-  for (let at = 62_000; at < 80_000; at += 2_000) assert.equal(policy.sample(2, at), "minimal");
-  assert.equal(policy.sample(2, 80_000), "normal");
+  for (let at = 62_000; at < 80_000; at += 2_000) assert.equal(policy.sample(3, at), "minimal");
+  assert.equal(policy.sample(3, 80_000), "normal");
 });
 
 test("separate uplink and downlink policies do not lower publication on download-only congestion", () => {

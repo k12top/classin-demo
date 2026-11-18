@@ -2,8 +2,8 @@ import { zhCN } from "./zh-CN";
 
 export const en: typeof zhCN = {
   classroomNetwork: {
-    title: "Connection quality", checking: "Checking", good: "Good", weak: "Unstable", poor: "Poor", offline: "Offline",
-    explanation: "Based on the classroom media connection, not Wi-Fi signal strength.",
+    title: "Connection quality", checking: "Checking", excellent: "Excellent", good: "Good", weak: "Unstable", poor: "Poor", offline: "Offline",
+    explanation: "Based on the classroom media connection. A stable connection with latency up to 200ms is excellent. This is not Wi-Fi signal strength.",
     upload: "Upload", download: "Receive", latency: "Latency",
     automatic: "Video adapts to your connection to prioritize speech.",
     reduced: "Receiving less video. It will recover when the connection is stable.",

@@ -25,10 +25,11 @@ export function createNetworkDirectionPolicy() {
         candidate = null;
         return mode;
       }
-      const desired = quality <= 2 ? "normal" : quality >= 5 ? "minimal" : "low";
+      // Score 3 is good: preserve video quality and allow sustained recovery.
+      const desired = quality <= 3 ? "normal" : quality >= 5 ? "minimal" : "low";
       // Bad quality must first pass through low video before pausing receipt.
       const next = mode === "normal" && desired === "minimal" ? "low" : desired;
-      // Moderate quality must not release an existing audio-priority fallback.
+      // Score 4 must not release an existing audio-priority fallback.
       if (next === mode || (mode === "minimal" && next === "low")) {
         candidate = null;
         return mode;
@@ -56,4 +57,16 @@ export function networkSignalLevel(quality: number): 0 | 1 | 2 | 3 | 4 | null {
   return quality >= 1 && quality <= 6
     ? quality <= 2 ? 4 : quality === 3 ? 3 : quality === 4 ? 2 : quality === 5 ? 1 : 0
     : null;
+}
+
+/** Scores 1–2 with RTT up to 200 ms are excellent; score 3 stays good.
+ * Keep congestion and video-recovery warnings visible even with low RTT. */
+export function networkQualityRating(quality: number, latencyMs: number | null, mode: NetworkVideoMode = "normal"):
+  "checking" | "excellent" | "good" | "weak" | "poor" {
+  if (!Number.isInteger(quality) || quality < 1 || quality > 6) return "checking";
+  if (quality >= 5) return "poor";
+  if (quality === 4) return "weak";
+  if (quality === 3) return "good";
+  return mode === "normal" && latencyMs !== null && Number.isFinite(latencyMs) && latencyMs >= 0 && latencyMs <= 200
+    ? "excellent" : "good";
 }

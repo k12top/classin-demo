@@ -5,8 +5,8 @@ export const zhTW = {
 
   ...zhCN,
   classroomNetwork: {
-    title: "網路品質", checking: "偵測中", good: "良好", weak: "不穩定", poor: "較差", offline: "未連線",
-    explanation: "根據課堂影音連線評估，並非 Wi-Fi 訊號強度。",
+    title: "網路品質", checking: "偵測中", excellent: "優", good: "良好", weak: "不穩定", poor: "較差", offline: "未連線",
+    explanation: "根據課堂影音連線評估，連線穩定且延遲不超過 200ms 時為優，並非 Wi-Fi 訊號強度。",
     upload: "上傳", download: "接收", latency: "延遲",
     automatic: "隨網路變化自動調整影片，優先保留語音。",
     reduced: "已減少影片接收，穩定後自動恢復。",
