@@ -120,7 +120,7 @@ function Fixture() {
         <button onClick={join} disabled={media.connectionState!=="idle"}>加入测试频道</button>
         {role === "teacher" && <><button onClick={()=>provider.startScreenShare()}>开始合成共享</button><button onClick={()=>provider.stopScreenShare()}>停止合成共享</button></>}
         <button onClick={()=>{forcedQuality=null;setNotice("使用 SDK 实测质量，可用 DevTools 仿真网络");}}>使用真实网络质量</button>
-        <button onClick={()=>{window.classroomNetworkTest.setQuality(1,4);setNotice("注入不稳定下行，真实媒体订阅按课堂策略切换");}}>策略测试：弱下行</button>
+        <button onClick={()=>{window.classroomNetworkTest.setQuality(1,4);setNotice("注入 4 分下行，保持原画质，不触发弱网降级");}}>策略测试：4 分不降画质</button>
         <button onClick={()=>{window.classroomNetworkTest.setQuality(1,5);setNotice("注入严重弱下行");}}>策略测试：极弱下行</button>
         <button onClick={()=>{window.classroomNetworkTest.setQuality(5,1);setNotice("注入严重弱上行");}}>策略测试：极弱上行</button>
         <button onClick={()=>{window.classroomNetworkTest.setQuality(1,1);setNotice("注入稳定网络，等待连续 20 秒恢复");}}>策略测试：稳定恢复</button>

@@ -415,7 +415,7 @@ test("unchanged video target measurements do not broadcast new classroom snapsho
   unsubscribe(); await provider.disconnect();
 });
 
-test("sustained score 3 preserves camera and screen publication and high-stream reception", async () => {
+test("sustained scores 3 and 4 preserve camera and screen publication and high-stream reception", async () => {
   const f = fixture();
   await f.provider.connect(credential, "Teacher");
   await f.provider.toggleMicrophone(); await f.provider.toggleCamera(); await f.provider.startScreenShare();
@@ -433,15 +433,16 @@ test("sustained score 3 preserves camera and screen publication and high-stream 
   const cameraEncoder = structuredClone(localCamera.encoder), screenEncoder = structuredClone(localScreen.encoder);
   const streamChanges = f.streamTypes.length;
   assert.deepEqual(f.streamTypes.at(-1), [camera.uid, 0]);
-  for (let at = 0; at <= 30_000; at += 2_000) {
-    await f.network(at, 3, 0, 1);
-    await f.network(at, 3, 3);
+  for (let at = 0; at <= 60_000; at += 2_000) {
+    const quality = at <= 30_000 ? 3 : 4;
+    await f.network(at, quality, 0, 1);
+    await f.network(at, quality, quality);
     assert.equal(f.provider.getSnapshot().network.publishMode, "normal");
     assert.equal(f.provider.getSnapshot().network.receiveMode, "normal");
   }
   assert.deepEqual(structuredClone(localCamera.encoder), cameraEncoder);
   assert.deepEqual(structuredClone(localScreen.encoder), screenEncoder);
-  assert.equal(f.streamTypes.length, streamChanges, "score 3 never switches the HD camera to a low stream");
+  assert.equal(f.streamTypes.length, streamChanges, "scores 3 and 4 never switch the HD camera to a low stream");
   assert.equal(f.clients[0].unsubscriptions, undefined);
   assert.ok(f.tracks.every(track => !track.closed));
   assert.equal(f.tracks.find(track => track.deviceId === "microphone").mediaTrack.enabled, true);
@@ -469,7 +470,7 @@ test("weak downlink progressively reduces and pauses video without touching audi
   f.clients[0].getRemoteVideoStats = () => ({ [screen.uid]: { receiveResolutionWidth: 1280, receiveResolutionHeight: 720 } });
   await f.network(0, 1, 1);
   assert.ok(f.subscriptions.some(([uid, type]) => uid === screen.uid && type === "video"));
-  for (let at = 0; at <= 4_000; at += 2_000) await f.network(at, 1, 4);
+  for (let at = 0; at <= 4_000; at += 2_000) await f.network(at, 1, 5);
   assert.equal(f.provider.getSnapshot().network.receiveMode, "low");
   assert.ok(f.streamTypes.some(([uid, type]) => uid === camera.uid && type === 1));
   assert.ok(f.streamTypes.some(([uid, type]) => uid === screen.uid && type === 1), "weak students request the separate screen low stream too");
@@ -484,9 +485,9 @@ test("weak downlink progressively reduces and pauses video without touching audi
   const videoCount = f.subscriptions.filter(([,kind]) => kind === "video").length;
   await f.provider.recoverMedia();
   assert.equal(f.subscriptions.filter(([,kind]) => kind === "video").length, videoCount);
-  for (let at = 14_000; at <= 32_000; at += 2_000) await f.network(at, 1, 3);
+  for (let at = 14_000; at <= 32_000; at += 2_000) await f.network(at, 1, 4);
   assert.equal(f.provider.getSnapshot().network.receiveMode, "minimal");
-  await f.network(34_000, 1, 3);
+  await f.network(34_000, 1, 4);
   assert.equal(f.provider.getSnapshot().network.receiveMode, "normal");
   assert.ok(f.subscriptions.filter(([,kind]) => kind === "video").length > videoCount);
   await f.provider.disconnect();
@@ -520,7 +521,7 @@ test("screen publisher congestion constrains all local video while preserving th
   assert.equal(f.clients[2].lowStream.height, 540);
   assert.equal(f.tracks.find(track => track.deviceId === "composite-output").encoder.bitrateMax, 650);
   await f.provider.stopScreenShare();
-  for (let at = 14_000; at <= 34_000; at += 2_000) await f.network(at, 1, 1);
+  for (let at = 14_000; at <= 34_000; at += 2_000) await f.network(at, 4, 4);
   assert.equal(f.provider.getSnapshot().network.publishMode, "normal");
   assert.equal(f.tracks.find(track => track.deviceId === "main").encoder.bitrateMax, 1200);
   await f.provider.disconnect();

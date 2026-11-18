@@ -26,16 +26,25 @@ test("score 3 is good at any latency and preserves normal video", () => {
   for (let at = 0; at <= 60_000; at += 2_000) assert.equal(policy.sample(3, at), "normal");
 });
 
-test("score 3 interrupts degradation and restores video after twenty continuous seconds", () => {
+test("score 4 preserves normal video while keeping its quality warning", () => {
+  assert.equal(networkQualityRating(4, 100), "weak");
+  assert.equal(networkSignalLevel(4), 2);
   const policy = createNetworkDirectionPolicy();
-  assert.equal(policy.sample(4, 0), "normal");
-  assert.equal(policy.sample(4, 2_000), "normal");
-  assert.equal(policy.sample(3, 4_000), "normal");
-  assert.equal(policy.sample(4, 6_000), "normal");
-  assert.equal(policy.sample(4, 8_000), "normal");
-  assert.equal(policy.sample(4, 10_000), "low");
-  for (let at = 12_000; at < 32_000; at += 2_000) assert.equal(policy.sample(3, at), "low");
-  assert.equal(policy.sample(3, 32_000), "normal");
+  for (let at = 0; at <= 60_000; at += 2_000) assert.equal(policy.sample(4, at), "normal");
+});
+
+test("scores 3 and 4 interrupt degradation and restore video after twenty continuous seconds", () => {
+  for (const quality of [3, 4]) {
+    const policy = createNetworkDirectionPolicy();
+    assert.equal(policy.sample(5, 0), "normal");
+    assert.equal(policy.sample(5, 2_000), "normal");
+    assert.equal(policy.sample(quality, 4_000), "normal");
+    assert.equal(policy.sample(5, 6_000), "normal");
+    assert.equal(policy.sample(5, 8_000), "normal");
+    assert.equal(policy.sample(5, 10_000), "low");
+    for (let at = 12_000; at < 32_000; at += 2_000) assert.equal(policy.sample(quality, at), "low");
+    assert.equal(policy.sample(quality, 32_000), "normal");
+  }
 });
 
 test("brief jitter does not degrade; sustained bad quality reduces video before pausing it", () => {
@@ -58,8 +67,8 @@ test("recovery needs twenty continuous seconds of good samples, not unknown qual
   assert.equal(policy.sample(0, 32_000), "minimal");
   assert.equal(policy.sample(1, 34_000), "minimal");
   assert.equal(policy.sample(1, 60_000), "minimal", "a suspended tab is not a healthy connection");
-  for (let at = 62_000; at < 80_000; at += 2_000) assert.equal(policy.sample(3, at), "minimal");
-  assert.equal(policy.sample(3, 80_000), "normal");
+  for (let at = 62_000; at < 80_000; at += 2_000) assert.equal(policy.sample(4, at), "minimal");
+  assert.equal(policy.sample(4, 80_000), "normal");
 });
 
 test("separate uplink and downlink policies do not lower publication on download-only congestion", () => {

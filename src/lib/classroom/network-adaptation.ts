@@ -25,12 +25,11 @@ export function createNetworkDirectionPolicy() {
         candidate = null;
         return mode;
       }
-      // Score 3 is good: preserve video quality and allow sustained recovery.
-      const desired = quality <= 3 ? "normal" : quality >= 5 ? "minimal" : "low";
+      // Scores 1–4 preserve video quality and allow sustained recovery.
+      const desired = quality <= 4 ? "normal" : "minimal";
       // Bad quality must first pass through low video before pausing receipt.
       const next = mode === "normal" && desired === "minimal" ? "low" : desired;
-      // Score 4 must not release an existing audio-priority fallback.
-      if (next === mode || (mode === "minimal" && next === "low")) {
+      if (next === mode) {
         candidate = null;
         return mode;
       }

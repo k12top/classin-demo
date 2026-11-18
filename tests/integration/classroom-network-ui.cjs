@@ -23,7 +23,7 @@ async function main() {
     document.cookie='NEXT_LOCALE='+locale+';path=/';localStorage.setItem('locale',locale);
     const initial={connectionState:'connected',participants:[],local:{microphoneOn:true,cameraOn:true},network:{uplinkQuality:1,downlinkQuality:1,latencyMs:100,packetLossPercent:0,receiveMode:'normal',publishMode:'normal'}};
     function Fixture(){const [media,setMedia]=useState(initial),[session,setSession]=useState('network-fixture');
-      window.fixture={sample:network=>setMedia({...initial,network:{...initial.network,...network}}),set:(mode,quality=mode==='normal'?1:mode==='low'?4:5)=>setMedia({...initial,network:{...initial.network,uplinkQuality:quality,downlinkQuality:quality,receiveMode:mode,publishMode:mode}}),offline:()=>setMedia({...initial,connectionState:'reconnecting'}),newSession:()=>setSession('network-fixture-next')};
+      window.fixture={sample:network=>setMedia({...initial,network:{...initial.network,...network}}),set:(mode,quality=mode==='normal'?1:5)=>setMedia({...initial,network:{...initial.network,uplinkQuality:quality,downlinkQuality:quality,receiveMode:mode,publishMode:mode}}),offline:()=>setMedia({...initial,connectionState:'reconnecting'}),newSession:()=>setSession('network-fixture-next')};
       return <main className="classroom-v3-shell is-classin-layout" data-responsive-workspace="true">
         <MinimalHeader course={{id:'course',sessionId:session,name:'老挝合作 · 第 5 课',startTime:null,endTime:null}}
           runtime={{status:'live',startedAt:new Date(Date.now()-1200000).toISOString(),graceEndsAt:null}}
@@ -65,6 +65,7 @@ async function main() {
     await wait(`window.fixture && document.querySelector('.classroom-network-trigger')`);
     const excellent = locale === "en" ? "Excellent" : "优";
     const good = locale === "en" ? "Good" : "良好";
+    const weak = locale === "en" ? "Unstable" : "不稳定";
     await run(`fixture.sample({uplinkQuality:2,downlinkQuality:2,latencyMs:200})`);
     await wait(`document.querySelector('.classroom-network-trigger span').textContent===${JSON.stringify(excellent)}`);
     assert.equal(await run(`document.querySelectorAll('.classroom-network-trigger rect[data-filled="true"]').length`), 4);
@@ -85,6 +86,18 @@ async function main() {
     await run(`document.querySelector('.classroom-network-trigger').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`);
     await wait(`document.querySelector('.classroom-network-popover')`);
     assert.deepEqual(await run(`Array.from(document.querySelectorAll('.classroom-network-popover dd'),node=>node.textContent)`), [good, good, "100 ms"]);
+    await run(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+    await wait(`!document.querySelector('.classroom-network-popover')`);
+    await run(`fixture.sample({uplinkQuality:4,downlinkQuality:4,latencyMs:100})`);
+    await wait(`document.querySelectorAll('.classroom-network-trigger rect[data-filled="true"]').length===2`);
+    assert.equal(await run(`document.querySelector('.classroom-network-trigger span').textContent`), weak);
+    assert.equal(await run(`document.querySelector('.classroom-network-status').dataset.videoMode`), "normal");
+    assert.equal(await run(`document.querySelector('.classroom-network-hover-notice')===null`), true, "score 4 does not claim video has been reduced");
+    assert.equal(await run(`document.querySelector('.classroom-network-trigger').hasAttribute('aria-describedby')`), false);
+    await run(`document.querySelector('.classroom-network-trigger').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`);
+    await wait(`document.querySelector('.classroom-network-popover')`);
+    assert.deepEqual(await run(`Array.from(document.querySelectorAll('.classroom-network-popover dd'),node=>node.textContent)`), [weak, weak, "100 ms"]);
+    assert.ok(await run(`document.querySelector('.classroom-network-popover').textContent.includes(${JSON.stringify(locale === "en" ? "Video adapts to your connection" : "网络变化时自动调整视频")})`));
     await run(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
     await wait(`!document.querySelector('.classroom-network-popover')`);
     await run(`fixture.sample({latencyMs:200,receiveMode:'low'})`);
@@ -109,7 +122,7 @@ async function main() {
     assert.ok(await run(`document.querySelector('.classroom-network-popover').textContent.includes(${JSON.stringify(locale === "en" ? "Video reception is paused" : "已暂停接收视频")})`));
     await run(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));fixture.offline()`);
     await wait(`document.querySelector('.classroom-network-trigger').getAttribute('aria-label').includes(${JSON.stringify(locale === "en" ? "Offline" : "未连接")})`);
-    checks.push({width,height,theme,locale,geometry,excellentAt200ms:true,goodAbove200ms:true,score3Good:true,recoveryWarning:true,hoverNotice:true,keyboardDetails:true});
+    checks.push({width,height,theme,locale,geometry,excellentAt200ms:true,goodAbove200ms:true,score3Good:true,score4PreservesVideo:true,recoveryWarning:true,hoverNotice:true,keyboardDetails:true});
   }
   assert.equal(errors.length, 0, errors.join("\n"));
   await fs.writeFile(path.join(output,"ui-checks.json"),JSON.stringify({passed:true,checks,boundary:"Real classroom header and CSS in Chromium; simulated RTC statistics. No production network or physical-device acceptance."},null,2));
