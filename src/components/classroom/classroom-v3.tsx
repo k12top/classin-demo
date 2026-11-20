@@ -18,6 +18,7 @@ import { mainScreenShareCandidates } from "@/lib/classroom/screen-share-selectio
 import { ScreenShareMenu } from "./screen-share-menu";
 import { ConversationResizer } from "./conversation-resizer";
 import type { ClassroomScreenShareOptions } from "@/lib/classroom/types";
+import { defaultScreenShareOptions } from "@/lib/classroom/share-portrait";
 import { ClassroomHeaderMenu, type ClassroomHeaderMenuAction } from "./classroom-header-menu";
 import { ClassTimingControls } from "./class-timing-controls";
 import { ClassroomChatPanel as TestChatPanel } from "./classroom-chat-panel";
@@ -6344,11 +6345,12 @@ export function ClassroomV3({
     void runMediaAction("screen", async provider => { await provider.stopScreenShare(); await releaseLocalScreenShare(); });
   }, [releaseLocalScreenShare, runMediaAction]);
   const toggleScreenShare = useCallback((options?: ClassroomScreenShareOptions) => {
-    if (!options) { setShareMenuOpen(true); return; }
+    const selectedOptions = options ?? defaultScreenShareOptions(isStudentViewer ? "student" : null);
+    if (!selectedOptions) { setShareMenuOpen(true); return; }
     setShareMenuOpen(false);
     void runMediaAction("screen", async (provider) => {
       if (provider.getSnapshot().local.screenSharing) {
-        await provider.setScreenShareOptions?.(options);
+        await provider.setScreenShareOptions?.(selectedOptions);
         return;
       }
       if (!screenPermission || !mayClaimScreen) throw new Error(t("classroom.v3.screenShareNotAuthorized"));
@@ -6366,7 +6368,7 @@ export function ClassroomV3({
           if (!ownsScreenShare(lease, currentUserId, clientId) || lease?.claimId !== claim.claimId) {
             throw new DOMException("Screen share replaced", "AbortError");
           }
-        }, options);
+        }, selectedOptions);
         claim.started = true;
         if (!provider.getSnapshot().local.screenSharing) await releaseLocalScreenShare();
       } catch (error) {
@@ -6378,7 +6380,7 @@ export function ClassroomV3({
         throw error;
       }
     });
-  }, [activeSpaceId, clientId, currentUserId, flushScreenReleases, mayClaimScreen, releaseLocalScreenShare, requestScreenShareAction, runMediaAction, screenPermission, t]);
+  }, [activeSpaceId, clientId, currentUserId, flushScreenReleases, isStudentViewer, mayClaimScreen, releaseLocalScreenShare, requestScreenShareAction, runMediaAction, screenPermission, t]);
   const roomPermissionKey = currentSpaceMember
     ? `${currentSpaceMember.cameraAllowed}:${currentSpaceMember.screenShareAllowed}` : "";
   useEffect(() => {

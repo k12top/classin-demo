@@ -1,9 +1,13 @@
 import { classroomMediaProfile } from "./config";
-import type { ClassroomScreenShareOptions } from "./types";
+import type { ClassroomRole, ClassroomScreenShareOptions } from "./types";
 
 export const PORTRAIT_DEFAULT_SIZE = 240;
 export const PORTRAIT_MIN_SIZE = 120;
 export const PORTRAIT_BORDER_COLORS = { white: "#ffffff", indigo: "#4f46e5", black: "#20242b" } as const;
+
+export function defaultScreenShareOptions(role?: ClassroomRole | null): ClassroomScreenShareOptions | null {
+  return role === "student" ? { mode: "portrait", corner: "br" } : null;
+}
 
 export function normalizeScreenShareOptions(options: ClassroomScreenShareOptions): ClassroomScreenShareOptions {
   const size = Number.isFinite(options.portraitSize) ? Number(options.portraitSize) : PORTRAIT_DEFAULT_SIZE;

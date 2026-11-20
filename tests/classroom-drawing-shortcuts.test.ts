@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createWhiteboardShortcuts } from '../src/lib/classroom/whiteboard/shortcuts';
-import { normalizeScreenShareOptions, portraitGeometry } from '../src/lib/classroom/share-portrait';
+import { defaultScreenShareOptions, normalizeScreenShareOptions, portraitGeometry } from '../src/lib/classroom/share-portrait';
 import type { ClassroomWhiteboardController, ClassroomWhiteboardTool } from '../src/components/classroom/fastboard-surface';
 
 function fixture(nativeHistory = false, allowPan = true) {
@@ -55,4 +55,10 @@ test('portrait geometry clamps the entire circular frame and validates untrusted
   assert.equal(normalizeScreenShareOptions({ mode: 'portrait', portraitBorderColor: 'toString' as 'white' }).portraitBorderColor, 'white');
   assert.deepEqual(portraitGeometry(1920, 1080, { mode: 'portrait', corner: 'br', portraitSize: 120 }), { x: 1760, y: 920, diameter: 120 });
   assert.deepEqual(portraitGeometry(1920, 1080, { mode: 'portrait', corner: 'tl' }), { x: 40, y: 40, diameter: 240 });
+});
+
+test('students start portrait sharing directly while teaching roles keep the share chooser', () => {
+  assert.deepEqual(defaultScreenShareOptions('student'), { mode: 'portrait', corner: 'br' });
+  assert.equal(defaultScreenShareOptions('assistant'), null);
+  assert.equal(defaultScreenShareOptions('teacher'), null);
 });
