@@ -8,6 +8,7 @@ import { MarkdownContent } from "@/components/markdown-content";
 import { ActivityResults } from "./activity-results";
 import { ActivitySolutions } from "./activity-chat-card";
 import { ActivityChoiceOptions } from "./activity-choice-options";
+import { ActivityTextContent } from "./activity-text-content";
 import interaction from "./activity-interaction.module.css";
 import styles from "./activity-overview.module.css";
 
@@ -32,7 +33,7 @@ export function ActivityHistoryDetail({ sessionId, activityId, shareAccess, canM
       {detail.definition.questions.map(question => <section className={styles.historyQuestion} key={question.id}>
         <MarkdownContent content={question.prompt} />
         {question.options.length ? <ActivityChoiceOptions question={question} response={response} reveal={referenceOnly && detail.kind !== "poll"} /> : <>
-          {response && <MarkdownContent content={activityAnswerText(question, response.answers[question.id]) || c.noAnswer} />}
+          {response && <ActivityTextContent content={activityAnswerText(question, response.answers[question.id]) || c.noAnswer} />}
           {referenceOnly && question.correct?.length ? <MarkdownContent content={activityAnswerText(question, question.correct)} /> : null}
         </>}
       </section>)}

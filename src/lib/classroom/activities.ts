@@ -75,6 +75,10 @@ function text(value: unknown, max: number, required = true): string {
   if (typeof value !== "string" || value.length > max || (required && !value.trim())) throw new ActivityError("Invalid or empty text");
   return value.trim();
 }
+function submittedText(value: unknown, max: number): string {
+  if (typeof value !== "string" || value.length > max || !value.trim()) throw new ActivityError("Invalid or empty text");
+  return value;
+}
 export function validateActivity(value: unknown): { title: string; kind: ActivityKind; definition: ActivityDefinition; durationSec: number | null } {
   const v = object(value);
   if (!["poll", "quiz", "task"].includes(String(v.kind))) throw new ActivityError("Unknown activity kind");
@@ -113,7 +117,7 @@ export function validateAnswers(definition: ActivityDefinition, value: unknown):
   if (Object.keys(raw).some(id => !definition.questions.some(q => q.id === id))) throw new ActivityError("Unknown answer question");
   for (const q of definition.questions) {
     const answer = raw[q.id];
-    if (q.type === "essay" || q.type === "shortText") result[q.id] = text(answer, 10000);
+    if (q.type === "essay" || q.type === "shortText") result[q.id] = submittedText(answer, 10000);
     else {
       const items = Array.isArray(answer) ? answer : [answer];
       if (!items.length || items.length > q.options.length || items.some(a => typeof a !== "string" || !q.options.some(o => o.id === a)) || new Set(items).size !== items.length || (q.type !== "multiple" && items.length !== 1)) throw new ActivityError("Select a valid answer for every question");

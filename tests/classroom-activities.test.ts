@@ -38,3 +38,10 @@ test("answer identity compares persisted JSON keys, choices and normalized text"
   assert.equal(answersMatch({ text: "Answer" }, { text: "answer" }), false);
   assert.equal(answersMatch({ text: "answer", other: "extra" }, { text: "answer" }), false);
 });
+
+test("written submissions retain leading indentation and trailing newlines", () => {
+  const definition = quiz().definition;
+  const source = "    first()\n    second()\n";
+
+  assert.equal(validateAnswers(definition, { q1: ["a", "b"], q2: source }).q2, source);
+});

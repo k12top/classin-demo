@@ -21,13 +21,37 @@ test("decodes escaped line breaks only when the resulting option is code", () =>
     code: true,
     content: literalEscape,
   });
+
+  const quotedEscape = String.raw`msg = "\n"\nprint(msg)`;
+  assert.deepEqual(classifyCodeContent(quotedEscape, { decodeEscapedNewlines: true }), {
+    code: true,
+    content: "msg = \"\\n\"\nprint(msg)",
+  });
+
+  const oneLine = String.raw`x = "a\n    b"`;
+  assert.deepEqual(classifyCodeContent(oneLine, { decodeEscapedNewlines: true }), {
+    code: true,
+    content: oneLine,
+  });
 });
 
 test("keeps ordinary prose and Markdown out of the code renderer", () => {
   for (const content of [
     "第一步：先读题。\n第二步：再计算。",
     "Use the value if it is available.",
+    "See (Appendix A)",
+    "public schools teach **math**.",
+    "- top\n  - nested\n    - deeper",
     "结果是 **10**，因为 $0+1+2+3+4=10$。",
+  ]) {
+    assert.deepEqual(classifyCodeContent(content), { code: false, content });
+  }
+});
+
+test("leaves mixed prose and fenced examples to the Markdown renderer", () => {
+  for (const content of [
+    "说明如下：\n\n```python\nprint(1)\n```",
+    "```python\nprint(1)\n```\n\n然后：\n\n```python\nprint(2)\n```",
   ]) {
     assert.deepEqual(classifyCodeContent(content), { code: false, content });
   }
