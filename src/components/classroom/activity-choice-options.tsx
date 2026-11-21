@@ -4,8 +4,8 @@ import { Check, X } from "lucide-react";
 import { activityQuestionJudgment, type ActivityAnswers, type ActivityQuestion, type ActivityResponse } from "@/lib/classroom/activities";
 import { interactionCopy } from "@/lib/classroom/interaction-copy";
 import { useTranslation } from "@/lib/i18n/context";
-import { MarkdownContent } from "@/components/markdown-content";
 import styles from "./activity-interaction.module.css";
+import { ActivityTextContent } from "./activity-text-content";
 
 /** The saved selection and its feedback share one row, in forms and chat. */
 export function ActivityChoiceOptions({ question, answer, response = null, reveal = false, disabled = true, onChange }: {
@@ -30,7 +30,7 @@ export function ActivityChoiceOptions({ question, answer, response = null, revea
       return <label key={option.id} className={styles.answerOption} data-result={correct ? "correct" : incorrect ? "incorrect" : undefined}>
         <input type={question.type === "multiple" ? "checkbox" : "radio"} name={name} value={option.id} checked={checked} disabled={disabled}
           required={Boolean(onChange) && question.type !== "multiple"} onChange={event => onChange?.(question.type === "multiple" ? event.target.checked ? [...selected, option.id] : selected.filter(id => id !== option.id) : [option.id])} />
-        <span>{String.fromCharCode(65 + index)}</span><MarkdownContent className={styles.answerOptionText} content={option.text} />
+        <span>{String.fromCharCode(65 + index)}</span><ActivityTextContent className={styles.answerOptionText} content={option.text} decodeEscapedNewlines />
         {missed && <small className={styles.missedOption}>{c.missedOption}</small>}
         {correct ? <Check aria-label={c.correctAnswer} /> : incorrect ? <X aria-label={c.incorrect} /> : null}
       </label>;

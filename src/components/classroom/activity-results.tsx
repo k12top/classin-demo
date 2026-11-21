@@ -6,6 +6,7 @@ import { useTranslation } from "@/lib/i18n/context";
 import { MarkdownContent } from "@/components/markdown-content";
 import { ActivityChoiceOptions } from "./activity-choice-options";
 import styles from "./activity-interaction.module.css";
+import { ActivityTextContent } from "./activity-text-content";
 
 /** Published feedback only; active/closed snapshots must never reveal an answer key. */
 export function ActivityResults({ detail, includeChoices = true }: { detail: ActivityDetail; includeChoices?: boolean }) {
@@ -26,7 +27,7 @@ export function ActivityResults({ detail, includeChoices = true }: { detail: Act
       return <section key={question.id} className={styles.resultItem} data-judgment={judgment}>
         <strong><Icon aria-hidden="true" />{label}</strong>
         {detail.questionCount > 1 && <MarkdownContent content={question.prompt}/>}
-        <div><span>{copy.yourAnswer}：</span><MarkdownContent content={activityAnswerText(question, detail.ownResponse?.answers[question.id]) || copy.unanswered}/></div>
+        <div><span>{copy.yourAnswer}：</span><ActivityTextContent content={activityAnswerText(question, detail.ownResponse?.answers[question.id]) || copy.unanswered}/></div>
         {!!question.correct?.length && <div><span>{copy.correctAnswer}：</span><MarkdownContent content={activityAnswerText(question, question.correct)}/></div>}
         {typeof score === "number" && <p><span>{copy.score}：</span>{score} / {question.points}</p>}
         {detail.ownResponse?.aiReview?.[question.id]?.reason && <p>{detail.ownResponse.aiReview[question.id].reason}</p>}
